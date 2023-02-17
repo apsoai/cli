@@ -50,31 +50,6 @@ export default class New extends Command {
     });
   }
 
-  async linkServer(root: string): Promise<void> {
-    return new Promise((resolve: any, reject) => {
-      this.log(
-        "Linking to local @apso/server - intended only for local development"
-      );
-      const command = "npm";
-      const args: string[] = ["link", "@apso/server"];
-
-      const CURR_DIR = process.cwd();
-      process.chdir(root);
-
-      const child = spawn(command, args, { stdio: "inherit" });
-      child.on("close", (code) => {
-        process.chdir(CURR_DIR);
-        if (code !== 0) {
-          reject({
-            command: `${command} ${args.join(" ")}`,
-          });
-          return;
-        }
-        resolve();
-      });
-    });
-  }
-
   async startApp(root: string): Promise<void> {
     return new Promise((resolve: any, reject) => {
       const command = "npm";
@@ -124,7 +99,6 @@ export default class New extends Command {
     fs.mkdirSync(projectPath);
     createDirectoryContents(templatePath, projectName);
     this.log("installing modules");
-    await this.linkServer(projectPath);
     await this.installModules(projectPath);
   }
 }
