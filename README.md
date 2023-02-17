@@ -16,11 +16,11 @@ oclif example Hello World CLI
 # Usage
 <!-- usage -->
 ```sh-session
-$ npm install -g @apso/cli
+$ npm install -g @nateoaks/cli
 $ apso COMMAND
 running command...
 $ apso (--version)
-@apso/cli/0.0.0 darwin-x64 node-v18.14.0
+@nateoaks/cli/0.0.1 darwin-x64 node-v18.14.0
 $ apso --help [COMMAND]
 USAGE
   $ apso COMMAND
@@ -41,6 +41,8 @@ USAGE
 * [`apso plugins:uninstall PLUGIN...`](#apso-pluginsuninstall-plugin-1)
 * [`apso plugins:uninstall PLUGIN...`](#apso-pluginsuninstall-plugin-2)
 * [`apso plugins update`](#apso-plugins-update)
+* [`apso server new [NAME]`](#apso-server-new-name)
+* [`apso server scaffold`](#apso-server-scaffold)
 
 ## `apso hello PERSON`
 
@@ -64,7 +66,7 @@ EXAMPLES
   hello friend from oclif! (./src/commands/hello/index.ts)
 ```
 
-_See code: [dist/commands/hello/index.ts](https://github.com/nateoaks/apso-cli/blob/v0.0.0/dist/commands/hello/index.ts)_
+_See code: [dist/commands/hello/index.ts](https://github.com/nateoaks/apso-cli/blob/v0.0.1/dist/commands/hello/index.ts)_
 
 ## `apso hello world`
 
@@ -333,5 +335,42 @@ FLAGS
 
 DESCRIPTION
   Update installed plugins.
+```
+
+## `apso server new [NAME]`
+
+Initialize your server project
+
+```
+USAGE
+  $ apso server new [NAME] [-n <value>]
+
+FLAGS
+  -n, --name=<value>  name of application
+
+DESCRIPTION
+  Initialize your server project
+
+EXAMPLES
+  $ apso server new --name TestProject
+```
+
+## `apso server scaffold`
+
+Setup new entities and interfaces for an Apso Server
+
+```
+USAGE
+  $ apso server scaffold [-h] [-m <value>]
+
+FLAGS
+  -h, --help            Show CLI help.
+  -m, --entity=<value>  model name
+
+DESCRIPTION
+  Setup new entities and interfaces for an Apso Server
+
+EXAMPLES
+  $ apso server scaffold
 ```
 <!-- commandsstop -->
