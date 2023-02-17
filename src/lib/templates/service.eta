@@ -1,0 +1,15 @@
+<%~ includeFile('./header.eta') %>
+
+import { Injectable } from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+import { TypeOrmCrudService } from "@nestjsx/crud-typeorm";
+
+import {<%= it.entityName %>} from '../entities/<%= it.entityName%>'
+
+@Injectable()
+export class <%= it.svcName %> extends TypeOrmCrudService<<%= it.entityName %>> {
+  constructor(@InjectRepository(<%= it.entityName %>) repo) {
+    super(repo);
+  }
+}
+  

@@ -1,0 +1,17 @@
+<%~ includeFile('./header.eta') %>
+
+import { Module } from "@nestjs/common";
+import { TypeOrmModule } from "@nestjs/typeorm";
+
+import {<%= it.entityName %>} from '../entities/<%= it.entityName%>'
+import {<%= it.svcName %>} from "../services/<%= it.svcName %>";
+import {<%= it.ctrlName %>} from "../controllers/<%= it.ctrlName %>";
+
+@Module({
+  imports: [TypeOrmModule.forFeature([<%= it.entityName %>])],
+  providers: [<%= it.svcName %>],
+  exports: [<%= it.svcName %>],
+  controllers: [<%= it.ctrlName %>],
+})
+export class <%= it.modName %> {}
+  

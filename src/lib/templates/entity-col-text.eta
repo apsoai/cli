@@ -1,0 +1,15 @@
+<% const {field} = it; %>
+
+<% if (field.auto) { %>
+<% /* https://github.com/birkir/prime/issues/126 */ %>
+@Generated('increment')
+<% }%>
+@IsOptional({ groups: ['CRUD-UPDATE'] })
+<% if (!field.nullable && !field.auto) { %>
+@IsNotEmpty({ groups: ['CRUD-CREATE'] })
+<% } %>
+<% if (field.is_email) { %>
+@IsEmail({ require_tld: false }, { always: true })
+<% } %>
+@Column({ nullable: <%= Boolean(field.nullable) %>  })
+<%= field.name %>: <%= field.dataType %>;

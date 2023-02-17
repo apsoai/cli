@@ -1,0 +1,21 @@
+<%~ includeFile('./header.eta') %>
+
+import { Controller } from "@nestjs/common";
+import { Crud } from '@nestjsx/crud';
+import {<%= it.entityName %>} from '../entities/<%= it.entityName%>'
+
+import {<%= it.svcName %>} from '../services/<%= it.svcName %>';
+  
+@Crud({
+    model: {
+        type: <%= it.entityName %>
+    },
+    params: <%~ JSON.stringify(it.params) %>
+
+})
+
+@Controller('<%= it.pluralEntityName %>')
+export class <%= it.ctrlName%> {
+    constructor(public service: <%= it.svcName %>) {}
+}
+  

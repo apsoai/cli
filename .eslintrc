@@ -1,6 +1,17 @@
 {
-  "extends": [
-    "oclif",
-    "oclif-typescript"
-  ]
+  "extends": ["oclif", "oclif-typescript", "prettier"],
+  "rules": {
+    "unicorn/prefer-module": ["off"],
+    "unicorn/prefer-node-protocol": ["off"],
+    "unicorn/import-style": ["off"],
+    "unicorn/no-array-push-push": ["off"],
+    "prefer-promise-reject-errors": ["off"],
+    "unicorn/no-typeof-undefined": ["off"],
+    "unicorn/no-array-reduce": ["off"],
+    "unicorn/switch-case-braces": ["off"],
+    "unicorn/no-useless-switch-case": ["off"],
+    "unicorn/no-array-for-each": ["off"],
+    "unicorn/consistent-destructuring": ["off"],
+    "padding-line-between-statements": ["off"]
+  }
 }

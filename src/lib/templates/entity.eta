@@ -1,0 +1,67 @@
+<%~ includeFile('./header.eta') %>
+
+import { Database } from '@apso/server'
+import {
+    Column,
+    Entity,
+<%~ it.associations.map((assoc) => `${assoc.type},`).filter((v, i, s) => s.indexOf(v) === i).join("\r\n") %>
+    PrimaryGeneratedColumn,
+    Generated,
+    JoinColumn,
+    JoinTable
+} from "typeorm";
+import {
+  IsOptional,
+  IsString,
+  MaxLength,
+  IsNotEmpty,
+  IsEmail,
+  IsBoolean,
+  ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
+<% it.associations.forEach((assoc) => { %>
+import {<%= assoc.name %>} from './<%= assoc.name %>';
+<% }) %>
+
+@Entity('<%= it.name.toLowerCase() %>')
+export class <%= it.name %> extends Database.TimestampedModel{
+    // Fields
+    @PrimaryGeneratedColumn()
+    id!: number;
+
+<% it.columns.forEach((field) => { %>
+
+<%~ includeFile(`./entity-col-${field.type}`, { field }) %>
+
+<% }); %>
+
+<% it.associations.forEach((assoc) => { %>
+    // Associations    
+    <% if (assoc.type === 'OneToMany') { %>
+
+    @<%= assoc.type %>(type => <%= assoc.name %>, <%= assoc.camelCasedName %> => <%= assoc.camelCasedName %>.<%= assoc.entityName %>)
+    <%= assoc.camelCasedName %>s: <%= assoc.name %>[]
+    
+    <% } else if (assoc.type === 'ManyToOne') { %>
+    
+    @<%= assoc.type %>(type => <%= assoc.name %>, <%= assoc.camelCasedName %> => <%= assoc.camelCasedName %>.<%= assoc.entityName %>s)
+    <%= assoc.camelCasedName %>: <%= assoc.name %>[]
+    
+    <% } else if (assoc.type === 'ManyToMany') { %>
+    
+    @<%= assoc.type %>(type => <%= assoc.name %>, <%= assoc.camelCasedName %> => <%= assoc.camelCasedName %>.<%= assoc.entityName %>s)
+    @JoinTable()
+    <%= assoc.camelCasedName %>: <%= assoc.name %>[]
+    
+    <% } else if (assoc.type === 'OneToOne') { %>
+    
+    @ValidateNested({ always: true })
+    @Type((t) => <%= assoc.name%>)
+    @OneToOne((type) => <%= assoc.name%>, (p) => p.<%= assoc.entityName %>, { cascade: true })
+    @JoinColumn()
+    <%= assoc.camelCasedName %>: <%= assoc.name %>
+    
+    <% } %>
+<% }) %>
+}
