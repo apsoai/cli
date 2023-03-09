@@ -1,6 +1,6 @@
 <% const {field} = it; %>
 
-@IsOptional({ groups: ['CRUD-CREATE', 'CRUD-UPDATE'] })
+@IsOptional({ groups: [CREATE, UPDATE] })
 @IsBoolean({ always: true })
 @Column({ type: 'boolean', default: <%= Boolean(field.default) || false %> })
 <%= field.name %>!: <%= field.dataType %>;

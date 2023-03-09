@@ -24,15 +24,19 @@ export interface ComputedField extends Field {
 interface Association {
   name: string;
   type: AssociationType;
+  join_table: boolean;
 }
 
 interface ComputedAssociation extends Association {
   camelCasedName: string;
   entityName: string;
+  joinTable: boolean;
 }
 
 export interface Entity {
   name: string;
+  created_at?: boolean;
+  updated_at?: boolean;
   fields?: Field[];
   associations?: Association[];
 }
@@ -65,16 +69,23 @@ export const createEntity = async (
     dataType: mapTypes(field.type),
   }));
 
+  const createdAt = entity.created_at;
+  const updatedAt = entity.updated_at;
+
   const relationships: ComputedAssociation[] = associations.map(
     (association: Association) => ({
       ...association,
       camelCasedName: camelCase(association.name),
       entityName: camelCase(name),
+      pluralizedName: pluralize(camelCase(association.name)),
+      joinTable: association.join_table || false
     })
   );
 
   const data = {
     name: entity.name,
+    createdAt,
+    updatedAt,
     pluralizedName: pluralize(entity.name.toLowerCase()),
     columns,
     associations: relationships,

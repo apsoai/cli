@@ -10,8 +10,6 @@ import {<%= it.svcName %>} from '../services/<%= it.svcName %>';
     model: {
         type: <%= it.entityName %>
     },
-    params: <%~ JSON.stringify(it.params) %>
-
 })
 
 @Controller('<%= it.pluralEntityName %>')

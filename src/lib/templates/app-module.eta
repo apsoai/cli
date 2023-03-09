@@ -1,20 +1,11 @@
 <%~ includeFile('./header.eta') %>
 
-import { Module } from '@nestjs/common';
-import { TypeOrmModule } from "@nestjs/typeorm";
-import { ConfigModule } from "@nestjs/config";
-import { typeOrmAsyncConfig } from '../orm.config';
 <% it.entities.forEach((entity) => { %>
 import {<%= entity.name %>Module} from './<%= entity.name %>Module'
 <%}) %>
 
-@Module({
-  imports: [     
-    ConfigModule.forRoot({ isGlobal: true }),
-    TypeOrmModule.forRootAsync(typeOrmAsyncConfig),
-  <% it.entities.forEach((entity) => { %>
+export default [
+<% it.entities.forEach((entity) => { %>
 <%= entity.name %>Module,
-  <%}) %>
-],
-})
-export class AppModule {}
+<%}) %>
+]

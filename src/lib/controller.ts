@@ -19,47 +19,11 @@ export const createController = async (
     dataType: mapTypes(field.type),
   }));
 
-  const params = columns.reduce(
-    (accum: any, column: ComputedField) => {
-      const base: any = {
-        field: column.name,
-      };
-
-      switch (column.type) {
-        case "integer":
-        case "text":
-          base.type = column.dataType;
-          break;
-        case "enum":
-          base.enum = column.dataType;
-          break;
-        case "array":
-        case "boolean":
-        default:
-          break;
-      }
-
-      return {
-        ...accum,
-        [column.name]: base,
-      };
-    },
-    {
-      id: {
-        field: "id",
-        type: "number",
-        primary: true,
-      },
-    }
-  );
-
-  console.log("PARAMS", params);
   const data = {
     svcName,
     ctrlName,
     entityName,
     pluralEntityName,
-    params,
   };
 
   Eta.configure({

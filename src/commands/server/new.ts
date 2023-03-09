@@ -34,7 +34,7 @@ export default class New extends Command {
       args.push("--prefix");
       args.push(root);
       // args.push('--verbose')
-      args.push("--slient");
+      args.push("--silent");
 
       this.log(`${command} ${args.join(" ")}`);
       const child = spawn(command, args, { stdio: "inherit" });
@@ -91,7 +91,8 @@ export default class New extends Command {
       "..",
       "..",
       "..",
-      "template"
+      "..",
+      "apso-template"
     )}`;
     console.log(templatePath);
     const CURR_DIR = process.cwd();

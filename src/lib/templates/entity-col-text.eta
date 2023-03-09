@@ -4,9 +4,9 @@
 <% /* https://github.com/birkir/prime/issues/126 */ %>
 @Generated('increment')
 <% }%>
-@IsOptional({ groups: ['CRUD-UPDATE'] })
+@IsOptional({ groups: [UPDATE] })
 <% if (!field.nullable && !field.auto) { %>
-@IsNotEmpty({ groups: ['CRUD-CREATE'] })
+@IsNotEmpty({ groups: [CREATE] })
 <% } %>
 <% if (field.is_email) { %>
 @IsEmail({ require_tld: false }, { always: true })
