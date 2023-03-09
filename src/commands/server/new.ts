@@ -92,7 +92,7 @@ export default class New extends Command {
       "..",
       "..",
       "..",
-      "apso-template"
+      "apso-service-template"
     )}`;
     console.log(templatePath);
     const CURR_DIR = process.cwd();
