@@ -3,8 +3,9 @@ import { spawn } from "child_process";
 import * as path from "path";
 import * as fs from "fs";
 import { createDirectoryContents } from "../../lib/util";
+import BaseCommand from "../../lib/baseCommand";
 
-export default class New extends Command {
+export default class New extends BaseCommand {
   static description = "Initialize your server project";
 
   static examples = [
@@ -22,32 +23,11 @@ export default class New extends Command {
   static args = { name: Args.string() };
 
   async installModules(root: string): Promise<void> {
-    return new Promise((resolve: any, reject) => {
-      const command = "npm";
-      const args: string[] = ["install"];
+    await this.runNpmCommand(["install", "--prefix", root]);
+  }
 
-      // Explicitly set cwd() to work around issues like
-      // https://github.com/facebook/create-react-app/issues/3326.
-      // Unfortunately we can only do this for Yarn because npm support for
-      // equivalent --prefix flag doesn't help with this issue.
-      // This is why for npm, we run checkThatNpmCanReadCwd() early instead.
-      args.push("--prefix");
-      args.push(root);
-      // args.push('--verbose')
-      args.push("--silent");
-
-      this.log(`${command} ${args.join(" ")}`);
-      const child = spawn(command, args, { stdio: "inherit" });
-      child.on("close", (code) => {
-        if (code !== 0) {
-          reject({
-            command: `${command} ${args.join(" ")}`,
-          });
-          return;
-        }
-        resolve();
-      });
-    });
+  async formatApp(root: string): Promise<void> {
+    await this.runNpmCommand(["run", "format", "--prefix", root]);
   }
 
   async startApp(root: string): Promise<void> {
@@ -101,5 +81,6 @@ export default class New extends Command {
     createDirectoryContents(templatePath, projectName);
     this.log("installing modules");
     await this.installModules(projectPath);
+    await this.formatApp(projectPath);
   }
 }

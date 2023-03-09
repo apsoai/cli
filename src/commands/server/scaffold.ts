@@ -7,10 +7,11 @@ import {
   createService,
   createAppModule,
 } from "../../lib";
+import BaseCommand from "../../lib/baseCommand";
 import * as path from "path";
 import rc = require("rc");
 
-export default class Scaffold extends Command {
+export default class Scaffold extends BaseCommand {
   static description = "Setup new entities and interfaces for an Apso Server";
 
   static examples = [
@@ -67,5 +68,7 @@ export default class Scaffold extends Command {
       scaffoldModel(dir, entity);
     });
     createAppModule(dir, models);
+
+    await this.runNpmCommand(["run", "format"]);
   }
 }

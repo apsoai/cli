@@ -78,7 +78,7 @@ export const createEntity = async (
       camelCasedName: camelCase(association.name),
       entityName: camelCase(name),
       pluralizedName: pluralize(camelCase(association.name)),
-      joinTable: association.join_table || false
+      joinTable: association.join_table || false,
     })
   );
 
