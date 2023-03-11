@@ -1,0 +1,7 @@
+<%~ includeFile('./header.eta') %>
+
+export class <%= it.name %>Dto {
+<% it.columns.forEach((field) => { %>
+  <%= field.name %>: <%= field.dataType %>;
+<% }) %>
+};

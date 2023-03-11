@@ -6,6 +6,7 @@ import {
   createModule,
   createService,
   createAppModule,
+  createDto,
 } from "../../lib";
 import BaseCommand from "../../lib/baseCommand";
 import * as path from "path";
@@ -34,6 +35,8 @@ export default class Scaffold extends BaseCommand {
 
     this.log("Creating Entity...");
     createEntity(dir, entity);
+    this.log("Creating Dto...");
+    createDto(dir, entity);
     this.log("Creating Service...");
     createService(dir, entityName);
     this.log("Creating Controller...");
