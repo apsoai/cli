@@ -1,9 +1,9 @@
-import { Args, Command, Flags } from "@oclif/core";
+import { Args, Flags } from "@oclif/core";
 import { spawn } from "child_process";
 import * as path from "path";
 import * as fs from "fs";
 import { createDirectoryContents } from "../../lib/util";
-import BaseCommand from "../../lib/baseCommand";
+import BaseCommand from "../../lib/base-command";
 
 export default class New extends BaseCommand {
   static description = "Initialize your server project";

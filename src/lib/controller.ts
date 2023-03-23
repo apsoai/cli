@@ -1,23 +1,19 @@
 import { createFile } from "./util";
 import * as Eta from "eta";
 import * as path from "path";
-import { ComputedField, mapTypes, Field, Entity } from "./entity";
+import { Entity } from "./entity";
 
 export const createController = async (
   apiBaseDir: string,
   entity: Entity
 ): Promise<void> => {
-  const { name: entityName, fields = [] } = entity;
+  const { name: entityName } = entity;
   const Dir = path.join(apiBaseDir, "controllers");
   const File = path.join(Dir, `${entityName}Controller.ts`);
   // Dependencies
   const svcName = `${entityName}Service`;
   const ctrlName = `${entityName}Controller`;
   const pluralEntityName = `${entityName}s`;
-  const columns: ComputedField[] = fields.map((field: Field) => ({
-    ...field,
-    dataType: mapTypes(field.type),
-  }));
 
   const data = {
     svcName,

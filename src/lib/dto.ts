@@ -1,4 +1,4 @@
-import { createFile, camelCase } from "./util";
+import { createFile } from "./util";
 import * as Eta from "eta";
 import * as path from "path";
 

@@ -1,0 +1,4 @@
+<% const {field} = it; %>
+
+@Column({ type: 'date' })
+<%= field.name %>: string;

@@ -1,4 +1,4 @@
-import { Command, Flags } from "@oclif/core";
+import { Flags } from "@oclif/core";
 import {
   Entity,
   createEntity,
@@ -8,7 +8,7 @@ import {
   createAppModule,
   createDto,
 } from "../../lib";
-import BaseCommand from "../../lib/baseCommand";
+import BaseCommand from "../../lib/base-command";
 import * as path from "path";
 import rc = require("rc");
 
