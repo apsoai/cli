@@ -79,8 +79,8 @@ export default class New extends BaseCommand {
     const projectPath = `${CURR_DIR}/${projectName}`;
     fs.mkdirSync(projectPath);
     createDirectoryContents(templatePath, projectName);
-    this.log("installing modules");
-    await this.installModules(projectPath);
+    // this.log("installing modules");
+    // await this.installModules(projectPath);
     await this.formatApp(projectPath);
   }
 }

@@ -16,11 +16,11 @@ oclif example Hello World CLI
 # Usage
 <!-- usage -->
 ```sh-session
-$ npm install -g @nateoaks/cli
+$ npm install -g @apso/cli
 $ apso COMMAND
 running command...
 $ apso (--version)
-@nateoaks/cli/0.0.1 darwin-x64 node-v18.14.0
+@apso/cli/0.0.1 darwin-x64 node-v18.14.0
 $ apso --help [COMMAND]
 USAGE
   $ apso COMMAND
