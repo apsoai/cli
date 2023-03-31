@@ -25,7 +25,7 @@ import {
 import { Type } from 'class-transformer';
 import { CrudValidationGroups } from '@nestjsx/crud';
 <% it.associations.forEach((assoc) => { %>
-import {<%= assoc.name %>} from './<%= assoc.name %>';
+import {<%= assoc.name %>} from '../<%= assoc.name %>/<%= assoc.name %>.entity';
 <% }) %>
 
 const { CREATE, UPDATE } = CrudValidationGroups;

@@ -8,10 +8,7 @@ import BaseCommand from "../../lib/base-command";
 export default class New extends BaseCommand {
   static description = "Initialize your server project";
 
-  static examples = [
-    `$ apso server new --name TestProject
-`,
-  ];
+  static examples = [`$ apso server new --name TestProject`];
 
   static flags = {
     name: Flags.string({

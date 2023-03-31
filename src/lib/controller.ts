@@ -8,8 +8,7 @@ export const createController = async (
   entity: Entity
 ): Promise<void> => {
   const { name: entityName } = entity;
-  const Dir = path.join(apiBaseDir, "controllers");
-  const File = path.join(Dir, `${entityName}Controller.ts`);
+  const File = path.join(apiBaseDir, `${entityName}.controller.ts`);
   // Dependencies
   const svcName = `${entityName}Service`;
   const ctrlName = `${entityName}Controller`;

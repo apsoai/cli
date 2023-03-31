@@ -61,8 +61,7 @@ export const createEntity = async (
   entity: Entity
 ): Promise<void> => {
   const { name, fields = [], associations = [] } = entity;
-  const Dir = path.join(apiBaseDir, "entities");
-  const File = path.join(Dir, `${name}.ts`);
+  const File = path.join(apiBaseDir, `${name}.entity.ts`);
 
   const columns: ComputedField[] = fields.map((field: Field) => ({
     ...field,

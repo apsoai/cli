@@ -2,8 +2,8 @@
 
 import { Controller } from "@nestjs/common";
 import { Crud } from '@nestjsx/crud';
-import {<%= it.entityName %>Dto} from '../dtos/<%= it.entityName%>.dto'
-import {<%= it.svcName %>} from '../services/<%= it.svcName %>';
+import {<%= it.entityName %>Dto} from './dtos/<%= it.entityName%>.dto'
+import {<%= it.svcName %>} from './<%= it.entityName %>.service';
   
 @Crud({
     model: {
