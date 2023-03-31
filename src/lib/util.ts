@@ -2,9 +2,7 @@ import * as path from "path";
 import * as fs from "fs";
 
 export const createDir = (dirname: string): void => {
-  console.log(dirname);
   if (!fs.existsSync(dirname)) {
-    console.log("creating", dirname);
     fs.mkdirSync(dirname, { recursive: true });
   }
 };

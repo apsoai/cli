@@ -47,7 +47,6 @@ export default class Scaffold extends BaseCommand {
     let models: Entity[] = [];
     const apsoConfig = rc("apso");
     if (typeof flags.entity === "undefined") {
-      this.log(JSON.stringify(apsoConfig));
       models = apsoConfig.entities;
       if (!apsoConfig) {
         this.error(

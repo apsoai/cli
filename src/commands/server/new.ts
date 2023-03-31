@@ -71,7 +71,6 @@ export default class New extends BaseCommand {
       "..",
       "apso-service-template"
     )}`;
-    console.log(templatePath);
     const CURR_DIR = process.cwd();
     const projectPath = `${CURR_DIR}/${projectName}`;
     fs.mkdirSync(projectPath);
