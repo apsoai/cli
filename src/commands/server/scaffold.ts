@@ -26,18 +26,15 @@ export default class Scaffold extends BaseCommand {
   static args = {};
 
   async scaffoldServer(dir: string, entity: Entity): Promise<void> {
+    this.log(`Building... ${entity.name}`);
+
     const entityName = entity.name;
     const filePath = path.join(dir, entityName);
 
-    this.log("Creating Entity...");
     createEntity(filePath, entity);
-    this.log("Creating Dto...");
     createDto(filePath, entity);
-    this.log("Creating Service...");
     createService(filePath, entityName);
-    this.log("Creating Controller...");
     createController(filePath, entity);
-    this.log("Creating Module...");
     createModule(filePath, entityName);
   }
 
@@ -63,10 +60,7 @@ export default class Scaffold extends BaseCommand {
       "autogen"
     );
     models.forEach((entity) => {
-      this.log(`Building... ${entity.name}`);
-
       const scaffoldModel = this.scaffoldServer.bind(this);
-
       scaffoldModel(dir, entity);
     });
     createAppModule(dir, models);
