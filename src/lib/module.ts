@@ -7,8 +7,7 @@ export const createModule = async (
   apiBaseDir: string,
   entityName: string
 ): Promise<void> => {
-  const Dir = path.join(apiBaseDir, "modules");
-  const File = path.join(Dir, `${entityName}Module.ts`);
+  const File = path.join(apiBaseDir, `${entityName}.module.ts`);
   // Dependencies
   const svcName = `${entityName}Service`;
   const ctrlName = `${entityName}Controller`;

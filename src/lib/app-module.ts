@@ -8,8 +8,7 @@ export const createAppModule = async (
   apiBaseDir: string,
   entities: Entity[]
 ): Promise<void> => {
-  const Dir = path.join(apiBaseDir, "modules");
-  const File = path.join(Dir, `index.ts`);
+  const File = path.join(apiBaseDir, `index.ts`);
 
   Eta.configure({
     // This tells Eta to look for templates

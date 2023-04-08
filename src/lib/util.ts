@@ -1,11 +1,14 @@
 import * as path from "path";
 import * as fs from "fs";
 
-export const createFile = (file: string, content: string): void => {
-  const dirname = path.dirname(file);
+export const createDir = (dirname: string): void => {
   if (!fs.existsSync(dirname)) {
     fs.mkdirSync(dirname, { recursive: true });
   }
+};
+export const createFile = (file: string, content: string): void => {
+  const dirname = path.dirname(file);
+  createDir(dirname);
   fs.writeFileSync(file, content);
 };
 

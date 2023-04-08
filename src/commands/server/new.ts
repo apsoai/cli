@@ -8,10 +8,7 @@ import BaseCommand from "../../lib/base-command";
 export default class New extends BaseCommand {
   static description = "Initialize your server project";
 
-  static examples = [
-    `$ apso server new --name TestProject
-`,
-  ];
+  static examples = [`$ apso server new --name TestProject`];
 
   static flags = {
     name: Flags.string({
@@ -74,7 +71,6 @@ export default class New extends BaseCommand {
       "..",
       "apso-service-template"
     )}`;
-    console.log(templatePath);
     const CURR_DIR = process.cwd();
     const projectPath = `${CURR_DIR}/${projectName}`;
     fs.mkdirSync(projectPath);

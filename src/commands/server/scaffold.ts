@@ -14,12 +14,7 @@ import rc = require("rc");
 
 export default class Scaffold extends BaseCommand {
   static description = "Setup new entities and interfaces for an Apso Server";
-
-  static examples = [
-    `$ apso server scaffold
-`,
-  ];
-
+  static examples = [`$ apso server scaffold`];
   static flags = {
     help: Flags.help({ char: "h" }),
     entity: Flags.string({
@@ -31,18 +26,16 @@ export default class Scaffold extends BaseCommand {
   static args = {};
 
   async scaffoldServer(dir: string, entity: Entity): Promise<void> {
-    const entityName = entity.name;
+    this.log(`Building... ${entity.name}`);
 
-    this.log("Creating Entity...");
-    createEntity(dir, entity);
-    this.log("Creating Dto...");
-    createDto(dir, entity);
-    this.log("Creating Service...");
-    createService(dir, entityName);
-    this.log("Creating Controller...");
-    createController(dir, entity);
-    this.log("Creating Module...");
-    createModule(dir, entityName);
+    const entityName = entity.name;
+    const filePath = path.join(dir, entityName);
+
+    createEntity(filePath, entity);
+    createDto(filePath, entity);
+    createService(filePath, entityName);
+    createController(filePath, entity);
+    createModule(filePath, entityName);
   }
 
   async run(): Promise<void> {
@@ -51,7 +44,6 @@ export default class Scaffold extends BaseCommand {
     let models: Entity[] = [];
     const apsoConfig = rc("apso");
     if (typeof flags.entity === "undefined") {
-      this.log(JSON.stringify(apsoConfig));
       models = apsoConfig.entities;
       if (!apsoConfig) {
         this.error(
@@ -62,12 +54,13 @@ export default class Scaffold extends BaseCommand {
       models = [{ name: flags.entity }];
     }
 
-    const dir = path.join(process.cwd(), apsoConfig.rootFolder || "src");
+    const dir = path.join(
+      process.cwd(),
+      apsoConfig.rootFolder || "src",
+      "autogen"
+    );
     models.forEach((entity) => {
-      this.log(`Building... ${entity.name}`);
-
       const scaffoldModel = this.scaffoldServer.bind(this);
-
       scaffoldModel(dir, entity);
     });
     createAppModule(dir, models);

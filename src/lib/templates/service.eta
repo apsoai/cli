@@ -4,7 +4,7 @@ import { Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { TypeOrmCrudService } from "@nestjsx/crud-typeorm";
 
-import {<%= it.entityName %>} from '../entities/<%= it.entityName%>'
+import {<%= it.entityName %>} from './<%= it.entityName%>.entity'
 
 @Injectable()
 export class <%= it.svcName %> extends TypeOrmCrudService<<%= it.entityName %>> {

@@ -7,8 +7,7 @@ export const createService = async (
   apiBaseDir: string,
   entityName: string
 ): Promise<void> => {
-  const Dir = path.join(apiBaseDir, "services");
-  const File = path.join(Dir, `${entityName}Service.ts`);
+  const File = path.join(apiBaseDir, `${entityName}.service.ts`);
   // Dependencies
   const svcName = `${entityName}Service`;
   const pluralEntityName = `${entityName}s`;
