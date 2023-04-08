@@ -2,6 +2,7 @@
 
 import { Controller } from "@nestjs/common";
 import { Crud } from '@nestjsx/crud';
+import { ApiTags } from '@nestjs/swagger';
 import {<%= it.entityName %>Dto} from './dtos/<%= it.entityName%>.dto'
 import {<%= it.svcName %>} from './<%= it.entityName %>.service';
   
@@ -12,6 +13,7 @@ import {<%= it.svcName %>} from './<%= it.entityName %>.service';
 })
 
 @Controller('<%= it.pluralEntityName %>')
+@ApiTags('<%= it.pluralEntityName %>')
 export class <%= it.ctrlName%> {
     constructor(public service: <%= it.svcName %>) {}
 }
