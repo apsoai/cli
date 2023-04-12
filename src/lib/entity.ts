@@ -24,6 +24,7 @@ export interface ComputedField extends Field {
 interface Association {
   name: string;
   type: AssociationType;
+  /* eslint-disable-next-line  camelcase */
   join_table: boolean;
 }
 
@@ -35,7 +36,9 @@ interface ComputedAssociation extends Association {
 
 export interface Entity {
   name: string;
+  /* eslint-disable-next-line  camelcase */
   created_at?: boolean;
+  /* eslint-disable-next-line  camelcase */
   updated_at?: boolean;
   fields?: Field[];
   associations?: Association[];

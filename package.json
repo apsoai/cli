@@ -2,14 +2,14 @@
   "name": "@apso/cli",
   "version": "0.0.1",
   "description": "Apso CLI",
-  "author": "Nate Oaks @nateoaks",
+  "author": "Mavric Technology - @mavric",
   "bin": {
     "apso": "./bin/run"
   },
   "homepage": "https://github.com/nateoaks/apso-cli",
   "license": "MIT",
   "main": "dist/index.js",
-  "repository": "nateoaks/apso-cli",
+  "repository": "mavric/apso-cli",
   "files": [
     "/bin",
     "/dist",
