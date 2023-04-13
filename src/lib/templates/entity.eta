@@ -76,9 +76,13 @@ export class <%= it.name %> {
     
     <% } else if (assoc.type === 'OneToOne') { %>
     
-    @ValidateNested({ always: true })
-    @Type((t) => <%= assoc.name%>)
-    @OneToOne(() => <%= assoc.name%>, (p) => p.<%= assoc.entityName %>, { cascade: true })
+    @OneToOne(
+        (type: any) => <%= assoc.name%>,
+        (p) => p.<%= assoc.entityName %>, 
+        {
+            onDelete: "CASCADE",
+            cascade: ["insert", "update"],
+        })
     @JoinColumn()
     <%= assoc.camelCasedName %>: <%= assoc.name %>
     

@@ -10,6 +10,19 @@ import {<%= it.svcName %>} from './<%= it.entityName %>.service';
     model: {
         type: <%= it.entityName %>Dto
     },
+    query: {
+        /**
+        * commenting out limit and pagination because of an issue with Crud lib: https://github.com/nestjsx/crud/issues/777
+        */
+        // TODO: make limit env driven?
+        limit: 5,
+        alwaysPaginate: true,
+        join: {
+            prompts: {
+                eager: true,
+            },
+        }
+    }
 })
 
 @Controller('<%= it.pluralEntityName %>')

@@ -1,15 +1,21 @@
 {
-  "name": "@apso/cli",
+  "name": "@mavric/apso-cli",
   "version": "0.0.1",
   "description": "Apso CLI",
   "author": "Mavric Technology - @mavric",
   "bin": {
     "apso": "./bin/run"
   },
-  "homepage": "https://github.com/nateoaks/apso-cli",
+  "homepage": "https://github.com/mavric/apso-cli",
   "license": "MIT",
   "main": "dist/index.js",
-  "repository": "mavric/apso-cli",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mavric/apso-cli.git"
+  },
+  "publishConfig": {
+    "@mavric:registry": "https://npm.pkg.github.com"
+  },
   "files": [
     "/bin",
     "/dist",

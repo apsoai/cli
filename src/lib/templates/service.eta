@@ -11,5 +11,13 @@ export class <%= it.svcName %> extends TypeOrmCrudService<<%= it.entityName %>> 
   constructor(@InjectRepository(<%= it.entityName %>) repo) {
     super(repo);
   }
+
+      /**
+      * 
+      * Solves https://github.com/nestjsx/crud/issues/777
+      */
+      getSelect(query, options) {
+        return [...new Set(super.getSelect(query, options))]
+      }
 }
   
