@@ -77,6 +77,6 @@ export default class New extends BaseCommand {
     createDirectoryContents(templatePath, projectName);
     // this.log("installing modules");
     // await this.installModules(projectPath);
-    await this.formatApp(projectPath);
+    // await this.formatApp(projectPath);
   }
 }
