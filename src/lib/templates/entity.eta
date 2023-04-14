@@ -30,7 +30,7 @@ import {<%= assoc.name %>} from '../<%= assoc.name %>/<%= assoc.name %>.entity';
 
 const { CREATE, UPDATE } = CrudValidationGroups;
 
-@Entity('<%= it.name.toLowerCase() %>')
+@Entity('<%= it.snakeCasedName %>')
 export class <%= it.name %> {
     // Fields
     @PrimaryGeneratedColumn()

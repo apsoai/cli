@@ -1,4 +1,4 @@
-import { createFile, camelCase } from "./util";
+import { createFile, camelCase, snakeCase } from "./util";
 import * as Eta from "eta";
 import * as path from "path";
 import * as pluralize from "pluralize";
@@ -86,6 +86,7 @@ export const createEntity = async (
 
   const data = {
     name: entity.name,
+    snakeCasedName: snakeCase(entity.name),
     createdAt,
     updatedAt,
     pluralizedName: pluralize(entity.name.toLowerCase()),
