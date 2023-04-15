@@ -3,7 +3,7 @@
 import {
     Column,
     Entity,
-<%~ it.associations.map((assoc) => `${assoc.type},`).filter((v, i, s) => s.indexOf(v) === i).join("\r\n")%>
+<%~ it.associations.map((assoc) => `${assoc.type},`).filter((v, i, s) => s.indexOf(v) === i).join("\r\n") %>
 <% if (it.createdAt) { %>    CreateDateColumn,
 <% } %>
 <% if (it.updatedAt) { %>    UpdateDateColumn,
@@ -11,7 +11,8 @@ import {
     PrimaryGeneratedColumn,
     Generated,
     JoinColumn,
-    JoinTable
+    JoinTable,
+    Index
 } from "typeorm";
 import {
   IsOptional,
@@ -31,6 +32,9 @@ import {<%= assoc.name %>} from '../<%= assoc.name %>/<%= assoc.name %>.entity';
 const { CREATE, UPDATE } = CrudValidationGroups;
 
 @Entity('<%= it.snakeCasedName %>')
+<% it.indices.forEach((index) => { %>
+@Index([<%~ index.fields.map((field) => `"${field}"`).join(', ') %>]<% if (index.unique) { %>, { unique: true } <% } %>)
+<% }) %>
 export class <%= it.name %> {
     // Fields
     @PrimaryGeneratedColumn()

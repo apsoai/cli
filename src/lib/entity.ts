@@ -28,6 +28,11 @@ interface Association {
   join_table: boolean;
 }
 
+interface Index {
+  fields: string[];
+  unique?: boolean;
+}
+
 interface ComputedAssociation extends Association {
   camelCasedName: string;
   entityName: string;
@@ -42,6 +47,7 @@ export interface Entity {
   updated_at?: boolean;
   fields?: Field[];
   associations?: Association[];
+  indices?: Index[];
 }
 
 export const mapTypes = (type: FieldType): string => {
@@ -86,6 +92,7 @@ export const createEntity = async (
 
   const data = {
     name: entity.name,
+    indices: entity.indices || [],
     snakeCasedName: snakeCase(entity.name),
     createdAt,
     updatedAt,
