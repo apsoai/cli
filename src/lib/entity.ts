@@ -47,7 +47,7 @@ export interface Entity {
   updated_at?: boolean;
   fields?: Field[];
   associations?: Association[];
-  indices?: Index[];
+  indexes?: Index[];
 }
 
 export const mapTypes = (type: FieldType): string => {
@@ -92,7 +92,7 @@ export const createEntity = async (
 
   const data = {
     name: entity.name,
-    indices: entity.indices || [],
+    indexes: entity.indexes || [],
     snakeCasedName: snakeCase(entity.name),
     createdAt,
     updatedAt,

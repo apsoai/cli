@@ -32,7 +32,7 @@ import {<%= assoc.name %>} from '../<%= assoc.name %>/<%= assoc.name %>.entity';
 const { CREATE, UPDATE } = CrudValidationGroups;
 
 @Entity('<%= it.snakeCasedName %>')
-<% it.indices.forEach((index) => { %>
+<% it.indexes.forEach((index) => { %>
 @Index([<%~ index.fields.map((field) => `"${field}"`).join(', ') %>]<% if (index.unique) { %>, { unique: true } <% } %>)
 <% }) %>
 export class <%= it.name %> {
