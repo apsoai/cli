@@ -1,4 +1,4 @@
-import { createFile } from "./util";
+import { camelCase, createFile } from "./util";
 import * as Eta from "eta";
 import * as path from "path";
 
@@ -8,6 +8,14 @@ export interface ComputedField {
   name: string;
   dataType: string;
 }
+
+export interface EnumType {
+  name: string;
+  values?: string[];
+}
+
+const fieldToEnumType = (fieldName: string) =>
+  `${camelCase(fieldName, true)}Enum`;
 
 export const createDto = async (
   apiBaseDir: string,
@@ -19,12 +27,23 @@ export const createDto = async (
 
   const columns: ComputedField[] = fields.map((field: Field) => ({
     name: field.name,
-    dataType: mapTypes(field.type),
+    dataType:
+      field.type === "enum"
+        ? fieldToEnumType(field.name)
+        : mapTypes(field.type),
   }));
+
+  const enumTypes: EnumType[] = fields
+    .filter((field: Field) => field.type === "enum")
+    .map((field: Field) => ({
+      name: fieldToEnumType(field.name),
+      values: field.values,
+    }));
 
   const data = {
     name: entity.name,
     columns,
+    enumTypes,
   };
 
   Eta.configure({
