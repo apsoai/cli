@@ -1,3 +1,4 @@
 <% const {field} = it; %>
 
+@Column({ "type": "int" })
 <%= field.name %>: <%= field.dataType %>;
