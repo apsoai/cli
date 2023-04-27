@@ -5,6 +5,9 @@ Apso CLI
 * [Usage](#usage)
 * [Commands](#commands)
 <!-- tocstop -->
+# Prerequisites
+You need to have setup access to Mavric's private NPM packages. 
+Find out how [here](https://github.com/mavric/.github-private/blob/main/how-to/private-npm.md)
 # Usage
 <!-- usage -->
 ```sh-session
