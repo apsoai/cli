@@ -1,4 +1,10 @@
 <% const {field} = it; %>
 
 @Column({ "type": "int" })
+<% if (field.index ) {%>
+@Index()
+<% } %>
+<% if (field.primary ) {%>
+@PrimaryColumn()
+<% } %>
 <%= field.name %>: <%= field.dataType %>;

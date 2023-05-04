@@ -12,7 +12,8 @@ import {
     Generated,
     JoinColumn,
     JoinTable,
-    Index
+    Index,
+    PrimaryColumn
 } from "typeorm";
 import {
   IsOptional,
@@ -36,9 +37,11 @@ const { CREATE, UPDATE } = CrudValidationGroups;
 @Index([<%~ index.fields.map((field) => `"${field}"`).join(', ') %>]<% if (index.unique) { %>, { unique: true } <% } %>)
 <% }) %>
 export class <%= it.name %> {
+<% if (it.createPrimaryKey) { %>
     // Fields
     @PrimaryGeneratedColumn()
     id!: number;
+<% } %>
 
 <% if (it.createdAt) { %>
     @CreateDateColumn()

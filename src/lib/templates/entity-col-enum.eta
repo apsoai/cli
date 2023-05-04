@@ -5,4 +5,7 @@
     enum: [<%~ field.values?.map(s => `'${s}'`).join(',') %>],
     default: ['<%~ field.values[0] %>']
 })
+<% if (field.index ) {%>
+@Index()
+<% } %>
 <%= field.name %>!: <%= field.dataType %>;

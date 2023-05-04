@@ -11,5 +11,11 @@
 <% if (field.is_email) { %>
 @IsEmail({ require_tld: false }, { always: true })
 <% } %>
+<% if (field.index ) {%>
+@Index()
+<% } %>
 @Column({ nullable: <%= Boolean(field.nullable) %>  })
+<% if (field.primary ) {%>
+@PrimaryColumn()
+<% } %>
 <%= field.name %>: <%= field.dataType %>;

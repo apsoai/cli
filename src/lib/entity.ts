@@ -15,6 +15,8 @@ export interface Field {
   type: FieldType;
   values?: string[];
   nullable?: boolean;
+  index?: boolean;
+  primary?: boolean;
 }
 
 export interface ComputedField extends Field {
@@ -77,6 +79,10 @@ export const createEntity = async (
     dataType: mapTypes(field.type),
   }));
 
+  const createPrimaryKey =
+    columns.filter((column: ComputedField) => column.primary === true)
+      .length === 0;
+
   const createdAt = entity.created_at;
   const updatedAt = entity.updated_at;
 
@@ -93,6 +99,7 @@ export const createEntity = async (
   const data = {
     name: entity.name,
     indexes: entity.indexes || [],
+    createPrimaryKey,
     snakeCasedName: snakeCase(entity.name),
     createdAt,
     updatedAt,

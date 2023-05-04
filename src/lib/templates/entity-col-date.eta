@@ -1,4 +1,7 @@
 <% const {field} = it; %>
 
 @Column({ type: 'date' })
+<% if (field.index ) {%>
+@Index()
+<% } %>
 <%= field.name %>: string;
