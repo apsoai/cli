@@ -64,7 +64,6 @@ export default class Scaffold extends BaseCommand {
       scaffoldModel(dir, entity);
     });
     createAppModule(dir, models);
-
     await this.runNpmCommand(["run", "format"]);
   }
 }

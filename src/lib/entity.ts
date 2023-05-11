@@ -23,7 +23,7 @@ export interface ComputedField extends Field {
   dataType: string;
 }
 
-interface Association {
+export interface Association {
   name: string;
   type: AssociationType;
   /* eslint-disable-next-line  camelcase */
@@ -35,7 +35,7 @@ interface Index {
   unique?: boolean;
 }
 
-interface ComputedAssociation extends Association {
+export interface ComputedAssociation extends Association {
   camelCasedName: string;
   entityName: string;
   joinTable: boolean;

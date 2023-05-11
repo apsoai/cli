@@ -17,12 +17,30 @@ import {<%= it.svcName %>} from './<%= it.entityName %>.service';
         // TODO: make limit env driven?
         limit: 5,
         alwaysPaginate: true,
-        join: {
-            prompts: {
-                eager: true,
+        <% if (it.associations.length) { %>
+            join: {
+                <% it.associations.forEach((assoc) => { %>
+                    <% if (assoc.type === 'OneToMany') { %>
+
+                    <%= assoc.pluralizedName %>: { eager: false },
+    
+                    <% } else if (assoc.type === 'ManyToOne') { %>
+    
+                    <%= assoc.camelCasedName %>: { eager: false },
+    
+                    <% } else if (assoc.type === 'ManyToMany') { %>
+    
+                    <%= assoc.pluralizedName %>: { eager: false },
+    
+                    <% } else if (assoc.type === 'OneToOne') { %>
+                    
+                    <%= assoc.camelCasedName %>: { eager: false },
+    
+                    <% } %>
+                <% }) %>
             },
-        }
-    }
+        <% } %>
+     }
 })
 
 @Controller('<%= it.pluralEntityName %>')

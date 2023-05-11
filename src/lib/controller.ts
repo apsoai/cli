@@ -1,24 +1,35 @@
-import { createFile } from "./util";
+import { createFile, camelCase } from "./util";
 import * as Eta from "eta";
 import * as path from "path";
-import { Entity } from "./entity";
+import { Entity, Association, ComputedAssociation } from "./entity";
+import * as pluralize from "pluralize";
 
 export const createController = async (
   apiBaseDir: string,
   entity: Entity
 ): Promise<void> => {
-  const { name: entityName } = entity;
+  const { name: entityName, associations = [] } = entity;
   const File = path.join(apiBaseDir, `${entityName}.controller.ts`);
   // Dependencies
   const svcName = `${entityName}Service`;
   const ctrlName = `${entityName}Controller`;
   const pluralEntityName = `${entityName}s`;
 
+  const relationships: ComputedAssociation[] = associations.map(
+    (association: Association) => ({
+      ...association,
+      camelCasedName: camelCase(association.name),
+      entityName: camelCase(entityName),
+      pluralizedName: pluralize(camelCase(association.name)),
+      joinTable: association.join_table || false,
+    })
+  );
   const data = {
     svcName,
     ctrlName,
     entityName,
     pluralEntityName,
+    associations: relationships
   };
 
   Eta.configure({
