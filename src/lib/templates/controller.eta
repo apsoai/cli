@@ -21,21 +21,13 @@ import {<%= it.svcName %>} from './<%= it.entityName %>.service';
             join: {
                 <% it.associations.forEach((assoc) => { %>
                     <% if (assoc.type === 'OneToMany') { %>
-
                     <%= assoc.pluralizedName %>: { eager: false },
-    
                     <% } else if (assoc.type === 'ManyToOne') { %>
-    
                     <%= assoc.camelCasedName %>: { eager: false },
-    
                     <% } else if (assoc.type === 'ManyToMany') { %>
-    
                     <%= assoc.pluralizedName %>: { eager: false },
-    
                     <% } else if (assoc.type === 'OneToOne') { %>
-                    
                     <%= assoc.camelCasedName %>: { eager: false },
-    
                     <% } %>
                 <% }) %>
             },

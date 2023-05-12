@@ -1,7 +1,7 @@
 <%~ includeFile('./header.eta') %>
 
 <% it.enumTypes.forEach((enumType) => { %>
-enum <%= enumType.name %> {
+export enum <%= enumType.name %> {
 <%~ enumType.values.map((enumValue) => `${enumValue} = '${enumValue}'`).join(', ') %>
 }
 <% }) %>

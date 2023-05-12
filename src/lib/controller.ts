@@ -29,7 +29,7 @@ export const createController = async (
     ctrlName,
     entityName,
     pluralEntityName,
-    associations: relationships
+    associations: relationships,
   };
 
   Eta.configure({
