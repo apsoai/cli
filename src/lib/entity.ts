@@ -17,6 +17,7 @@ export interface Field {
   nullable?: boolean;
   index?: boolean;
   primary?: boolean;
+  unique?: boolean;
 }
 
 export interface ComputedField extends Field {

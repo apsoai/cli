@@ -14,7 +14,7 @@
 <% if (field.index ) {%>
 @Index()
 <% } %>
-@Column({ nullable: <%= Boolean(field.nullable) %>  })
+@Column({ nullable: <%= Boolean(field.nullable) %><% if (field.unique) {%>, unique: true <% } %>  })
 <% if (field.primary ) {%>
 @PrimaryColumn()
 <% } %>
