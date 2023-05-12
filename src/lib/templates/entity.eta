@@ -64,7 +64,7 @@ export class <%= it.name %> {
     <% if (assoc.type === 'OneToMany') { %>
 
     @<%= assoc.type %>(() => <%= assoc.name %>, <%= assoc.camelCasedName %> => <%= assoc.camelCasedName %>.<%= assoc.entityName %>)
-    <%= assoc.camelCasedName %>s: <%= assoc.name %>[]
+    <%= assoc.pluralizedName %>: <%= assoc.name %>[]
     
     <% } else if (assoc.type === 'ManyToOne') { %>
     
