@@ -30,6 +30,11 @@ import {<%= it.svcName %>} from './<%= it.entityName %>.service';
                     <%= assoc.camelCasedName %>: { eager: false },
                     <% } %>
                 <% }) %>
+                <% if (it.nestedAssociations.length) {%>
+                    <% it.nestedAssociations.forEach((assoc) => { %>
+                        "<%= assoc %>": { eager: false },
+                    <% }) %>
+                <% }%>
             },
         <% } %>
      }

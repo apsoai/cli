@@ -25,7 +25,11 @@ export default class Scaffold extends BaseCommand {
 
   static args = {};
 
-  async scaffoldServer(dir: string, entity: Entity): Promise<void> {
+  async scaffoldServer(
+    dir: string,
+    entity: Entity,
+    entities: Entity[]
+  ): Promise<void> {
     this.log(`Building... ${entity.name}`);
 
     const entityName = entity.name;
@@ -34,7 +38,7 @@ export default class Scaffold extends BaseCommand {
     createEntity(filePath, entity);
     createDto(filePath, entity);
     createService(filePath, entityName);
-    createController(filePath, entity);
+    createController(filePath, entity, entities);
     createModule(filePath, entityName);
   }
 
@@ -61,7 +65,7 @@ export default class Scaffold extends BaseCommand {
     );
     models.forEach((entity) => {
       const scaffoldModel = this.scaffoldServer.bind(this);
-      scaffoldModel(dir, entity);
+      scaffoldModel(dir, entity, models);
     });
     createAppModule(dir, models);
     await this.runNpmCommand(["run", "format"]);

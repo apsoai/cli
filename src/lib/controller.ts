@@ -6,7 +6,8 @@ import * as pluralize from "pluralize";
 
 export const createController = async (
   apiBaseDir: string,
-  entity: Entity
+  entity: Entity,
+  entities: Entity[]
 ): Promise<void> => {
   const { name: entityName, associations = [] } = entity;
   const File = path.join(apiBaseDir, `${entityName}.controller.ts`);
@@ -24,12 +25,42 @@ export const createController = async (
       joinTable: association.join_table || false,
     })
   );
+
+  const nestedRelationships: any[] = associations
+    .map((association: Association) => {
+      const { name: associationName, type } = association;
+      const associatedModel = entities.find(
+        (entity) => entity.name === associationName
+      );
+      return associatedModel?.associations
+        ?.map((association: Association) => {
+          const { name: childAssociationName, type: childType } = association;
+
+          if (childAssociationName !== entityName) {
+            const parent =
+              type === "ManyToOne" || type === "OneToOne"
+                ? camelCase(associationName)
+                : pluralize(camelCase(associationName));
+            const child =
+              childType === "ManyToOne" || childType === "OneToOne"
+                ? camelCase(childAssociationName)
+                : pluralize(camelCase(childAssociationName));
+            return `${parent}.${child}`;
+          }
+        })
+        .filter((e) => e);
+    })
+    .flat();
+
+  console.log(JSON.stringify(nestedRelationships));
+
   const data = {
     svcName,
     ctrlName,
     entityName,
     pluralEntityName,
     associations: relationships,
+    nestedAssociations: nestedRelationships,
   };
 
   Eta.configure({
