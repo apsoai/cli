@@ -16,7 +16,7 @@ $ npm install -g @mavric/apso-cli
 $ apso COMMAND
 running command...
 $ apso (--version)
-@mavric/apso-cli/0.0.5 darwin-arm64 node-v16.15.1
+@mavric/apso-cli/0.0.6 darwin-arm64 node-v16.15.1
 $ apso --help [COMMAND]
 USAGE
   $ apso COMMAND
