@@ -104,7 +104,7 @@ export const createEntity = async (
     snakeCasedName: snakeCase(entity.name),
     createdAt,
     updatedAt,
-    pluralizedName: pluralize(entity.name.toLowerCase()),
+    pluralizedName: pluralize(camelCase(entity.name)),
     columns,
     associations: relationships,
   };
