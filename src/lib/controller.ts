@@ -26,8 +26,8 @@ export const createController = async (
     })
   );
 
-  const nestedRelationships: any[] = associations
-    .map((association: Association) => {
+  const nestedRelationships: any[] = associations.flatMap(
+    (association: Association) => {
       const { name: associationName, type } = association;
       const associatedModel = entities.find(
         (entity) => entity.name === associationName
@@ -47,10 +47,12 @@ export const createController = async (
                 : pluralize(camelCase(childAssociationName));
             return `${parent}.${child}`;
           }
+
+          return null;
         })
         .filter((e) => e);
-    })
-    .flat();
+    }
+  );
 
   console.log(JSON.stringify(nestedRelationships));
 
