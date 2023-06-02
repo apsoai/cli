@@ -63,32 +63,36 @@ export class <%= it.name %> {
     // Associations    
     <% if (assoc.type === 'OneToMany') { %>
 
-    @<%= assoc.type %>(() => <%= assoc.name %>, <%= assoc.camelCasedName %> => <%= assoc.camelCasedName %>.<%= assoc.entityName %>)
-    <%= assoc.pluralizedName %>: <%= assoc.name %>[]
+        @<%= assoc.type %>(() => <%= assoc.name %>, <%= assoc.camelCasedName %> => <%= assoc.camelCasedName %>.<%= assoc.entityName %>)
+        <%= assoc.pluralizedName %>: <%= assoc.name %>[]
     
     <% } else if (assoc.type === 'ManyToOne') { %>
     
-    @<%= assoc.type %>(() => <%= assoc.name %>, <%= assoc.camelCasedName %> => <%= assoc.camelCasedName %>.<%= it.pluralizedName %>)
-    <%= assoc.camelCasedName %>: <%= assoc.name %>
+        @<%= assoc.type %>(() => <%= assoc.name %>, <%= assoc.camelCasedName %> => <%= assoc.camelCasedName %>.<%= it.pluralizedName %>)
+        <%= assoc.camelCasedName %>: <%= assoc.name %>
+
+
+        @Column()
+        <%= assoc.camelCasedId %>: number;
     
     <% } else if (assoc.type === 'ManyToMany') { %>
     
-    @<%= assoc.type %>(() => <%= assoc.name %>)
-    <% if (assoc.joinTable) { %>@JoinTable()<% } %>
-    <%= assoc.pluralizedName %>: <%= assoc.name %>[]
+        @<%= assoc.type %>(() => <%= assoc.name %>)
+        <% if (assoc.joinTable) { %>@JoinTable()<% } %>
+        <%= assoc.pluralizedName %>: <%= assoc.name %>[]
     
     <% } else if (assoc.type === 'OneToOne') { %>
     
-    @OneToOne(
-        (type: any) => <%= assoc.name%>,
-        (p) => p.<%= assoc.entityName %>, 
-        {
-            onDelete: "CASCADE",
-            cascade: ["insert", "update"],
-        })
-    @JoinColumn()
-    <%= assoc.camelCasedName %>: <%= assoc.name %>
-    
+        @OneToOne(
+            (type: any) => <%= assoc.name%>,
+            (p) => p.<%= assoc.entityName %>, 
+            {
+                onDelete: "CASCADE",
+                cascade: ["insert", "update"],
+            })
+        @JoinColumn()
+        <%= assoc.camelCasedName %>: <%= assoc.name %>
+
     <% } %>
 <% }) %>
 }

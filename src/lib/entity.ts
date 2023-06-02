@@ -91,6 +91,7 @@ export const createEntity = async (
     (association: Association) => ({
       ...association,
       camelCasedName: camelCase(association.name),
+      camelCasedId: `${camelCase(association.name)}Id`,
       entityName: camelCase(name),
       pluralizedName: pluralize(camelCase(association.name)),
       joinTable: association.join_table || false,

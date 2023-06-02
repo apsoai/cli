@@ -21,17 +21,28 @@ export const createDto = async (
   apiBaseDir: string,
   entity: Entity
 ): Promise<void> => {
-  const { name, fields = [] } = entity;
+  const { name, fields = [], associations = [] } = entity;
   const Dir = path.join(apiBaseDir, "dtos");
   const File = path.join(Dir, `${name}.dto.ts`);
 
-  const columns: ComputedField[] = fields.map((field: Field) => ({
-    name: field.name,
-    dataType:
-      field.type === "enum"
-        ? fieldToEnumType(field.name)
-        : mapTypes(field.type),
-  }));
+  const relationshipFields = associations
+    .filter((association) => association.type === "ManyToOne")
+    .map((association) => `${camelCase(association.name)}Id`);
+
+  console.log(relationshipFields);
+  const columns: ComputedField[] = [
+    ...fields.map((field: Field) => ({
+      name: field.name,
+      dataType:
+        field.type === "enum"
+          ? fieldToEnumType(field.name)
+          : mapTypes(field.type),
+    })),
+    ...relationshipFields.map((fieldName) => ({
+      name: fieldName,
+      dataType: "number",
+    })),
+  ];
 
   const enumTypes: EnumType[] = fields
     .filter((field: Field) => field.type === "enum")
