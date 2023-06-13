@@ -18,6 +18,7 @@ export interface Field {
   index?: boolean;
   primary?: boolean;
   unique?: boolean;
+  default?: string | null;
 }
 
 export interface ComputedField extends Field {
@@ -53,6 +54,40 @@ export interface Entity {
   indexes?: Index[];
 }
 
+export const getDefaultValue = (field: Field): string | null => {
+  switch (field.type) {
+    case "enum":
+      if (field.default === null) {
+        return null;
+      }
+
+      if (typeof field.default !== "undefined") {
+        if (!field.values?.includes(field.default)) {
+          throw new Error(
+            `${field.name}: Invalid default value '${
+              field.default
+            }' (Valid options are: '${field.values?.join("', '")}')`
+          );
+        }
+        return field.default;
+      }
+      if (typeof field.values !== "undefined") {
+        return field.values[0];
+      }
+      return null;
+    case "boolean":
+      if (typeof field.default !== "undefined") {
+        return field.default;
+      }
+      return "false";
+    default:
+      if (typeof field.default !== "undefined") {
+        return field.default;
+      }
+      return null;
+  }
+};
+
 export const mapTypes = (type: FieldType): string => {
   switch (type) {
     case "array":
@@ -77,6 +112,7 @@ export const createEntity = async (
 
   const columns: ComputedField[] = fields.map((field: Field) => ({
     ...field,
+    default: getDefaultValue(field),
     dataType: mapTypes(field.type),
   }));
 

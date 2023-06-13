@@ -3,7 +3,7 @@
 @Column({
     type: '<%= field.type %>',
     enum: [<%~ field.values?.map(s => `'${s}'`).join(',') %>],
-    default: ['<%~ field.values[0] %>']
+    default: '<%~ field.default %>'
 })
 <% if (field.index ) {%>
 @Index()
