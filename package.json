@@ -31,6 +31,7 @@
     "rc": "^1.2.8"
   },
   "devDependencies": {
+    "@jest/globals": "^29.5.0",
     "@oclif/test": "^2.3.5",
     "@types/chai": "^4",
     "@types/mocha": "^10",
@@ -49,6 +50,7 @@
     "oclif": "^3",
     "prettier": "^2.8.4",
     "shx": "^0.3.3",
+    "ts-jest": "^29.1.0",
     "ts-node": "^10.9.1",
     "tslib": "^2.5.0",
     "typescript": "^5"
@@ -78,7 +80,7 @@
     "pack": "oclif pack tarballs",
     "posttest": "npm run lint",
     "prepack": "npm run build && oclif manifest && oclif readme",
-    "test": "mocha --forbid-only \"test/**/*.test.ts\"",
+    "test": "jest",
     "version": "oclif readme && git add README.md"
   },
   "engines": {

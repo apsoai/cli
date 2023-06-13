@@ -54,8 +54,6 @@ export const createController = async (
     }
   );
 
-  console.log(JSON.stringify(nestedRelationships));
-
   const data = {
     svcName,
     ctrlName,

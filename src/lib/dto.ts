@@ -29,7 +29,6 @@ export const createDto = async (
     .filter((association) => association.type === "ManyToOne")
     .map((association) => `${camelCase(association.name)}Id`);
 
-  console.log(relationshipFields);
   const columns: ComputedField[] = [
     ...fields.map((field: Field) => ({
       name: field.name,

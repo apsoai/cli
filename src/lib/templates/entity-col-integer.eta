@@ -1,6 +1,6 @@
 <% const {field} = it; %>
 
-@Column({ "type": "int" })
+@Column({ "type": "int"<% if (field.default !== null) {%>, default:  <%= field.default %><% } %> })
 <% if (field.index ) {%>
 @Index()
 <% } %>
