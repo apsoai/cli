@@ -16,6 +16,7 @@ export interface Association {
   /* eslint-disable-next-line  camelcase */
   reference_name?: string;
   nested?: boolean;
+  nullable?: boolean;
 }
 
 export interface ComputedAssociation extends Association {

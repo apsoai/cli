@@ -1,3 +1,4 @@
+/* eslint-disable  camelcase */
 import { expect } from "@jest/globals";
 import {
   getAssociationForTemplate,
@@ -41,7 +42,8 @@ describe("test getAssociationForTemplate", () => {
     const relationship1: Association = {
       name: "User",
       type: "ManyToOne",
-      reference_name: "owner"
+      reference_name: "owner",
+      nullable: true
     };
 
     const computedRelationships = getAssociationForTemplate(
@@ -61,7 +63,8 @@ describe("test getAssociationForTemplate", () => {
       camelCasedId: "ownerId",
       joinTable: false,
       hasInverse: false,
-      reference_name: "owner"
+      reference_name: "owner",
+      nullable: true
     };
 
     expect(computedRelationships.length).toBe(1);

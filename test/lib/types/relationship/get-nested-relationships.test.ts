@@ -1,3 +1,4 @@
+/* eslint-disable  camelcase */
 import { expect } from "@jest/globals";
 import { Entity } from "../../../../src/lib/types/entity";
 import {
