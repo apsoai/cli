@@ -64,13 +64,13 @@ export class <%= it.name %> {
     // Associations    
     <% if (assoc.type === 'OneToMany') { %>
 
-        @<%= assoc.type %>(() => <%= assoc.name %>, <%= assoc.camelCasedName %> => <%= assoc.camelCasedName %>.<%= assoc.entityName %>)
+        @OneToMany(() => <%= assoc.name %>, <%= assoc.camelCasedName %> => <%= assoc.camelCasedName %>.<%= assoc.entityName %>)
         <%= assoc.pluralizedName %>: <%= assoc.name %>[]
     
     <% } else if (assoc.type === 'ManyToOne') { %>
     
-        @<%= assoc.type %>(() => <%= assoc.name %>, <%= assoc.camelCasedName %> => <%= assoc.camelCasedName %>.<%= it.pluralizedName %>)
-        <%= assoc.camelCasedName %>: <%= assoc.name %>
+        @<%= assoc.type %>(() => <%= assoc.name %><% if (assoc.hasInverse) { %>, <%= assoc.camelCasedName %> => <%= assoc.camelCasedName %>.<%= it.pluralizedName %><% } %>)
+        <%= assoc.relationshipName %>: <%= assoc.name %>
 
 
         @Column()
@@ -78,7 +78,7 @@ export class <%= it.name %> {
     
     <% } else if (assoc.type === 'ManyToMany') { %>
     
-        @<%= assoc.type %>(() => <%= assoc.name %>)
+        @ManyToMany(() => <%= assoc.name %>)
         <% if (assoc.joinTable) { %>@JoinTable()<% } %>
         <%= assoc.pluralizedName %>: <%= assoc.name %>[]
     

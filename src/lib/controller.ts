@@ -1,8 +1,11 @@
-import { createFile, camelCase } from "./util";
 import * as Eta from "eta";
 import * as path from "path";
-import { Entity, Association, ComputedAssociation } from "./entity";
-import * as pluralize from "pluralize";
+import { createFile } from "./util";
+import { Entity } from "./types/entity";
+import {
+  getAssociationForTemplate,
+  getNestedRelationships,
+} from "./types/relationship";
 
 export const createController = async (
   apiBaseDir: string,
@@ -16,42 +19,15 @@ export const createController = async (
   const ctrlName = `${entityName}Controller`;
   const pluralEntityName = `${entityName}s`;
 
-  const relationships: ComputedAssociation[] = associations.map(
-    (association: Association) => ({
-      ...association,
-      camelCasedName: camelCase(association.name),
-      entityName: camelCase(entityName),
-      pluralizedName: pluralize(camelCase(association.name)),
-      joinTable: association.join_table || false,
-    })
+  const relationships = getAssociationForTemplate(
+    entityName,
+    associations,
+    entities
   );
-
-  const nestedRelationships: any[] = associations.flatMap(
-    (association: Association) => {
-      const { name: associationName, type } = association;
-      const associatedModel = entities.find(
-        (entity) => entity.name === associationName
-      );
-      return associatedModel?.associations
-        ?.map((association: Association) => {
-          const { name: childAssociationName, type: childType } = association;
-
-          if (childAssociationName !== entityName) {
-            const parent =
-              type === "ManyToOne" || type === "OneToOne"
-                ? camelCase(associationName)
-                : pluralize(camelCase(associationName));
-            const child =
-              childType === "ManyToOne" || childType === "OneToOne"
-                ? camelCase(childAssociationName)
-                : pluralize(camelCase(childAssociationName));
-            return `${parent}.${child}`;
-          }
-
-          return null;
-        })
-        .filter((e) => e);
-    }
+  const nestedRelationships = getNestedRelationships(
+    entityName,
+    entities,
+    associations
   );
 
   const data = {

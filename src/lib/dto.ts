@@ -2,7 +2,9 @@ import { camelCase, createFile } from "./util";
 import * as Eta from "eta";
 import * as path from "path";
 
-import { mapTypes, Field, Entity } from "./entity";
+import { getJsTypeFromFieldType, Field } from "./types/field";
+import { getRelationshipIdField } from "./types/relationship";
+import { Entity } from "./types/entity";
 
 export interface ComputedField {
   name: string;
@@ -27,7 +29,7 @@ export const createDto = async (
 
   const relationshipFields = associations
     .filter((association) => association.type === "ManyToOne")
-    .map((association) => `${camelCase(association.name)}Id`);
+    .map((association) => getRelationshipIdField(association));
 
   const columns: ComputedField[] = [
     ...fields.map((field: Field) => ({
@@ -35,7 +37,7 @@ export const createDto = async (
       dataType:
         field.type === "enum"
           ? fieldToEnumType(field.name)
-          : mapTypes(field.type),
+          : getJsTypeFromFieldType(field.type),
     })),
     ...relationshipFields.map((fieldName) => ({
       name: fieldName,

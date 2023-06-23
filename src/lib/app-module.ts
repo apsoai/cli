@@ -2,7 +2,7 @@ import { createFile } from "./util";
 import * as Eta from "eta";
 import * as path from "path";
 // import * as fs from "fs";
-import { Entity } from "./entity";
+import { Entity } from "./types/entity";
 
 export const createAppModule = async (
   apiBaseDir: string,

@@ -1,6 +1,6 @@
 <% const {field} = it; %>
 
-@Column({ type: 'date' })
+@Column({ type: 'date', nullable: <%= Boolean(field.nullable) %> })
 <% if (field.index ) {%>
 @Index()
 <% } %>

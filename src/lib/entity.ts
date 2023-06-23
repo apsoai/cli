@@ -1,120 +1,21 @@
-import { createFile, camelCase, snakeCase } from "./util";
 import * as Eta from "eta";
 import * as path from "path";
 import * as pluralize from "pluralize";
 
-export type FieldType = "text" | "boolean" | "array" | "enum" | "integer";
-export type AssociationType =
-  | "OneToMany"
-  | "ManyToOne"
-  | "ManyToMany"
-  | "OneToOne";
-
-export interface Field {
-  name: string;
-  type: FieldType;
-  values?: string[];
-  nullable?: boolean;
-  index?: boolean;
-  primary?: boolean;
-  unique?: boolean;
-  default?: string | null;
-}
-
-export interface ComputedField extends Field {
-  dataType: string;
-}
-
-export interface Association {
-  name: string;
-  type: AssociationType;
-  /* eslint-disable-next-line  camelcase */
-  join_table: boolean;
-}
-
-interface Index {
-  fields: string[];
-  unique?: boolean;
-}
-
-export interface ComputedAssociation extends Association {
-  camelCasedName: string;
-  entityName: string;
-  joinTable: boolean;
-}
-
-export interface Entity {
-  name: string;
-  /* eslint-disable-next-line  camelcase */
-  created_at?: boolean;
-  /* eslint-disable-next-line  camelcase */
-  updated_at?: boolean;
-  fields?: Field[];
-  associations?: Association[];
-  indexes?: Index[];
-}
-
-export const getDefaultValue = (field: Field): string | null => {
-  switch (field.type) {
-    case "enum":
-      if (field.default === null) {
-        return null;
-      }
-
-      if (typeof field.default !== "undefined") {
-        if (!field.values?.includes(field.default)) {
-          throw new Error(
-            `${field.name}: Invalid default value '${
-              field.default
-            }' (Valid options are: '${field.values?.join("', '")}')`
-          );
-        }
-        return field.default;
-      }
-      if (typeof field.values !== "undefined") {
-        return field.values[0];
-      }
-      return null;
-    case "boolean":
-      if (typeof field.default !== "undefined") {
-        return field.default;
-      }
-      return "false";
-    default:
-      if (typeof field.default !== "undefined") {
-        return field.default;
-      }
-      return null;
-  }
-};
-
-export const mapTypes = (type: FieldType): string => {
-  switch (type) {
-    case "array":
-      return "string[]";
-    case "boolean":
-      return "boolean";
-    case "integer":
-      return "number";
-    case "text":
-    case "enum":
-    default:
-      return "string";
-  }
-};
+import { createFile, camelCase, snakeCase } from "./util";
+import { Entity } from "./types/entity";
+import { ComputedField, getFieldForTemplate } from "./types/field";
+import { getAssociationForTemplate } from "./types/relationship";
 
 export const createEntity = async (
   apiBaseDir: string,
-  entity: Entity
+  entity: Entity,
+  entities: Entity[]
 ): Promise<void> => {
   const { name, fields = [], associations = [] } = entity;
   const File = path.join(apiBaseDir, `${name}.entity.ts`);
 
-  const columns: ComputedField[] = fields.map((field: Field) => ({
-    ...field,
-    default: getDefaultValue(field),
-    dataType: mapTypes(field.type),
-  }));
+  const columns = getFieldForTemplate(fields);
 
   const createPrimaryKey =
     columns.filter((column: ComputedField) => column.primary === true)
@@ -123,16 +24,7 @@ export const createEntity = async (
   const createdAt = entity.created_at;
   const updatedAt = entity.updated_at;
 
-  const relationships: ComputedAssociation[] = associations.map(
-    (association: Association) => ({
-      ...association,
-      camelCasedName: camelCase(association.name),
-      camelCasedId: `${camelCase(association.name)}Id`,
-      entityName: camelCase(name),
-      pluralizedName: pluralize(camelCase(association.name)),
-      joinTable: association.join_table || false,
-    })
-  );
+  const relationships = getAssociationForTemplate(name, associations, entities);
 
   const data = {
     name: entity.name,

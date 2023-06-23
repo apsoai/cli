@@ -35,7 +35,7 @@ export default class Scaffold extends BaseCommand {
     const entityName = entity.name;
     const filePath = path.join(dir, entityName);
 
-    createEntity(filePath, entity);
+    createEntity(filePath, entity, entities);
     createDto(filePath, entity);
     createService(filePath, entityName);
     createController(filePath, entity, entities);

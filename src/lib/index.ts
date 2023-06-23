@@ -1,4 +1,5 @@
-export { Entity, createEntity } from "./entity";
+export { Entity } from "./types/entity";
+export { createEntity } from "./entity";
 export { createController } from "./controller";
 export { createService } from "./service";
 export { createModule } from "./module";
