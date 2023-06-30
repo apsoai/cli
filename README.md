@@ -16,7 +16,7 @@ $ npm install -g @mavric/apso-cli
 $ apso COMMAND
 running command...
 $ apso (--version)
-@mavric/apso-cli/0.0.6 darwin-arm64 node-v16.15.1
+@mavric/apso-cli/0.0.7 darwin-arm64 node-v16.15.1
 $ apso --help [COMMAND]
 USAGE
   $ apso COMMAND
@@ -56,7 +56,7 @@ DESCRIPTION
   Display help for apso.
 ```
 
-_See code: [@oclif/plugin-help](https://github.com/oclif/plugin-help/blob/v5.2.7/src/commands/help.ts)_
+_See code: [@oclif/plugin-help](https://github.com/oclif/plugin-help/blob/v5.2.9/src/commands/help.ts)_
 
 ## `apso plugins`
 
@@ -64,10 +64,13 @@ List installed plugins.
 
 ```
 USAGE
-  $ apso plugins [--core]
+  $ apso plugins [--json] [--core]
 
 FLAGS
   --core  Show core plugins.
+
+GLOBAL FLAGS
+  --json  Format output as json.
 
 DESCRIPTION
   List installed plugins.
@@ -76,7 +79,7 @@ EXAMPLES
   $ apso plugins
 ```
 
-_See code: [@oclif/plugin-plugins](https://github.com/oclif/plugin-plugins/blob/v2.4.0/src/commands/plugins/index.ts)_
+_See code: [@oclif/plugin-plugins](https://github.com/oclif/plugin-plugins/blob/v3.1.2/src/commands/plugins/index.ts)_
 
 ## `apso plugins:install PLUGIN...`
 
