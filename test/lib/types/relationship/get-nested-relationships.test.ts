@@ -157,6 +157,17 @@ describe("test getNestedRelationships", () => {
         updated_at: true,
         fields: [
           {
+            name: "email",
+            type: "text",
+            length: 255,
+            is_email: true,
+          },
+          {
+            name: "invite_code",
+            type: "text",
+            length: 64,
+          },
+          {
             name: "role",
             type: "enum",
             values: ["User", "Admin"],
@@ -181,6 +192,7 @@ describe("test getNestedRelationships", () => {
           {
             name: "User",
             type: "ManyToOne",
+            nullable: true,
           },
         ],
       },
@@ -240,6 +252,41 @@ describe("test getNestedRelationships", () => {
             type: "text",
             default: "us-west-2",
           },
+          {
+            name: "service_type",
+            type: "enum",
+            values: ["Shared", "Standalone"],
+          },
+          {
+            name: "infrastructure_details",
+            type: "json",
+            nullable: true,
+          },
+          {
+            name: "stack_id",
+            type: "text",
+            nullable: true,
+          },
+          {
+            name: "environment_name",
+            type: "text",
+            nullable: true,
+          },
+          {
+            name: "vpc_id",
+            type: "text",
+            nullable: true,
+          },
+          {
+            name: "db_credentials_secret_arn",
+            type: "text",
+            nullable: true,
+          },
+          {
+            name: "code_commit_url",
+            type: "text",
+            nullable: true,
+          },
         ],
         associations: [
           {
@@ -253,6 +300,16 @@ describe("test getNestedRelationships", () => {
           {
             name: "ApplicationServiceMetric",
             type: "OneToMany",
+          },
+          {
+            name: "InfrastructureStack",
+            type: "ManyToOne",
+            reference_name: "networkStack",
+          },
+          {
+            name: "InfrastructureStack",
+            type: "ManyToOne",
+            reference_name: "databaseStack",
           },
         ],
       },
@@ -322,6 +379,32 @@ describe("test getNestedRelationships", () => {
           },
         ],
       },
+      {
+        name: "InfrastructureStack",
+        created_at: true,
+        updated_at: true,
+        fields: [
+          {
+            name: "stackId",
+            type: "text",
+          },
+          {
+            name: "stack_type",
+            type: "enum",
+            values: ["network", "db"],
+          },
+          {
+            name: "status",
+            type: "enum",
+            values: ["new", "creating", "created", "destroyed"],
+          },
+          {
+            name: "details",
+            type: "json",
+            nullable: true,
+          },
+        ],
+      },
     ];
 
     const entityToNestedRelationshipnMap = {
@@ -336,37 +419,38 @@ describe("test getNestedRelationships", () => {
         "workspace.workspaceUsers",
         "applicationServices.applicationServiceApiKeys",
         "applicationServices.applicationServiceMetrics",
+        "applicationServices.networkStack",
+        "applicationServices.databaseStack",
         "owner.workspaceUsers",
       ],
       ApplicationService: ["application.workspace", "application.owner"],
       ApplicationServiceApiKey: [
         "applicationService.application",
         "applicationService.applicationServiceMetrics",
+        "applicationService.networkStack",
+        "applicationService.databaseStack",
       ],
       ApplicationServiceMetric: [
         "applicationService.application",
         "applicationService.applicationServiceApiKeys",
+        "applicationService.networkStack",
+        "applicationService.databaseStack",
       ],
     };
 
     entities.forEach((entity: Entity) => {
-      const { name, associations } = entity;
+      const { name, associations = [] } = entity;
       const expectedNestedRelationship =
         entityToNestedRelationshipnMap[
           name as keyof typeof entityToNestedRelationshipnMap
-        ];
+        ] || [];
 
-      if (typeof associations === "undefined") {
-        const nestedRelationships = null;
-        expect(nestedRelationships).toEqual(expectedNestedRelationship);
-      } else {
-        const nestedRelationships = getNestedRelationships(
-          name,
-          entities,
-          associations
-        );
-        expect(nestedRelationships).toEqual(expectedNestedRelationship);
-      }
+      const nestedRelationships = getNestedRelationships(
+        name,
+        entities,
+        associations
+      );
+      expect(nestedRelationships).toEqual(expectedNestedRelationship);
     });
   });
 });

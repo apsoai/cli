@@ -112,6 +112,6 @@ export const getNestedRelationships = (
 
         return null;
       })
-      .filter((e) => e);
+      .filter((e) => e) || [];
   });
 };
