@@ -43,7 +43,7 @@ describe("test getAssociationForTemplate", () => {
       name: "User",
       type: "ManyToOne",
       reference_name: "owner",
-      nullable: true
+      nullable: true,
     };
 
     const computedRelationships = getAssociationForTemplate(
@@ -64,7 +64,7 @@ describe("test getAssociationForTemplate", () => {
       joinTable: false,
       hasInverse: false,
       reference_name: "owner",
-      nullable: true
+      nullable: true,
     };
 
     expect(computedRelationships.length).toBe(1);

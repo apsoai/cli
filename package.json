@@ -1,6 +1,6 @@
 {
   "name": "@mavric/apso-cli",
-  "version": "0.0.7",
+  "version": "0.0.6",
   "description": "Apso CLI",
   "author": "Mavric Technology - @mavric",
   "bin": {
@@ -74,7 +74,7 @@
     "post-build": "copyfiles -u 1 src/**/*.eta dist/",
     "build": "shx rm -rf dist && tsc -b && npm run post-build",
     "lint": "eslint . --ext .ts --config .eslintrc",
-    "format": "prettier \"src/**/*.ts\" --write",
+    "format": "prettier \"{src,test}/**/*.ts\" --write",
     "pre-build": "npm run format && npm run lint",
     "postpack": "shx rm -f oclif.manifest.json",
     "pack": "oclif pack tarballs",

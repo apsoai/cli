@@ -69,12 +69,12 @@ describe("test getNestedRelationships", () => {
         associations: [
           {
             name: "Workspace",
-            type: "ManyToOne"
+            type: "ManyToOne",
           },
           {
             name: "User",
             type: "ManyToOne",
-            reference_name: "owner"
+            reference_name: "owner",
           },
         ],
       },
@@ -99,268 +99,244 @@ describe("test getNestedRelationships", () => {
   test("full case", () => {
     const entities: Entity[] = [
       {
-        "name": "User",
-        "created_at": true,
-        "updated_at": true,
-        "fields": [
+        name: "User",
+        created_at: true,
+        updated_at: true,
+        fields: [
           {
-            "name": "cognito_id",
-            "type": "text",
-            "unique": true
+            name: "cognito_id",
+            type: "text",
+            unique: true,
           },
           {
-            "name": "email",
-            "type": "text",
-            "length": 255,
-            "is_email": true
+            name: "email",
+            type: "text",
+            length: 255,
+            is_email: true,
           },
           {
-            "name": "firstName",
-            "type": "text"
+            name: "firstName",
+            type: "text",
           },
           {
-            "name": "lastName",
-            "type": "text"
-          }
+            name: "lastName",
+            type: "text",
+          },
         ],
-        "associations": [
+        associations: [
           {
-            "name": "WorkspaceUser",
-            "type": "OneToMany"
-          }
-        ]
+            name: "WorkspaceUser",
+            type: "OneToMany",
+          },
+        ],
       },
       {
-        "name": "Workspace",
-        "created_at": true,
-        "updated_at": true,
-        "fields": [
+        name: "Workspace",
+        created_at: true,
+        updated_at: true,
+        fields: [
           {
-            "name": "name",
-            "type": "text"
-          }
+            name: "name",
+            type: "text",
+          },
         ],
-        "associations": [
+        associations: [
           {
-            "name": "WorkspaceUser",
-            "type": "OneToMany"
+            name: "WorkspaceUser",
+            type: "OneToMany",
           },
           {
-            "name": "Application",
-            "type": "OneToMany"
-          }
-        ]
+            name: "Application",
+            type: "OneToMany",
+          },
+        ],
       },
       {
-        "name": "WorkspaceUser",
-        "created_at": true,
-        "updated_at": true,
-        "fields": [
+        name: "WorkspaceUser",
+        created_at: true,
+        updated_at: true,
+        fields: [
           {
-            "name": "role",
-            "type": "enum",
-            "values": [
-              "User",
-              "Admin"
-            ],
-            "default": "Admin"
+            name: "role",
+            type: "enum",
+            values: ["User", "Admin"],
+            default: "Admin",
           },
           {
-            "name": "status",
-            "type": "enum",
-            "values": [
-              "Active",
-              "Invited",
-              "Inactive"
-            ]
+            name: "status",
+            type: "enum",
+            values: ["Active", "Invited", "Inactive"],
           },
           {
-            "name": "activeAt",
-            "type": "date",
-            "nullable": true
-          }
+            name: "activeAt",
+            type: "date",
+            nullable: true,
+          },
         ],
-        "associations": [
+        associations: [
           {
-            "name": "Workspace",
-            "type": "ManyToOne"
+            name: "Workspace",
+            type: "ManyToOne",
           },
           {
-            "name": "User",
-            "type": "ManyToOne"
-          }
-        ]
+            name: "User",
+            type: "ManyToOne",
+          },
+        ],
       },
       {
-        "name": "Application",
-        "created_at": true,
-        "updated_at": true,
-        "fields": [
+        name: "Application",
+        created_at: true,
+        updated_at: true,
+        fields: [
           {
-            "name": "name",
-            "type": "text"
+            name: "name",
+            type: "text",
           },
           {
-            "name": "status",
-            "type": "enum",
-            "values": [
-              "Active",
-              "Deleted"
-            ]
-          }
+            name: "status",
+            type: "enum",
+            values: ["Active", "Deleted"],
+          },
         ],
-        "associations": [
+        associations: [
           {
-            "name": "Workspace",
-            "type": "ManyToOne"
+            name: "Workspace",
+            type: "ManyToOne",
           },
           {
-            "name": "ApplicationService",
-            "type": "OneToMany"
+            name: "ApplicationService",
+            type: "OneToMany",
           },
           {
-            "name": "User",
-            "type": "ManyToOne",
-            "reference_name": "owner"
-          }
-        ]
+            name: "User",
+            type: "ManyToOne",
+            reference_name: "owner",
+          },
+        ],
       },
       {
-        "name": "ApplicationService",
-        "created_at": true,
-        "updated_at": true,
-        "fields": [
+        name: "ApplicationService",
+        created_at: true,
+        updated_at: true,
+        fields: [
           {
-            "name": "name",
-            "type": "text"
+            name: "name",
+            type: "text",
           },
           {
-            "name": "status",
-            "type": "enum",
-            "values": [
-              "Active",
-              "Draft",
-              "Archived"
-            ]
+            name: "status",
+            type: "enum",
+            values: ["Active", "Draft", "Archived"],
           },
           {
-            "name": "subdomain",
-            "type": "text",
-            "unique": true,
-            "nullable": true
+            name: "subdomain",
+            type: "text",
+            unique: true,
+            nullable: true,
           },
           {
-            "name": "deployment_location",
-            "type": "text",
-            "default": "us-west-2"
-          }
+            name: "deployment_location",
+            type: "text",
+            default: "us-west-2",
+          },
         ],
-        "associations": [
+        associations: [
           {
-            "name": "Application",
-            "type": "ManyToOne"
+            name: "Application",
+            type: "ManyToOne",
           },
           {
-            "name": "ApplicationServiceApiKey",
-            "type": "OneToMany"
+            name: "ApplicationServiceApiKey",
+            type: "OneToMany",
           },
           {
-            "name": "ApplicationServiceMetric",
-            "type": "OneToMany"
-          }
-        ]
+            name: "ApplicationServiceMetric",
+            type: "OneToMany",
+          },
+        ],
       },
       {
-        "name": "ApplicationServiceApiKey",
-        "created_at": true,
-        "updated_at": true,
-        "fields": [
+        name: "ApplicationServiceApiKey",
+        created_at: true,
+        updated_at: true,
+        fields: [
           {
-            "name": "name",
-            "type": "text"
+            name: "name",
+            type: "text",
           },
           {
-            "name": "access_rights",
-            "type": "enum",
-            "values": [
-              "FullAccess",
-              "ReadOnly"
-            ]
+            name: "access_rights",
+            type: "enum",
+            values: ["FullAccess", "ReadOnly"],
           },
           {
-            "name": "expires_at",
-            "type": "date"
+            name: "expires_at",
+            type: "date",
           },
           {
-            "name": "status",
-            "type": "enum",
-            "values": [
-              "Active",
-              "Inactive"
-            ]
+            name: "status",
+            type: "enum",
+            values: ["Active", "Inactive"],
           },
           {
-            "name": "key",
-            "type": "text"
-          }
+            name: "key",
+            type: "text",
+          },
         ],
-        "associations": [
+        associations: [
           {
-            "name": "ApplicationService",
-            "type": "ManyToOne"
-          }
-        ]
+            name: "ApplicationService",
+            type: "ManyToOne",
+          },
+        ],
       },
       {
-        "name": "ApplicationServiceMetric",
-        "created_at": true,
-        "fields": [
+        name: "ApplicationServiceMetric",
+        created_at: true,
+        fields: [
           {
-            "name": "metric_type",
-            "type": "enum",
-            "values": [
-              "Bandwidth",
-              "Request",
-              "Error"
-            ]
+            name: "metric_type",
+            type: "enum",
+            values: ["Bandwidth", "Request", "Error"],
           },
           {
-            "name": "date",
-            "type": "date"
+            name: "date",
+            type: "date",
           },
           {
-            "name": "value",
-            "type": "integer"
-          }
+            name: "value",
+            type: "integer",
+          },
         ],
-        "associations": [
+        associations: [
           {
-            "name": "ApplicationService",
-            "type": "ManyToOne"
-          }
+            name: "ApplicationService",
+            type: "ManyToOne",
+          },
         ],
-        "indexes": [
+        indexes: [
           {
-            "fields": [
-              "applicationServiceId",
-              "metric_type",
-              "date"
-            ],
-            "unique": true
-          }
-        ]
-      }
+            fields: ["applicationServiceId", "metric_type", "date"],
+            unique: true,
+          },
+        ],
+      },
     ];
 
     const entityToNestedRelationshipnMap = {
       User: ["workspaceUsers.workspace"],
-      Workspace: ["workspaceUsers.user", "applications.applicationServices", "applications.owner"],
+      Workspace: [
+        "workspaceUsers.user",
+        "applications.applicationServices",
+        "applications.owner",
+      ],
       WorkspaceUser: ["workspace.applications"],
       Application: [
         "workspace.workspaceUsers",
         "applicationServices.applicationServiceApiKeys",
         "applicationServices.applicationServiceMetrics",
-        "owner.workspaceUsers"
+        "owner.workspaceUsers",
       ],
       ApplicationService: ["application.workspace", "application.owner"],
       ApplicationServiceApiKey: [
@@ -372,7 +348,6 @@ describe("test getNestedRelationships", () => {
         "applicationService.applicationServiceApiKeys",
       ],
     };
-
 
     entities.forEach((entity: Entity) => {
       const { name, associations } = entity;

@@ -135,10 +135,10 @@ describe("test isInverseRelationshipDefined", () => {
         ],
         associations: [
           {
-            "name": "Application",
-            "type": "OneToMany"
-          }
-        ]
+            name: "Application",
+            type: "OneToMany",
+          },
+        ],
       },
       {
         name: "Workspace",
