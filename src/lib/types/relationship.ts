@@ -45,12 +45,17 @@ export const isInverseRelationshipDefined = (
   entityName: string,
   association: Association,
   entities: Entity[]
-): boolean =>
-  Boolean(
+): boolean => {
+  if (entityName === association.name) {
+    return false;
+  }
+
+  return Boolean(
     entities
       .find((entity) => entity.name === association.name)
       ?.associations?.find((entity) => entity.name === entityName)
   );
+};
 
 export const getAssociationForTemplate = (
   entityName: string,
@@ -85,33 +90,35 @@ export const getNestedRelationships = (
     const associatedModel = entities.find(
       (entity) => entity.name === associationName
     );
-    return associatedModel?.associations
-      ?.map((association: Association) => {
-        const {
-          name: childAssociationName,
-          type: childType,
-          nested,
-        } = association;
-        if (nested === false) {
+    return (
+      associatedModel?.associations
+        ?.map((association: Association) => {
+          const {
+            name: childAssociationName,
+            type: childType,
+            nested,
+          } = association;
+          if (nested === false) {
+            return null;
+          }
+
+          const childReferenceName = getRelationshipName(association);
+
+          if (childAssociationName !== entityName) {
+            const parent =
+              type === "ManyToOne" || type === "OneToOne"
+                ? camelCase(referenceName)
+                : pluralize(camelCase(associationName));
+            const child =
+              childType === "ManyToOne" || childType === "OneToOne"
+                ? camelCase(childReferenceName)
+                : pluralize(camelCase(childAssociationName));
+            return `${parent}.${child}`;
+          }
+
           return null;
-        }
-
-        const childReferenceName = getRelationshipName(association);
-
-        if (childAssociationName !== entityName) {
-          const parent =
-            type === "ManyToOne" || type === "OneToOne"
-              ? camelCase(referenceName)
-              : pluralize(camelCase(associationName));
-          const child =
-            childType === "ManyToOne" || childType === "OneToOne"
-              ? camelCase(childReferenceName)
-              : pluralize(camelCase(childAssociationName));
-          return `${parent}.${child}`;
-        }
-
-        return null;
-      })
-      .filter((e) => e) || [];
+        })
+        .filter((e) => e) || []
+    );
   });
 };
