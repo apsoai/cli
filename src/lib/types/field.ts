@@ -5,7 +5,8 @@ export type FieldType =
   | "enum"
   | "integer"
   | "date"
-  | "json";
+  | "json"
+  | "json-plain";
 
 export interface Field {
   name: string;
