@@ -5,7 +5,10 @@ import * as pluralize from "pluralize";
 import { createFile, camelCase, snakeCase } from "./util";
 import { Entity } from "./types/entity";
 import { ComputedField, getFieldForTemplate } from "./types/field";
-import { getAssociationForTemplate } from "./types/relationship";
+import {
+  getAssociationForTemplate,
+  getRelationshipsForImport,
+} from "./types/relationship";
 
 export const createEntity = async (
   apiBaseDir: string,
@@ -26,6 +29,11 @@ export const createEntity = async (
 
   const relationships = getAssociationForTemplate(name, associations, entities);
 
+  const entitiesToImport = getRelationshipsForImport(
+    entity.name,
+    relationships
+  );
+
   const data = {
     name: entity.name,
     indexes: entity.indexes || [],
@@ -36,6 +44,7 @@ export const createEntity = async (
     pluralizedName: pluralize(camelCase(entity.name)),
     columns,
     associations: relationships,
+    entitiesToImport,
   };
 
   Eta.configure({

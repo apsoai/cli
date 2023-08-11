@@ -27,10 +27,8 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { CrudValidationGroups } from '@nestjsx/crud';
-<% it.associations.forEach((assoc) => { %>
-    <%if (it.name !== assoc.name) {%>
-    import {<%= assoc.name %>} from '../<%= assoc.name %>/<%= assoc.name %>.entity';
-    <% } %>
+<% it.entitiesToImport.forEach((assocName) => { %>
+import {<%= assocName %>} from '../<%= assocName %>/<%= assocName %>.entity';
 <% }) %>
 
 const { CREATE, UPDATE } = CrudValidationGroups;

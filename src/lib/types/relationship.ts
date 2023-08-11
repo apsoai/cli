@@ -122,3 +122,20 @@ export const getNestedRelationships = (
     );
   });
 };
+
+export const getRelationshipsForImport = (
+  entityName: string,
+  associations?: Association[]
+): string[] => {
+  if (associations === undefined) {
+    return [];
+  }
+
+  return [
+    ...new Set(
+      associations
+        .map((relationship) => relationship.name)
+        .filter((relationshipName) => relationshipName !== entityName)
+    ),
+  ];
+};
