@@ -1,0 +1,4 @@
+<% const {field} = it; %>
+
+@Column('json',{ nullable: <%= Boolean(field.nullable) %>  })
+<%= field.name %>: any;
