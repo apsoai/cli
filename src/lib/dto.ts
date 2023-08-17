@@ -8,6 +8,7 @@ import { Entity } from "./types/entity";
 
 export interface ComputedField {
   name: string;
+  primary?: boolean;
   dataType: string;
 }
 
@@ -52,8 +53,17 @@ export const createDto = async (
       values: field.values,
     }));
 
+  const createPrimaryKey =
+    columns.filter((column: ComputedField) => column.primary === true)
+      .length === 0;
+
+  const createdAt = entity.created_at;
+  const updatedAt = entity.updated_at;
   const data = {
     name: entity.name,
+    createPrimaryKey,
+    createdAt,
+    updatedAt,
     columns,
     enumTypes,
   };

@@ -648,6 +648,18 @@
     "@jridgewell/resolve-uri" "^3.0.3"
     "@jridgewell/sourcemap-codec" "^1.4.10"
 
+"@mavric/apso-cli@^0.0.7":
+  "integrity" "sha512-/+mB1U1IorSK60EppqHDji/VpelUPYUmYgJR+YS3ezOmMjQ0/FGxaTtiuQtrTkjGhFx7QJcyXf3X3cfE4mB8SQ=="
+  "resolved" "https://npm.pkg.github.com/download/@mavric/apso-cli/0.0.7/ed25e8e00259ed48ebd0a8567b6e768351fc7cd6"
+  "version" "0.0.7"
+  dependencies:
+    "@oclif/core" "^2"
+    "@oclif/plugin-help" "^5"
+    "@oclif/plugin-plugins" "^3"
+    "eta" "^2.0.0"
+    "pluralize" "^8.0.0"
+    "rc" "^1.2.8"
+
 "@nicolo-ribaudo/eslint-scope-5-internals@5.1.1-v1":
   "integrity" "sha512-54/JRvkLIzzDWshCWfuhadfrfZVPiElY8Fcgmg1HroEly/EDSszzhBAsarCux+D/kOslTRquNzuyGSmUSTTHGg=="
   "resolved" "https://registry.npmjs.org/@nicolo-ribaudo/eslint-scope-5-internals/-/eslint-scope-5-internals-5.1.1-v1.tgz"

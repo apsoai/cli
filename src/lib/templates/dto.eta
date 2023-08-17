@@ -6,8 +6,23 @@ export enum <%= enumType.name %> {
 }
 <% }) %>
 
-export class <%= it.name %>Dto {
+export class <%= it.name %>CreateDto {
 <% it.columns.forEach((field) => { %>
   <%= field.name %>: <%= field.dataType %>;
 <% }) %>
+};
+
+export class <%= it.name %>Dto {
+<% if (it.createPrimaryKey) { %>
+    id: number;
+<% } %>
+<% it.columns.forEach((field) => { %>
+  <%= field.name %>: <%= field.dataType %>;
+<% }) %>
+<% if (it.createdAt) { %>
+    created_at: Date;
+<% } %>
+<% if (it.updatedAt) { %>
+    updated_at: Date;
+<% } %>
 };
