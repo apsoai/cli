@@ -68,10 +68,12 @@ export class <%= it.name %> {
         <%= assoc.pluralizedName %>: <%= assoc.name %>[]
     
     <% } else if (assoc.type === 'ManyToOne') { %>
-    
+        <% if (assoc.index) { %>
+        @Index()
+        <% } %>
         @ManyToOne(() => <%= assoc.name %><% if (assoc.hasInverse) { %>, <%= assoc.camelCasedName %> => <%= assoc.camelCasedName %>.<%= it.pluralizedName %><% } %>)
+        @JoinColumn({ name: '<%= assoc.camelCasedId %>' })
         <%= assoc.relationshipName %>: <%= assoc.name %>
-
 
         @Column(<% if (assoc.nullable) { %>{ nullable: true }<% } %>)
         <%= assoc.camelCasedId %>: number;
