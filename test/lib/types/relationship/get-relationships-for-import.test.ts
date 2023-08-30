@@ -1,5 +1,5 @@
 /* eslint-disable  camelcase */
-gimport { expect } from "@jest/globals";
+import { expect } from "@jest/globals";
 import {
   Association,
   getRelationshipsForImport,
