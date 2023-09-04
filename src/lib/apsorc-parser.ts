@@ -28,7 +28,7 @@ export const parseApsorcV1 = (apsorc: ApsorcType): ParsedApsorcData => {
   for (const entity of entities) {
     delete entity.associations;
   }
-  return { entities, relationshipMap: relationshipMap };
+  return { entities, relationshipMap };
 };
 
 export const parseApsorcV2 = (apsorc: ApsorcType): ParsedApsorcData => {

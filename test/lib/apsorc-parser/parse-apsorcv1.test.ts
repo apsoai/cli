@@ -1,7 +1,11 @@
 /* eslint-disable  camelcase */
 import { expect } from "@jest/globals";
 import { ApsorcType, parseApsorcV1 } from "../../../src/lib/apsorc-parser";
+import { getInverseRelationship } from "../../../src/lib/utils/relationships/parse-v1";
 import apsorc from "../../apsorc-json/apsorc.v1.json";
+import apsorcNonBidirectional from "../../apsorc-json/apsorc-many-to-many-non-bidirectional.v1.json";
+import apsorcBidirectional from "../../apsorc-json/apsorc-many-to-many-bidirectional.v1.json";
+import { Association, Entity } from "../../../src/lib/types";
 
 describe("test parseApsorcV1", () => {
   test("version 1 apsorc returns", () => {
@@ -365,6 +369,1059 @@ describe("test parseApsorcV1", () => {
         ],
       },
     };
+    expect(result).toEqual(expectedResult);
+  });
+
+  test("version 1 apsorc with many to many returns - non-directional ManyToMany", () => {
+    const result = parseApsorcV1(apsorcNonBidirectional as ApsorcType);
+    const expectedResult = {
+      entities: [
+        {
+          name: "Customer",
+          created_at: true,
+          updated_at: true,
+          fields: [
+            {
+              name: "name",
+              type: "text",
+            },
+            {
+              name: "country",
+              type: "text",
+            },
+            {
+              name: "streetAddress1",
+              type: "text",
+            },
+            {
+              name: "streetAddress2",
+              type: "text",
+            },
+            {
+              name: "city",
+              type: "text",
+            },
+            {
+              name: "state",
+              type: "text",
+            },
+            {
+              name: "zipCode",
+              type: "text",
+            },
+            {
+              name: "createdBy",
+              type: "text",
+              nullable: true,
+            },
+            {
+              name: "status",
+              type: "enum",
+              values: ["Active", "Archived", "Delete"],
+            },
+          ],
+        },
+        {
+          name: "User",
+          created_at: true,
+          updated_at: true,
+          fields: [
+            {
+              name: "cognito_id",
+              type: "text",
+              unique: true,
+              nullable: true,
+            },
+            {
+              name: "email",
+              type: "text",
+              length: "255",
+              is_email: true,
+              unique: true,
+            },
+            {
+              name: "firstName",
+              type: "text",
+              nullable: true,
+            },
+            {
+              name: "lastName",
+              type: "text",
+              nullable: true,
+            },
+            {
+              name: "name",
+              type: "text",
+              nullable: true,
+            },
+            {
+              name: "inviteStatus",
+              type: "text",
+              default: "Invited",
+            },
+            {
+              name: "status",
+              type: "enum",
+              values: ["Active", "Inactive", "Delete"],
+            },
+            {
+              name: "role",
+              type: "enum",
+              values: ["linusAdmin", "admin", "user"],
+            },
+            {
+              name: "createdBy",
+              type: "text",
+              nullable: "true",
+            },
+          ],
+        },
+        {
+          name: "Facility",
+          created_at: true,
+          updated_at: true,
+          fields: [
+            {
+              name: "name",
+              type: "text",
+            },
+            {
+              name: "streetAddress1",
+              type: "text",
+            },
+            {
+              name: "streetAddress2",
+              type: "text",
+            },
+            {
+              name: "city",
+              type: "text",
+            },
+            {
+              name: "state",
+              type: "text",
+            },
+            {
+              name: "country",
+              type: "text",
+            },
+            {
+              name: "zipCode",
+              type: "text",
+            },
+            {
+              name: "status",
+              type: "enum",
+              values: ["Active", "Archived", "Delete"],
+            },
+            {
+              name: "weight",
+              type: "text",
+            },
+          ],
+        },
+        {
+          name: "Machine",
+          created_at: true,
+          updated_at: true,
+          fields: [
+            {
+              name: "name",
+              type: "text",
+            },
+            {
+              name: "status",
+              type: "enum",
+              values: ["Active", "Archived", "Delete"],
+            },
+          ],
+        },
+        {
+          name: "MachineType",
+          created_at: true,
+          updated_at: true,
+          fields: [
+            {
+              name: "name",
+              type: "text",
+            },
+            {
+              name: "status",
+              type: "enum",
+              values: ["Active", "Delete"],
+            },
+          ],
+        },
+        {
+          name: "Scale",
+          created_at: true,
+          updated_at: true,
+          fields: [
+            {
+              name: "name",
+              type: "text",
+            },
+            {
+              name: "ID",
+              type: "text",
+            },
+            {
+              name: "status",
+              type: "enum",
+              values: ["Active", "Archived", "Delete"],
+            },
+          ],
+        },
+        {
+          name: "FacilityBin",
+          created_at: true,
+          updated_at: true,
+          fields: [
+            {
+              name: "name",
+              type: "text",
+            },
+            {
+              name: "color",
+              type: "text",
+            },
+            {
+              name: "capacity",
+              type: "text",
+            },
+            {
+              name: "threshold",
+              type: "text",
+            },
+            {
+              name: "isPickedUp",
+              type: "text",
+            },
+            {
+              name: "status",
+              type: "enum",
+              values: ["Active", "Archived", "Delete"],
+            },
+          ],
+        },
+        {
+          name: "Hopper",
+          created_at: true,
+          updated_at: true,
+          fields: [
+            {
+              name: "ID",
+              type: "text",
+            },
+            {
+              name: "name",
+              type: "text",
+            },
+            {
+              name: "status",
+              type: "enum",
+              values: ["Active", "Archived", "Delete"],
+            },
+          ],
+        },
+        {
+          name: "Commodity",
+          created_at: true,
+          updated_at: true,
+          fields: [
+            {
+              name: "name",
+              type: "text",
+            },
+            {
+              name: "value",
+              type: "text",
+            },
+            {
+              name: "status",
+              type: "enum",
+              values: ["Active", "Delete"],
+            },
+          ],
+        },
+      ],
+      relationshipMap: {
+        Customer: [
+          { name: "User", type: "OneToMany", biDirectional: true },
+          { name: "Facility", type: "OneToMany", biDirectional: true },
+          { name: "Hopper", type: "OneToMany", biDirectional: true },
+        ],
+        User: [
+          {
+            name: "Customer",
+            type: "ManyToOne",
+            nullable: true,
+            biDirectional: true,
+          },
+          { name: "Facility", type: "OneToMany", biDirectional: true },
+          { name: "FacilityBin", type: "OneToMany", biDirectional: true },
+          { name: "Scale", type: "OneToMany", biDirectional: true },
+          { name: "Machine", type: "OneToMany", biDirectional: true },
+          { name: "MachineType", type: "OneToMany", biDirectional: true },
+          { name: "Commodity", type: "OneToMany", biDirectional: true },
+          { name: "Hopper", type: "OneToMany", biDirectional: true },
+        ],
+        Facility: [
+          {
+            name: "Customer",
+            type: "ManyToOne",
+            nullable: true,
+            biDirectional: true,
+          },
+          {
+            name: "User",
+            type: "ManyToOne",
+            nullable: true,
+            biDirectional: true,
+          },
+          { name: "Machine", type: "OneToMany", biDirectional: true },
+          { name: "Scale", type: "OneToMany", biDirectional: true },
+          { name: "FacilityBin", type: "OneToMany", biDirectional: true },
+        ],
+        Hopper: [
+          {
+            name: "Customer",
+            type: "ManyToOne",
+            nullable: true,
+            biDirectional: true,
+          },
+          {
+            name: "User",
+            type: "ManyToOne",
+            nullable: true,
+            biDirectional: true,
+          },
+          {
+            name: "Machine",
+            type: "ManyToMany",
+            join: true,
+            biDirectional: false,
+          },
+          {
+            name: "FacilityBin",
+            type: "ManyToMany",
+            join: true,
+            biDirectional: true,
+          },
+        ],
+        FacilityBin: [
+          {
+            name: "User",
+            type: "ManyToOne",
+            nullable: true,
+            biDirectional: true,
+          },
+          {
+            name: "Facility",
+            type: "ManyToOne",
+            nullable: true,
+            biDirectional: true,
+          },
+          { name: "Hopper", type: "ManyToMany", biDirectional: true },
+          {
+            name: "Commodity",
+            type: "ManyToOne",
+            nullable: true,
+            biDirectional: true,
+          },
+        ],
+        Scale: [
+          {
+            name: "User",
+            type: "ManyToOne",
+            nullable: true,
+            biDirectional: true,
+          },
+          {
+            name: "Facility",
+            type: "ManyToOne",
+            nullable: true,
+            biDirectional: true,
+          },
+          { name: "Machine", type: "ManyToMany", biDirectional: true },
+        ],
+        Machine: [
+          {
+            name: "User",
+            type: "ManyToOne",
+            nullable: true,
+            biDirectional: true,
+          },
+          {
+            name: "Facility",
+            type: "ManyToOne",
+            nullable: true,
+            biDirectional: true,
+          },
+          {
+            name: "Scale",
+            type: "ManyToMany",
+            join: true,
+            biDirectional: true,
+          },
+          {
+            name: "Hopper",
+            type: "ManyToMany",
+            join: true,
+            biDirectional: false,
+          },
+          {
+            name: "MachineType",
+            type: "ManyToOne",
+            nullable: true,
+            biDirectional: true,
+          },
+        ],
+        MachineType: [
+          {
+            name: "User",
+            type: "ManyToOne",
+            nullable: true,
+            biDirectional: true,
+          },
+          { name: "Machine", type: "OneToMany", biDirectional: true },
+        ],
+        Commodity: [
+          {
+            name: "User",
+            type: "ManyToOne",
+            nullable: true,
+            biDirectional: true,
+          },
+          { name: "FacilityBin", type: "OneToMany", biDirectional: true },
+        ],
+      },
+    };
+
+    expect(result).toEqual(expectedResult);
+  });
+
+  test("version 1 apsorc with many to many returns - only directional ManyToMany", () => {
+    const result = parseApsorcV1(apsorcBidirectional as ApsorcType);
+    const expectedResult = {
+      entities: [
+        {
+          name: "Customer",
+          created_at: true,
+          updated_at: true,
+          fields: [
+            {
+              name: "name",
+              type: "text",
+            },
+            {
+              name: "country",
+              type: "text",
+            },
+            {
+              name: "streetAddress1",
+              type: "text",
+            },
+            {
+              name: "streetAddress2",
+              type: "text",
+            },
+            {
+              name: "city",
+              type: "text",
+            },
+            {
+              name: "state",
+              type: "text",
+            },
+            {
+              name: "zipCode",
+              type: "text",
+            },
+            {
+              name: "createdBy",
+              type: "text",
+              nullable: true,
+            },
+            {
+              name: "status",
+              type: "enum",
+              values: ["Active", "Archived", "Delete"],
+            },
+          ],
+        },
+        {
+          name: "User",
+          created_at: true,
+          updated_at: true,
+          fields: [
+            {
+              name: "cognito_id",
+              type: "text",
+              unique: true,
+              nullable: true,
+            },
+            {
+              name: "email",
+              type: "text",
+              length: "255",
+              is_email: true,
+              unique: true,
+            },
+            {
+              name: "firstName",
+              type: "text",
+              nullable: true,
+            },
+            {
+              name: "lastName",
+              type: "text",
+              nullable: true,
+            },
+            {
+              name: "name",
+              type: "text",
+              nullable: true,
+            },
+            {
+              name: "inviteStatus",
+              type: "text",
+              default: "Invited",
+            },
+            {
+              name: "status",
+              type: "enum",
+              values: ["Active", "Inactive", "Delete"],
+            },
+            {
+              name: "role",
+              type: "enum",
+              values: ["linusAdmin", "admin", "user"],
+            },
+            {
+              name: "createdBy",
+              type: "text",
+              nullable: "true",
+            },
+          ],
+        },
+        {
+          name: "Facility",
+          created_at: true,
+          updated_at: true,
+          fields: [
+            {
+              name: "name",
+              type: "text",
+            },
+            {
+              name: "streetAddress1",
+              type: "text",
+            },
+            {
+              name: "streetAddress2",
+              type: "text",
+            },
+            {
+              name: "city",
+              type: "text",
+            },
+            {
+              name: "state",
+              type: "text",
+            },
+            {
+              name: "country",
+              type: "text",
+            },
+            {
+              name: "zipCode",
+              type: "text",
+            },
+            {
+              name: "status",
+              type: "enum",
+              values: ["Active", "Archived", "Delete"],
+            },
+            {
+              name: "weight",
+              type: "text",
+            },
+          ],
+        },
+        {
+          name: "Machine",
+          created_at: true,
+          updated_at: true,
+          fields: [
+            {
+              name: "name",
+              type: "text",
+            },
+            {
+              name: "status",
+              type: "enum",
+              values: ["Active", "Archived", "Delete"],
+            },
+          ],
+        },
+        {
+          name: "MachineType",
+          created_at: true,
+          updated_at: true,
+          fields: [
+            {
+              name: "name",
+              type: "text",
+            },
+            {
+              name: "status",
+              type: "enum",
+              values: ["Active", "Delete"],
+            },
+          ],
+        },
+        {
+          name: "Scale",
+          created_at: true,
+          updated_at: true,
+          fields: [
+            {
+              name: "name",
+              type: "text",
+            },
+            {
+              name: "ID",
+              type: "text",
+            },
+            {
+              name: "status",
+              type: "enum",
+              values: ["Active", "Archived", "Delete"],
+            },
+          ],
+        },
+        {
+          name: "FacilityBin",
+          created_at: true,
+          updated_at: true,
+          fields: [
+            {
+              name: "name",
+              type: "text",
+            },
+            {
+              name: "color",
+              type: "text",
+            },
+            {
+              name: "capacity",
+              type: "text",
+            },
+            {
+              name: "threshold",
+              type: "text",
+            },
+            {
+              name: "isPickedUp",
+              type: "text",
+            },
+            {
+              name: "status",
+              type: "enum",
+              values: ["Active", "Archived", "Delete"],
+            },
+          ],
+        },
+        {
+          name: "Hopper",
+          created_at: true,
+          updated_at: true,
+          fields: [
+            {
+              name: "ID",
+              type: "text",
+            },
+            {
+              name: "name",
+              type: "text",
+            },
+            {
+              name: "status",
+              type: "enum",
+              values: ["Active", "Archived", "Delete"],
+            },
+          ],
+        },
+        {
+          name: "Commodity",
+          created_at: true,
+          updated_at: true,
+          fields: [
+            {
+              name: "name",
+              type: "text",
+            },
+            {
+              name: "value",
+              type: "text",
+            },
+            {
+              name: "status",
+              type: "enum",
+              values: ["Active", "Delete"],
+            },
+          ],
+        },
+      ],
+      relationshipMap: {
+        Customer: [
+          { name: "User", type: "OneToMany", biDirectional: true },
+          { name: "Facility", type: "OneToMany", biDirectional: true },
+          { name: "Hopper", type: "OneToMany", biDirectional: true },
+        ],
+        User: [
+          {
+            name: "Customer",
+            type: "ManyToOne",
+            nullable: true,
+            biDirectional: true,
+          },
+          { name: "Facility", type: "OneToMany", biDirectional: true },
+          { name: "FacilityBin", type: "OneToMany", biDirectional: true },
+          { name: "Scale", type: "OneToMany", biDirectional: true },
+          { name: "Machine", type: "OneToMany", biDirectional: true },
+          { name: "MachineType", type: "OneToMany", biDirectional: true },
+          { name: "Commodity", type: "OneToMany", biDirectional: true },
+          { name: "Hopper", type: "OneToMany", biDirectional: true },
+        ],
+        Facility: [
+          {
+            name: "Customer",
+            type: "ManyToOne",
+            nullable: true,
+            biDirectional: true,
+          },
+          {
+            name: "User",
+            type: "ManyToOne",
+            nullable: true,
+            biDirectional: true,
+          },
+          { name: "Machine", type: "OneToMany", biDirectional: true },
+          { name: "Scale", type: "OneToMany", biDirectional: true },
+          { name: "FacilityBin", type: "OneToMany", biDirectional: true },
+        ],
+        Hopper: [
+          {
+            name: "Customer",
+            type: "ManyToOne",
+            nullable: true,
+            biDirectional: true,
+          },
+          {
+            name: "User",
+            type: "ManyToOne",
+            nullable: true,
+            biDirectional: true,
+          },
+          {
+            name: "Machine",
+            type: "ManyToMany",
+            biDirectional: true,
+          },
+          {
+            name: "FacilityBin",
+            type: "ManyToMany",
+            join: true,
+            biDirectional: true,
+          },
+        ],
+        FacilityBin: [
+          {
+            name: "User",
+            type: "ManyToOne",
+            nullable: true,
+            biDirectional: true,
+          },
+          {
+            name: "Facility",
+            type: "ManyToOne",
+            nullable: true,
+            biDirectional: true,
+          },
+          { name: "Hopper", type: "ManyToMany", biDirectional: true },
+          {
+            name: "Commodity",
+            type: "ManyToOne",
+            nullable: true,
+            biDirectional: true,
+          },
+        ],
+        Scale: [
+          {
+            name: "User",
+            type: "ManyToOne",
+            nullable: true,
+            biDirectional: true,
+          },
+          {
+            name: "Facility",
+            type: "ManyToOne",
+            nullable: true,
+            biDirectional: true,
+          },
+          { name: "Machine", type: "ManyToMany", biDirectional: true },
+        ],
+        Machine: [
+          {
+            name: "User",
+            type: "ManyToOne",
+            nullable: true,
+            biDirectional: true,
+          },
+          {
+            name: "Facility",
+            type: "ManyToOne",
+            nullable: true,
+            biDirectional: true,
+          },
+          {
+            name: "Scale",
+            type: "ManyToMany",
+            join: true,
+            biDirectional: true,
+          },
+          {
+            name: "Hopper",
+            type: "ManyToMany",
+            join: true,
+            biDirectional: true,
+          },
+          {
+            name: "MachineType",
+            type: "ManyToOne",
+            nullable: true,
+            biDirectional: true,
+          },
+        ],
+        MachineType: [
+          {
+            name: "User",
+            type: "ManyToOne",
+            nullable: true,
+            biDirectional: true,
+          },
+          { name: "Machine", type: "OneToMany", biDirectional: true },
+        ],
+        Commodity: [
+          {
+            name: "User",
+            type: "ManyToOne",
+            nullable: true,
+            biDirectional: true,
+          },
+          { name: "FacilityBin", type: "OneToMany", biDirectional: true },
+        ],
+      },
+    };
+
+    expect(result).toEqual(expectedResult);
+  });
+});
+
+describe("test getInverseRelationship", () => {
+  test("returns when inverse found", () => {
+    const entities: Entity[] = [
+      {
+        name: "Customer",
+        created_at: true,
+        updated_at: true,
+        fields: [
+          {
+            name: "name",
+            type: "text",
+          },
+        ],
+        associations: [
+          {
+            name: "User",
+            type: "OneToMany",
+          },
+          {
+            name: "Facility",
+            type: "OneToMany",
+          },
+          {
+            name: "Hopper",
+            type: "OneToMany",
+          },
+        ],
+      },
+      {
+        name: "User",
+        created_at: true,
+        updated_at: true,
+        fields: [
+          {
+            name: "cognito_id",
+            type: "text",
+            unique: true,
+            nullable: true,
+          },
+        ],
+        associations: [
+          {
+            name: "Customer",
+            type: "ManyToOne",
+            nullable: true,
+          },
+          {
+            name: "Facility",
+            type: "OneToMany",
+          },
+        ],
+      },
+    ];
+
+    const association: Association = {
+      name: "User",
+      type: "OneToMany",
+    };
+
+    const entityName = "Customer";
+
+    const expectedResult = {
+      name: "Customer",
+      type: "ManyToOne",
+      nullable: true,
+    };
+
+    const result = getInverseRelationship(entityName, association, entities);
+    expect(result).toEqual(expectedResult);
+  });
+
+  test("returns null when no inverse found", () => {
+    const entities: Entity[] = [
+      {
+        name: "Customer",
+        created_at: true,
+        updated_at: true,
+        fields: [
+          {
+            name: "name",
+            type: "text",
+          },
+        ],
+        associations: [
+          {
+            name: "User",
+            type: "OneToMany",
+          },
+          {
+            name: "Facility",
+            type: "OneToMany",
+          },
+          {
+            name: "Hopper",
+            type: "OneToMany",
+          },
+        ],
+      },
+      {
+        name: "User",
+        created_at: true,
+        updated_at: true,
+        fields: [
+          {
+            name: "cognito_id",
+            type: "text",
+            unique: true,
+            nullable: true,
+          },
+        ],
+        associations: [
+          {
+            name: "Facility",
+            type: "OneToMany",
+          },
+        ],
+      },
+    ];
+
+    const association: Association = {
+      name: "User",
+      type: "OneToMany",
+    };
+
+    const entityName = "Customer";
+
+    const expectedResult = null;
+
+    const result = getInverseRelationship(entityName, association, entities);
+    expect(result).toEqual(expectedResult);
+  });
+
+  test("returns null when association is a self-join", () => {
+    const entities: Entity[] = [
+      {
+        name: "Customer",
+        created_at: true,
+        updated_at: true,
+        fields: [
+          {
+            name: "name",
+            type: "text",
+          },
+        ],
+        associations: [
+          {
+            name: "Customer",
+            type: "OneToOne",
+            reference_name: 'parent'
+          },
+          {
+            name: "Facility",
+            type: "OneToMany",
+          },
+          {
+            name: "Hopper",
+            type: "OneToMany",
+          },
+        ],
+      },
+      {
+        name: "User",
+        created_at: true,
+        updated_at: true,
+        fields: [
+          {
+            name: "cognito_id",
+            type: "text",
+            unique: true,
+            nullable: true,
+          },
+        ],
+        associations: [
+          {
+            name: "Facility",
+            type: "OneToMany",
+          },
+        ],
+      },
+    ];
+
+    const association: Association = {
+      name: "Customer",
+      type: "OneToOne",
+      reference_name: 'parent'
+    };
+
+    const entityName = "Customer";
+
+    const expectedResult = null;
+
+    const result = getInverseRelationship(entityName, association, entities);
     expect(result).toEqual(expectedResult);
   });
 });

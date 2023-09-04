@@ -22,18 +22,46 @@ export const isInverseRelationshipDefined = (
   );
 };
 
+export const getInverseRelationship = (
+  entityName: string,
+  association: Association,
+  entities: Entity[]
+): Association | null => {
+  if (entityName === association.name) {
+    return null;
+  }
+  
+  return entities
+    .find((entity) => entity.name === association.name)
+    ?.associations?.find((entity) => entity.name === entityName) || null;
+};
+
 const convertAssociationToRelationship = (
   entityName: string,
   association: Association,
   entities: Entity[]
 ): ApsorcRelationship | null => {
-  let inverseRelation;
-  if (entityName !== association.name) {
-    inverseRelation = entities
-      .find((entity) => entity.name === association.name)
-      ?.associations?.find((entity) => entity.name === entityName);
-    if (association.type === "ManyToOne" && inverseRelation) {
+  const inverseRelation = getInverseRelationship(entityName, association, entities);
+  let biDirectional = Boolean(inverseRelation);
+
+  if (association.type === "ManyToOne" && biDirectional) {
+    return null;
+  }
+
+  if (association.type === "ManyToMany" && inverseRelation) {
+    if (
+      association.join_table !== true &&
+      inverseRelation.join_table === true
+    ) {
       return null;
+    }
+
+    if (
+      association.join_table === true &&
+      inverseRelation.join_table === true
+    ) {
+      // Both ManyToMany sides have join_table set to true
+      biDirectional = false;
     }
   }
 
@@ -47,11 +75,7 @@ const convertAssociationToRelationship = (
     to_name: association.reference_name,
     nullable: association.nullable || inverseNullable,
     /* eslint-disable-next-line  camelcase */
-    bi_directional: isInverseRelationshipDefined(
-      entityName,
-      association,
-      entities
-    ),
+    bi_directional: biDirectional,
   };
 };
 
