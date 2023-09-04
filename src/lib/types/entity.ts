@@ -1,6 +1,6 @@
 import { Field } from "./field";
-import { Association } from "./relationship";
 import { Index } from "./indices";
+import { Association } from "./relationship";
 
 export interface Entity {
   name: string;
@@ -9,6 +9,8 @@ export interface Entity {
   /* eslint-disable-next-line  camelcase */
   updated_at?: boolean;
   fields?: Field[];
-  associations?: Association[];
   indexes?: Index[];
+
+  // only used for v1
+  associations?: Association[];
 }

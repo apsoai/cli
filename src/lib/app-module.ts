@@ -1,8 +1,8 @@
-import { createFile } from "./util";
+import { createFile } from "./utils/file-system";
 import * as Eta from "eta";
 import * as path from "path";
 // import * as fs from "fs";
-import { Entity } from "./types/entity";
+import { Entity } from "./types";
 
 export const createAppModule = async (
   apiBaseDir: string,

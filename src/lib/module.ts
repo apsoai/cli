@@ -1,7 +1,7 @@
-import { createFile } from "./util";
 import * as Eta from "eta";
 import * as path from "path";
 // import * as fs from "fs";
+import { createFile } from "./utils/file-system";
 
 export const createModule = async (
   apiBaseDir: string,

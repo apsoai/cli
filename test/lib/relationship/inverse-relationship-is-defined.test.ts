@@ -1,10 +1,7 @@
 /* eslint-disable  camelcase */
 import { expect } from "@jest/globals";
-import { Entity } from "../../../../src/lib/types/entity";
-import {
-  Association,
-  isInverseRelationshipDefined,
-} from "../../../../src/lib/types/relationship";
+import { Association, Entity } from "../../../src/lib/types";
+import { isInverseRelationshipDefined } from "../../../src/lib/utils/relationships/parse-v1";
 
 describe("test isInverseRelationshipDefined", () => {
   test("test inverse relationship for many to one is not defined", () => {

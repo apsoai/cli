@@ -1,9 +1,7 @@
 /* eslint-disable  camelcase */
 import { expect } from "@jest/globals";
-import {
-  Association,
-  getRelationshipsForImport,
-} from "../../../../src/lib/types/relationship";
+import { Association } from "../../../src/lib/types";
+import { getRelationshipsForImport } from "../../../src/lib/utils/relationships";
 
 describe("test getRelationshipForImport", () => {
   test("undefined relationships returns empty list", () => {

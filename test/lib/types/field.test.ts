@@ -1,10 +1,9 @@
 import { expect } from "@jest/globals";
+import { Field, FieldType } from "../../../src/lib/types/field";
 import {
   getDefaultValueForField,
   getJsTypeFromFieldType,
-  Field,
-  FieldType,
-} from "../../../src/lib/types/field";
+} from "../../../src/lib/utils/field";
 
 const fieldTypeToExpectedJSType = {
   text: "string",
