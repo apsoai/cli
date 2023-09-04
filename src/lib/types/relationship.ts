@@ -13,6 +13,7 @@ export interface ApsorcRelationship {
   nullable?: boolean;
   /* eslint-disable-next-line  camelcase */
   bi_directional?: boolean;
+  index?: boolean;
 }
 
 export interface Relationship {
@@ -22,6 +23,7 @@ export interface Relationship {
   nullable?: boolean;
   join?: boolean;
   biDirectional?: boolean;
+  index?: boolean;
 }
 
 export interface RelationshipForTemplate extends Relationship {
@@ -47,4 +49,5 @@ export interface Association {
   reference_name?: string;
   nested?: boolean;
   nullable?: boolean;
+  index?: boolean;
 }

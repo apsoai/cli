@@ -270,12 +270,14 @@ describe("test parseApsorcV2", () => {
             name: "User",
             nullable: true,
             biDirectional: true,
+            index: false,
           },
           {
             type: "ManyToOne",
             name: "Workspace",
             nullable: false,
             biDirectional: true,
+            index: false,
           },
         ],
         Workspace: [
@@ -296,6 +298,7 @@ describe("test parseApsorcV2", () => {
             name: "Workspace",
             nullable: false,
             biDirectional: true,
+            index: true,
           },
           {
             type: "OneToMany",
@@ -307,6 +310,7 @@ describe("test parseApsorcV2", () => {
             name: "User",
             referenceName: "owner",
             nullable: false,
+            index: false,
           },
         ],
         ApplicationService: [
@@ -315,6 +319,7 @@ describe("test parseApsorcV2", () => {
             name: "Application",
             nullable: false,
             biDirectional: true,
+            index: false,
           },
           {
             type: "OneToMany",
@@ -331,12 +336,14 @@ describe("test parseApsorcV2", () => {
             name: "InfrastructureStack",
             referenceName: "networkStack",
             nullable: true,
+            index: false,
           },
           {
             type: "ManyToOne",
             name: "InfrastructureStack",
             referenceName: "databaseStack",
             nullable: true,
+            index: false,
           },
         ],
         ApplicationServiceApiKey: [
@@ -345,6 +352,7 @@ describe("test parseApsorcV2", () => {
             name: "ApplicationService",
             nullable: false,
             biDirectional: true,
+            index: false,
           },
         ],
         ApplicationServiceMetric: [
@@ -353,6 +361,7 @@ describe("test parseApsorcV2", () => {
             name: "ApplicationService",
             nullable: false,
             biDirectional: true,
+            index: false,
           },
         ],
         InfrastructureStack: [
@@ -361,6 +370,7 @@ describe("test parseApsorcV2", () => {
             name: "InfrastructureStack",
             referenceName: "networkStack",
             nullable: true,
+            index: false,
           },
         ],
       },

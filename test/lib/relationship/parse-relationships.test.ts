@@ -64,12 +64,14 @@ describe("test parseRelationships", () => {
           name: "User",
           nullable: true,
           biDirectional: true,
+          index: false,
         },
         {
           type: "ManyToOne",
           name: "Workspace",
           nullable: false,
           biDirectional: true,
+          index: false,
         },
       ],
       Workspace: [
@@ -90,6 +92,7 @@ describe("test parseRelationships", () => {
           name: "Workspace",
           nullable: false,
           biDirectional: true,
+          index: false,
         },
         {
           type: "OneToMany",
@@ -101,6 +104,7 @@ describe("test parseRelationships", () => {
           name: "User",
           referenceName: "owner",
           nullable: false,
+          index: false,
         },
       ],
       ApplicationService: [
@@ -109,6 +113,7 @@ describe("test parseRelationships", () => {
           name: "Application",
           nullable: false,
           biDirectional: true,
+          index: false,
         },
         {
           type: "OneToMany",
@@ -125,12 +130,14 @@ describe("test parseRelationships", () => {
           name: "InfrastructureStack",
           referenceName: "networkStack",
           nullable: true,
+          index: false,
         },
         {
           type: "ManyToOne",
           name: "InfrastructureStack",
           referenceName: "databaseStack",
           nullable: true,
+          index: false,
         },
       ],
       ApplicationServiceApiKey: [
@@ -139,6 +146,7 @@ describe("test parseRelationships", () => {
           name: "ApplicationService",
           nullable: false,
           biDirectional: true,
+          index: false,
         },
       ],
       ApplicationServiceMetric: [
@@ -147,6 +155,7 @@ describe("test parseRelationships", () => {
           name: "ApplicationService",
           nullable: false,
           biDirectional: true,
+          index: false,
         },
       ],
       InfrastructureStack: [
@@ -155,6 +164,7 @@ describe("test parseRelationships", () => {
           name: "InfrastructureStack",
           referenceName: "networkStack",
           nullable: true,
+          index: false,
         },
       ],
     };
@@ -180,6 +190,7 @@ describe("test parseOneToMany", () => {
           type: "ManyToOne",
           nullable: true,
           biDirectional: true,
+          index: false,
         },
       ],
     };
@@ -204,6 +215,31 @@ describe("test parseManyToOne", () => {
           type: "ManyToOne",
           nullable: true,
           referenceName: "networkStack",
+          index: false,
+        },
+      ],
+    };
+    const result = parseManytoOne(relationship);
+    expect(result).toEqual(expectedResult);
+  });
+
+  test("ManyToOne returns one relationship with index", () => {
+    const relationship: ApsorcRelationship = {
+      from: "ApplicationService",
+      to: "InfrastructureStack",
+      type: "ManyToOne",
+      to_name: "networkStack",
+      nullable: true,
+      index: true
+    };
+    const expectedResult: { [key: string]: Relationship[] } = {
+      ApplicationService: [
+        {
+          name: "InfrastructureStack",
+          type: "ManyToOne",
+          nullable: true,
+          referenceName: "networkStack",
+          index: true,
         },
       ],
     };
@@ -226,6 +262,7 @@ describe("test parseManyToOne", () => {
           type: "ManyToOne",
           nullable: true,
           referenceName: "networkStack",
+          index: false,
         },
       ],
     };

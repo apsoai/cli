@@ -274,12 +274,14 @@ describe("test parseApsorcV1", () => {
             name: "User",
             nullable: true,
             biDirectional: true,
+            index: false,
           },
           {
             type: "ManyToOne",
             name: "Workspace",
             nullable: false,
             biDirectional: true,
+            index: false,
           },
         ],
         Workspace: [
@@ -300,6 +302,7 @@ describe("test parseApsorcV1", () => {
             name: "Workspace",
             nullable: false,
             biDirectional: true,
+            index: true
           },
           {
             type: "OneToMany",
@@ -311,6 +314,7 @@ describe("test parseApsorcV1", () => {
             name: "User",
             referenceName: "owner",
             nullable: false,
+            index: false,
           },
         ],
         ApplicationService: [
@@ -319,6 +323,7 @@ describe("test parseApsorcV1", () => {
             name: "Application",
             nullable: false,
             biDirectional: true,
+            index: false,
           },
           {
             type: "OneToMany",
@@ -335,12 +340,14 @@ describe("test parseApsorcV1", () => {
             name: "InfrastructureStack",
             referenceName: "networkStack",
             nullable: true,
+            index: false,
           },
           {
             type: "ManyToOne",
             name: "InfrastructureStack",
             referenceName: "databaseStack",
             nullable: true,
+            index: false,
           },
         ],
         ApplicationServiceApiKey: [
@@ -349,6 +356,7 @@ describe("test parseApsorcV1", () => {
             name: "ApplicationService",
             nullable: false,
             biDirectional: true,
+            index: false,
           },
         ],
         ApplicationServiceMetric: [
@@ -357,6 +365,7 @@ describe("test parseApsorcV1", () => {
             name: "ApplicationService",
             nullable: false,
             biDirectional: true,
+            index: false,
           },
         ],
         InfrastructureStack: [
@@ -365,6 +374,7 @@ describe("test parseApsorcV1", () => {
             name: "InfrastructureStack",
             referenceName: "networkStack",
             nullable: true,
+            index: false,
           },
         ],
       },
@@ -657,6 +667,7 @@ describe("test parseApsorcV1", () => {
             type: "ManyToOne",
             nullable: true,
             biDirectional: true,
+            index: false,
           },
           { name: "Facility", type: "OneToMany", biDirectional: true },
           { name: "FacilityBin", type: "OneToMany", biDirectional: true },
@@ -672,12 +683,14 @@ describe("test parseApsorcV1", () => {
             type: "ManyToOne",
             nullable: true,
             biDirectional: true,
+            index: false,
           },
           {
             name: "User",
             type: "ManyToOne",
             nullable: true,
             biDirectional: true,
+            index: false,
           },
           { name: "Machine", type: "OneToMany", biDirectional: true },
           { name: "Scale", type: "OneToMany", biDirectional: true },
@@ -689,12 +702,14 @@ describe("test parseApsorcV1", () => {
             type: "ManyToOne",
             nullable: true,
             biDirectional: true,
+            index: false,
           },
           {
             name: "User",
             type: "ManyToOne",
             nullable: true,
             biDirectional: true,
+            index: false,
           },
           {
             name: "Machine",
@@ -715,12 +730,14 @@ describe("test parseApsorcV1", () => {
             type: "ManyToOne",
             nullable: true,
             biDirectional: true,
+            index: false,
           },
           {
             name: "Facility",
             type: "ManyToOne",
             nullable: true,
             biDirectional: true,
+            index: false,
           },
           { name: "Hopper", type: "ManyToMany", biDirectional: true },
           {
@@ -728,6 +745,7 @@ describe("test parseApsorcV1", () => {
             type: "ManyToOne",
             nullable: true,
             biDirectional: true,
+            index: false,
           },
         ],
         Scale: [
@@ -736,12 +754,14 @@ describe("test parseApsorcV1", () => {
             type: "ManyToOne",
             nullable: true,
             biDirectional: true,
+            index: false,
           },
           {
             name: "Facility",
             type: "ManyToOne",
             nullable: true,
             biDirectional: true,
+            index: false,
           },
           { name: "Machine", type: "ManyToMany", biDirectional: true },
         ],
@@ -751,12 +771,14 @@ describe("test parseApsorcV1", () => {
             type: "ManyToOne",
             nullable: true,
             biDirectional: true,
+            index: false,
           },
           {
             name: "Facility",
             type: "ManyToOne",
             nullable: true,
             biDirectional: true,
+            index: false,
           },
           {
             name: "Scale",
@@ -775,6 +797,7 @@ describe("test parseApsorcV1", () => {
             type: "ManyToOne",
             nullable: true,
             biDirectional: true,
+            index: false,
           },
         ],
         MachineType: [
@@ -783,6 +806,7 @@ describe("test parseApsorcV1", () => {
             type: "ManyToOne",
             nullable: true,
             biDirectional: true,
+            index: false,
           },
           { name: "Machine", type: "OneToMany", biDirectional: true },
         ],
@@ -792,6 +816,7 @@ describe("test parseApsorcV1", () => {
             type: "ManyToOne",
             nullable: true,
             biDirectional: true,
+            index: false,
           },
           { name: "FacilityBin", type: "OneToMany", biDirectional: true },
         ],
@@ -1086,6 +1111,7 @@ describe("test parseApsorcV1", () => {
             type: "ManyToOne",
             nullable: true,
             biDirectional: true,
+            index: false,
           },
           { name: "Facility", type: "OneToMany", biDirectional: true },
           { name: "FacilityBin", type: "OneToMany", biDirectional: true },
@@ -1101,12 +1127,14 @@ describe("test parseApsorcV1", () => {
             type: "ManyToOne",
             nullable: true,
             biDirectional: true,
+            index: false,
           },
           {
             name: "User",
             type: "ManyToOne",
             nullable: true,
             biDirectional: true,
+            index: false,
           },
           { name: "Machine", type: "OneToMany", biDirectional: true },
           { name: "Scale", type: "OneToMany", biDirectional: true },
@@ -1118,12 +1146,14 @@ describe("test parseApsorcV1", () => {
             type: "ManyToOne",
             nullable: true,
             biDirectional: true,
+            index: false,
           },
           {
             name: "User",
             type: "ManyToOne",
             nullable: true,
             biDirectional: true,
+            index: false,
           },
           {
             name: "Machine",
@@ -1143,12 +1173,14 @@ describe("test parseApsorcV1", () => {
             type: "ManyToOne",
             nullable: true,
             biDirectional: true,
+            index: false,
           },
           {
             name: "Facility",
             type: "ManyToOne",
             nullable: true,
             biDirectional: true,
+            index: false,
           },
           { name: "Hopper", type: "ManyToMany", biDirectional: true },
           {
@@ -1156,6 +1188,7 @@ describe("test parseApsorcV1", () => {
             type: "ManyToOne",
             nullable: true,
             biDirectional: true,
+            index: false,
           },
         ],
         Scale: [
@@ -1164,12 +1197,14 @@ describe("test parseApsorcV1", () => {
             type: "ManyToOne",
             nullable: true,
             biDirectional: true,
+            index: false,
           },
           {
             name: "Facility",
             type: "ManyToOne",
             nullable: true,
             biDirectional: true,
+            index: false,
           },
           { name: "Machine", type: "ManyToMany", biDirectional: true },
         ],
@@ -1179,12 +1214,14 @@ describe("test parseApsorcV1", () => {
             type: "ManyToOne",
             nullable: true,
             biDirectional: true,
+            index: false,
           },
           {
             name: "Facility",
             type: "ManyToOne",
             nullable: true,
             biDirectional: true,
+            index: false,
           },
           {
             name: "Scale",
@@ -1203,6 +1240,7 @@ describe("test parseApsorcV1", () => {
             type: "ManyToOne",
             nullable: true,
             biDirectional: true,
+            index: false,
           },
         ],
         MachineType: [
@@ -1211,6 +1249,7 @@ describe("test parseApsorcV1", () => {
             type: "ManyToOne",
             nullable: true,
             biDirectional: true,
+            index: false,
           },
           { name: "Machine", type: "OneToMany", biDirectional: true },
         ],
@@ -1220,6 +1259,7 @@ describe("test parseApsorcV1", () => {
             type: "ManyToOne",
             nullable: true,
             biDirectional: true,
+            index: false,
           },
           { name: "FacilityBin", type: "OneToMany", biDirectional: true },
         ],
@@ -1378,7 +1418,7 @@ describe("test getInverseRelationship", () => {
           {
             name: "Customer",
             type: "OneToOne",
-            reference_name: 'parent'
+            reference_name: "parent",
           },
           {
             name: "Facility",
@@ -1414,7 +1454,7 @@ describe("test getInverseRelationship", () => {
     const association: Association = {
       name: "Customer",
       type: "OneToOne",
-      reference_name: 'parent'
+      reference_name: "parent",
     };
 
     const entityName = "Customer";

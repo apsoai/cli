@@ -114,7 +114,8 @@
       "associations": [
         {
           "name": "Workspace",
-          "type": "ManyToOne"
+          "type": "ManyToOne",
+          "index": true
         },
         {
           "name": "ApplicationService",

@@ -20,12 +20,14 @@ describe("test parseV1Relationships", () => {
           name: "User",
           nullable: true,
           biDirectional: true,
+          index: false,
         },
         {
           type: "ManyToOne",
           name: "Workspace",
           nullable: false,
           biDirectional: true,
+          index: false,
         },
       ],
       Workspace: [
@@ -46,6 +48,7 @@ describe("test parseV1Relationships", () => {
           name: "Workspace",
           nullable: false,
           biDirectional: true,
+          index: true,
         },
         {
           type: "OneToMany",
@@ -57,6 +60,7 @@ describe("test parseV1Relationships", () => {
           name: "User",
           referenceName: "owner",
           nullable: false,
+          index: false,
         },
       ],
       ApplicationService: [
@@ -65,6 +69,7 @@ describe("test parseV1Relationships", () => {
           name: "Application",
           nullable: false,
           biDirectional: true,
+          index: false,
         },
         {
           type: "OneToMany",
@@ -81,12 +86,14 @@ describe("test parseV1Relationships", () => {
           name: "InfrastructureStack",
           referenceName: "networkStack",
           nullable: true,
+          index: false,
         },
         {
           type: "ManyToOne",
           name: "InfrastructureStack",
           referenceName: "databaseStack",
           nullable: true,
+          index: false,
         },
       ],
       ApplicationServiceApiKey: [
@@ -95,6 +102,7 @@ describe("test parseV1Relationships", () => {
           name: "ApplicationService",
           nullable: false,
           biDirectional: true,
+          index: false,
         },
       ],
       ApplicationServiceMetric: [
@@ -103,6 +111,7 @@ describe("test parseV1Relationships", () => {
           name: "ApplicationService",
           nullable: false,
           biDirectional: true,
+          index: false,
         },
       ],
       InfrastructureStack: [
@@ -111,6 +120,7 @@ describe("test parseV1Relationships", () => {
           name: "InfrastructureStack",
           referenceName: "networkStack",
           nullable: true,
+          index: false,
         },
       ],
     };

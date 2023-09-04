@@ -16,7 +16,8 @@
     {
       "from": "Workspace",
       "to": "Application",
-      "type": "OneToMany"
+      "type": "OneToMany",
+      "index": true
     },
     {
       "from": "Application",

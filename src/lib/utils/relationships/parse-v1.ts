@@ -43,6 +43,11 @@ const convertAssociationToRelationship = (
 ): ApsorcRelationship | null => {
   const inverseRelation = getInverseRelationship(entityName, association, entities);
   let biDirectional = Boolean(inverseRelation);
+  let index = association.index;
+
+  if (association.type === "OneToMany" && inverseRelation) {
+    index = inverseRelation.index || false;
+  }
 
   if (association.type === "ManyToOne" && biDirectional) {
     return null;
@@ -76,6 +81,7 @@ const convertAssociationToRelationship = (
     nullable: association.nullable || inverseNullable,
     /* eslint-disable-next-line  camelcase */
     bi_directional: biDirectional,
+    index,
   };
 };
 
