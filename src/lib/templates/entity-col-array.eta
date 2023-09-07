@@ -1,10 +1,17 @@
-<% const {field} = it; %>
+<% const {field, isGql} = it; %>
 
-@Column("text", {
-    array: true,
-    nullable: <%= Boolean(field.nullable) %>
-})
-<% if (field.index ) {%>
-@Index()
+
+<% if (isGql === true) {%>
+@Field(() => [String], { nullable: <%= Boolean(field.nullable) %> })
 <% } %>
+<% else {%>
+    @Column("text", {
+        array: true,
+        nullable: <%= Boolean(field.nullable) %>
+    })
+    <% if (field.index ) {%>
+    @Index()
+    <% } %>
+<% } %>
+
 <%= field.name %>!: <%= field.dataType %>;

@@ -1,13 +1,16 @@
 <%~ includeFile('./header.eta') %>
 /* eslint @typescript-eslint/no-unused-vars: "off" */
 
+import { JSONResolver } from 'graphql-scalars';
 import {
     Column,
     Entity,
 <%~ it.associations.map((assoc) => `${assoc.type},`).filter((v, i, s) => s.indexOf(v) === i).join("\r\n") %>
-<% if (it.createdAt) { %>    CreateDateColumn,
+<% if (it.createdAt) { %>
+    CreateDateColumn,
 <% } %>
-<% if (it.updatedAt) { %>    UpdateDateColumn,
+<% if (it.updatedAt) { %>
+    UpdateDateColumn,
 <% } %>
     PrimaryGeneratedColumn,
     Generated,
@@ -27,6 +30,9 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { CrudValidationGroups } from '@nestjsx/crud';
+<% if (it.importEnums) { %>
+import * as enums from './<%=it.name%>.enum';
+<% } %>
 <% it.entitiesToImport.forEach((assocName) => { %>
 import {<%= assocName %>} from '../<%= assocName %>/<%= assocName %>.entity';
 <% }) %>

@@ -1,7 +1,13 @@
-<% const {field} = it; %>
+<% const {field, isGql} = it; %>
 
-@Column({ type: 'date', nullable: <%= Boolean(field.nullable) %> })
-<% if (field.index ) {%>
-@Index()
+<% if (isGql === true) {%>
+    @Field(() => Date)
 <% } %>
+<% else {%>
+    @Column({ type: 'date', nullable: <%= Boolean(field.nullable) %> })
+    <% if (field.index ) {%>
+    @Index()
+    <% } %>
+<% } %>
+
 <%= field.name %>: string;

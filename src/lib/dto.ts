@@ -2,24 +2,16 @@ import * as Eta from "eta";
 import * as path from "path";
 
 import { createFile } from "./utils/file-system";
-import { camelCase } from "./utils/casing";
 import { Entity, Field, Relationship } from "./types";
-import { getJsTypeFromFieldType } from "./utils/field";
+import { fieldToEnumType, getJsTypeFromFieldType } from "./utils/field";
 import { getRelationshipIdField } from "./utils/relationships";
+import { EnumType } from "./enums";
 
 export interface ComputedField {
   name: string;
   primary?: boolean;
   dataType: string;
 }
-
-export interface EnumType {
-  name: string;
-  values?: string[];
-}
-
-const fieldToEnumType = (fieldName: string) =>
-  `${camelCase(fieldName, true)}Enum`;
 
 export const createDto = async (
   apiBaseDir: string,

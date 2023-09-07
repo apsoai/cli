@@ -1,4 +1,9 @@
-<% const {field} = it; %>
+<% const {field, isGql} = it; %>
 
-@Column({ type: 'timestamp' })
+<% if (isGql === true) {%>
+    @Field(() => Date)
+<% } %>
+<% else {%>
+    @Column({ type: 'timestamp' })
+<% } %>
 <%= field.name %>: Date;

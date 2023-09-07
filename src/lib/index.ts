@@ -6,3 +6,5 @@ export { createService } from "./service";
 export { createModule } from "./module";
 export { createAppModule } from "./app-module";
 export { createDto } from "./dto";
+export { createEnums } from "./enums";
+export { createGqlDTO } from "./gql-dto";

@@ -1,9 +1,10 @@
 <%~ includeFile('./header.eta') %>
 
 import { Module } from "@nestjs/common";
-import { TypeOrmModule } from "@nestjs/typeorm";
-
 import {<%= it.entityName %>} from './<%= it.entityName%>.entity'
+
+<% if (it.isGql !== true) {%>
+import { TypeOrmModule } from "@nestjs/typeorm";
 import {<%= it.svcName %>} from "./<%= it.entityName %>.service";
 import {<%= it.ctrlName %>} from "./<%= it.entityName %>.controller";
 
@@ -14,4 +15,21 @@ import {<%= it.ctrlName %>} from "./<%= it.entityName %>.controller";
   controllers: [<%= it.ctrlName %>],
 })
 export class <%= it.modName %> {}
+<% } %>
+
+<% if (it.isGql === true) {%>
+import { NestjsQueryGraphQLModule } from '@nestjs-query/query-graphql';
+import { NestjsQueryTypeOrmModule } from '@nestjs-query/query-typeorm';
+import {<%= it.entityName %>DTO} from './dtos/<%= it.entityName%>.dto'
+
+@Module({
+  imports: [
+    NestjsQueryGraphQLModule.forFeature({
+      imports: [NestjsQueryTypeOrmModule.forFeature([<%= it.entityName %>])],
+      resolvers: [{ DTOClass: <%= it.entityName %>DTO, EntityClass: <%= it.entityName %> }],
+    }),
+  ],
+})
+export class <%= it.modName %> {}
+<% } %>
   

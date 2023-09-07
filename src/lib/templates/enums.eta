@@ -1,0 +1,16 @@
+<%~ includeFile('./header.eta') %>
+<% if (it.isGql ) {%>
+import { registerEnumType } from '@nestjs/graphql';
+<% } %>
+
+<% it.enumTypes.forEach((enumType) => { %>
+export enum <%= enumType.name %> {
+<%~ enumType.values.map((enumValue) => `${enumValue} = '${enumValue}'`).join(', ') %>
+}
+<% }) %>
+
+<% if (it.isGql) {%>
+<% it.enumTypes.forEach((enumType) => { %>
+registerEnumType(<%= enumType.name %>, {name: '<%= enumType.name %>'});
+<% }) %>
+<% } %>

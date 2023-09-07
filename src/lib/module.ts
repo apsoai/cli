@@ -5,7 +5,8 @@ import { createFile } from "./utils/file-system";
 
 export const createModule = async (
   apiBaseDir: string,
-  entityName: string
+  entityName: string,
+  isGql: boolean
 ): Promise<void> => {
   const File = path.join(apiBaseDir, `${entityName}.module.ts`);
   // Dependencies
@@ -19,6 +20,7 @@ export const createModule = async (
     modName,
     entityName,
     pluralEntityName,
+    isGql,
   };
 
   Eta.configure({

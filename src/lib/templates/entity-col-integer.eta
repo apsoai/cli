@@ -1,10 +1,16 @@
-<% const {field} = it; %>
+<% const {field, isGql} = it; %>
 
-@Column({ "type": "int"<% if (field.default !== null) {%>, default:  <%= field.default %><% } %> })
-<% if (field.index ) {%>
-@Index()
+<% if (isGql === true) {%>
+    @Field(() => Number <% if (field.default !== null) {%>, { nullable: true } <% }%>)
 <% } %>
-<% if (field.primary ) {%>
-@PrimaryColumn()
+<% else {%>
+    @Column({ "type": "int"<% if (field.default !== null) {%>, default:  <%= field.default %><% } %> })
+    <% if (field.index ) {%>
+    @Index()
+    <% } %>
+    <% if (field.primary ) {%>
+    @PrimaryColumn()
+    <% } %>
 <% } %>
+
 <%= field.name %>: <%= field.dataType %>;

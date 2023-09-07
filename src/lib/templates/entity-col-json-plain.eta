@@ -1,4 +1,13 @@
-<% const {field} = it; %>
+<% const {field, isGql} = it; %>
 
-@Column('json',{ nullable: <%= Boolean(field.nullable) %>  })
-<%= field.name %>: any;
+<% if (isGql === true) {%>
+    @Field(() => JSONResolver, { nullable: <%= Boolean(field.nullable) %> })
+<% } %>
+<% else {%>
+    @Column('json',{ nullable: <%= Boolean(field.nullable) %>  })
+    <% if (field.index ) {%>
+    @Index()
+    <% } %>
+<% } %>
+
+<%= field.name %>: JSON;

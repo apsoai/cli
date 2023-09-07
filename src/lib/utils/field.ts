@@ -1,4 +1,5 @@
-import { FieldType, Field, ComputedField } from "../types";
+import { FieldType, Field, ComputedField, Entity } from "../types";
+import { camelCase } from "./casing";
 
 export const getJsTypeFromFieldType = (type: FieldType): string => {
   switch (type) {
@@ -53,5 +54,16 @@ export const getFieldForTemplate = (fields: Field[]): ComputedField[] =>
   fields.map((field: Field) => ({
     ...field,
     default: getDefaultValueForField(field),
-    dataType: getJsTypeFromFieldType(field.type),
+    dataType:
+      field.type === "enum"
+        ? fieldToEnumType(field.name)
+        : getJsTypeFromFieldType(field.type),
   }));
+
+export const fieldToEnumType = (fieldName: string) =>
+  `${camelCase(fieldName, true)}Enum`;
+
+export const typeExistsInEntity = (entity: Entity, type: string) =>
+  entity?.fields
+    ? entity?.fields.findIndex((field) => field.type === type)
+    : -1;
