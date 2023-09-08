@@ -5,7 +5,6 @@ import { createFile } from "./utils/file-system";
 import { Entity, Field, Relationship } from "./types";
 import { fieldToEnumType, getJsTypeFromFieldType } from "./utils/field";
 import { getRelationshipIdField } from "./utils/relationships";
-import { EnumType } from "./enums";
 
 export interface ComputedField {
   name: string;
@@ -40,13 +39,6 @@ export const createDto = async (
     })),
   ];
 
-  const enumTypes: EnumType[] = fields
-    .filter((field: Field) => field.type === "enum")
-    .map((field: Field) => ({
-      name: fieldToEnumType(field.name),
-      values: field.values,
-    }));
-
   const createPrimaryKey =
     columns.filter((column: ComputedField) => column.primary === true)
       .length === 0;
@@ -59,7 +51,6 @@ export const createDto = async (
     createdAt,
     updatedAt,
     columns,
-    enumTypes,
   };
 
   Eta.configure({

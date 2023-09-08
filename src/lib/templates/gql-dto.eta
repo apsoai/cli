@@ -23,7 +23,7 @@ import { ObjectType, Field, Int, GraphQLISODateTime, ID } from '@nestjs/graphql'
 import { JSONResolver } from 'graphql-scalars';
 import { CrudValidationGroups } from '@nestjsx/crud';
 <% if (it.importEnums) { %>
-import * as enums from '../<%=it.name%>.enum';
+import * as enums from '../../enums';
 <% } %>
 
 <% it.entitiesToImport.forEach((assocName) => { %>

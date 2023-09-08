@@ -14,7 +14,6 @@ import {
   createGqlDTO,
 } from "../../lib";
 import BaseCommand from "../../lib/base-command";
-import { typeExistsInEntity } from "../../lib/utils/field";
 
 export enum ApiType {
   Rest = "rest",
@@ -43,8 +42,6 @@ export default class Scaffold extends BaseCommand {
     const entityRelationships = relationshipMap[entity.name] || [];
     const isGql = apiType !== ApiType.Rest;
 
-    typeExistsInEntity(entity, "enum") !== -1 &&
-      (await createEnums(filePath, entity, isGql));
     await createEntity(filePath, entity, entityRelationships, isGql);
     await (isGql
       ? createGqlDTO(filePath, entity, entityRelationships)
@@ -60,6 +57,7 @@ export default class Scaffold extends BaseCommand {
     const { rootFolder, entities, relationshipMap } = parseApsorc();
 
     const dir = path.join(process.cwd(), rootFolder, "autogen");
+    await createEnums(dir, entities, true);
     entities.forEach((entity) => {
       const scaffoldModel = this.scaffoldServer.bind(this);
       scaffoldModel(dir, entity, relationshipMap, ApiType.Graphql);

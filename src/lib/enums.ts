@@ -1,10 +1,8 @@
-import { fieldToEnumType } from "./utils/field";
 import * as Eta from "eta";
 import * as path from "path";
-
-import { Field } from "./types/field";
-import { Entity } from "./types/entity";
 import { createFile } from "./utils/file-system";
+import { Entity, Field } from "./types";
+import { fieldToEnumType } from "./utils/field";
 
 export interface EnumType {
   name: string;
@@ -13,26 +11,34 @@ export interface EnumType {
 
 export const createEnums = async (
   apiBaseDir: string,
-  entity: Entity,
+  entities: Entity[],
   isGql: boolean
-): Promise<void> => {
-  const { name, fields = [] } = entity;
-  const File = path.join(apiBaseDir, `${name}.enum.ts`);
+) => {
+  if (entities.length > 0) {
+    const outputFile = path.join(apiBaseDir, "enums.ts");
+    const uniqueEnumNames: string[] = [];
+    const allEnumsFields = entities
+      .flatMap((entity) =>
+        (entity.fields || []).map((field: Field) => {
+          if (field.type === "enum" && !uniqueEnumNames.includes(field.name)) {
+            uniqueEnumNames.push(field.name);
+            return { ...field, name: fieldToEnumType(field.name) };
+          }
+          return null;
+        })
+      )
+      .filter(Boolean);
 
-  const enumTypes: EnumType[] = fields
-    .filter((field: Field) => field.type === "enum")
-    .map((field: Field) => ({
-      name: fieldToEnumType(field.name),
-      values: field.values,
-    }));
+    if (allEnumsFields.length > 0) {
+      Eta.configure({
+        views: path.join(__dirname, "templates"),
+      });
 
-  Eta.configure({
-    views: path.join(__dirname, "templates"),
-  });
-
-  const content: any = await Eta.renderFileAsync("./enums", {
-    enumTypes,
-    isGql,
-  });
-  createFile(File, content);
+      const content: any = await Eta.renderFileAsync("./enums", {
+        allEnumsFields,
+        isGql,
+      });
+      createFile(outputFile, content);
+    }
+  }
 };
