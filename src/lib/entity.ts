@@ -20,7 +20,7 @@ export const createEntity = async (
   const { name, fields = [], indexes } = entity;
   const File = path.join(apiBaseDir, `${name}.entity.ts`);
 
-  const columns = getFieldForTemplate(fields);
+  const columns = getFieldForTemplate(fields, name);
 
   const createPrimaryKey =
     columns.filter((column: ComputedField) => column.primary === true)

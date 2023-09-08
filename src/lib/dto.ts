@@ -30,7 +30,7 @@ export const createDto = async (
       name: field.name,
       dataType:
         field.type === "enum"
-          ? fieldToEnumType(field.name)
+          ? fieldToEnumType(field.name, name)
           : getJsTypeFromFieldType(field.type),
     })),
     ...relationshipFields.map((fieldName) => ({

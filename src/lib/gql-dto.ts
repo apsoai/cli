@@ -22,7 +22,7 @@ export const createGqlDTO = async (
   const Dir = path.join(apiBaseDir, "dtos");
   const File = path.join(Dir, `${name}.dto.ts`);
 
-  const columns = getFieldForTemplate(fields);
+  const columns = getFieldForTemplate(fields, name);
 
   const createPrimaryKey =
     columns.filter((column: ComputedField) => column.primary === true)

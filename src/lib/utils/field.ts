@@ -50,18 +50,21 @@ export const getDefaultValueForField = (field: Field): string | null => {
   }
 };
 
-export const getFieldForTemplate = (fields: Field[]): ComputedField[] =>
+export const getFieldForTemplate = (
+  fields: Field[],
+  entityName: string
+): ComputedField[] =>
   fields.map((field: Field) => ({
     ...field,
     default: getDefaultValueForField(field),
     dataType:
       field.type === "enum"
-        ? fieldToEnumType(field.name)
+        ? fieldToEnumType(field.name, entityName)
         : getJsTypeFromFieldType(field.type),
   }));
 
-export const fieldToEnumType = (fieldName: string) =>
-  `${camelCase(fieldName, true)}Enum`;
+export const fieldToEnumType = (fieldName: string, entityName: string) =>
+  `${camelCase(entityName, true)}${camelCase(fieldName, true)}Enum`;
 
 export const typeExistsInEntity = (entity: Entity, type: string) =>
   entity?.fields

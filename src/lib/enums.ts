@@ -16,13 +16,11 @@ export const createEnums = async (
 ) => {
   if (entities.length > 0) {
     const outputFile = path.join(apiBaseDir, "enums.ts");
-    const uniqueEnumNames: string[] = [];
     const allEnumsFields = entities
       .flatMap((entity) =>
         (entity.fields || []).map((field: Field) => {
-          if (field.type === "enum" && !uniqueEnumNames.includes(field.name)) {
-            uniqueEnumNames.push(field.name);
-            return { ...field, name: fieldToEnumType(field.name) };
+          if (field.type === "enum") {
+            return { ...field, name: fieldToEnumType(field.name, entity.name) };
           }
           return null;
         })
