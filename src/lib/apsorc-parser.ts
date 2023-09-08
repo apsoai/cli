@@ -63,19 +63,28 @@ const parseRc = (): ApsorcType => {
 
 export const parseApsorc = (): ParsedApsorc => {
   const apsoConfig = parseRc();
-  switch (apsoConfig.version) {
-    case 1:
-      return {
-        rootFolder: apsoConfig.rootFolder,
-        apiType: apsoConfig.apiType,
-        ...parseApsorcV1(apsoConfig),
-      };
-    case 2:
-      return {
-        rootFolder: apsoConfig.rootFolder,
-        apiType: apsoConfig.apiType,
-        ...parseApsorcV2(apsoConfig),
-      };
+  if (
+    apsoConfig.version === 1 &&
+    apsoConfig?.apiType.toLowerCase() !== ApiType.Rest.toLowerCase()
+  ) {
+    throw new Error(
+      `Graphql is not supported for apsorc version 1. In order to use Graphql make sure your apsorc file is version 2 compatible.`
+    );
+  } else {
+    switch (apsoConfig.version) {
+      case 1:
+        return {
+          rootFolder: apsoConfig.rootFolder,
+          apiType: apsoConfig.apiType,
+          ...parseApsorcV1(apsoConfig),
+        };
+      case 2:
+        return {
+          rootFolder: apsoConfig.rootFolder,
+          apiType: apsoConfig.apiType,
+          ...parseApsorcV2(apsoConfig),
+        };
+    }
+    throw new Error(`Invalid apsorc config version: ${apsoConfig.version}`);
   }
-  throw new Error(`Invalid apsorc config version: ${apsoConfig.version}`);
 };
