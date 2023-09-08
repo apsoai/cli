@@ -7,18 +7,15 @@ import {
   createController,
   createModule,
   createService,
-  createAppModule,
+  createIndexAppModule,
   createDto,
   parseApsorc,
   createEnums,
   createGqlDTO,
+  updateAppModuleForGql,
 } from "../../lib";
 import BaseCommand from "../../lib/base-command";
-
-export enum ApiType {
-  Rest = "rest",
-  Graphql = "graphql",
-}
+import { ApiType } from "../../lib/apsorc-parser";
 
 export default class Scaffold extends BaseCommand {
   static description = "Setup new entities and interfaces for an Apso Server";
@@ -33,14 +30,13 @@ export default class Scaffold extends BaseCommand {
     dir: string,
     entity: Entity,
     relationshipMap: RelationshipMap,
-    apiType: ApiType
+    isGql: boolean
   ): Promise<void> {
     this.log(`Building... ${entity.name}`);
 
     const entityName = entity.name;
     const filePath = path.join(dir, entityName);
     const entityRelationships = relationshipMap[entity.name] || [];
-    const isGql = apiType !== ApiType.Rest;
 
     await createEntity(filePath, entity, entityRelationships, isGql);
     await (isGql
@@ -54,15 +50,19 @@ export default class Scaffold extends BaseCommand {
   }
 
   async run(): Promise<void> {
-    const { rootFolder, entities, relationshipMap } = parseApsorc();
-
-    const dir = path.join(process.cwd(), rootFolder, "autogen");
-    await createEnums(dir, entities, true);
+    const { rootFolder, entities, relationshipMap, apiType } = parseApsorc();
+    const rootPath = path.join(process.cwd(), rootFolder);
+    const autogenPath = path.join(rootPath, "autogen");
+    const isGql = apiType.toLowerCase() !== ApiType.Rest.toLowerCase();
+    await createEnums(autogenPath, entities, isGql);
     entities.forEach((entity) => {
       const scaffoldModel = this.scaffoldServer.bind(this);
-      scaffoldModel(dir, entity, relationshipMap, ApiType.Graphql);
+      scaffoldModel(autogenPath, entity, relationshipMap, isGql);
     });
-    createAppModule(dir, entities);
+    createIndexAppModule(autogenPath, entities);
+    if (isGql) {
+      await updateAppModuleForGql(rootPath, isGql);
+    }
     await this.runNpmCommand(["run", "format"]);
   }
 }

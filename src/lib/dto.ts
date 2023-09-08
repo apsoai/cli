@@ -3,7 +3,11 @@ import * as path from "path";
 
 import { createFile } from "./utils/file-system";
 import { Entity, Field, Relationship } from "./types";
-import { fieldToEnumType, getJsTypeFromFieldType } from "./utils/field";
+import {
+  fieldToEnumType,
+  getJsTypeFromFieldType,
+  typeExistsInEntity,
+} from "./utils/field";
 import { getRelationshipIdField } from "./utils/relationships";
 
 export interface ComputedField {
@@ -51,6 +55,7 @@ export const createDto = async (
     createdAt,
     updatedAt,
     columns,
+    importEnums: typeExistsInEntity(entity, "enum") !== -1,
   };
 
   Eta.configure({

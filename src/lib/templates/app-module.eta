@@ -1,26 +1,31 @@
-<%~ includeFile('./header.eta') %>
+import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { ConfigModule } from '@nestjs/config';
+import { typeOrmAsyncConfig } from './orm.config';
+import { HealthCheckController } from './healthCheck/HealthCheckController';
+import moduleImports from './autogen';
+<% if (it.isGql) { %>
+import { extendedScalarResolvers } from './autogen';
+import { GraphQLModule } from '@nestjs/graphql';
+import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
+import { join } from 'path';
+<% } %>
 
-<% it.entities.forEach((entity) => { %>
-import {<%= entity.name %>Module} from './<%= entity.name %>/<%= entity.name %>.module'
-<%}) %>
-import { JSONResolver } from 'graphql-scalars';
-
-<% const scalars = [] %>
-
-export const extendedScalarResolvers = {
-<% it.entities.forEach((entity) => { %>
-    <% entity.fields.forEach((field) => { %>
-        <%if (field.type === "json" && !scalars.includes(field.type)) { 
-            scalars.push(field.type)
-        %>
-            "JSON": JSONResolver
-        <%} %>
-    <%}) %>
-<%}) %>
-}
-
-export default [
-<% it.entities.forEach((entity) => { %>
-<%= entity.name %>Module,
-<%}) %>
-]
+@Module({
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true }),
+    TypeOrmModule.forRootAsync(typeOrmAsyncConfig),
+    <% if (it.isGql) {  %>
+    GraphQLModule.forRoot<ApolloDriverConfig>({
+      driver: ApolloDriver,
+      autoSchemaFile: join(process.cwd(), 'src/schema.gql'),
+      resolvers: extendedScalarResolvers,
+      sortSchema: true,
+      context: ({ req }) => ({ req }),
+    }),
+    <% } %>
+    ...moduleImports,
+  ],
+  controllers: [HealthCheckController],
+})
+export class AppModule {}

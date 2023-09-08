@@ -5,10 +5,16 @@ import {
   parseV1Relationships,
 } from "./utils/relationships";
 
+export enum ApiType {
+  Graphql = "Gql",
+  Rest = "Rest",
+}
+
 export type ApsorcType = {
   version: number;
   rootFolder: string;
   entities: Entity[];
+  apiType: ApiType;
   relationships: ApsorcRelationship[];
 };
 
@@ -18,6 +24,7 @@ type ParsedApsorcData = {
 };
 type ParsedApsorc = {
   rootFolder: string;
+  apiType: string;
   entities: Entity[];
   relationshipMap: RelationshipMap;
 };
@@ -40,12 +47,14 @@ export const parseApsorcV2 = (apsorc: ApsorcType): ParsedApsorcData => {
 const parseRc = (): ApsorcType => {
   const apsoConfig = rc("apso");
   const rootFolder = apsoConfig.rootFolder || "src";
+  const apiType = apsoConfig.apiType || "Rest";
   const version = apsoConfig.version || 1;
   const entities = apsoConfig.entities || [];
   const relationships = apsoConfig.relationships || [];
 
   return {
     rootFolder,
+    apiType,
     version,
     entities,
     relationships,
@@ -58,11 +67,13 @@ export const parseApsorc = (): ParsedApsorc => {
     case 1:
       return {
         rootFolder: apsoConfig.rootFolder,
+        apiType: apsoConfig.apiType,
         ...parseApsorcV1(apsoConfig),
       };
     case 2:
       return {
         rootFolder: apsoConfig.rootFolder,
+        apiType: apsoConfig.apiType,
         ...parseApsorcV2(apsoConfig),
       };
   }
