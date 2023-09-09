@@ -30,10 +30,12 @@ export const getInverseRelationship = (
   if (entityName === association.name) {
     return null;
   }
-  
-  return entities
-    .find((entity) => entity.name === association.name)
-    ?.associations?.find((entity) => entity.name === entityName) || null;
+
+  return (
+    entities
+      .find((entity) => entity.name === association.name)
+      ?.associations?.find((entity) => entity.name === entityName) || null
+  );
 };
 
 const convertAssociationToRelationship = (
@@ -41,7 +43,11 @@ const convertAssociationToRelationship = (
   association: Association,
   entities: Entity[]
 ): ApsorcRelationship | null => {
-  const inverseRelation = getInverseRelationship(entityName, association, entities);
+  const inverseRelation = getInverseRelationship(
+    entityName,
+    association,
+    entities
+  );
   let biDirectional = Boolean(inverseRelation);
   let index = association.index;
 

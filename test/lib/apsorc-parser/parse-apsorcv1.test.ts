@@ -302,7 +302,7 @@ describe("test parseApsorcV1", () => {
             name: "Workspace",
             nullable: false,
             biDirectional: true,
-            index: true
+            index: true,
           },
           {
             type: "OneToMany",

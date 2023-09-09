@@ -24,7 +24,7 @@ export const parseOneToMany = (
         type: "ManyToOne",
         nullable: relationship.nullable || false,
         biDirectional: true,
-        index: relationship.index || false
+        index: relationship.index || false,
       },
     ],
   };
@@ -40,7 +40,7 @@ export const parseManytoOne = (
         type: "ManyToOne",
         referenceName: relationship.to_name || null,
         nullable: relationship.nullable || false,
-        index: relationship.index || false
+        index: relationship.index || false,
       },
     ],
   };
