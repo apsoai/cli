@@ -230,7 +230,7 @@ describe("test parseManyToOne", () => {
       type: "ManyToOne",
       to_name: "networkStack",
       nullable: true,
-      index: true
+      index: true,
     };
     const expectedResult: { [key: string]: Relationship[] } = {
       ApplicationService: [
