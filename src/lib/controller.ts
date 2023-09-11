@@ -1,33 +1,32 @@
 import * as Eta from "eta";
 import * as path from "path";
-import { createFile } from "./util";
-import { Entity } from "./types/entity";
+import { createFile } from "./utils/file-system";
+import { Entity, RelationshipMap } from "./types";
 import {
-  getAssociationForTemplate,
+  getRelationshipForTemplate,
   getNestedRelationships,
-} from "./types/relationship";
+} from "./utils/relationships";
 
 export const createController = async (
   apiBaseDir: string,
   entity: Entity,
-  entities: Entity[]
+  relationshipMap: RelationshipMap
 ): Promise<void> => {
-  const { name: entityName, associations = [] } = entity;
+  const { name: entityName } = entity;
   const File = path.join(apiBaseDir, `${entityName}.controller.ts`);
   // Dependencies
   const svcName = `${entityName}Service`;
   const ctrlName = `${entityName}Controller`;
   const pluralEntityName = `${entityName}s`;
 
-  const relationships = getAssociationForTemplate(
+  const relationships = getRelationshipForTemplate(
     entityName,
-    associations,
-    entities
+    relationshipMap[entityName]
   );
+
   const nestedRelationships = getNestedRelationships(
     entityName,
-    entities,
-    associations
+    relationshipMap
   );
 
   const data = {

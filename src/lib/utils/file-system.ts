@@ -1,7 +1,7 @@
 import * as path from "path";
 import * as fs from "fs";
 
-export const createDir = (dirname: string): void => {
+const createDir = (dirname: string): void => {
   if (!fs.existsSync(dirname)) {
     fs.mkdirSync(dirname, { recursive: true });
   }
@@ -11,20 +11,6 @@ export const createFile = (file: string, content: string): void => {
   createDir(dirname);
   fs.writeFileSync(file, content);
 };
-
-export const camelCase = (str: string, firstUpper?: boolean): string => {
-  const firstLetter = firstUpper ? str[0].toUpperCase() : str[0].toLowerCase();
-  const restOfLetters = str
-    .slice(1)
-    .replace(/_[A-Za-z]/g, (underLetter) => underLetter[1].toUpperCase());
-  return `${firstLetter}${restOfLetters}`;
-};
-
-export const snakeCase = (str: string): string =>
-  str[0].toLowerCase() +
-  str
-    .slice(1, str.length)
-    .replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
 
 export const createDirectoryContents = (
   templatePath: string,

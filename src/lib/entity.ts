@@ -1,21 +1,22 @@
 import * as Eta from "eta";
 import * as path from "path";
-import * as pluralize from "pluralize";
+import pluralize from "pluralize";
 
-import { createFile, camelCase, snakeCase } from "./util";
-import { Entity } from "./types/entity";
-import { ComputedField, getFieldForTemplate } from "./types/field";
+import { createFile } from "./utils/file-system";
+import { camelCase, snakeCase } from "./utils/casing";
+import { ComputedField, Entity, Relationship } from "./types";
+import { getFieldForTemplate } from "./utils/field";
 import {
-  getAssociationForTemplate,
+  getRelationshipForTemplate,
   getRelationshipsForImport,
-} from "./types/relationship";
+} from "./utils/relationships";
 
 export const createEntity = async (
   apiBaseDir: string,
   entity: Entity,
-  entities: Entity[]
+  relationshipsNew: Relationship[]
 ): Promise<void> => {
-  const { name, fields = [], associations = [] } = entity;
+  const { name, fields = [] } = entity;
   const File = path.join(apiBaseDir, `${name}.entity.ts`);
 
   const columns = getFieldForTemplate(fields);
@@ -27,8 +28,7 @@ export const createEntity = async (
   const createdAt = entity.created_at;
   const updatedAt = entity.updated_at;
 
-  const relationships = getAssociationForTemplate(name, associations, entities);
-
+  const relationships = getRelationshipForTemplate(name, relationshipsNew);
   const entitiesToImport = getRelationshipsForImport(
     entity.name,
     relationships

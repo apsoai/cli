@@ -1,95 +1,47 @@
 /* eslint-disable  camelcase */
 import { expect } from "@jest/globals";
-import { Entity } from "../../../../src/lib/types/entity";
-import {
-  getNestedRelationships,
-  Association,
-} from "../../../../src/lib/types/relationship";
+import { Entity, RelationshipMap } from "../../../src/lib/types";
+import { getNestedRelationships } from "../../../src/lib/utils/relationships";
 
 describe("test getNestedRelationships", () => {
   test("basic test case", () => {
     const entityName = "User";
-    const entities: Entity[] = [
-      {
-        name: "User",
-        created_at: true,
-        updated_at: true,
-        fields: [
-          {
-            name: "email",
-            type: "text",
-            length: 255,
-            is_email: true,
-          },
-        ],
-        associations: [
-          {
-            name: "Workspace",
-            type: "ManyToMany",
-          },
-        ],
-      },
-      {
-        name: "Workspace",
-        created_at: true,
-        updated_at: true,
-        fields: [
-          {
-            name: "name",
-            type: "text",
-          },
-        ],
-        associations: [
-          {
-            name: "Application",
-            type: "OneToMany",
-          },
-          {
-            name: "User",
-            type: "ManyToMany",
-            join_table: true,
-          },
-        ],
-      },
-      {
-        name: "Application",
-        created_at: true,
-        updated_at: true,
-        fields: [
-          {
-            name: "name",
-            type: "text",
-          },
-          {
-            name: "status",
-            type: "enum",
-            values: ["Active", "Deleted"],
-          },
-        ],
-        associations: [
-          {
-            name: "Workspace",
-            type: "ManyToOne",
-          },
-          {
-            name: "User",
-            type: "ManyToOne",
-            reference_name: "owner",
-          },
-        ],
-      },
-    ];
-    const associations: Association[] = [
-      {
-        name: "Workspace",
-        type: "ManyToMany",
-      },
-    ];
+    const relationshipMap: RelationshipMap = {
+      User: [
+        {
+          type: "ManyToMany",
+          name: "Workspace",
+        },
+      ],
+      Workspace: [
+        {
+          type: "ManyToMany",
+          name: "User",
+          join: true,
+        },
+        {
+          type: "OneToMany",
+          name: "Application",
+        },
+      ],
+      Application: [
+        {
+          type: "ManyToOne",
+          name: "Workspace",
+          nullable: false,
+        },
+        {
+          type: "ManyToOne",
+          name: "User",
+          referenceName: "owner",
+          nullable: false,
+        },
+      ],
+    };
 
     const nestedRelationships = getNestedRelationships(
       entityName,
-      entities,
-      associations
+      relationshipMap
     );
     const expectedNestedRelationships = ["workspaces.applications"];
 
@@ -97,6 +49,102 @@ describe("test getNestedRelationships", () => {
   });
 
   test("full case", () => {
+    const relationshipMap: RelationshipMap = {
+      User: [
+        {
+          type: "OneToMany",
+          name: "WorkspaceUser",
+        },
+      ],
+      WorkspaceUser: [
+        {
+          type: "ManyToOne",
+          name: "User",
+          nullable: true,
+        },
+        {
+          type: "ManyToOne",
+          name: "Workspace",
+          nullable: false,
+        },
+      ],
+      Workspace: [
+        {
+          type: "OneToMany",
+          name: "WorkspaceUser",
+        },
+        {
+          type: "OneToMany",
+          name: "Application",
+        },
+      ],
+      Application: [
+        {
+          type: "ManyToOne",
+          name: "Workspace",
+          nullable: false,
+        },
+        {
+          type: "OneToMany",
+          name: "ApplicationService",
+        },
+        {
+          type: "ManyToOne",
+          name: "User",
+          referenceName: "owner",
+          nullable: false,
+        },
+      ],
+      ApplicationService: [
+        {
+          type: "ManyToOne",
+          name: "Application",
+          nullable: false,
+        },
+        {
+          type: "OneToMany",
+          name: "ApplicationServiceApiKey",
+        },
+        {
+          type: "OneToMany",
+          name: "ApplicationServiceMetric",
+        },
+        {
+          type: "ManyToOne",
+          name: "InfrastructureStack",
+          referenceName: "networkStack",
+          nullable: true,
+        },
+        {
+          type: "ManyToOne",
+          name: "InfrastructureStack",
+          referenceName: "databaseStack",
+          nullable: true,
+        },
+      ],
+      ApplicationServiceApiKey: [
+        {
+          type: "ManyToOne",
+          name: "ApplicationService",
+          nullable: false,
+        },
+      ],
+      ApplicationServiceMetric: [
+        {
+          type: "ManyToOne",
+          name: "ApplicationService",
+          nullable: false,
+        },
+      ],
+      InfrastructureStack: [
+        {
+          type: "ManyToOne",
+          name: "InfrastructureStack",
+          referenceName: "networkStack",
+          nullable: true,
+        },
+      ],
+    };
     const entities: Entity[] = [
       {
         name: "User",
@@ -123,12 +171,6 @@ describe("test getNestedRelationships", () => {
             type: "text",
           },
         ],
-        associations: [
-          {
-            name: "WorkspaceUser",
-            type: "OneToMany",
-          },
-        ],
       },
       {
         name: "Workspace",
@@ -138,16 +180,6 @@ describe("test getNestedRelationships", () => {
           {
             name: "name",
             type: "text",
-          },
-        ],
-        associations: [
-          {
-            name: "WorkspaceUser",
-            type: "OneToMany",
-          },
-          {
-            name: "Application",
-            type: "OneToMany",
           },
         ],
       },
@@ -184,17 +216,6 @@ describe("test getNestedRelationships", () => {
             nullable: true,
           },
         ],
-        associations: [
-          {
-            name: "Workspace",
-            type: "ManyToOne",
-          },
-          {
-            name: "User",
-            type: "ManyToOne",
-            nullable: true,
-          },
-        ],
       },
       {
         name: "Application",
@@ -209,21 +230,6 @@ describe("test getNestedRelationships", () => {
             name: "status",
             type: "enum",
             values: ["Active", "Deleted"],
-          },
-        ],
-        associations: [
-          {
-            name: "Workspace",
-            type: "ManyToOne",
-          },
-          {
-            name: "ApplicationService",
-            type: "OneToMany",
-          },
-          {
-            name: "User",
-            type: "ManyToOne",
-            reference_name: "owner",
           },
         ],
       },
@@ -288,30 +294,6 @@ describe("test getNestedRelationships", () => {
             nullable: true,
           },
         ],
-        associations: [
-          {
-            name: "Application",
-            type: "ManyToOne",
-          },
-          {
-            name: "ApplicationServiceApiKey",
-            type: "OneToMany",
-          },
-          {
-            name: "ApplicationServiceMetric",
-            type: "OneToMany",
-          },
-          {
-            name: "InfrastructureStack",
-            type: "ManyToOne",
-            reference_name: "networkStack",
-          },
-          {
-            name: "InfrastructureStack",
-            type: "ManyToOne",
-            reference_name: "databaseStack",
-          },
-        ],
       },
       {
         name: "ApplicationServiceApiKey",
@@ -341,12 +323,6 @@ describe("test getNestedRelationships", () => {
             type: "text",
           },
         ],
-        associations: [
-          {
-            name: "ApplicationService",
-            type: "ManyToOne",
-          },
-        ],
       },
       {
         name: "ApplicationServiceMetric",
@@ -364,12 +340,6 @@ describe("test getNestedRelationships", () => {
           {
             name: "value",
             type: "integer",
-          },
-        ],
-        associations: [
-          {
-            name: "ApplicationService",
-            type: "ManyToOne",
           },
         ],
         indexes: [
@@ -423,7 +393,12 @@ describe("test getNestedRelationships", () => {
         "applicationServices.databaseStack",
         "owner.workspaceUsers",
       ],
-      ApplicationService: ["application.workspace", "application.owner"],
+      ApplicationService: [
+        "application.workspace",
+        "application.owner",
+        "networkStack.networkStack",
+        "databaseStack.networkStack",
+      ],
       ApplicationServiceApiKey: [
         "applicationService.application",
         "applicationService.applicationServiceMetrics",
@@ -439,16 +414,15 @@ describe("test getNestedRelationships", () => {
     };
 
     entities.forEach((entity: Entity) => {
-      const { name, associations = [] } = entity;
+      const { name: entityName } = entity;
       const expectedNestedRelationship =
         entityToNestedRelationshipnMap[
-          name as keyof typeof entityToNestedRelationshipnMap
+          entityName as keyof typeof entityToNestedRelationshipnMap
         ] || [];
 
       const nestedRelationships = getNestedRelationships(
-        name,
-        entities,
-        associations
+        entityName,
+        relationshipMap
       );
       expect(nestedRelationships).toEqual(expectedNestedRelationship);
     });

@@ -1,10 +1,11 @@
-import { camelCase, createFile } from "./util";
 import * as Eta from "eta";
 import * as path from "path";
 
-import { getJsTypeFromFieldType, Field } from "./types/field";
-import { getRelationshipIdField } from "./types/relationship";
-import { Entity } from "./types/entity";
+import { createFile } from "./utils/file-system";
+import { camelCase } from "./utils/casing";
+import { Entity, Field, Relationship } from "./types";
+import { getJsTypeFromFieldType } from "./utils/field";
+import { getRelationshipIdField } from "./utils/relationships";
 
 export interface ComputedField {
   name: string;
@@ -22,15 +23,16 @@ const fieldToEnumType = (fieldName: string) =>
 
 export const createDto = async (
   apiBaseDir: string,
-  entity: Entity
+  entity: Entity,
+  relationships: Relationship[]
 ): Promise<void> => {
-  const { name, fields = [], associations = [] } = entity;
+  const { name, fields = [] } = entity;
   const Dir = path.join(apiBaseDir, "dtos");
   const File = path.join(Dir, `${name}.dto.ts`);
 
-  const relationshipFields = associations
-    .filter((association) => association.type === "ManyToOne")
-    .map((association) => getRelationshipIdField(association));
+  const relationshipFields = relationships
+    .filter((relationship) => relationship.type === "ManyToOne")
+    .map((relationship) => getRelationshipIdField(relationship));
 
   const columns: ComputedField[] = [
     ...fields.map((field: Field) => ({

@@ -2,7 +2,7 @@ import { Args, Flags } from "@oclif/core";
 import { spawn } from "child_process";
 import * as path from "path";
 import * as fs from "fs";
-import { createDirectoryContents } from "../../lib/util";
+import { createDirectoryContents } from "../../lib/utils/file-system";
 import BaseCommand from "../../lib/base-command";
 
 export default class New extends BaseCommand {

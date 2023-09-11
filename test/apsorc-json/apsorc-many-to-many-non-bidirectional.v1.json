@@ -1,0 +1,458 @@
+{
+  "rootFolder": "src",
+  "entities": [
+    {
+      "name": "Customer",
+      "created_at": true,
+      "updated_at": true,
+      "fields": [
+        {
+          "name": "name",
+          "type": "text"
+        },
+        {
+          "name": "country",
+          "type": "text"
+        },
+        {
+          "name": "streetAddress1",
+          "type": "text"
+        },
+        {
+          "name": "streetAddress2",
+          "type": "text"
+        },
+        {
+          "name": "city",
+          "type": "text"
+        },
+        {
+          "name": "state",
+          "type": "text"
+        },
+        {
+          "name": "zipCode",
+          "type": "text"
+        },
+        {
+          "name": "createdBy",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "status",
+          "type": "enum",
+          "values": ["Active", "Archived", "Delete"]
+        }
+      ],
+      "associations": [
+        {
+          "name": "User",
+          "type": "OneToMany"
+        },
+        {
+          "name": "Facility",
+          "type": "OneToMany"
+        },
+        {
+          "name": "Hopper",
+          "type": "OneToMany"
+        }
+      ]
+    },
+    {
+      "name": "User",
+      "created_at": true,
+      "updated_at": true,
+      "fields": [
+        {
+          "name": "cognito_id",
+          "type": "text",
+          "unique": true,
+          "nullable": true
+        },
+        {
+          "name": "email",
+          "type": "text",
+          "length": "255",
+          "is_email": true,
+          "unique": true
+        },
+        {
+          "name": "firstName",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "lastName",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "inviteStatus",
+          "type": "text",
+          "default": "Invited"
+        },
+        {
+          "name": "status",
+          "type": "enum",
+          "values": ["Active", "Inactive", "Delete"]
+        },
+        {
+          "name": "role",
+          "type": "enum",
+          "values": ["linusAdmin", "admin", "user"]
+        },
+        {
+          "name": "createdBy",
+          "type": "text",
+          "nullable": "true"
+        }
+      ],
+      "associations": [
+        {
+          "name": "Customer",
+          "type": "ManyToOne",
+          "nullable": true
+        },
+        {
+          "name": "Facility",
+          "type": "OneToMany"
+        },
+        {
+          "name": "FacilityBin",
+          "type": "OneToMany"
+        },
+        {
+          "name": "Scale",
+          "type": "OneToMany"
+        },
+        {
+          "name": "Machine",
+          "type": "OneToMany"
+        },
+        {
+          "name": "MachineType",
+          "type": "OneToMany"
+        },
+        {
+          "name": "Commodity",
+          "type": "OneToMany"
+        },
+        {
+          "name": "Hopper",
+          "type": "OneToMany"
+        }
+      ]
+    },
+    {
+      "name": "Facility",
+      "created_at": true,
+      "updated_at": true,
+      "fields": [
+        {
+          "name": "name",
+          "type": "text"
+        },
+        {
+          "name": "streetAddress1",
+          "type": "text"
+        },
+        {
+          "name": "streetAddress2",
+          "type": "text"
+        },
+        {
+          "name": "city",
+          "type": "text"
+        },
+        {
+          "name": "state",
+          "type": "text"
+        },
+        {
+          "name": "country",
+          "type": "text"
+        },
+        {
+          "name": "zipCode",
+          "type": "text"
+        },
+        {
+          "name": "status",
+          "type": "enum",
+          "values": ["Active", "Archived", "Delete"]
+        },
+        {
+          "name": "weight",
+          "type": "text"
+        }
+      ],
+      "associations": [
+        {
+          "name": "Customer",
+          "type": "ManyToOne",
+          "nullable": true
+        },
+        {
+          "name": "Machine",
+          "type": "OneToMany"
+        },
+        {
+          "name": "Scale",
+          "type": "OneToMany"
+        },
+        {
+          "name": "FacilityBin",
+          "type": "OneToMany"
+        },
+        {
+          "name": "User",
+          "type": "ManyToOne",
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "name": "Machine",
+      "created_at": true,
+      "updated_at": true,
+      "fields": [
+        {
+          "name": "name",
+          "type": "text"
+        },
+        {
+          "name": "status",
+          "type": "enum",
+          "values": ["Active", "Archived", "Delete"]
+        }
+      ],
+      "associations": [
+        {
+          "name": "Facility",
+          "type": "ManyToOne",
+          "nullable": true
+        },
+        {
+          "name": "MachineType",
+          "type": "ManyToOne",
+          "nullable": true
+        },
+        {
+          "name": "Scale",
+          "type": "ManyToMany",
+          "join_table": true,
+          "nullable": true
+        },
+        {
+          "name": "User",
+          "type": "ManyToOne",
+          "nullable": true
+        },
+        {
+          "name": "Hopper",
+          "type": "ManyToMany",
+          "join_table": true
+        }
+      ]
+    },
+    {
+      "name": "MachineType",
+      "created_at": true,
+      "updated_at": true,
+      "fields": [
+        {
+          "name": "name",
+          "type": "text"
+        },
+        {
+          "name": "status",
+          "type": "enum",
+          "values": ["Active", "Delete"]
+        }
+      ],
+      "associations": [
+        {
+          "name": "Machine",
+          "type": "OneToMany"
+        },
+        {
+          "name": "User",
+          "type": "ManyToOne",
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "name": "Scale",
+      "created_at": true,
+      "updated_at": true,
+      "fields": [
+        {
+          "name": "name",
+          "type": "text"
+        },
+        {
+          "name": "ID",
+          "type": "text"
+        },
+        {
+          "name": "status",
+          "type": "enum",
+          "values": ["Active", "Archived", "Delete"]
+        }
+      ],
+      "associations": [
+        {
+          "name": "Machine",
+          "type": "ManyToMany",
+          "nullable": true
+        },
+        {
+          "name": "Facility",
+          "type": "ManyToOne",
+          "nullable": true
+        },
+        {
+          "name": "User",
+          "type": "ManyToOne",
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "name": "FacilityBin",
+      "created_at": true,
+      "updated_at": true,
+      "fields": [
+        {
+          "name": "name",
+          "type": "text"
+        },
+        {
+          "name": "color",
+          "type": "text"
+        },
+        {
+          "name": "capacity",
+          "type": "text"
+        },
+        {
+          "name": "threshold",
+          "type": "text"
+        },
+        {
+          "name": "isPickedUp",
+          "type": "text"
+        },
+        {
+          "name": "status",
+          "type": "enum",
+          "values": ["Active", "Archived", "Delete"]
+        }
+      ],
+      "associations": [
+        {
+          "name": "Facility",
+          "type": "ManyToOne",
+          "nullable": true
+        },
+        {
+          "name": "User",
+          "type": "ManyToOne",
+          "nullable": true
+        },
+        {
+          "name": "Hopper",
+          "type": "ManyToMany"
+        },
+        {
+          "name": "Commodity",
+          "type": "ManyToOne",
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "name": "Hopper",
+      "created_at": true,
+      "updated_at": true,
+      "fields": [
+        {
+          "name": "ID",
+          "type": "text"
+        },
+        {
+          "name": "name",
+          "type": "text"
+        },
+        {
+          "name": "status",
+          "type": "enum",
+          "values": ["Active", "Archived", "Delete"]
+        }
+      ],
+      "associations": [
+        {
+          "name": "Machine",
+          "type": "ManyToMany",
+          "nullable": true,
+          "join_table": true
+        },
+        {
+          "name": "Customer",
+          "type": "ManyToOne",
+          "nullable": true
+        },
+        {
+          "name": "FacilityBin",
+          "type": "ManyToMany",
+          "nullable": true,
+          "join_table": true
+        },
+        {
+          "name": "User",
+          "type": "ManyToOne",
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "name": "Commodity",
+      "created_at": true,
+      "updated_at": true,
+      "fields": [
+        {
+          "name": "name",
+          "type": "text"
+        },
+        {
+          "name": "value",
+          "type": "text"
+        },
+        {
+          "name": "status",
+          "type": "enum",
+          "values": ["Active", "Delete"]
+        }
+      ],
+      "associations": [
+        {
+          "name": "User",
+          "type": "ManyToOne",
+          "nullable": true
+        },
+        {
+          "name": "FacilityBin",
+          "type": "OneToMany"
+        }
+      ]
+    }
+  ]
+}

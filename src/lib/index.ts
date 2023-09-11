@@ -1,4 +1,5 @@
-export { Entity } from "./types/entity";
+export { Entity, RelationshipMap } from "./types";
+export { parseApsorc } from "./apsorc-parser";
 export { createEntity } from "./entity";
 export { createController } from "./controller";
 export { createService } from "./service";

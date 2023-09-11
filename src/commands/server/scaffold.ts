@@ -1,26 +1,23 @@
 import { Flags } from "@oclif/core";
+import * as path from "path";
 import {
   Entity,
+  RelationshipMap,
   createEntity,
   createController,
   createModule,
   createService,
   createAppModule,
   createDto,
+  parseApsorc,
 } from "../../lib";
 import BaseCommand from "../../lib/base-command";
-import * as path from "path";
-import rc = require("rc");
 
 export default class Scaffold extends BaseCommand {
   static description = "Setup new entities and interfaces for an Apso Server";
   static examples = [`$ apso server scaffold`];
   static flags = {
     help: Flags.help({ char: "h" }),
-    entity: Flags.string({
-      char: "m",
-      description: "model name",
-    }),
   };
 
   static args = {};
@@ -28,46 +25,30 @@ export default class Scaffold extends BaseCommand {
   async scaffoldServer(
     dir: string,
     entity: Entity,
-    entities: Entity[]
+    relationshipMap: RelationshipMap
   ): Promise<void> {
     this.log(`Building... ${entity.name}`);
 
     const entityName = entity.name;
     const filePath = path.join(dir, entityName);
+    const entityRelationships = relationshipMap[entity.name] || [];
 
-    createEntity(filePath, entity, entities);
-    createDto(filePath, entity);
+    createEntity(filePath, entity, entityRelationships);
+    createDto(filePath, entity, entityRelationships);
     createService(filePath, entityName);
-    createController(filePath, entity, entities);
+    createController(filePath, entity, relationshipMap);
     createModule(filePath, entityName);
   }
 
   async run(): Promise<void> {
-    const { flags } = await this.parse(Scaffold);
+    const { rootFolder, entities, relationshipMap } = parseApsorc();
 
-    let models: Entity[] = [];
-    const apsoConfig = rc("apso");
-    if (typeof flags.entity === "undefined") {
-      models = apsoConfig.entities;
-      if (!apsoConfig) {
-        this.error(
-          "`entity` must be set (e.g. User) or define in .apsorc file"
-        );
-      }
-    } else {
-      models = [{ name: flags.entity }];
-    }
-
-    const dir = path.join(
-      process.cwd(),
-      apsoConfig.rootFolder || "src",
-      "autogen"
-    );
-    models.forEach((entity) => {
+    const dir = path.join(process.cwd(), rootFolder, "autogen");
+    entities.forEach((entity) => {
       const scaffoldModel = this.scaffoldServer.bind(this);
-      scaffoldModel(dir, entity, models);
+      scaffoldModel(dir, entity, relationshipMap);
     });
-    createAppModule(dir, models);
+    createAppModule(dir, entities);
     await this.runNpmCommand(["run", "format"]);
   }
 }
