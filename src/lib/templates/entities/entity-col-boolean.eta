@@ -1,0 +1,11 @@
+<% const {field} = it; %>
+
+@IsOptional({ groups: [CREATE, UPDATE] })
+@IsBoolean({ always: true })
+
+@Column({ type: 'boolean', default: <%= Boolean(field.default) || false %> })
+<% if (field.index ) {%>
+@Index()
+<% } %>
+
+<%= field.name %>!: <%= field.dataType %>;

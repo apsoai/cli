@@ -1,7 +1,5 @@
 <%~ includeFile('./header.eta') %>
-<% if (it.isGql ) {%>
 import { registerEnumType } from '@nestjs/graphql';
-<% } %>
 
 <% it.allEnumsFields.forEach((enumType) => { %>
 export enum <%= enumType.name %> {
@@ -9,8 +7,6 @@ export enum <%= enumType.name %> {
 }
 <% }) %>
 
-<% if (it.isGql) {%>
 <% it.allEnumsFields.forEach((enumType) => { %>
 registerEnumType(<%= enumType.name %>, {name: '<%= enumType.name %>'});
 <% }) %>
-<% } %>

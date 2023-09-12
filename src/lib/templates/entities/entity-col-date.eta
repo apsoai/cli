@@ -1,0 +1,8 @@
+<% const {field} = it; %>
+
+@Column({ type: 'date', nullable: <%= Boolean(field.nullable) %> })
+<% if (field.index ) {%>
+@Index()
+<% } %>
+
+<%= field.name %>: string;

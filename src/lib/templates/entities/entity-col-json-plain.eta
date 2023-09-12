@@ -1,0 +1,8 @@
+<% const {field} = it; %>
+
+@Column('json',{ nullable: <%= Boolean(field.nullable) %>  })
+<% if (field.index ) {%>
+@Index()
+<% } %>
+
+<%= field.name %>: JSON;

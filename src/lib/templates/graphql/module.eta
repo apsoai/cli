@@ -2,22 +2,6 @@
 
 import { Module } from "@nestjs/common";
 import {<%= it.entityName %>} from './<%= it.entityName%>.entity'
-
-<% if (it.isGql !== true) {%>
-import { TypeOrmModule } from "@nestjs/typeorm";
-import {<%= it.svcName %>} from "./<%= it.entityName %>.service";
-import {<%= it.ctrlName %>} from "./<%= it.entityName %>.controller";
-
-@Module({
-  imports: [TypeOrmModule.forFeature([<%= it.entityName %>])],
-  providers: [<%= it.svcName %>],
-  exports: [<%= it.svcName %>],
-  controllers: [<%= it.ctrlName %>],
-})
-export class <%= it.modName %> {}
-<% } %>
-
-<% if (it.isGql === true) {%>
 import { NestjsQueryGraphQLModule } from '@nestjs-query/query-graphql';
 import { NestjsQueryTypeOrmModule } from '@nestjs-query/query-typeorm';
 import {<%= it.entityName %>DTO} from './dtos/<%= it.entityName%>.dto'
@@ -31,5 +15,5 @@ import {<%= it.entityName %>DTO} from './dtos/<%= it.entityName%>.dto'
   ],
 })
 export class <%= it.modName %> {}
-<% } %>
+
   

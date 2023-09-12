@@ -1,0 +1,11 @@
+<%~ includeFile('./header.eta') %>
+
+<% it.entities.forEach((entity) => { %>
+import {<%= entity.name %>Module} from './<%= entity.name %>/<%= entity.name %>.module'
+<%}) %>
+
+export default [
+<% it.entities.forEach((entity) => { %>
+<%= entity.name %>Module,
+<%}) %>
+]

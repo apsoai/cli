@@ -1,0 +1,12 @@
+<% const {field} = it; %>
+
+@Column({
+    type: 'enum',
+    enum: enums.<%= field.dataType%>,
+    default: enums.<%= field.dataType%>.<%= field.default %>
+})
+<% if (field.index ) {%>
+@Index()
+<% } %>
+
+<%= field.name %>!: enums.<%= field.dataType%>;

@@ -1,0 +1,3 @@
+<% const {field} = it; %>
+@Field(() => Date)
+<%= field.name %>: Date;

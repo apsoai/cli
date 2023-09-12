@@ -1,0 +1,4 @@
+<% const {field} = it; %>
+
+@Field(() => [String], { nullable: <%= Boolean(field.nullable) %> })
+<%= field.name %>!: <%= field.dataType %>;

@@ -1,0 +1,11 @@
+<% const {field} = it; %>
+
+@Column("text", {
+    array: true,
+    nullable: <%= Boolean(field.nullable) %>
+})
+<% if (field.index ) {%>
+@Index()
+<% } %>
+
+<%= field.name %>!: <%= field.dataType %>;

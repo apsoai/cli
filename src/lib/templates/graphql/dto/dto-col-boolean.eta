@@ -1,0 +1,6 @@
+<% const {field} = it; %>
+
+@IsOptional({ groups: [CREATE, UPDATE] })
+@IsBoolean({ always: true })
+@Field(() => Boolean)
+<%= field.name %>!: <%= field.dataType %>;
