@@ -25,7 +25,10 @@ export const createModule = async (
     views: path.join(__dirname, "templates"),
   });
 
-  const content: any = await Eta.renderFileAsync(`./${apiType}/module`, data);
+  const content: any = await Eta.renderFileAsync(
+    `./${apiType}/module-${apiType}`,
+    data
+  );
 
   createFile(File, content);
 };

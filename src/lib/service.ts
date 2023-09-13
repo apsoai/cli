@@ -20,7 +20,7 @@ export const createService = async (
     views: path.join(__dirname, "templates"),
   });
 
-  const content: any = await Eta.renderFileAsync("./rest/service", data);
+  const content: any = await Eta.renderFileAsync("./rest/service-rest", data);
 
   createFile(File, content);
 };

@@ -12,7 +12,10 @@ export const createGlobalAppModule = async (
     views: path.join(__dirname, "templates"),
   });
 
-  const content: any = await Eta.renderFileAsync(`./${apiType}/app-module`, {});
+  const content: any = await Eta.renderFileAsync(
+    `./${apiType}/app-module-${apiType}`,
+    {}
+  );
 
   createFile(File, content);
 };

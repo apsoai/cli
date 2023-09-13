@@ -15,9 +15,12 @@ export const createIndexAppModule = async (
     views: path.join(__dirname, "templates"),
   });
 
-  const content: any = await Eta.renderFileAsync(`./${apiType}/index-module`, {
-    entities,
-  });
+  const content: any = await Eta.renderFileAsync(
+    `./${apiType}/index-module-${apiType}`,
+    {
+      entities,
+    }
+  );
 
   createFile(File, content);
 };

@@ -32,9 +32,12 @@ export const createEnums = async (
         views: path.join(__dirname, "templates"),
       });
 
-      const content: any = await Eta.renderFileAsync(`./${apiType}/enums`, {
-        allEnumsFields,
-      });
+      const content: any = await Eta.renderFileAsync(
+        `./${apiType}/enums-${apiType}`,
+        {
+          allEnumsFields,
+        }
+      );
       createFile(outputFile, content);
     }
   }

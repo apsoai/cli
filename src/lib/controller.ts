@@ -42,7 +42,10 @@ export const createController = async (
     views: path.join(__dirname, "templates"),
   });
 
-  const content: any = await Eta.renderFileAsync("./rest/controller", data);
+  const content: any = await Eta.renderFileAsync(
+    "./rest/controller-rest",
+    data
+  );
 
   createFile(File, content);
 };

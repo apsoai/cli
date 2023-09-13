@@ -62,7 +62,7 @@ export const createDto = async (
     views: path.join(__dirname, "templates"),
   });
 
-  const content: any = await Eta.renderFileAsync("./rest/dto", data);
+  const content: any = await Eta.renderFileAsync("./rest/dto-rest", data);
 
   createFile(File, content);
 };
