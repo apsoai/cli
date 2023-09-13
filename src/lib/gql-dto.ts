@@ -54,6 +54,9 @@ export const createGqlDTO = async (
     views: path.join(__dirname, "templates"),
   });
 
-  const contentEntity: any = await Eta.renderFileAsync("./gql-dto", data);
+  const contentEntity: any = await Eta.renderFileAsync(
+    "./graphql/gql-dto",
+    data
+  );
   createFile(File, contentEntity);
 };

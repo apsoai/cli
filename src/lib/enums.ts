@@ -12,7 +12,7 @@ export interface EnumType {
 export const createEnums = async (
   apiBaseDir: string,
   entities: Entity[],
-  isGql: boolean
+  apiType: string
 ) => {
   if (entities.length > 0) {
     const outputFile = path.join(apiBaseDir, "enums.ts");
@@ -32,9 +32,8 @@ export const createEnums = async (
         views: path.join(__dirname, "templates"),
       });
 
-      const content: any = await Eta.renderFileAsync("./enums", {
+      const content: any = await Eta.renderFileAsync(`./${apiType}/enums`, {
         allEnumsFields,
-        isGql,
       });
       createFile(outputFile, content);
     }

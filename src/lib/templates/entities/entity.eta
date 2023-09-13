@@ -1,6 +1,6 @@
 <%~ includeFile('./header.eta') %>
 /* eslint @typescript-eslint/no-unused-vars: "off" */
-import { JSONResolver } from 'graphql-scalars';
+
 import {
     Column,
     Entity,
@@ -27,6 +27,9 @@ import {
   IsBoolean,
   ValidateNested,
 } from 'class-validator';
+<% if (it.apiType === "graphql") { %>
+   import { JSONResolver } from 'graphql-scalars';
+<% } %>
 import { Type } from 'class-transformer';
 import { CrudValidationGroups } from '@nestjsx/crud';
 <% if (it.importEnums) { %>
@@ -61,7 +64,7 @@ export class <%= it.name %> {
 
 <% it.columns.forEach((field) => { %>
 
-<%~ includeFile(`./entity-col-${field.type}`, { field }) %>
+<%~ includeFile(`./entities/entity-col-${field.type}`, { field }) %>
 
 <% }); %>
 

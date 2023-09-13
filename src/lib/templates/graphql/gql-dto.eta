@@ -61,7 +61,7 @@ export class <%= it.name %>DTO {
 
 <% it.columns.forEach((field) => { %>
 
-<%~ includeFile(`./entity-col-${field.type}`, { field, isGql: true }) %>
+<%~ includeFile(`./graphql/dto/dto-col-${field.type}`, { field, isGql: true }) %>
 
 <% }); %>
 }

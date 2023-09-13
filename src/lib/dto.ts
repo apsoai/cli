@@ -59,16 +59,10 @@ export const createDto = async (
   };
 
   Eta.configure({
-    // This tells Eta to look for templates
-    // In the /templates directory
     views: path.join(__dirname, "templates"),
   });
 
-  const content: any = await Eta.renderFileAsync("./dto", data);
-
-  //   if (fs.existsSync(File)) {
-  //     return
-  //   }
+  const content: any = await Eta.renderFileAsync("./rest/dto", data);
 
   createFile(File, content);
 };

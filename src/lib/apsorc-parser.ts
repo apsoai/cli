@@ -6,8 +6,8 @@ import {
 } from "./utils/relationships";
 
 export enum ApiType {
-  Graphql = "Gql",
-  Rest = "Rest",
+  Graphql = "graphql",
+  Rest = "rest",
 }
 
 export type ApsorcType = {

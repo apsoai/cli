@@ -1,12 +1,11 @@
 import * as Eta from "eta";
 import * as path from "path";
-// import * as fs from "fs";
 import { createFile } from "./utils/file-system";
 
 export const createModule = async (
   apiBaseDir: string,
   entityName: string,
-  isGql: boolean
+  apiType: string
 ): Promise<void> => {
   const File = path.join(apiBaseDir, `${entityName}.module.ts`);
   // Dependencies
@@ -20,20 +19,13 @@ export const createModule = async (
     modName,
     entityName,
     pluralEntityName,
-    isGql,
   };
 
   Eta.configure({
-    // This tells Eta to look for templates
-    // In the /templates directory
     views: path.join(__dirname, "templates"),
   });
 
-  const content: any = await Eta.renderFileAsync("./module", data);
-
-  //   if (fs.existsSync(File)) {
-  //     return
-  //   }
+  const content: any = await Eta.renderFileAsync(`./${apiType}/module`, data);
 
   createFile(File, content);
 };

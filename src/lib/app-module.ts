@@ -2,9 +2,9 @@ import { createFile } from "./utils/file-system";
 import * as Eta from "eta";
 import * as path from "path";
 
-export const updateAppModuleForGql = async (
+export const createGlobalAppModule = async (
   filePath: string,
-  isGql: boolean
+  apiType: string
 ): Promise<void> => {
   const File = path.join(filePath, `app.module.ts`);
 
@@ -12,9 +12,7 @@ export const updateAppModuleForGql = async (
     views: path.join(__dirname, "templates"),
   });
 
-  const content: any = await Eta.renderFileAsync("./app-module", {
-    isGql,
-  });
+  const content: any = await Eta.renderFileAsync(`./${apiType}/app-module`, {});
 
   createFile(File, content);
 };

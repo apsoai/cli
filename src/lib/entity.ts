@@ -15,7 +15,7 @@ export const createEntity = async (
   apiBaseDir: string,
   entity: Entity,
   relationshipsNew: Relationship[],
-  isGql: boolean
+  apiType: string
 ): Promise<void> => {
   const { name, fields = [], indexes } = entity;
   const File = path.join(apiBaseDir, `${name}.entity.ts`);
@@ -44,20 +44,14 @@ export const createEntity = async (
     associations: relationships,
     entitiesToImport,
     importEnums: typeExistsInEntity(entity, "enum") !== -1,
-    isGql,
+    apiType,
   };
 
   Eta.configure({
-    // This tells Eta to look for templates
-    // In the /templates directory
     views: path.join(__dirname, "templates"),
   });
 
-  const content: any = await Eta.renderFileAsync("./entity", data);
-
-  //   if (fs.existsSync(File)) {
-  //     return
-  //   }
+  const content: any = await Eta.renderFileAsync("./entities/entity", data);
 
   createFile(File, content);
 };
