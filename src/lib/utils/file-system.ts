@@ -14,34 +14,54 @@ export const createFile = (file: string, content: string): void => {
 
 export const createDirectoryContents = (
   templatePath: string,
-  newProjectPath: string
+  newProjectPath: string,
+  apiType: string
 ): void => {
   const filesToCreate = fs.readdirSync(templatePath);
   const CURR_DIR = process.cwd();
 
   filesToCreate.forEach((file) => {
     const origFilePath = `${templatePath}/${file}`;
-
     // get stats about the current file
     const stats = fs.statSync(origFilePath);
 
     if (stats.isFile()) {
-      const contents = fs.readFileSync(origFilePath, "utf8");
-
-      // Rename
-      if (file === ".npmignore") file = ".gitignore";
-
-      const writePath = `${CURR_DIR}/${newProjectPath}/${file}`;
-      fs.writeFileSync(writePath, contents, "utf8");
-      fs.chmodSync(writePath, stats.mode);
+      writeFile(
+        file,
+        origFilePath,
+        `${CURR_DIR}/${newProjectPath}`,
+        stats.mode,
+        apiType
+      );
     } else if (stats.isDirectory()) {
       fs.mkdirSync(`${CURR_DIR}/${newProjectPath}/${file}`);
-
       // recursive call
       createDirectoryContents(
         `${templatePath}/${file}`,
-        `${newProjectPath}/${file}`
+        `${newProjectPath}/${file}`,
+        apiType
       );
     }
   });
+};
+
+const writeFile = (
+  fileName: string,
+  origFilePath: string,
+  writePath: string,
+  mode: number,
+  apiType: string
+) => {
+  const contents = fs.readFileSync(origFilePath, "utf8");
+  if (fileName.startsWith("app.module") && fileName.includes(apiType)) {
+    fileName = "app.module.ts";
+    const fileWritePath = `${writePath}/${fileName}`;
+    fs.writeFileSync(fileWritePath, contents, "utf8");
+    fs.chmodSync(fileWritePath, mode);
+  } else if (!fileName.startsWith("app.module")) {
+    if (fileName === ".npmignore") fileName = ".gitignore";
+    const fileWritePath = `${writePath}/${fileName}`;
+    fs.writeFileSync(fileWritePath, contents, "utf8");
+    fs.chmodSync(fileWritePath, mode);
+  }
 };

@@ -15,6 +15,10 @@ export default class New extends BaseCommand {
       char: "n",
       description: "name of application",
     }),
+    type: Flags.string({
+      char: "t",
+      description: "api type (rest or graphql)",
+    }),
   };
 
   static args = { name: Args.string() };
@@ -56,13 +60,7 @@ export default class New extends BaseCommand {
 
   async run(): Promise<void> {
     this.log("Initializing New Apso Server...");
-    const { flags } = await this.parse(New);
-
-    const projectName = flags.name;
-    if (typeof projectName === "undefined") {
-      this.error("`name` must be set (e.g. WoofyApp)");
-    }
-
+    const { projectName, apiType } = await this.validateFlags();
     const templatePath = `${path.join(
       __dirname,
       "..",
@@ -74,9 +72,26 @@ export default class New extends BaseCommand {
     const CURR_DIR = process.cwd();
     const projectPath = `${CURR_DIR}/${projectName}`;
     fs.mkdirSync(projectPath);
-    createDirectoryContents(templatePath, projectName);
+    createDirectoryContents(templatePath, projectName, apiType.toLowerCase());
     this.log("installing modules");
     await this.installModules(projectPath);
     await this.formatApp(projectPath);
+  }
+
+  async validateFlags() {
+    const { flags } = await this.parse(New);
+
+    const projectName = flags.name;
+    const apiType = flags.type?.toLowerCase();
+    if (typeof projectName === "undefined") {
+      this.error("`name` must be set (e.g. WoofyApp)");
+    }
+    if (
+      typeof apiType === "undefined" ||
+      (apiType !== "rest" && apiType !== "graphql")
+    ) {
+      this.error("`apiType` must be set (e.g. rest or graphql)");
+    }
+    return { projectName, apiType };
   }
 }
