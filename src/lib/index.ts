@@ -5,7 +5,6 @@ export { createController } from "./controller";
 export { createService } from "./service";
 export { createModule } from "./module";
 export { createIndexAppModule } from "./index-module";
-export { createGlobalAppModule } from "./app-module";
 export { createDto } from "./dto";
 export { createEnums } from "./enums";
 export { createGqlDTO } from "./gql-dto";

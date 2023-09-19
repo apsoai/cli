@@ -12,7 +12,6 @@ import {
   parseApsorc,
   createEnums,
   createGqlDTO,
-  createGlobalAppModule,
 } from "../../lib";
 import BaseCommand from "../../lib/base-command";
 import { ApiType } from "../../lib/apsorc-parser";
@@ -84,7 +83,6 @@ export default class Scaffold extends BaseCommand {
       scaffoldModel(autogenPath, entity, relationshipMap, lowerCaseApiType);
     });
     await createIndexAppModule(autogenPath, entities, lowerCaseApiType);
-    await createGlobalAppModule(rootPath, lowerCaseApiType);
     await this.runNpmCommand(["run", "format"]);
   }
 }
