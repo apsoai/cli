@@ -1,0 +1,11 @@
+<% const {field} = it; %>
+
+@IsOptional({ groups: [UPDATE] })
+<% if (!field.nullable && !field.auto) { %>
+@IsNotEmpty({ groups: [CREATE] })
+<% } %>
+<% if (field.is_email) { %>
+@IsEmail({ require_tld: false }, { always: true })
+<% } %>
+@Field(() => String, { nullable: <%= Boolean(field.nullable) %> })
+<%= field.name %>: <%= field.dataType %>;

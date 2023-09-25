@@ -1,0 +1,5 @@
+<% const {field, isGql} = it; %>
+
+@Field(() => JSONResolver, { nullable: <%= Boolean(field.nullable) %> })
+
+<%= field.name %>: JSON;

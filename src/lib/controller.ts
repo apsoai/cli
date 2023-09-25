@@ -39,16 +39,13 @@ export const createController = async (
   };
 
   Eta.configure({
-    // This tells Eta to look for templates
-    // In the /templates directory
     views: path.join(__dirname, "templates"),
   });
 
-  const content: any = await Eta.renderFileAsync("./controller", data);
-
-  //   if (fs.existsSync(File)) {
-  //     return
-  //   }
+  const content: any = await Eta.renderFileAsync(
+    "./rest/controller-rest",
+    data
+  );
 
   createFile(File, content);
 };

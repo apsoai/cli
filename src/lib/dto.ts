@@ -2,9 +2,12 @@ import * as Eta from "eta";
 import * as path from "path";
 
 import { createFile } from "./utils/file-system";
-import { camelCase } from "./utils/casing";
 import { Entity, Field, Relationship } from "./types";
-import { getJsTypeFromFieldType } from "./utils/field";
+import {
+  fieldToEnumType,
+  getJsTypeFromFieldType,
+  typeExistsInEntity,
+} from "./utils/field";
 import { getRelationshipIdField } from "./utils/relationships";
 
 export interface ComputedField {
@@ -12,14 +15,6 @@ export interface ComputedField {
   primary?: boolean;
   dataType: string;
 }
-
-export interface EnumType {
-  name: string;
-  values?: string[];
-}
-
-const fieldToEnumType = (fieldName: string) =>
-  `${camelCase(fieldName, true)}Enum`;
 
 export const createDto = async (
   apiBaseDir: string,
@@ -39,7 +34,7 @@ export const createDto = async (
       name: field.name,
       dataType:
         field.type === "enum"
-          ? fieldToEnumType(field.name)
+          ? fieldToEnumType(field.name, name)
           : getJsTypeFromFieldType(field.type),
     })),
     ...relationshipFields.map((fieldName) => ({
@@ -47,13 +42,6 @@ export const createDto = async (
       dataType: "number",
     })),
   ];
-
-  const enumTypes: EnumType[] = fields
-    .filter((field: Field) => field.type === "enum")
-    .map((field: Field) => ({
-      name: fieldToEnumType(field.name),
-      values: field.values,
-    }));
 
   const createPrimaryKey =
     columns.filter((column: ComputedField) => column.primary === true)
@@ -67,20 +55,14 @@ export const createDto = async (
     createdAt,
     updatedAt,
     columns,
-    enumTypes,
+    importEnums: typeExistsInEntity(entity, "enum") !== -1,
   };
 
   Eta.configure({
-    // This tells Eta to look for templates
-    // In the /templates directory
     views: path.join(__dirname, "templates"),
   });
 
-  const content: any = await Eta.renderFileAsync("./dto", data);
-
-  //   if (fs.existsSync(File)) {
-  //     return
-  //   }
+  const content: any = await Eta.renderFileAsync("./rest/dto-rest", data);
 
   createFile(File, content);
 };

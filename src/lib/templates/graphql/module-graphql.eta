@@ -1,0 +1,19 @@
+<%~ includeFile('./header.eta') %>
+
+import { Module } from "@nestjs/common";
+import {<%= it.entityName %>} from './<%= it.entityName%>.entity'
+import { NestjsQueryGraphQLModule } from '@nestjs-query/query-graphql';
+import { NestjsQueryTypeOrmModule } from '@nestjs-query/query-typeorm';
+import {<%= it.entityName %>DTO} from './dtos/<%= it.entityName%>.dto'
+
+@Module({
+  imports: [
+    NestjsQueryGraphQLModule.forFeature({
+      imports: [NestjsQueryTypeOrmModule.forFeature([<%= it.entityName %>])],
+      resolvers: [{ DTOClass: <%= it.entityName %>DTO, EntityClass: <%= it.entityName %> }],
+    }),
+  ],
+})
+export class <%= it.modName %> {}
+
+  

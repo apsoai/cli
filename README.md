@@ -1,16 +1,21 @@
-Apso CLI
-=================
+# Apso CLI
 
 <!-- toc -->
-* [Prerequisites](#prerequisites)
-* [Usage](#usage)
-* [Commands](#commands)
+
+- [Prerequisites](#prerequisites)
+- [Usage](#usage)
+- [Commands](#commands)
 <!-- tocstop -->
+
 # Prerequisites
-You need to have setup access to Mavric's private NPM packages. 
+
+You need to have setup access to Mavric's private NPM packages.
 Find out how [here](https://github.com/mavric/.github-private/blob/main/how-to/private-npm.md)
+
 # Usage
+
 <!-- usage -->
+
 ```sh-session
 $ npm install -g @mavric/apso-cli
 $ apso COMMAND
@@ -22,21 +27,54 @@ USAGE
   $ apso COMMAND
 ...
 ```
+
 <!-- usagestop -->
+
+# Local Development
+
+You need to clone both apso-cli and apso-service-template locally on your machine. Navigate to the apso-cli repo in your code editor and run the below command
+
+```sh-session
+$ npm run build && npm link
+```
+
+This will build the apso cli and make it available for use globally on your machine. Now make a new directory where you want to setup a new backend service. Run the below command in order to create a new service boilerplate.
+
+```sh-session
+$ apso server new -n <project-name>
+```
+
+Then navigate to the newly created service and update the apsorc file according to your project entities and relations. Sample of rc files for both v1 and v2 are given in apso-cli code at "test/apsorc-json" so you can check it out in order to make sure that your apsorc file follows the right pattern. Make sure to provide the desired value for the key "apiType" in the apsorc file e.g (Rest, Graphql).
+
+Now we will run the scaffold command which will generate the all the relevant modules for us.
+
+```sh-session
+$ apso server scaffold
+```
+
+Note: Incase you face prettier related issues while running the scaffold command make sure that when you initailly created the service with "apso server new" command, the apso-service-template directory did not had node modules folder. Incase you do have a node modules folder present for some reason then delete it. Discard this service and make a new one and run the scaffold command in it.
+
 # Commands
+
 <!-- commands -->
-* [`apso help [COMMANDS]`](#apso-help-commands)
-* [`apso plugins`](#apso-plugins)
-* [`apso plugins:install PLUGIN...`](#apso-pluginsinstall-plugin)
-* [`apso plugins:inspect PLUGIN...`](#apso-pluginsinspect-plugin)
-* [`apso plugins:install PLUGIN...`](#apso-pluginsinstall-plugin-1)
-* [`apso plugins:link PLUGIN`](#apso-pluginslink-plugin)
-* [`apso plugins:uninstall PLUGIN...`](#apso-pluginsuninstall-plugin)
-* [`apso plugins:uninstall PLUGIN...`](#apso-pluginsuninstall-plugin-1)
-* [`apso plugins:uninstall PLUGIN...`](#apso-pluginsuninstall-plugin-2)
-* [`apso plugins update`](#apso-plugins-update)
-* [`apso server new [NAME]`](#apso-server-new-name)
-* [`apso server scaffold`](#apso-server-scaffold)
+
+- [Apso CLI](#apso-cli)
+- [Prerequisites](#prerequisites)
+- [Usage](#usage)
+- [Local Development](#local-development)
+- [Commands](#commands)
+  - [`apso help [COMMANDS]`](#apso-help-commands)
+  - [`apso plugins`](#apso-plugins)
+  - [`apso plugins:install PLUGIN...`](#apso-pluginsinstall-plugin)
+  - [`apso plugins:inspect PLUGIN...`](#apso-pluginsinspect-plugin)
+  - [`apso plugins:install PLUGIN...`](#apso-pluginsinstall-plugin-1)
+  - [`apso plugins:link PLUGIN`](#apso-pluginslink-plugin)
+  - [`apso plugins:uninstall PLUGIN...`](#apso-pluginsuninstall-plugin)
+  - [`apso plugins:uninstall PLUGIN...`](#apso-pluginsuninstall-plugin-1)
+  - [`apso plugins:uninstall PLUGIN...`](#apso-pluginsuninstall-plugin-2)
+  - [`apso plugins update`](#apso-plugins-update)
+  - [`apso server new [NAME]`](#apso-server-new-name)
+  - [`apso server scaffold`](#apso-server-scaffold)
 
 ## `apso help [COMMANDS]`
 
@@ -112,7 +150,7 @@ ALIASES
   $ apso plugins add
 
 EXAMPLES
-  $ apso plugins:install myplugin 
+  $ apso plugins:install myplugin
 
   $ apso plugins:install https://github.com/someuser/someplugin
 
@@ -175,7 +213,7 @@ ALIASES
   $ apso plugins add
 
 EXAMPLES
-  $ apso plugins:install myplugin 
+  $ apso plugins:install myplugin
 
   $ apso plugins:install https://github.com/someuser/someplugin
 
@@ -330,4 +368,5 @@ DESCRIPTION
 EXAMPLES
   $ apso server scaffold
 ```
+
 <!-- commandsstop -->

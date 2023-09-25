@@ -7,4 +7,5 @@
 <% if (field.index ) {%>
 @Index()
 <% } %>
+
 <%= field.name %>!: <%= field.dataType %>;

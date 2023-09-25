@@ -5,9 +5,11 @@ import {
     Column,
     Entity,
 <%~ it.associations.map((assoc) => `${assoc.type},`).filter((v, i, s) => s.indexOf(v) === i).join("\r\n") %>
-<% if (it.createdAt) { %>    CreateDateColumn,
+<% if (it.createdAt) { %>
+    CreateDateColumn,
 <% } %>
-<% if (it.updatedAt) { %>    UpdateDateColumn,
+<% if (it.updatedAt) { %>
+    UpdateDateColumn,
 <% } %>
     PrimaryGeneratedColumn,
     Generated,
@@ -25,8 +27,14 @@ import {
   IsBoolean,
   ValidateNested,
 } from 'class-validator';
+<% if (it.apiType === "graphql") { %>
+   import { JSONResolver } from 'graphql-scalars';
+<% } %>
 import { Type } from 'class-transformer';
 import { CrudValidationGroups } from '@nestjsx/crud';
+<% if (it.importEnums) { %>
+import * as enums from '../enums';
+<% } %>
 <% it.entitiesToImport.forEach((assocName) => { %>
 import {<%= assocName %>} from '../<%= assocName %>/<%= assocName %>.entity';
 <% }) %>
@@ -56,7 +64,7 @@ export class <%= it.name %> {
 
 <% it.columns.forEach((field) => { %>
 
-<%~ includeFile(`./entity-col-${field.type}`, { field }) %>
+<%~ includeFile(`./entities/entity-col-${field.type}`, { field }) %>
 
 <% }); %>
 

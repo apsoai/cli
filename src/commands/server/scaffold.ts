@@ -7,11 +7,14 @@ import {
   createController,
   createModule,
   createService,
-  createAppModule,
+  createIndexAppModule,
   createDto,
   parseApsorc,
+  createEnums,
+  createGqlDTO,
 } from "../../lib";
 import BaseCommand from "../../lib/base-command";
+import { ApiType } from "../../lib/apsorc-parser";
 
 export default class Scaffold extends BaseCommand {
   static description = "Setup new entities and interfaces for an Apso Server";
@@ -25,30 +28,61 @@ export default class Scaffold extends BaseCommand {
   async scaffoldServer(
     dir: string,
     entity: Entity,
-    relationshipMap: RelationshipMap
+    relationshipMap: RelationshipMap,
+    apiType: string
   ): Promise<void> {
     this.log(`Building... ${entity.name}`);
 
     const entityName = entity.name;
     const filePath = path.join(dir, entityName);
     const entityRelationships = relationshipMap[entity.name] || [];
+    await createEntity(filePath, entity, entityRelationships, apiType);
+    switch (apiType) {
+      case ApiType.Graphql:
+        await this.setupGraphqlFiles(dir, entity, relationshipMap);
+        break;
+      case ApiType.Rest:
+        await this.setupRestFiles(dir, entity, relationshipMap);
+        break;
+      default:
+        break;
+    }
+    await createModule(filePath, entityName, apiType);
+  }
 
-    createEntity(filePath, entity, entityRelationships);
-    createDto(filePath, entity, entityRelationships);
-    createService(filePath, entityName);
-    createController(filePath, entity, relationshipMap);
-    createModule(filePath, entityName);
+  async setupRestFiles(
+    dir: string,
+    entity: Entity,
+    relationshipMap: RelationshipMap
+  ) {
+    const filePath = path.join(dir, entity.name);
+    const entityRelationships = relationshipMap[entity.name] || [];
+    await createDto(filePath, entity, entityRelationships);
+    await createService(filePath, entity.name);
+    await createController(filePath, entity, relationshipMap);
+  }
+
+  async setupGraphqlFiles(
+    dir: string,
+    entity: Entity,
+    relationshipMap: RelationshipMap
+  ) {
+    const filePath = path.join(dir, entity.name);
+    const entityRelationships = relationshipMap[entity.name] || [];
+    await createGqlDTO(filePath, entity, entityRelationships);
   }
 
   async run(): Promise<void> {
-    const { rootFolder, entities, relationshipMap } = parseApsorc();
-
-    const dir = path.join(process.cwd(), rootFolder, "autogen");
+    const { rootFolder, entities, relationshipMap, apiType } = parseApsorc();
+    const rootPath = path.join(process.cwd(), rootFolder);
+    const autogenPath = path.join(rootPath, "autogen");
+    const lowerCaseApiType = apiType.toLowerCase();
+    await createEnums(autogenPath, entities, lowerCaseApiType);
     entities.forEach((entity) => {
       const scaffoldModel = this.scaffoldServer.bind(this);
-      scaffoldModel(dir, entity, relationshipMap);
+      scaffoldModel(autogenPath, entity, relationshipMap, lowerCaseApiType);
     });
-    createAppModule(dir, entities);
+    await createIndexAppModule(autogenPath, entities, lowerCaseApiType);
     await this.runNpmCommand(["run", "format"]);
   }
 }

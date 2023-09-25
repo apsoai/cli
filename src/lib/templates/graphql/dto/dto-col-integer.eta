@@ -1,0 +1,4 @@
+<% const {field} = it; %>
+
+@Field(() => Number <% if (field.default !== null) {%>, { nullable: true } <% }%>)
+<%= field.name %>: <%= field.dataType %>;

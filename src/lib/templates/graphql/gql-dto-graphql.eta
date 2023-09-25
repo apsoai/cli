@@ -1,0 +1,67 @@
+<%~ includeFile('./header.eta') %>
+/* eslint @typescript-eslint/no-unused-vars: "off" */
+
+import {
+    Column,
+    Entity,
+<%~ it.associations.map((assoc) => `${assoc.type},`).filter((v, i, s) => s.indexOf(v) === i).join("\r\n") %>
+    PrimaryColumn
+} from "typeorm";
+
+import {
+  IsOptional,
+  IsString,
+  MaxLength,
+  IsNotEmpty,
+  IsEmail,
+  IsBoolean,
+  ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
+
+import { ObjectType, Field, Int, GraphQLISODateTime, ID } from '@nestjs/graphql';
+import { JSONResolver } from 'graphql-scalars';
+import { CrudValidationGroups } from '@nestjsx/crud';
+<% if (it.importEnums) { %>
+import * as enums from '../../enums';
+<% } %>
+
+<% it.entitiesToImport.forEach((assocName) => { %>
+import {<%= assocName %>DTO} from '../../<%= assocName %>/dtos/<%= assocName %>.dto';
+<% }) %>
+
+import { FilterableField, IDField, Relation, UnPagedRelation} from '@nestjs-query/query-graphql';
+
+const { CREATE, UPDATE } = CrudValidationGroups;
+
+@ObjectType()
+<% it.associations.forEach((assoc) => { %>
+    <% if (assoc.type === 'OneToMany' || assoc.type === 'OneToOne') { %>
+        @Relation('<%= assoc.name %>', () => <%= assoc.name %>DTO, { disableRemove: true })
+    <% } else if (assoc.type === 'ManyToOne' || assoc.type === 'ManyToMany') { %>
+        @UnPagedRelation('<%= assoc.name %>', () => <%= assoc.name %>DTO, { disableRemove: true })
+    <% } %>
+<% }) %>
+export class <%= it.name %>DTO {
+
+<% if (it.createPrimaryKey) { %>
+    @IDField(() => Int)
+    id!: number;
+<% } %>
+
+<% if (it.createdAt) { %>
+    @Field(() => GraphQLISODateTime)
+    created_at: Date;
+<% } %>
+
+<% if (it.updatedAt) { %>
+    @Field(() => GraphQLISODateTime)
+    updated_at: Date;
+<% } %>
+
+<% it.columns.forEach((field) => { %>
+
+<%~ includeFile(`./graphql/dto/dto-col-${field.type}`, { field, isGql: true }) %>
+
+<% }); %>
+}

@@ -7,4 +7,5 @@
 <% if (field.primary ) {%>
 @PrimaryColumn()
 <% } %>
+
 <%= field.name %>: <%= field.dataType %>;

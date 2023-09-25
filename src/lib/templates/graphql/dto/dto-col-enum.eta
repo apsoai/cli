@@ -1,0 +1,5 @@
+<% const {field} = it; %>
+
+@Field(() => enums.<%= field.dataType%>)
+
+<%= field.name %>!: enums.<%= field.dataType%>;

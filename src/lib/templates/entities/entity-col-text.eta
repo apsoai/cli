@@ -1,9 +1,5 @@
 <% const {field} = it; %>
 
-<% if (field.auto) { %>
-<% /* https://github.com/birkir/prime/issues/126 */ %>
-@Generated('increment')
-<% }%>
 @IsOptional({ groups: [UPDATE] })
 <% if (!field.nullable && !field.auto) { %>
 @IsNotEmpty({ groups: [CREATE] })
@@ -11,6 +7,11 @@
 <% if (field.is_email) { %>
 @IsEmail({ require_tld: false }, { always: true })
 <% } %>
+
+<% if (field.auto) { %>
+<% /* https://github.com/birkir/prime/issues/126 */ %>
+@Generated('increment')
+<% }%>
 <% if (field.index ) {%>
 @Index()
 <% } %>
@@ -18,4 +19,5 @@
 <% if (field.primary ) {%>
 @PrimaryColumn()
 <% } %>
+
 <%= field.name %>: <%= field.dataType %>;

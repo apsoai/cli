@@ -1,7 +1,6 @@
 import { createFile } from "./utils/file-system";
 import * as Eta from "eta";
 import * as path from "path";
-// import * as fs from "fs";
 
 export const createService = async (
   apiBaseDir: string,
@@ -18,16 +17,10 @@ export const createService = async (
   };
 
   Eta.configure({
-    // This tells Eta to look for templates
-    // In the /templates directory
     views: path.join(__dirname, "templates"),
   });
 
-  const content: any = await Eta.renderFileAsync("./service", data);
-
-  //   if (fs.existsSync(File)) {
-  //     return
-  //   }
+  const content: any = await Eta.renderFileAsync("./rest/service-rest", data);
 
   createFile(File, content);
 };

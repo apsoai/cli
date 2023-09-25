@@ -2,8 +2,5 @@
 
 @IsOptional({ groups: [CREATE, UPDATE] })
 @IsBoolean({ always: true })
-@Column({ type: 'boolean', default: <%= Boolean(field.default) || false %> })
-<% if (field.index ) {%>
-@Index()
-<% } %>
+@Field(() => Boolean)
 <%= field.name %>!: <%= field.dataType %>;

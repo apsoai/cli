@@ -1,0 +1,34 @@
+<%~ includeFile('./header.eta') %>
+
+<% if (it.importEnums) { %>
+import * as enums from '../../enums';
+<% } %>
+
+export class <%= it.name %>CreateDto {
+<% it.columns.forEach((field) => { %>
+  <%if (field.dataType.includes("Enum")) {%>
+    <%= field.name %>: enums.<%= field.dataType %>;
+  <%} else {%>
+    <%= field.name %>: <%= field.dataType %>;
+  <% } %>
+<% }) %>
+};
+
+export class <%= it.name %>Dto {
+<% if (it.createPrimaryKey) { %>
+    id: number;
+<% } %>
+<% it.columns.forEach((field) => { %>
+  <%if (field.dataType.includes("Enum")) {%>
+    <%= field.name %>: enums.<%= field.dataType %>;
+  <%} else {%>
+    <%= field.name %>: <%= field.dataType %>;
+  <% } %>
+<% }) %>
+<% if (it.createdAt) { %>
+    created_at: Date;
+<% } %>
+<% if (it.updatedAt) { %>
+    updated_at: Date;
+<% } %>
+};
