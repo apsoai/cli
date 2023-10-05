@@ -82,14 +82,15 @@ export default class New extends BaseCommand {
     const { flags } = await this.parse(New);
 
     const projectName = flags.name;
-    const apiType = flags.type?.toLowerCase();
+    let apiType = flags.type?.toLowerCase();
     if (typeof projectName === "undefined") {
       this.error("`name` must be set (e.g. WoofyApp)");
     }
-    if (
-      typeof apiType === "undefined" ||
-      (apiType !== "rest" && apiType !== "graphql")
-    ) {
+
+    if (typeof apiType === "undefined") {
+      apiType = "rest";
+    }
+    if (apiType !== "rest" && apiType !== "graphql") {
       this.error("`apiType` must be set (e.g. rest or graphql)");
     }
     return { projectName, apiType };
