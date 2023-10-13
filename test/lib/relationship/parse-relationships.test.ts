@@ -317,7 +317,7 @@ describe("test parseManyToMany", () => {
 });
 
 describe("test parseOneToOne", () => {
-  test("OneToOne returns both relationships", () => {
+  test("OneToOne returns one relationship if bidirectional", () => {
     const relationship: ApsorcRelationship = {
       from: "User",
       to: "Account",
@@ -325,9 +325,40 @@ describe("test parseOneToOne", () => {
     };
     const expectedResult: { [key: string]: Relationship[] } = {
       User: [
-        { name: "Account", type: "OneToOne", join: true, nullable: false },
+        {
+          name: "Account",
+          type: "OneToOne",
+          join: true,
+          nullable: false,
+          biDirectional: false,
+          referenceName: null,
+        },
       ],
-      Account: [{ name: "User", type: "OneToOne" }],
+    };
+    const result = parseOneToOne(relationship);
+    expect(result).toEqual(expectedResult);
+  });
+
+  test("OneToOne returns both relationships if bi-directional", () => {
+    const relationship: ApsorcRelationship = {
+      from: "User",
+      to: "Account",
+      type: "OneToOne",
+      to_name: "AccountOwner",
+      bi_directional: true,
+    };
+    const expectedResult: { [key: string]: Relationship[] } = {
+      User: [
+        {
+          name: "Account",
+          type: "OneToOne",
+          join: true,
+          nullable: false,
+          biDirectional: true,
+          referenceName: "AccountOwner",
+        },
+      ],
+      Account: [{ name: "User", type: "OneToOne", biDirectional: true }],
     };
     const result = parseOneToOne(relationship);
     expect(result).toEqual(expectedResult);
@@ -339,10 +370,20 @@ describe("test parseOneToOne", () => {
       to: "Account",
       type: "OneToOne",
       nullable: true,
+      bi_directional: true,
     };
     const expectedResult: { [key: string]: Relationship[] } = {
-      User: [{ name: "Account", type: "OneToOne", join: true, nullable: true }],
-      Account: [{ name: "User", type: "OneToOne" }],
+      User: [
+        {
+          name: "Account",
+          type: "OneToOne",
+          join: true,
+          nullable: true,
+          biDirectional: true,
+          referenceName: null,
+        },
+      ],
+      Account: [{ name: "User", type: "OneToOne", biDirectional: true }],
     };
     const result = parseOneToOne(relationship);
     expect(result).toEqual(expectedResult);

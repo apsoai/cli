@@ -535,4 +535,228 @@ describe("test isInverseRelationshipDefined", () => {
 
     expect(inverseRelationshipIsDefined).toBe(false);
   });
+
+  test("test inverse relationship OneToOne - inverse false if missing OneToOne type", () => {
+    const entityName = "User";
+    const association: Association = {
+      name: "Profile",
+      type: "OneToOne",
+    };
+
+    const entities: Entity[] = [
+      {
+        name: "Profile",
+        associations: [
+          {
+            name: "User",
+            type: "ManyToOne",
+          },
+        ],
+      },
+    ];
+
+    const inverseRelationshipIsDefined = isInverseRelationshipDefined(
+      entityName,
+      association,
+      entities
+    );
+
+    expect(inverseRelationshipIsDefined).toBe(false);
+  });
+
+  test("test inverse relationship OneToOne - inverse true if OneToOne type", () => {
+    const entityName = "User";
+    const association: Association = {
+      name: "Profile",
+      type: "OneToOne",
+    };
+
+    const entities: Entity[] = [
+      {
+        name: "Profile",
+        associations: [
+          {
+            name: "User",
+            type: "OneToOne",
+          },
+        ],
+      },
+    ];
+
+    const inverseRelationshipIsDefined = isInverseRelationshipDefined(
+      entityName,
+      association,
+      entities
+    );
+
+    expect(inverseRelationshipIsDefined).toBe(true);
+  });
+
+  test("test inverse relationship OneToMany - inverse false if missing ManyToOne type", () => {
+    const entityName = "User";
+    const association: Association = {
+      name: "Profile",
+      type: "OneToMany",
+    };
+
+    const entities: Entity[] = [
+      {
+        name: "Profile",
+        associations: [
+          {
+            name: "User",
+            type: "OneToOne",
+          },
+        ],
+      },
+    ];
+
+    const inverseRelationshipIsDefined = isInverseRelationshipDefined(
+      entityName,
+      association,
+      entities
+    );
+
+    expect(inverseRelationshipIsDefined).toBe(false);
+  });
+
+  test("test inverse relationship OneToMany - inverse true if ManyToOne type", () => {
+    const entityName = "User";
+    const association: Association = {
+      name: "Profile",
+      type: "OneToMany",
+    };
+
+    const entities: Entity[] = [
+      {
+        name: "Profile",
+        associations: [
+          {
+            name: "User",
+            type: "ManyToOne",
+          },
+        ],
+      },
+    ];
+
+    const inverseRelationshipIsDefined = isInverseRelationshipDefined(
+      entityName,
+      association,
+      entities
+    );
+
+    expect(inverseRelationshipIsDefined).toBe(true);
+  });
+
+  test("test inverse relationship ManyToOne - inverse false if missing OneToMany type", () => {
+    const entityName = "User";
+    const association: Association = {
+      name: "Profile",
+      type: "ManyToOne",
+    };
+
+    const entities: Entity[] = [
+      {
+        name: "Profile",
+        associations: [
+          {
+            name: "User",
+            type: "ManyToOne",
+          },
+        ],
+      },
+    ];
+
+    const inverseRelationshipIsDefined = isInverseRelationshipDefined(
+      entityName,
+      association,
+      entities
+    );
+
+    expect(inverseRelationshipIsDefined).toBe(false);
+  });
+
+  test("test inverse relationship ManyToOne - inverse true if OneToMany type", () => {
+    const entityName = "User";
+    const association: Association = {
+      name: "Profile",
+      type: "ManyToOne",
+    };
+
+    const entities: Entity[] = [
+      {
+        name: "Profile",
+        associations: [
+          {
+            name: "User",
+            type: "OneToMany",
+          },
+        ],
+      },
+    ];
+
+    const inverseRelationshipIsDefined = isInverseRelationshipDefined(
+      entityName,
+      association,
+      entities
+    );
+
+    expect(inverseRelationshipIsDefined).toBe(true);
+  });
+
+  test("test inverse relationship ManyToMany - inverse false if missing ManyToMany type", () => {
+    const entityName = "User";
+    const association: Association = {
+      name: "Profile",
+      type: "ManyToMany",
+    };
+
+    const entities: Entity[] = [
+      {
+        name: "Profile",
+        associations: [
+          {
+            name: "User",
+            type: "ManyToOne",
+          },
+        ],
+      },
+    ];
+
+    const inverseRelationshipIsDefined = isInverseRelationshipDefined(
+      entityName,
+      association,
+      entities
+    );
+
+    expect(inverseRelationshipIsDefined).toBe(false);
+  });
+
+  test("test inverse relationship ManyToMany - inverse true if ManyToMany type", () => {
+    const entityName = "User";
+    const association: Association = {
+      name: "Profile",
+      type: "ManyToMany",
+    };
+
+    const entities: Entity[] = [
+      {
+        name: "Profile",
+        associations: [
+          {
+            name: "User",
+            type: "ManyToMany",
+          },
+        ],
+      },
+    ];
+
+    const inverseRelationshipIsDefined = isInverseRelationshipDefined(
+      entityName,
+      association,
+      entities
+    );
+
+    expect(inverseRelationshipIsDefined).toBe(true);
+  });
 });

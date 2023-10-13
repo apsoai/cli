@@ -96,13 +96,13 @@ export class <%= it.name %> {
     
         @OneToOne(
             (type: any) => <%= assoc.name%>,
-            (p) => p.<%= assoc.entityName %>, 
+            <% if (assoc.biDirectional) { %>(p) => p.<%= assoc.entityName %>,<% } %>
             {
                 onDelete: "CASCADE",
                 cascade: ["insert", "update"],
             })
         @JoinColumn()
-        <%= assoc.camelCasedName %>: <%= assoc.name %>
+        <%= assoc.relationshipName %>: <%= assoc.name %>
 
     <% } %>
 <% }) %>
