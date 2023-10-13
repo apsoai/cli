@@ -76,22 +76,30 @@ export const parseManyToMany = (
 export const parseOneToOne = (
   relationship: ApsorcRelationship
 ): RelationshipMap => {
-  return {
+  const response: RelationshipMap = {
     [relationship.from]: [
       {
         name: relationship.to,
         type: "OneToOne",
         join: true,
         nullable: relationship.nullable || false,
-      },
-    ],
-    [relationship.to]: [
-      {
-        name: relationship.from,
-        type: "OneToOne",
+        referenceName: relationship.to_name || null,
+        biDirectional: relationship.bi_directional || false,
       },
     ],
   };
+
+  if (relationship.bi_directional) {
+    response[relationship.to] = [
+      {
+        name: relationship.from,
+        type: "OneToOne",
+        biDirectional: true,
+      },
+    ];
+  }
+
+  return response;
 };
 
 export const parseRelationship = (

@@ -6,6 +6,13 @@ import {
 } from "../../types";
 import { parseRelationship } from "./parse";
 
+const InverseType = {
+  OneToOne: "OneToOne",
+  OneToMany: "ManyToOne",
+  ManyToOne: "OneToMany",
+  ManyToMany: "ManyToMany",
+};
+
 export const isInverseRelationshipDefined = (
   entityName: string,
   association: Association,
@@ -15,11 +22,7 @@ export const isInverseRelationshipDefined = (
     return false;
   }
 
-  return Boolean(
-    entities
-      .find((entity) => entity.name === association.name)
-      ?.associations?.find((entity) => entity.name === entityName)
-  );
+  return Boolean(getInverseRelationship(entityName, association, entities));
 };
 
 export const getInverseRelationship = (
@@ -31,10 +34,16 @@ export const getInverseRelationship = (
     return null;
   }
 
+  const inverseAssociationType = InverseType[association.type];
+
+  const isInverse = (testAssocation: Association) =>
+    testAssocation.name === entityName &&
+    testAssocation.type === inverseAssociationType;
+
   return (
     entities
       .find((entity) => entity.name === association.name)
-      ?.associations?.find((entity) => entity.name === entityName) || null
+      ?.associations?.find(isInverse) || null
   );
 };
 
