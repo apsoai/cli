@@ -41,7 +41,7 @@ export const createEntity = async (
     updatedAt,
     pluralizedName: pluralize(camelCase(name)),
     columns,
-    associations: relationships,
+    associations: [...new Set(relationships)],
     entitiesToImport,
     importEnums: typeExistsInEntity(entity, "enum") !== -1,
     apiType,

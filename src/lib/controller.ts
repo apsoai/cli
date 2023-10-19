@@ -34,8 +34,9 @@ export const createController = async (
     ctrlName,
     entityName,
     pluralEntityName,
-    associations: relationships,
-    nestedAssociations: nestedRelationships,
+    // ensure uniqueness
+    associations: [...new Set(relationships)],
+    nestedAssociations: [...new Set(nestedRelationships)],
   };
 
   Eta.configure({

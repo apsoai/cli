@@ -163,7 +163,7 @@ export const getRelationshipForTemplate = (
       joinTable: relationship.join || false,
       biDirectional: relationship.biDirectional || false,
     };
-  });
+  }).filter((v,i,a)=> a.findIndex(v2=>(v2.name===v.name))===i);
 };
 
 export const getNestedRelationships = (
@@ -199,7 +199,6 @@ export const getNestedRelationships = (
       nestedRelationships.push(`${parent}.${child}`);
     }
   }
-
   return nestedRelationships;
 };
 

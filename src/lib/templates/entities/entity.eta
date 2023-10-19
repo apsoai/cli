@@ -68,8 +68,8 @@ export class <%= it.name %> {
 
 <% }); %>
 
+// Associations    
 <% it.associations.forEach((assoc) => { %>
-    // Associations    
     <% if (assoc.type === 'OneToMany') { %>
 
         @OneToMany(() => <%= assoc.name %>, <%= assoc.camelCasedName %> => <%= assoc.camelCasedName %>.<%= assoc.entityName %>)
