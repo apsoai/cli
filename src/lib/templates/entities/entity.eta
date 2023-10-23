@@ -90,7 +90,7 @@ export class <%= it.name %> {
     
         @ManyToMany(() => <%= assoc.name %>)
         <% if (assoc.joinTable) { %>@JoinTable()<% } %>
-        <%= assoc.pluralizedName %>: <%= assoc.name %>[]
+        <%= assoc.pluralizedRelationshipName %>: <%= assoc.name %>[]
     
     <% } else if (assoc.type === 'OneToOne') { %>
     

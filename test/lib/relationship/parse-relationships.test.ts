@@ -284,6 +284,7 @@ describe("test parseManyToMany", () => {
         {
           name: "Account",
           type: "ManyToMany",
+          referenceName: null,
           join: true,
           biDirectional: false,
         },
@@ -305,11 +306,36 @@ describe("test parseManyToMany", () => {
         {
           name: "Account",
           type: "ManyToMany",
+          referenceName: null,
           join: true,
           biDirectional: true,
         },
       ],
       Account: [{ name: "User", type: "ManyToMany", biDirectional: true }],
+    };
+    const result = parseManyToMany(relationship);
+    expect(result).toEqual(expectedResult);
+  });
+
+  test("test ManyToMany with to_name, returns reference name", () => {
+    const relationship: ApsorcRelationship = {
+      from: "FacilityBin",
+      to: "User",
+      type: "ManyToMany",
+      to_name: "NotifyUser",
+      bi_directional: true,
+    };
+    const expectedResult: { [key: string]: Relationship[] } = {
+      FacilityBin: [
+        {
+          name: "User",
+          type: "ManyToMany",
+          referenceName: "NotifyUser",
+          join: true,
+          biDirectional: true,
+        },
+      ],
+      User: [{ name: "FacilityBin", type: "ManyToMany", biDirectional: true }],
     };
     const result = parseManyToMany(relationship);
     expect(result).toEqual(expectedResult);

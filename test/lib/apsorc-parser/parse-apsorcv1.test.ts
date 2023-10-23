@@ -714,12 +714,14 @@ describe("test parseApsorcV1", () => {
           {
             name: "Machine",
             type: "ManyToMany",
+            referenceName: null,
             join: true,
             biDirectional: false,
           },
           {
             name: "FacilityBin",
             type: "ManyToMany",
+            referenceName: null,
             join: true,
             biDirectional: true,
           },
@@ -783,12 +785,14 @@ describe("test parseApsorcV1", () => {
           {
             name: "Scale",
             type: "ManyToMany",
+            referenceName: null,
             join: true,
             biDirectional: true,
           },
           {
             name: "Hopper",
             type: "ManyToMany",
+            referenceName: null,
             join: true,
             biDirectional: false,
           },
@@ -1163,6 +1167,7 @@ describe("test parseApsorcV1", () => {
           {
             name: "FacilityBin",
             type: "ManyToMany",
+            referenceName: null,
             join: true,
             biDirectional: true,
           },
@@ -1226,12 +1231,14 @@ describe("test parseApsorcV1", () => {
           {
             name: "Scale",
             type: "ManyToMany",
+            referenceName: null,
             join: true,
             biDirectional: true,
           },
           {
             name: "Hopper",
             type: "ManyToMany",
+            referenceName: null,
             join: true,
             biDirectional: true,
           },
