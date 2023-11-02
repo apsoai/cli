@@ -169,38 +169,50 @@ export const getRelationshipForTemplate = (
 
 export const getNestedRelationships = (
   entityName: string,
-  relationshipMap: RelationshipMap
-): (string | null | undefined)[] | null => {
-  if (!relationshipMap[entityName]) {
-    return null;
+  relationshipMap: RelationshipMap,
+  prefix = "",
+  visited: Set<string> = new Set()
+): string[] => {
+  const relationships: string[] = [];
+
+  if (visited.has(entityName)) {
+    return relationships;
   }
 
-  const nestedRelationships = [];
-  for (const relationship of relationshipMap[entityName]) {
+  const currentRelationships = relationshipMap[entityName];
+  if (!currentRelationships) return relationships;
+
+  visited.add(entityName);
+
+  for (const relationship of currentRelationships) {
     const { name: relationshipName, type } = relationship;
+
     const referenceName = getRelationshipName(relationship);
+    const formattedName =
+      type === "ManyToOne" || type === "OneToOne"
+        ? camelCase(referenceName)
+        : pluralize(camelCase(referenceName));
 
-    const associatedRelationships = relationshipMap[relationshipName];
-    for (const associatedRelationship of associatedRelationships) {
-      const childReferenceName = getRelationshipName(associatedRelationship);
-      const { name: childRelationshipName, type: childType } =
-        associatedRelationship;
+    const relationshipPath = prefix
+      ? `${prefix}.${formattedName}`
+      : formattedName;
+    const hasChild = relationshipPath.includes(".");
+    const canAdd = hasChild;
 
-      if (childRelationshipName === entityName) {
-        continue;
-      }
-      const parent =
-        type === "ManyToOne" || type === "OneToOne"
-          ? camelCase(referenceName)
-          : pluralize(camelCase(referenceName));
-      const child =
-        childType === "ManyToOne" || childType === "OneToOne"
-          ? camelCase(childReferenceName)
-          : pluralize(camelCase(childReferenceName));
-      nestedRelationships.push(`${parent}.${child}`);
+    if (canAdd) {
+      relationships.push(relationshipPath);
     }
+
+    const nestedRelationships = getNestedRelationships(
+      relationshipName,
+      relationshipMap,
+      relationshipPath,
+      new Set(visited)
+    );
+    relationships.push(...nestedRelationships);
   }
-  return nestedRelationships;
+
+  return relationships;
 };
 
 export const getRelationshipsForImport = (
