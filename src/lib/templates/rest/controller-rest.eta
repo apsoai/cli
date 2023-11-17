@@ -35,7 +35,7 @@ import {<%= it.svcName %>} from './<%= it.entityName %>.service';
                 <% }) %>
                 <% if (it.nestedAssociations.length) {%>
                     <% it.nestedAssociations.forEach((assoc) => { %>
-                        "<%= assoc %>": { eager: false },
+                    "<%= assoc %>": { eager: false },
                     <% }) %>
                 <% }%>
             },

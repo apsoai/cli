@@ -197,7 +197,16 @@ export const getNestedRelationships = (
       ? `${prefix}.${formattedName}`
       : formattedName;
     const hasChild = relationshipPath.includes(".");
-    const canAdd = hasChild;
+    const exists =
+      prefix
+        .split(".")
+        .some(
+          (a) =>
+            a === camelCase(referenceName) ||
+            a === pluralize(camelCase(referenceName))
+        );
+    const deepEnough = prefix.split(".").length >= 4;
+    const canAdd = hasChild && !exists && !deepEnough;
 
     if (canAdd) {
       relationships.push(relationshipPath);
