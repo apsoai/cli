@@ -1,0 +1,7 @@
+<% const {field} = it; %>
+
+@Column({ "type": "decimal"<% if (field.default !== null) {%>, default:  <%= field.default %><% } %> })
+<% if (field.index ) {%>
+@Index()
+<% } %>
+<%= field.name %>: number;

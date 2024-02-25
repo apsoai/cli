@@ -1,3 +1,4 @@
+import { Unique } from "./constraints";
 import { Field } from "./field";
 import { Index } from "./indices";
 import { Association } from "./relationship";
@@ -10,6 +11,7 @@ export interface Entity {
   updated_at?: boolean;
   fields?: Field[];
   indexes?: Index[];
+  uniques?: Unique[];
 
   // only used for v1
   associations?: Association[];

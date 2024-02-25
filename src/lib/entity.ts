@@ -17,9 +17,10 @@ export const createEntity = async (
   relationshipsNew: Relationship[],
   apiType: string
 ): Promise<void> => {
-  const { name, fields = [], indexes } = entity;
+  const { name, fields = [], indexes, uniques } = entity;
   const File = path.join(apiBaseDir, `${name}.entity.ts`);
-
+  console.log("ENTITY: ", name)
+  console.log("INDEXES: ", indexes); 
   const columns = getFieldForTemplate(fields, name);
 
   const createPrimaryKey =
@@ -35,6 +36,7 @@ export const createEntity = async (
   const data = {
     name,
     indexes: indexes || [],
+    uniques: uniques || [],
     createPrimaryKey,
     snakeCasedName: snakeCase(name),
     createdAt,
