@@ -92,7 +92,7 @@ export class <%= it.name %> {
     
     <% } else if (assoc.type === 'ManyToMany') { %>
     
-        @ManyToMany(() => <%= assoc.name %>)
+        @ManyToMany(() => <%= assoc.name %><% if (assoc.biDirectional) { %>, <%= assoc.camelCasedName %> => <%= assoc.camelCasedName %>.<%= it.pluralizedName %><% } %>)
         <% if (assoc.joinTable) { %>@JoinTable()<% } %>
         <%= assoc.pluralizedRelationshipName %>: <%= assoc.name %>[]
     
