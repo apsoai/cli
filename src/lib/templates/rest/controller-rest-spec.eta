@@ -1,0 +1,78 @@
+<%~ includeFile('./header.eta') %>
+
+import { Test, TestingModule } from '@nestjs/testing';
+import {<%= it.entityName %>Dto, <%= it.entityName %>CreateDto} from './dtos/<%= it.entityName%>.dto'
+import {<%= it.ctrlName %>} from "./<%= it.entityName %>.controller";
+import {<%= it.svcName %>} from "./<%= it.entityName %>.service";
+import { CrudRequest } from '@nestjsx/crud';
+
+const baseRequest: CrudRequest = {
+  parsed: {
+    fields: [],
+    paramsFilter: [],
+    search: {},
+    filter: [],
+    or: [],
+    join: [],
+    sort: [],
+    authPersist: undefined,
+    limit: 10,
+    offset: 0,
+    page: 1,
+    cache: undefined,
+    includeDeleted: undefined,
+  },
+  options: {}
+}
+
+describe('<%= it.ctrlName%>', () => {
+  let controller: <%= it.ctrlName%>;
+  let spyService: <%= it.svcName %>;
+
+  beforeEach(async () => {
+    const ApiServiceProvider = {
+      provide: <%= it.svcName %>,
+      useFactory: () => ({
+        createOne: jest.fn(() => []),
+        getOne: jest.fn(() => { }),
+      })
+    }
+    const module: TestingModule = await Test.createTestingModule({
+      controllers: [<%= it.ctrlName%>],
+      providers: [<%= it.svcName %>, ApiServiceProvider]
+    }).compile();
+
+    controller = module.get<<%= it.ctrlName%>>(<%= it.ctrlName%>);
+    spyService = module.get<<%= it.svcName %>>(<%= it.svcName %>);
+  });
+
+  it('should be defined', () => {
+    expect(controller).toBeDefined();
+  });
+
+  it('should call <%= it.ctrlName%> get method', () => {
+    const req: CrudRequest = { ...baseRequest }
+    expect(controller.get(req)).not.toEqual(null);
+    expect(spyService.getOne).toHaveBeenCalled();
+  });
+
+  it('should call <%= it.ctrlName%> create method', () => {
+    const req: CrudRequest = { ...baseRequest }
+    
+    const dto = new <%= it.entityName %>Dto();
+    controller.create(req, dto);
+    expect(controller.create(req, dto)).not.toEqual(null);
+    expect(spyService.createOne).toHaveBeenCalled();
+  });
+
+  // Add your tests here
+  <% /* getMany(req: CrudRequest): Promise<GetManyDefaultResponse<T> | T[]>;
+    getOne(req: CrudRequest): Promise<T>;
+    createOne(req: CrudRequest, dto: DeepPartial<T>): Promise<T>;
+    createMany(req: CrudRequest, dto: CreateManyDto<DeepPartial<T>>): Promise<T[]>;
+    updateOne(req: CrudRequest, dto: DeepPartial<T>): Promise<T>;
+    recoverOne(req: CrudRequest): Promise<T>;
+    replaceOne(req: CrudRequest, dto: DeepPartial<T>): Promise<T>;
+    deleteOne(req: CrudRequest): Promise<void | T>; */ %>
+});
+  

@@ -1,7 +1,7 @@
 <%~ includeFile('./header.eta') %>
 
 import { Controller } from "@nestjs/common";
-import { Crud } from '@nestjsx/crud';
+import { Crud, CrudController, Override, ParsedRequest, CrudRequest, ParsedBody, CreateManyDto } from '@nestjsx/crud';
 import { ApiTags } from '@nestjs/swagger';
 import {<%= it.entityName %>Dto, <%= it.entityName %>CreateDto} from './dtos/<%= it.entityName%>.dto'
 import {<%= it.svcName %>} from './<%= it.entityName %>.service';
@@ -12,6 +12,8 @@ import {<%= it.svcName %>} from './<%= it.entityName %>.service';
     },
     dto: {
         create: <%= it.entityName %>CreateDto,
+        update: <%= it.entityName %>Dto,
+        replace: <%= it.entityName %>Dto,
     },
     query: {
         /**
@@ -45,7 +47,100 @@ import {<%= it.svcName %>} from './<%= it.entityName %>.service';
 
 @Controller('<%= it.pluralEntityName %>')
 @ApiTags('<%= it.pluralEntityName %>')
-export class <%= it.ctrlName%> {
+export class <%= it.ctrlName %> implements CrudController<<%= it.entityName %>Dto>{
     constructor(public service: <%= it.svcName %>) {}
+
+    <% /* https://github.com/nestjsx/crud/wiki/Controllers#routes-override */ %>
+    <% /* Override the core controller methods:
+
+    getManyBase(
+        @ParsedRequest() req: CrudRequest,
+    ): Promise<GetManyDefaultResponse<T> | T[]>;
+
+    getOneBase(
+        @ParsedRequest() req: CrudRequest,
+    ): Promise<T>;
+
+    createOneBase(
+        @ParsedRequest() req: CrudRequest,
+        @ParsedBody() dto: T,
+    ): Promise<T>;
+
+    createManyBase(
+        @ParsedRequest() req: CrudRequest,
+        @ParsedBody() dto: CreateManyDto<T>,
+    ): Promise<T>;
+
+    updateOneBase(
+        @ParsedRequest() req: CrudRequest,
+        @ParsedBody() dto: T,
+    ): Promise<T>;
+
+    replaceOneBase(
+        @ParsedRequest() req: CrudRequest,
+        @ParsedBody() dto: T,
+    ): Promise<T>;
+
+    deleteOneBase(
+        @ParsedRequest() req: CrudRequest,
+    ): Promise<void | T>;
+    */ %>
+
+    get base(): CrudController<<%= it.entityName %>Dto> {
+        return this;
+    }
+
+    @Override('getManyBase')
+    getMany(
+        @ParsedRequest() req: CrudRequest,
+    ) {
+        return this.base.getManyBase(req);
+    }
+
+    @Override('getOneBase')
+    get(
+        @ParsedRequest() req: CrudRequest,
+    ) {
+        return this.base.getOneBase(req);
+    }
+
+    @Override('createOneBase')
+    create(
+        @ParsedRequest() req: CrudRequest,
+        @ParsedBody() dto: <%= it.entityName %>Dto,
+    ) {
+        return this.base.createOneBase(req, dto);
+    }
+
+    @Override('createManyBase')
+    createMany(
+        @ParsedRequest() req: CrudRequest,
+        @ParsedBody() dto: CreateManyDto<<%= it.entityName %>Dto>
+    ) {
+        return this.base.createManyBase(req, dto);
+    }
+
+    @Override('updateOneBase')
+    update(
+        @ParsedRequest() req: CrudRequest,
+        @ParsedBody() dto: <%= it.entityName %>Dto,
+    ) {
+        return this.base.updateOneBase(req, dto);
+    }
+
+    @Override('replaceOneBase')
+    replace(
+        @ParsedRequest() req: CrudRequest,
+        @ParsedBody() dto: <%= it.entityName %>Dto,
+    ) {
+        return this.base.replaceOneBase(req, dto);
+    }
+
+    @Override('deleteOneBase')
+    delete(
+        @ParsedRequest() req: CrudRequest,
+    ) {
+        return this.base.deleteOneBase(req);
+    }
 }
   

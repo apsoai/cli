@@ -14,6 +14,8 @@ export const createController = async (
 ): Promise<void> => {
   const { name: entityName } = entity;
   const File = path.join(apiBaseDir, `${entityName}.controller.ts`);
+  const testFile = path.join(apiBaseDir, `${entityName}.controller.spec.ts`);
+
   // Dependencies
   const svcName = `${entityName}Service`;
   const ctrlName = `${entityName}Controller`;
@@ -49,4 +51,11 @@ export const createController = async (
   );
 
   createFile(File, content);
+
+  const testContent: any = await Eta.renderFileAsync(
+    "./rest/controller-rest-spec",
+    data
+  );
+
+  createFile(testFile, testContent);
 };
