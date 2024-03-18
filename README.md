@@ -21,7 +21,7 @@ $ npm install -g @mavric/apso-cli
 $ apso COMMAND
 running command...
 $ apso (--version)
-@mavric/apso-cli/0.0.15 darwin-arm64 node-v18.19.1
+@mavric/apso-cli/0.0.16 linux-x64 node-v18.19.1
 $ apso --help [COMMAND]
 USAGE
   $ apso COMMAND
@@ -66,8 +66,6 @@ Note: Incase you face prettier related issues while running the scaffold command
 * [`apso plugins:uninstall PLUGIN...`](#apso-pluginsuninstall-plugin-1)
 * [`apso plugins:uninstall PLUGIN...`](#apso-pluginsuninstall-plugin-2)
 * [`apso plugins update`](#apso-plugins-update)
-* [`apso server new [NAME]`](#apso-server-new-name)
-* [`apso server scaffold`](#apso-server-scaffold)
 
 ## `apso help [COMMANDS]`
 
@@ -323,42 +321,5 @@ FLAGS
 
 DESCRIPTION
   Update installed plugins.
-```
-
-## `apso server new [NAME]`
-
-Initialize your server project
-
-```
-USAGE
-  $ apso server new [NAME] [-n <value>] [-t <value>]
-
-FLAGS
-  -n, --name=<value>  name of application
-  -t, --type=<value>  api type (rest or graphql)
-
-DESCRIPTION
-  Initialize your server project
-
-EXAMPLES
-  $ apso server new --name TestProject
-```
-
-## `apso server scaffold`
-
-Setup new entities and interfaces for an Apso Server
-
-```
-USAGE
-  $ apso server scaffold [-h]
-
-FLAGS
-  -h, --help  Show CLI help.
-
-DESCRIPTION
-  Setup new entities and interfaces for an Apso Server
-
-EXAMPLES
-  $ apso server scaffold
 ```
 <!-- commandsstop -->
