@@ -1,18 +1,36 @@
-# test
-name: version, tag and github release
+name: version, tag and publish package
 
 on:
   push:
     branches: [main]
 
 jobs:
-  release:
-    uses: oclif/github-workflows/.github/workflows/githubRelease.yml@main
-    secrets: inherit
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0  # Ensures history is checked out for versioning
 
-  # most repos won't use this
-  # depends on previous job to avoid git collisions, not for any functionality reason
-  # docs:
-  #   uses: salesforcecli/github-workflows/.github/workflows/publishTypedoc.yml@main
-  #   secrets: inherit
-  #   needs: release
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'  # Set to your Node.js version
+        registry-url: 'https://registry.npmjs.org'
+      
+    - name: Install dependencies
+      run: npm install
+
+    - name: Bump version and tag
+      id: bump_version
+      uses: phips28/gh-action-bump-version@v11
+      with:
+        tag-prefix: 'v'  # Set this to 'v' if you want your tags like 'v1.0.0'
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Publish to npm
+      run: npm publish
+      env:
+        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
