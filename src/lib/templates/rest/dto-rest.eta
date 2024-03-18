@@ -1,11 +1,13 @@
+import { ApiProperty } from '@nestjs/swagger';
 <%~ includeFile('./header.eta') %>
 
 <% if (it.importEnums) { %>
 import * as enums from '../../enums';
 <% } %>
 
-export class <%= it.name %>CreateDto {
+export class <%= it.name %>Create {
 <% it.columns.forEach((field) => { %>
+    @ApiProperty()
   <%if (field.dataType.includes("Enum")) {%>
     <%= field.name %>: enums.<%= field.dataType %>;
   <%} else {%>
@@ -14,11 +16,13 @@ export class <%= it.name %>CreateDto {
 <% }) %>
 };
 
-export class <%= it.name %>Dto {
+export class <%= it.name %> {
 <% if (it.createPrimaryKey) { %>
+    @ApiProperty()
     id: number;
 <% } %>
 <% it.columns.forEach((field) => { %>
+    @ApiProperty()
   <%if (field.dataType.includes("Enum")) {%>
     <%= field.name %>: enums.<%= field.dataType %>;
   <%} else {%>
@@ -26,9 +30,11 @@ export class <%= it.name %>Dto {
   <% } %>
 <% }) %>
 <% if (it.createdAt) { %>
+    @ApiProperty()
     created_at: Date;
 <% } %>
 <% if (it.updatedAt) { %>
+    @ApiProperty()
     updated_at: Date;
 <% } %>
 };
