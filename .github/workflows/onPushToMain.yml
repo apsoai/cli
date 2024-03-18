@@ -23,7 +23,7 @@ jobs:
 
     - name: Bump version and tag
       id: bump_version
-      uses: phips28/gh-action-bump-version@v11
+      uses: phips28/gh-action-bump-version@master
       with:
         tag-prefix: 'v'  # Set this to 'v' if you want your tags like 'v1.0.0'
       env:
