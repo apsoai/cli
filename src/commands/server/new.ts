@@ -1,9 +1,7 @@
 import { Args, Flags } from "@oclif/core";
 import { spawn } from "child_process";
-import * as path from "path";
 import * as fs from "fs";
 import shell from 'shelljs';
-import { createDirectoryContents } from "../../lib/utils/file-system";
 import BaseCommand from "../../lib/base-command";
 
 export default class New extends BaseCommand {
@@ -62,7 +60,11 @@ export default class New extends BaseCommand {
     });
   }
 
-  async cloneTemplate(projectPath: string, projectName: string): Promise<void> {
+  async cloneTemplate(
+    projectPath: string,
+    // projectName: string,
+    // apiType: string,
+  ): Promise<void> {
     fs.mkdirSync(projectPath);
     shell.exec(`git clone --depth=1 --branch=main git@github.com:mavric/apso-service-template.git ${projectPath}`)
     shell.exec(`rm -rf ${projectPath}/.git`);
@@ -70,11 +72,14 @@ export default class New extends BaseCommand {
 
   async run(): Promise<void> {
     this.log("Initializing New Apso Server...");
-    const { projectName, apiType } = await this.validateFlags();
+    const {
+      projectName,
+      // apiType,
+    } = await this.validateFlags();
     const CURR_DIR = process.cwd();
     const projectPath = `${CURR_DIR}/${projectName}`;
 
-    await this.cloneTemplate(projectPath, projectName);
+    await this.cloneTemplate(projectPath);
     await this.installModules(projectPath);
     await this.formatApp(projectPath);
   }
