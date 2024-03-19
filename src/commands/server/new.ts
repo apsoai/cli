@@ -2,6 +2,7 @@ import { Args, Flags } from "@oclif/core";
 import { spawn } from "child_process";
 import * as path from "path";
 import * as fs from "fs";
+import shell from 'shelljs';
 import { createDirectoryContents } from "../../lib/utils/file-system";
 import BaseCommand from "../../lib/base-command";
 
@@ -23,11 +24,14 @@ export default class New extends BaseCommand {
 
   static args = { name: Args.string() };
 
-  async installModules(root: string): Promise<void> {
-    await this.runNpmCommand(["install", "--prefix", root]);
+  async installModules(path: string): Promise<void> {
+    this.log("installing modules");
+    await this.runNpmCommand(["install", "--force", "--prefix", path]);
   }
 
   async formatApp(root: string): Promise<void> {
+    this.log("cleaning up");
+    shell.cd(root);
     await this.runNpmCommand(["run", "format", "--prefix", root]);
   }
 
@@ -58,22 +62,19 @@ export default class New extends BaseCommand {
     });
   }
 
+  async cloneTemplate(projectPath: string, projectName: string): Promise<void> {
+    fs.mkdirSync(projectPath);
+    shell.exec(`git clone --depth=1 --branch=main git@github.com:mavric/apso-service-template.git ${projectPath}`)
+    shell.exec(`rm -rf ${projectPath}/.git`);
+  }
+
   async run(): Promise<void> {
     this.log("Initializing New Apso Server...");
     const { projectName, apiType } = await this.validateFlags();
-    const templatePath = `${path.join(
-      __dirname,
-      "..",
-      "..",
-      "..",
-      "..",
-      "apso-service-template"
-    )}`;
     const CURR_DIR = process.cwd();
     const projectPath = `${CURR_DIR}/${projectName}`;
-    fs.mkdirSync(projectPath);
-    createDirectoryContents(templatePath, projectName, apiType.toLowerCase());
-    this.log("installing modules");
+
+    await this.cloneTemplate(projectPath, projectName);
     await this.installModules(projectPath);
     await this.formatApp(projectPath);
   }

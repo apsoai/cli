@@ -32,6 +32,7 @@ export const createDto = async (
   const columns: ComputedField[] = [
     ...fields.map((field: Field) => ({
       name: field.name,
+      type: field.type,
       dataType:
         field.type === "enum"
           ? fieldToEnumType(field.name, name)

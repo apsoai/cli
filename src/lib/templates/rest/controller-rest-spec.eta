@@ -1,7 +1,7 @@
 <%~ includeFile('./header.eta') %>
 
 import { Test, TestingModule } from '@nestjs/testing';
-import {<%= it.entityName %>Dto, <%= it.entityName %>CreateDto} from './dtos/<%= it.entityName%>.dto'
+import {<%= it.entityName %>, <%= it.entityName %>Create} from './dtos/<%= it.entityName%>.dto'
 import {<%= it.ctrlName %>} from "./<%= it.entityName %>.controller";
 import {<%= it.svcName %>} from "./<%= it.entityName %>.service";
 import { CrudRequest } from '@nestjsx/crud';
@@ -20,7 +20,6 @@ const baseRequest: CrudRequest = {
     offset: 0,
     page: 1,
     cache: undefined,
-    includeDeleted: undefined,
   },
   options: {}
 }
@@ -59,7 +58,7 @@ describe('<%= it.ctrlName%>', () => {
   it('should call <%= it.ctrlName%> create method', () => {
     const req: CrudRequest = { ...baseRequest }
     
-    const dto = new <%= it.entityName %>Dto();
+    const dto = new <%= it.entityName %>();
     controller.create(req, dto);
     expect(controller.create(req, dto)).not.toEqual(null);
     expect(spyService.createOne).toHaveBeenCalled();

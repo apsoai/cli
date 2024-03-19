@@ -108,7 +108,7 @@ export class <%= it.ctrlName %> implements CrudController<<%= it.entityName %>>{
 
     @Override('createOneBase')
     @ApiOperation({ summary: 'Create a single <%= it.entityName %>' })
-    @ApiResponse({ status: 200, description: 'description goes here', schema: <%= it.entityName %>Create })
+    <% /* @ApiResponse({ status: 200, description: 'description goes here', schema: <%= it.entityName %>Create }) */ %>
     @ApiBody({
         type: <%= it.entityName %>Create ,
         description: "The Description for the Post Body. Please look into the DTO. You will see the @ApiOptionalProperty used to define the Schema.",

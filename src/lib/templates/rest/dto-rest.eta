@@ -10,6 +10,8 @@ export class <%= it.name %>Create {
     @ApiProperty()
   <%if (field.dataType.includes("Enum")) {%>
     <%= field.name %>: enums.<%= field.dataType %>;
+  <%} else if (field.type === "json") {%>
+    <%= field.name %>: JSON;
   <%} else {%>
     <%= field.name %>: <%= field.dataType %>;
   <% } %>
@@ -25,6 +27,8 @@ export class <%= it.name %> {
     @ApiProperty()
   <%if (field.dataType.includes("Enum")) {%>
     <%= field.name %>: enums.<%= field.dataType %>;
+  <%} else if (field.type === "json") {%>
+    <%= field.name %>: JSON;
   <%} else {%>
     <%= field.name %>: <%= field.dataType %>;
   <% } %>
