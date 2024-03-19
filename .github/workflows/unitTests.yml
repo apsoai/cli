@@ -1,0 +1,25 @@
+name: run unit tests
+
+on:
+    pull_request:
+        types: [opened, reopened]
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0  # Ensures history is checked out for versioning
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'  # Set to your Node.js version
+        registry-url: 'https://npm.pkg.github.com'
+        scope: '@mavric'
+      
+    - run: npm ci
+    - run: npm run test
+
+
