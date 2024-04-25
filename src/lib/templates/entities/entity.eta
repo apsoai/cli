@@ -87,7 +87,7 @@ export class <%= it.name %> {
         @JoinColumn({ name: '<%= assoc.camelCasedId %>' })
         <%= assoc.relationshipName %>: <%= assoc.name %>
 
-        @Column(<% if (assoc.nullable) { %>{ nullable: true }<% } %>)
+        @Column({ type: "integer", <% if (assoc.nullable) { %> nullable: true <% } %>})
         <%= assoc.camelCasedId %>: number;
     
     <% } else if (assoc.type === 'ManyToMany') { %>

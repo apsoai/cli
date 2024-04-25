@@ -1,0 +1,9 @@
+<% it.entities.forEach((entity) => { %>
+import {<%= entity.name %>} from './autogen/<%= entity.name %>/<%= entity.name %>.entity'
+<%}) %>
+
+const entities = [
+<% it.entities.forEach((entity) => { %>
+<%= entity.name %>,
+<%}) %>
+]

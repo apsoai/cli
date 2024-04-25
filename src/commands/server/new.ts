@@ -3,12 +3,13 @@ import { spawn } from "child_process";
 import * as fs from "fs";
 import shell from 'shelljs';
 import BaseCommand from "../../lib/base-command";
+import * as path from "path";
 
 export default class New extends BaseCommand {
   static description = "Initialize your server project";
 
   static examples = [`$ apso server new --name TestProject`];
-
+  private CURR_DIR = process.cwd();
   static flags = {
     name: Flags.string({
       char: "n",
@@ -65,9 +66,15 @@ export default class New extends BaseCommand {
     // projectName: string,
     // apiType: string,
   ): Promise<void> {
-    fs.mkdirSync(projectPath);
+    this.log("Creating project in current folder.")
+    if (!fs.existsSync(projectPath) && this.CURR_DIR !== projectPath) {
+      fs.mkdirSync(projectPath);
+    }
+
+    shell.cd(projectPath);
     shell.exec(`git clone --depth=1 --branch=main git@github.com:mavric/apso-service-template.git ${projectPath}`)
     shell.exec(`rm -rf ${projectPath}/.git`);
+    shell.cd(this.CURR_DIR);
   }
 
   async run(): Promise<void> {
@@ -77,7 +84,7 @@ export default class New extends BaseCommand {
       // apiType,
     } = await this.validateFlags();
     const CURR_DIR = process.cwd();
-    const projectPath = `${CURR_DIR}/${projectName}`;
+    const projectPath = path.join(CURR_DIR, projectName);
 
     await this.cloneTemplate(projectPath);
     await this.installModules(projectPath);
@@ -87,10 +94,11 @@ export default class New extends BaseCommand {
   async validateFlags() {
     const { flags } = await this.parse(New);
 
-    const projectName = flags.name;
+    let projectName = flags.name;
     let apiType = flags.type?.toLowerCase();
     if (typeof projectName === "undefined") {
-      this.error("`name` must be set (e.g. WoofyApp)");
+      // this.error("`name` must be set (e.g. WoofyApp)");
+      projectName = '';
     }
 
     if (typeof apiType === "undefined") {

@@ -19,8 +19,6 @@ export const createEntity = async (
 ): Promise<void> => {
   const { name, fields = [], indexes, uniques } = entity;
   const File = path.join(apiBaseDir, `${name}.entity.ts`);
-  console.log("ENTITY:", name)
-  console.log("INDEXES:", indexes); 
   const columns = getFieldForTemplate(fields, name);
 
   const createPrimaryKey =
