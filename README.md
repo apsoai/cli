@@ -1,11 +1,12 @@
 # Apso CLI
 
 <!-- toc -->
-* [Apso CLI](#apso-cli)
-* [Prerequisites](#prerequisites)
-* [Usage](#usage)
-* [Local Development](#local-development)
-* [Commands](#commands)
+
+- [Apso CLI](#apso-cli)
+- [Prerequisites](#prerequisites)
+- [Usage](#usage)
+- [Local Development](#local-development)
+- [Commands](#commands)
 <!-- tocstop -->
 
 # Prerequisites
@@ -16,6 +17,7 @@ Find out how [here](https://github.com/mavric/.github-private/blob/main/how-to/p
 # Usage
 
 <!-- usage -->
+
 ```sh-session
 $ npm install -g @mavric/apso-cli
 $ apso COMMAND
@@ -27,17 +29,18 @@ USAGE
   $ apso COMMAND
 ...
 ```
+
 <!-- usagestop -->
 
 # Local Development
 
-You need to clone both apso-cli and apso-service-template locally on your machine. Navigate to the apso-cli repo in your code editor and run the below command
+Clone both apso-cli on your machine. Navigate to the repo in your code editor and run the below command
 
 ```sh-session
 $ npm run build && npm link
 ```
 
-This will build the apso cli and make it available for use globally on your machine. Now make a new directory where you want to setup a new backend service. Run the below command in order to create a new service boilerplate.
+This will build the apso cli and make it available for use globally on your machine. Now make a new directory where you want to setup a new backend service. Run the below command in order to create a new service boilerplate. This will clone the apso-service-template from github, so incase you face permission denied issue make sure that you have SSH key added in github and your local machine. Follow this [link](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent) for SSH keys generation.
 
 ```sh-session
 $ apso server new -n <project-name>
@@ -56,16 +59,17 @@ Note: Incase you face prettier related issues while running the scaffold command
 # Commands
 
 <!-- commands -->
-* [`apso help [COMMANDS]`](#apso-help-commands)
-* [`apso plugins`](#apso-plugins)
-* [`apso plugins:install PLUGIN...`](#apso-pluginsinstall-plugin)
-* [`apso plugins:inspect PLUGIN...`](#apso-pluginsinspect-plugin)
-* [`apso plugins:install PLUGIN...`](#apso-pluginsinstall-plugin-1)
-* [`apso plugins:link PLUGIN`](#apso-pluginslink-plugin)
-* [`apso plugins:uninstall PLUGIN...`](#apso-pluginsuninstall-plugin)
-* [`apso plugins:uninstall PLUGIN...`](#apso-pluginsuninstall-plugin-1)
-* [`apso plugins:uninstall PLUGIN...`](#apso-pluginsuninstall-plugin-2)
-* [`apso plugins update`](#apso-plugins-update)
+
+- [`apso help [COMMANDS]`](#apso-help-commands)
+- [`apso plugins`](#apso-plugins)
+- [`apso plugins:install PLUGIN...`](#apso-pluginsinstall-plugin)
+- [`apso plugins:inspect PLUGIN...`](#apso-pluginsinspect-plugin)
+- [`apso plugins:install PLUGIN...`](#apso-pluginsinstall-plugin-1)
+- [`apso plugins:link PLUGIN`](#apso-pluginslink-plugin)
+- [`apso plugins:uninstall PLUGIN...`](#apso-pluginsuninstall-plugin)
+- [`apso plugins:uninstall PLUGIN...`](#apso-pluginsuninstall-plugin-1)
+- [`apso plugins:uninstall PLUGIN...`](#apso-pluginsuninstall-plugin-2)
+- [`apso plugins update`](#apso-plugins-update)
 
 ## `apso help [COMMANDS]`
 
@@ -141,7 +145,7 @@ ALIASES
   $ apso plugins add
 
 EXAMPLES
-  $ apso plugins:install myplugin 
+  $ apso plugins:install myplugin
 
   $ apso plugins:install https://github.com/someuser/someplugin
 
@@ -204,7 +208,7 @@ ALIASES
   $ apso plugins add
 
 EXAMPLES
-  $ apso plugins:install myplugin 
+  $ apso plugins:install myplugin
 
   $ apso plugins:install https://github.com/someuser/someplugin
 
@@ -322,4 +326,5 @@ FLAGS
 DESCRIPTION
   Update installed plugins.
 ```
+
 <!-- commandsstop -->
