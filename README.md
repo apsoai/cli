@@ -1,12 +1,11 @@
 # Apso CLI
 
 <!-- toc -->
-
-- [Apso CLI](#apso-cli)
-- [Prerequisites](#prerequisites)
-- [Usage](#usage)
-- [Local Development](#local-development)
-- [Commands](#commands)
+* [Apso CLI](#apso-cli)
+* [Prerequisites](#prerequisites)
+* [Usage](#usage)
+* [Local Development](#local-development)
+* [Commands](#commands)
 <!-- tocstop -->
 
 # Prerequisites
@@ -17,19 +16,17 @@ Find out how [here](https://github.com/mavric/.github-private/blob/main/how-to/p
 # Usage
 
 <!-- usage -->
-
 ```sh-session
 $ npm install -g @mavric/apso-cli
 $ apso COMMAND
 running command...
 $ apso (--version)
-@mavric/apso-cli/0.0.24 linux-x64 node-v18.20.2
+@mavric/apso-cli/0.0.25 linux-x64 node-v18.20.2
 $ apso --help [COMMAND]
 USAGE
   $ apso COMMAND
 ...
 ```
-
 <!-- usagestop -->
 
 # Local Development
@@ -59,17 +56,16 @@ Note: Incase you face prettier related issues while running the scaffold command
 # Commands
 
 <!-- commands -->
-
-- [`apso help [COMMANDS]`](#apso-help-commands)
-- [`apso plugins`](#apso-plugins)
-- [`apso plugins:install PLUGIN...`](#apso-pluginsinstall-plugin)
-- [`apso plugins:inspect PLUGIN...`](#apso-pluginsinspect-plugin)
-- [`apso plugins:install PLUGIN...`](#apso-pluginsinstall-plugin-1)
-- [`apso plugins:link PLUGIN`](#apso-pluginslink-plugin)
-- [`apso plugins:uninstall PLUGIN...`](#apso-pluginsuninstall-plugin)
-- [`apso plugins:uninstall PLUGIN...`](#apso-pluginsuninstall-plugin-1)
-- [`apso plugins:uninstall PLUGIN...`](#apso-pluginsuninstall-plugin-2)
-- [`apso plugins update`](#apso-plugins-update)
+* [`apso help [COMMANDS]`](#apso-help-commands)
+* [`apso plugins`](#apso-plugins)
+* [`apso plugins:install PLUGIN...`](#apso-pluginsinstall-plugin)
+* [`apso plugins:inspect PLUGIN...`](#apso-pluginsinspect-plugin)
+* [`apso plugins:install PLUGIN...`](#apso-pluginsinstall-plugin-1)
+* [`apso plugins:link PLUGIN`](#apso-pluginslink-plugin)
+* [`apso plugins:uninstall PLUGIN...`](#apso-pluginsuninstall-plugin)
+* [`apso plugins:uninstall PLUGIN...`](#apso-pluginsuninstall-plugin-1)
+* [`apso plugins:uninstall PLUGIN...`](#apso-pluginsuninstall-plugin-2)
+* [`apso plugins update`](#apso-plugins-update)
 
 ## `apso help [COMMANDS]`
 
@@ -145,7 +141,7 @@ ALIASES
   $ apso plugins add
 
 EXAMPLES
-  $ apso plugins:install myplugin
+  $ apso plugins:install myplugin 
 
   $ apso plugins:install https://github.com/someuser/someplugin
 
@@ -208,7 +204,7 @@ ALIASES
   $ apso plugins add
 
 EXAMPLES
-  $ apso plugins:install myplugin
+  $ apso plugins:install myplugin 
 
   $ apso plugins:install https://github.com/someuser/someplugin
 
@@ -326,5 +322,4 @@ FLAGS
 DESCRIPTION
   Update installed plugins.
 ```
-
 <!-- commandsstop -->
