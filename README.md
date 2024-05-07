@@ -43,15 +43,15 @@ This will build the apso cli and make it available for use globally on your mach
 $ apso server new -n <project-name>
 ```
 
-Then navigate to the newly created service and update the apsorc file according to your project entities and relations. Sample of rc files for both v1 and v2 are given in apso-cli code at "test/apsorc-json" so you can check it out in order to make sure that your apsorc file follows the right pattern. Make sure to provide the desired value for the key "apiType" in the apsorc file e.g (Rest, Graphql).
+Then navigate to the newly created service and update the apsorc file according to your project entities and relations. Sample of rc files for both v1 and v2 are given in apso-cli code at "test/apsorc-json" so you can check it out in order to make sure that your apsorc file follows the right pattern. You can also provide the key "apiType" in the apsorc file e.g (Rest, Graphql) incase you want to generate the GraphQL backend by default it would be REST.
+
+Install the npm modules before continuing further.
 
 Now we will run the scaffold command which will generate the all the relevant modules for us.
 
 ```sh-session
 $ apso server scaffold
 ```
-
-Note: Incase you face prettier related issues while running the scaffold command make sure that when you initailly created the service with "apso server new" command, the apso-service-template directory did not had node modules folder. Incase you do have a node modules folder present for some reason then delete it. Discard this service and make a new one and run the scaffold command in it.
 
 # Commands
 
