@@ -21,7 +21,7 @@ $ npm install -g @mavric/apso-cli
 $ apso COMMAND
 running command...
 $ apso (--version)
-@mavric/apso-cli/0.0.25 linux-x64 node-v18.20.2
+@mavric/apso-cli/0.0.26 linux-x64 node-v18.20.2
 $ apso --help [COMMAND]
 USAGE
   $ apso COMMAND
