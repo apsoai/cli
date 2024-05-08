@@ -33,6 +33,7 @@ export const createDto = async (
     ...fields.map((field: Field) => ({
       name: field.name,
       type: field.type,
+      primary: field.primary,
       dataType:
         field.type === "enum"
           ? fieldToEnumType(field.name, name)
@@ -44,15 +45,16 @@ export const createDto = async (
     })),
   ];
 
-  const createPrimaryKey =
-    columns.filter((column: ComputedField) => column.primary === true)
-      .length === 0;
+  const primaryKeyColumns = columns.filter(
+    (column: ComputedField) => column.primary === true
+  );
+  const addDefaultPKProperty = primaryKeyColumns.length > 0 ? false : true;
 
   const createdAt = entity.created_at;
   const updatedAt = entity.updated_at;
   const data = {
     name: entity.name,
-    createPrimaryKey,
+    addDefaultPKProperty,
     createdAt,
     updatedAt,
     columns,
