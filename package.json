@@ -26,6 +26,7 @@
     "@oclif/core": "^2",
     "@oclif/plugin-help": "^5",
     "@oclif/plugin-plugins": "^3",
+    "debug": "^4.3.4",
     "eta": "^2.0.0",
     "pluralize": "^8.0.0",
     "rc": "^1.2.8",
