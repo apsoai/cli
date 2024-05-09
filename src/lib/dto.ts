@@ -48,7 +48,7 @@ export const createDto = async (
   const primaryKeyColumns = columns.filter(
     (column: ComputedField) => column.primary === true
   );
-  const addDefaultPKProperty = primaryKeyColumns.length > 0 ? false : true;
+  const addDefaultPKProperty = primaryKeyColumns.length === 0;
 
   const createdAt = entity.created_at;
   const updatedAt = entity.updated_at;
