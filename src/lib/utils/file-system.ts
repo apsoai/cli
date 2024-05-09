@@ -45,6 +45,7 @@ export const createDirectoryContents = (
   });
 };
 
+/* eslint-disable max-params */
 const writeFile = (
   fileName: string,
   origFilePath: string,
