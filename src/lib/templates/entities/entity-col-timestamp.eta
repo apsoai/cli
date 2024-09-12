@@ -1,4 +1,4 @@
 <% const {field} = it; %>
 
-@Column({ type: 'timestamp' })
+@Column({ type: 'timestamp', nullable: <%= Boolean(field.nullable) %> })
 <%= field.name %>: Date;
