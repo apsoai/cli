@@ -1,6 +1,6 @@
 {
   "name": "@mavric/apso-cli",
-  "version": "0.0.29",
+  "version": "0.0.30",
   "description": "Apso CLI",
   "author": "Mavric Technology - @mavric",
   "bin": {
