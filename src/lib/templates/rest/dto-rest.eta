@@ -12,7 +12,7 @@ export class <%= it.name %>Create {
     <%= field.name %>: enums.<%= field.dataType %>;
   <%} else if (field.type === 'json' || field.type === 'json-plain') {%>
     <%= field.name %>: JSON;
-  <%} else if (field.type === 'timestamp') {%>
+  <%} else if (field.type === 'timestamp' || field.type === 'timestamptz') {%>
     <%= field.name %>: Date;
   <%} else {%>
     <%= field.name %>: <%= field.dataType %>;
@@ -31,7 +31,7 @@ export class <%= it.name %> {
     <%= field.name %>: enums.<%= field.dataType %>;
   <%} else if (field.type === 'json' || field.type === 'json-plain') {%>
     <%= field.name %>: JSON;
-  <%} else if (field.type === 'timestamp') {%>
+  <%} else if (field.type === 'timestamp' || field.type === 'timestamptz') {%>
     <%= field.name %>: Date;
   <%} else {%>
     <%= field.name %>: <%= field.dataType %>;
