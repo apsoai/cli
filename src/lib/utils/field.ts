@@ -9,6 +9,8 @@ export const getJsTypeFromFieldType = (type: FieldType): string => {
       return "boolean";
     case "integer":
       return "number";
+    case "float":
+      return "number";
     case "text":
     case "enum":
     default:

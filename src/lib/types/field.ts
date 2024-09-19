@@ -4,6 +4,7 @@ export type FieldType =
   | "array"
   | "enum"
   | "integer"
+  | "float"
   | "date"
   | "json"
   | "json-plain";
