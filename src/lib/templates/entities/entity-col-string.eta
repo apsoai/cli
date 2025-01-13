@@ -1,0 +1,23 @@
+<% const {field} = it; %>
+
+@IsOptional({ groups: [UPDATE] })
+<% if (!field.nullable && !field.auto) { %>
+@IsNotEmpty({ groups: [CREATE] })
+<% } %>
+<% if (field.is_email) { %>
+@IsEmail({ require_tld: false }, { always: true })
+<% } %>
+
+<% if (field.auto) { %>
+<% /* https://github.com/birkir/prime/issues/126 */ %>
+@Generated('increment')
+<% }%>
+<% if (field.index ) {%>
+@Index()
+<% } %>
+@Column({ type: "text", nullable: <%= Boolean(field.nullable) %><% if (field.unique) {%>, unique: true <% } %><% if (field.default !== null) {%>, default:  '<%= field.default %>'<% } %>  })
+<% if (field.primary ) {%>
+@PrimaryColumn()
+<% } %>
+
+<%= field.name %>: <%= field.dataType %>;
