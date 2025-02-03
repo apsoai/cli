@@ -163,6 +163,7 @@ export const getRelationshipForTemplate = (
       entityName: camelCase(entityName),
       joinTable: relationship.join || false,
       biDirectional: relationship.biDirectional || false,
+      cascadeDelete: relationship.cascadeDelete || false,
     };
   });
 };
