@@ -16,6 +16,7 @@ export const parseOneToMany = (
         name: relationship.to,
         type: "OneToMany",
         biDirectional: true,
+        cascadeDelete: relationship.cascadeDelete || false,
       },
     ],
     [relationship.to]: [

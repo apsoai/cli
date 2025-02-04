@@ -197,6 +197,34 @@ describe("test parseOneToMany", () => {
     const result = parseOneToMany(relationship);
     expect(result).toEqual(expectedResult);
   });
+
+  test("OneToMany with cascadeDelete returns both relationships with cascadeDelete", () => {
+    const relationship: ApsorcRelationship = {
+      from: "BinLoad",
+      to: "HopperLoad",
+      type: "OneToMany",
+      cascadeDelete: true,
+    };
+    const expectedResult = {
+      BinLoad: [{ 
+        name: "HopperLoad", 
+        type: "OneToMany", 
+        biDirectional: true,
+        cascadeDelete: true 
+      }],
+      HopperLoad: [
+        {
+          name: "BinLoad",
+          type: "ManyToOne",
+          nullable: false,
+          biDirectional: true,
+          index: false,
+        },
+      ],
+    };
+    const result = parseOneToMany(relationship);
+    expect(result).toEqual(expectedResult);
+  });
 });
 
 describe("test parseManyToOne", () => {
