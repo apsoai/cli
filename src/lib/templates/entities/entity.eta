@@ -78,10 +78,9 @@ export class <%= it.name %> {
 
         @OneToMany(
             () => <%= assoc.name %>,
-            <%= assoc.camelCasedName %> => <%= assoc.camelCasedName %>.<%= assoc.entityName %>,
-            {
-                <% if (assoc.cascadeDelete) { %> onDelete: "CASCADE", <% } %>
-            })
+            <%= assoc.camelCasedName %> => <%= assoc.camelCasedName %>.<%= assoc.entityName %>
+            <% if (assoc.cascadeDelete) { %> ,{ onDelete: "CASCADE", } <% } %>
+        )
         <%= assoc.pluralizedName %>: <%= assoc.name %>[]
     
     <% } else if (assoc.type === 'ManyToOne') { %>
