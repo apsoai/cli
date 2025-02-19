@@ -79,7 +79,6 @@ export class <%= it.name %> {
         @OneToMany(
             () => <%= assoc.name %>,
             <%= assoc.camelCasedName %> => <%= assoc.camelCasedName %>.<%= assoc.entityName %>
-            <% if (assoc.cascadeDelete) { %> ,{ onDelete: "CASCADE", } <% } %>
         )
         <%= assoc.pluralizedName %>: <%= assoc.name %>[]
     
@@ -87,7 +86,7 @@ export class <%= it.name %> {
         <% if (assoc.index) { %>
         @Index()
         <% } %>
-        @ManyToOne(() => <%= assoc.name %><% if (assoc.biDirectional) { %>, <%= assoc.camelCasedName %> => <%= assoc.camelCasedName %>.<%= it.pluralizedName %><% } %>)
+        @ManyToOne(() => <%= assoc.name %><% if (assoc.biDirectional) { %>, <%= assoc.camelCasedName %> => <%= assoc.camelCasedName %>.<%= it.pluralizedName %><% } %><% if (assoc.cascadeDelete) { %>, { onDelete: "CASCADE" }<% } %>)
         @JoinColumn({ name: '<%= assoc.camelCasedId %>' })
         <%= assoc.relationshipName %>: <%= assoc.name %>
 
