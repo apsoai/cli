@@ -21,6 +21,7 @@ describe("test parseV1Relationships", () => {
           nullable: true,
           biDirectional: true,
           index: false,
+          cascadeDelete: false,
         },
         {
           type: "ManyToOne",
@@ -28,6 +29,7 @@ describe("test parseV1Relationships", () => {
           nullable: false,
           biDirectional: true,
           index: false,
+          cascadeDelete: false,
         },
       ],
       Workspace: [
@@ -49,6 +51,7 @@ describe("test parseV1Relationships", () => {
           nullable: false,
           biDirectional: true,
           index: true,
+          cascadeDelete: false,
         },
         {
           type: "OneToMany",
@@ -70,6 +73,7 @@ describe("test parseV1Relationships", () => {
           nullable: false,
           biDirectional: true,
           index: false,
+          cascadeDelete: false,
         },
         {
           type: "OneToMany",
@@ -103,6 +107,7 @@ describe("test parseV1Relationships", () => {
           nullable: false,
           biDirectional: true,
           index: false,
+          cascadeDelete: false,
         },
       ],
       ApplicationServiceMetric: [
@@ -112,6 +117,7 @@ describe("test parseV1Relationships", () => {
           nullable: false,
           biDirectional: true,
           index: false,
+          cascadeDelete: false,
         },
       ],
       InfrastructureStack: [
