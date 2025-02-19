@@ -271,6 +271,7 @@ describe("test parseApsorcV2", () => {
             nullable: true,
             biDirectional: true,
             index: false,
+            cascadeDelete: false,
           },
           {
             type: "ManyToOne",
@@ -278,6 +279,7 @@ describe("test parseApsorcV2", () => {
             nullable: false,
             biDirectional: true,
             index: false,
+            cascadeDelete: false,
           },
         ],
         Workspace: [
@@ -299,6 +301,7 @@ describe("test parseApsorcV2", () => {
             nullable: false,
             biDirectional: true,
             index: true,
+            cascadeDelete: false,
           },
           {
             type: "OneToMany",
@@ -320,6 +323,7 @@ describe("test parseApsorcV2", () => {
             nullable: false,
             biDirectional: true,
             index: false,
+            cascadeDelete: false,
           },
           {
             type: "OneToMany",
@@ -353,6 +357,7 @@ describe("test parseApsorcV2", () => {
             nullable: false,
             biDirectional: true,
             index: false,
+            cascadeDelete: false,
           },
         ],
         ApplicationServiceMetric: [
@@ -362,6 +367,7 @@ describe("test parseApsorcV2", () => {
             nullable: false,
             biDirectional: true,
             index: false,
+            cascadeDelete: false,
           },
         ],
         InfrastructureStack: [
