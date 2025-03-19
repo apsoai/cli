@@ -2,4 +2,4 @@
 
 @Column('json', { nullable: <%= Boolean(field.nullable) %> })
 
-<%= field.name %>: any;
+<%= field.name %>: JSON;
