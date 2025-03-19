@@ -1,11 +1,12 @@
 <% const {field} = it; %>
 
-@Column("text", {
-    array: true,
-    nullable: <%= Boolean(field.nullable) %>
+@Column({ 
+  type: "<%= field.elementType || 'text' %>", 
+  array: true<% if (field.nullable) {%>, 
+  nullable: true<% } %> 
 })
 <% if (field.index ) {%>
 @Index()
 <% } %>
 
-<%= field.name %>!: <%= field.dataType %>;
+<%= field.name %>: <%= field.elementType === 'int' || field.elementType === 'smallint' || field.elementType === 'decimal' || field.elementType === 'numeric' || field.elementType === 'real' || field.elementType === 'float8' ? 'number' : 'string' %>[];
