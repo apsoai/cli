@@ -1,0 +1,12 @@
+<% const {field} = it; %>
+
+@Column({ "type": "bigint" })
+@Generated("increment")
+<% if (field.index ) {%>
+@Index()
+<% } %>
+<% if (field.primary ) {%>
+@PrimaryColumn()
+<% } %>
+
+<%= field.name %>: string; 

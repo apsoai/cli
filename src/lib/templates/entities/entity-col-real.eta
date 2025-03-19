@@ -1,0 +1,11 @@
+<% const {field} = it; %>
+
+@Column({ "type": "real"<% if (field.default !== null) {%>, default:  <%= field.default %><% } %> })
+<% if (field.index ) {%>
+@Index()
+<% } %>
+<% if (field.primary ) {%>
+@PrimaryColumn()
+<% } %>
+
+<%= field.name %>: number; 

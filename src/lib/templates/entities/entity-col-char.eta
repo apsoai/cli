@@ -1,0 +1,15 @@
+<% const {field} = it; %>
+
+@IsOptional({ groups: [UPDATE] })
+<% if (!field.nullable && !field.auto) { %>
+@IsNotEmpty({ groups: [CREATE] })
+<% } %>
+<% if (field.index ) {%>
+@Index()
+<% } %>
+@Column({ type: "char", length: <%= field.length || 1 %>, nullable: <%= Boolean(field.nullable) %><% if (field.unique) {%>, unique: true <% } %><% if (field.default !== null) {%>, default:  '<%= field.default %>'<% } %>  })
+<% if (field.primary ) {%>
+@PrimaryColumn()
+<% } %>
+
+<%= field.name %>: string; 

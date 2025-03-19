@@ -1,0 +1,11 @@
+<% const {field} = it; %>
+
+@Column({ "type": "tsvector"<% if (field.nullable) {%>, nullable: true<% } %> })
+<% if (field.index ) {%>
+@Index()
+<% } %>
+<% if (field.primary ) {%>
+@PrimaryColumn()
+<% } %>
+
+<%= field.name %>: string; 

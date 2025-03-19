@@ -1,0 +1,34 @@
+<% const {field} = it; %>
+
+@Column({
+  "type": "int4range",
+  transformer: {
+    to: (range: {lower: number, upper: number, lowerInclusive: boolean, upperInclusive: boolean} | null) => {
+      if (!range) return null;
+      const lowerBracket = range.lowerInclusive ? '[' : '(';
+      const upperBracket = range.upperInclusive ? ']' : ')';
+      return `${lowerBracket}${range.lower},${range.upper}${upperBracket}`;
+    },
+    from: (pgRange: string | null) => {
+      if (!pgRange) return null;
+      const lowerInclusive = pgRange.startsWith('[');
+      const upperInclusive = pgRange.endsWith(']');
+      const values = pgRange.substring(1, pgRange.length - 1).split(',');
+      return {
+        lower: parseInt(values[0]),
+        upper: parseInt(values[1]),
+        lowerInclusive,
+        upperInclusive
+      };
+    }
+  }<% if (field.nullable) {%>,
+  nullable: true<% } %>
+})
+<% if (field.index ) {%>
+@Index()
+<% } %>
+<% if (field.primary ) {%>
+@PrimaryColumn()
+<% } %>
+
+<%= field.name %>: {lower: number, upper: number, lowerInclusive: boolean, upperInclusive: boolean}; 

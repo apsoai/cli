@@ -1,0 +1,25 @@
+<% const {field} = it; %>
+
+@Column({
+  "type": "point",
+  transformer: {
+    to: (point: {x: number, y: number} | null) => {
+      if (!point) return null;
+      return `(${point.x},${point.y})`;
+    },
+    from: (pgPoint: string | null) => {
+      if (!pgPoint) return null;
+      const [x, y] = pgPoint.substring(1, pgPoint.length - 1).split(',');
+      return { x: parseFloat(x), y: parseFloat(y) };
+    }
+  }<% if (field.nullable) {%>,
+  nullable: true<% } %>
+})
+<% if (field.index ) {%>
+@Index()
+<% } %>
+<% if (field.primary ) {%>
+@PrimaryColumn()
+<% } %>
+
+<%= field.name %>: { x: number, y: number }; 
