@@ -14,7 +14,7 @@
     "url": "git+https://github.com/mavric/apso-cli.git"
   },
   "publishConfig": {
-    "@mavric:registry": "https://npm.pkg.github.com"
+    "access": "public"
   },
   "files": [
     "/bin",
