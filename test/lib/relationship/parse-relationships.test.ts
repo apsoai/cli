@@ -65,6 +65,7 @@ describe("test parseRelationships", () => {
           nullable: true,
           biDirectional: true,
           index: false,
+          cascadeDelete: false,
         },
         {
           type: "ManyToOne",
@@ -72,6 +73,7 @@ describe("test parseRelationships", () => {
           nullable: false,
           biDirectional: true,
           index: false,
+          cascadeDelete: false,
         },
       ],
       Workspace: [
@@ -93,6 +95,7 @@ describe("test parseRelationships", () => {
           nullable: false,
           biDirectional: true,
           index: false,
+          cascadeDelete: false,
         },
         {
           type: "OneToMany",
@@ -114,6 +117,7 @@ describe("test parseRelationships", () => {
           nullable: false,
           biDirectional: true,
           index: false,
+          cascadeDelete: false,
         },
         {
           type: "OneToMany",
@@ -147,6 +151,7 @@ describe("test parseRelationships", () => {
           nullable: false,
           biDirectional: true,
           index: false,
+          cascadeDelete: false,
         },
       ],
       ApplicationServiceMetric: [
@@ -156,6 +161,7 @@ describe("test parseRelationships", () => {
           nullable: false,
           biDirectional: true,
           index: false,
+          cascadeDelete: false,
         },
       ],
       InfrastructureStack: [
@@ -191,6 +197,7 @@ describe("test parseOneToMany", () => {
           nullable: true,
           biDirectional: true,
           index: false,
+          cascadeDelete: false,
         },
       ],
     };
@@ -198,19 +205,17 @@ describe("test parseOneToMany", () => {
     expect(result).toEqual(expectedResult);
   });
 
-  test("OneToMany with cascadeDelete returns both relationships with cascadeDelete", () => {
+  test("OneToMany with cascadeDelete returns ManyToOne relationship with cascadeDelete", () => {
     const relationship: ApsorcRelationship = {
       from: "BinLoad",
       to: "HopperLoad",
       type: "OneToMany",
-      cascadeDelete: true,
     };
     const expectedResult = {
       BinLoad: [{ 
         name: "HopperLoad", 
         type: "OneToMany", 
         biDirectional: true,
-        cascadeDelete: true 
       }],
       HopperLoad: [
         {
@@ -219,6 +224,7 @@ describe("test parseOneToMany", () => {
           nullable: false,
           biDirectional: true,
           index: false,
+          cascadeDelete: false,
         },
       ],
     };
