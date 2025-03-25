@@ -1,17 +1,17 @@
 {
-  "name": "@mavric/apso-cli",
+  "name": "@apso/cli",
   "version": "0.0.40",
   "description": "Apso CLI",
-  "author": "Mavric Technology - @mavric",
+  "author": "Apso by Mavric - @mavric",
   "bin": {
     "apso": "./bin/run"
   },
-  "homepage": "https://github.com/mavric/apso-cli",
+  "homepage": "https://github.com/apsoai/cli",
   "license": "MIT",
   "main": "dist/index.js",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mavric/apso-cli.git"
+    "url": "git+https://github.com/apsoai/cli.git"
   },
   "publishConfig": {
     "access": "public"
@@ -91,8 +91,12 @@
   "engines": {
     "node": ">=12.0.0"
   },
-  "bugs": "https://github.com/nateoaks/apso-cli/issues",
+  "bugs": "https://github.com/@apsoai/cli/issues",
   "keywords": [
+    "apso",
+    "apsoai",
+    "apso-cli",
+    "cli",
     "oclif"
   ],
   "types": "dist/index.d.ts"
