@@ -72,11 +72,7 @@ export default class New extends BaseCommand {
     }
 
     shell.cd(projectPath);
-    if (process.env.APSO_GIT_PAT) {
-      shell.exec(`git clone --depth=1 --branch=main https://${process.env.APSO_GIT_PAT}:@github.com/mavric/apso-service-template.git ${projectPath}`)
-    } else {
-      shell.exec(`git clone --depth=1 --branch=main git@github.com:mavric/apso-service-template.git ${projectPath}`)
-    }
+    shell.exec(`git clone --depth=1 --branch=main git@github.com:apsoai/service-template.git ${projectPath}`)
     shell.exec(`rm -rf ${projectPath}/.git`);
     shell.cd(this.CURR_DIR);
   }
