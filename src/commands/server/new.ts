@@ -72,7 +72,22 @@ export default class New extends BaseCommand {
     }
 
     shell.cd(projectPath);
-    shell.exec(`git clone --depth=1 --branch=main git@github.com:apsoai/service-template.git ${projectPath}`)
+    // Execute git clone and capture the result using HTTPS
+    const cloneResult = shell.exec(`git clone --depth=1 --branch=main https://github.com/apsoai/service-template.git ${projectPath}`, { silent: true }); // Use silent: true to suppress default output
+
+    // Check if the command failed
+    if (cloneResult.code !== 0) {
+        // Provide a more generic error message for clone failures
+        this.error(
+          `Failed to clone the template repository from GitHub.\n` +
+          `Error Output:\n${cloneResult.stderr}\n\n` +
+          `Please check your network connection and ensure the repository exists at https://github.com/apsoai/service-template.git\n\n` +
+          `If the problem persists, please remove the partially created directory "${projectPath}" and try again.`
+        );
+        // Throwing error via this.error will stop execution
+    }
+
+    // If clone was successful, proceed to remove the .git directory
     shell.exec(`rm -rf ${projectPath}/.git`);
     shell.cd(this.CURR_DIR);
   }
