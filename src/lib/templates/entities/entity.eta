@@ -83,7 +83,7 @@ export class <%= it.name %> {
 
         @OneToMany(
             () => <%= assoc.name %>,
-            <%= assoc.camelCasedName %> => <%= assoc.camelCasedName %>.<%= assoc.inversePropertyName %>
+            <%= assoc.camelCasedName %> => <%= assoc.camelCasedName %>.<%= assoc.inverseSidePropertyName %>
         )
         <%= assoc.pluralizedRelationshipName %>: <%= assoc.name %>[];
 
@@ -91,7 +91,7 @@ export class <%= it.name %> {
         <% if (assoc.index) { %>
         @Index()
         <% } %>
-        @ManyToOne(() => <%= assoc.name %><% if (assoc.biDirectional) { %>, <%= assoc.camelCasedName %> => <%= assoc.camelCasedName %>.<%= assoc.inversePropertyName %><% } %><% if (assoc.cascadeDelete) { %>, { onDelete: "CASCADE" }<% } %>)
+        @ManyToOne(() => <%= assoc.name %><% if (assoc.biDirectional) { %>, <%= assoc.camelCasedName %> => <%= assoc.camelCasedName %>.<%= assoc.inverseSidePropertyName %><% } %><% if (assoc.cascadeDelete) { %>, { onDelete: "CASCADE" }<% } %>)
         @JoinColumn({ name: '<%= assoc.camelCasedId %>' })
         <%= assoc.relationshipName %>: <%= assoc.name %>;
 
@@ -100,7 +100,7 @@ export class <%= it.name %> {
 
     <% } else if (assoc.type === 'ManyToMany') { %>
 
-        @ManyToMany(() => <%= assoc.name %><% if (assoc.biDirectional) { %>, <%= assoc.camelCasedName %> => <%= assoc.camelCasedName %>.<%= assoc.inversePropertyName %><% } %>)
+        @ManyToMany(() => <%= assoc.name %><% if (assoc.biDirectional) { %>, <%= assoc.camelCasedName %> => <%= assoc.camelCasedName %>.<%= assoc.inverseSidePropertyName %><% } %>)
         <% if (assoc.joinTable) { %>
         @JoinTable(<%
           let joinTableArgs = [];
@@ -118,7 +118,7 @@ export class <%= it.name %> {
 
         @OneToOne(
             (type: any) => <%= assoc.name%>,
-             <% if (assoc.biDirectional) { %>(<%= assoc.camelCasedName %>) => <%= assoc.camelCasedName %>.<%= assoc.inversePropertyName %>,<% } %>
+             <% if (assoc.biDirectional) { %>(<%= assoc.camelCasedName %>) => <%= assoc.camelCasedName %>.<%= assoc.inverseSidePropertyName %>,<% } %>
             {
                 onDelete: "CASCADE",
                 cascade: ["insert", "update"],

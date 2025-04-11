@@ -270,7 +270,7 @@ export const getRelationshipForTemplate = (
     const relationshipName = camelCase(thisReferenceName || relationship.name);
     const needsPluralInverse = relationship.type === 'ManyToOne' || relationship.type === 'ManyToMany';
 
-    const inversePropertyName = calculateInversePropertyName(
+    const inverseSidePropertyName = calculateInversePropertyName(
       relationship,
       entityName,
       relationshipName,
@@ -279,7 +279,7 @@ export const getRelationshipForTemplate = (
 
     if (relationship.biDirectional && !relationship.inverseReferenceName && 
         (relationship.type === 'ManyToMany' || relationship.type === 'OneToMany' || relationship.type === 'OneToOne')) {
-      console.warn(`[APSO WARNING] Using default inverse property name '${inversePropertyName}' for ${entityName}.${relationshipName}. Define 'to_name' for the inverse relationship ${relationship.name}->${entityName}.`);
+      console.warn(`[APSO WARNING] Using default inverse property name '${inverseSidePropertyName}' for ${entityName}.${relationshipName}. Define 'to_name' for the inverse relationship ${relationship.name}->${entityName}.`);
     }
 
     return {
@@ -293,7 +293,7 @@ export const getRelationshipForTemplate = (
       joinTable: relationship.join || false,
       biDirectional: relationship.biDirectional || false,
       referenceName: thisReferenceName || undefined,
-      inversePropertyName,
+      inverseSidePropertyName,
     };
   });
 };
