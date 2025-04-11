@@ -1,0 +1,230 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "APSO Configuration Schema",
+  "description": "Schema for the .apsorc file used by APSO to define entities and relationships.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "description": "Schema version identifier.",
+      "type": "integer",
+      "const": 2
+    },
+    "rootFolder": {
+      "description": "The root folder for generated source code.",
+      "type": "string",
+      "minLength": 1
+    },
+    "relationships": {
+      "description": "Defines the relationships between entities.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "description": "The source entity name for the relationship.",
+            "type": "string",
+            "minLength": 1
+          },
+          "to": {
+            "description": "The target entity name for the relationship.",
+            "type": "string",
+            "minLength": 1
+          },
+          "type": {
+            "description": "The type of relationship.",
+            "type": "string",
+            "enum": [
+              "OneToMany",
+              "ManyToOne",
+              "ManyToMany",
+              "OneToOne"
+            ]
+          },
+          "nullable": {
+            "description": "Indicates if the relationship is nullable.",
+            "type": "boolean"
+          },
+          "to_name": {
+            "description": "Custom name for the target side of the relationship (often for ManyToMany).",
+            "type": "string"
+          },
+          "bi_directional": {
+            "description": "Indicates if the relationship is bidirectional (primarily for ManyToMany).",
+            "type": "boolean"
+          },
+          "cascadeDelete": {
+            "description": "Indicates if deleting the 'from' entity should cascade delete related 'to' entities.",
+            "type": "boolean"
+          },
+          "joinTableName": {
+            "description": "(Optional) Custom name for the join table created for a ManyToMany relationship.",
+            "type": "string"
+          },
+          "joinColumnName": {
+            "description": "(Optional) Custom name for the foreign key column in the join table referencing the 'from' entity (owning side) in a ManyToMany relationship.",
+            "type": "string"
+          },
+          "inverseJoinColumnName": {
+            "description": "(Optional) Custom name for the foreign key column in the join table referencing the 'to' entity (inverse side) in a ManyToMany relationship.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "type"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "entities": {
+      "description": "Defines the entities in the domain model.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/entity"
+      }
+    }
+  },
+  "required": [
+    "version",
+    "rootFolder",
+    "relationships",
+    "entities"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "entity": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "The name of the entity.",
+          "type": "string",
+          "minLength": 1
+        },
+        "created_at": {
+          "description": "Indicates if the entity should have a 'created_at' timestamp field.",
+          "type": "boolean"
+        },
+        "updated_at": {
+          "description": "Indicates if the entity should have an 'updated_at' timestamp field.",
+          "type": "boolean"
+        },
+        "uniques": {
+          "description": "Defines unique constraints spanning multiple fields.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "description": "The name of the unique constraint.",
+                "type": "string",
+                "minLength": 1
+              },
+              "fields": {
+                "description": "The fields included in the unique constraint.",
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "minItems": 1
+              }
+            },
+            "required": [
+              "name",
+              "fields"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "fields": {
+          "description": "The fields belonging to the entity.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/field"
+          },
+          "minItems": 1
+        }
+      },
+      "required": [
+        "name",
+        "fields"
+      ],
+      "additionalProperties": false
+    },
+    "field": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "The name of the field.",
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "description": "The data type of the field.",
+          "type": "string",
+          "enum": [
+            "text",
+            "enum",
+            "integer",
+            "boolean",
+            "float",
+            "timestamptz",
+            "json",
+            "date" 
+          ]
+        },
+        "unique": {
+          "description": "Indicates if the field must have a unique value.",
+          "type": "boolean"
+        },
+        "nullable": {
+          "description": "Indicates if the field can be null.",
+           "oneOf": [ 
+             { "type": "boolean" },
+             { "type": "string", "enum": ["true", "false"]} 
+           ]
+        },
+        "length": {
+          "description": "Specifies the maximum length for string types.",
+          "oneOf": [
+            { "type": "string", "pattern": "^[0-9]+$" },
+            { "type": "integer" }
+          ]
+        },
+        "is_email": {
+          "description": "Indicates if the field should be validated as an email address.",
+          "type": "boolean"
+        },
+        "default": {
+          "description": "The default value for the field.",
+           "anyOf": [ 
+             { "type": "string" },
+             { "type": "number" },
+             { "type": "boolean" },
+             { "type": "integer" }
+           ]
+        },
+        "values": {
+          "description": "The allowed values for an enum field.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "name",
+        "type"
+      ],
+      "if": {
+        "properties": { "type": { "const": "enum" } }
+      },
+      "then": {
+        "required": ["values"]
+      },
+      "additionalProperties": false
+    }
+  }
+} 

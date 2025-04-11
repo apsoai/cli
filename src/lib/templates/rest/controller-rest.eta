@@ -25,6 +25,7 @@ import {<%= it.svcName %>} from './<%= it.entityName %>.service';
         <% if (it.associations.length) { %>
             join: {
                 <% it.associations.forEach((assoc) => { %>
+                    <% /* Removed check: relying on distinct pluralizedRelationshipName */ %>
                     <% if (assoc.type === 'OneToMany') { %>
                     <%= assoc.pluralizedRelationshipName %>: { eager: false },
                     <% } else if (assoc.type === 'ManyToOne') { %>
