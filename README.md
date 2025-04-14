@@ -47,6 +47,8 @@ Then navigate to the newly created service and update the apsorc file according 
 
 Sample of apsorc files for both v1 and v2 are given in apso-cli code at "test/apsorc-json" so you can check it out in order to make sure that your apsorc file follows the right pattern.
 
+For detailed examples of configuring complex relationships, especially ManyToMany and self-referencing patterns, see the [Relationship Configuration Use Cases](./UseCases.md).
+
 You can also provide the key "apiType" in the apsorc file e.g (Rest, Graphql) incase you want to generate the GraphQL backend by default it would be REST.
 
 Install the npm modules before continuing further.

@@ -74,42 +74,57 @@ export class <%= it.name %> {
 
 // Associations    
 <% it.associations.forEach((assoc) => { %>
+
+    <%// Generate property ONLY based on referenceName (to_name) %>
+    <%// relationshipName is the camelCased version of referenceName %>
+    <%// pluralizedRelationshipName is the pluralized version (for arrays) %>
+
     <% if (assoc.type === 'OneToMany') { %>
 
         @OneToMany(
             () => <%= assoc.name %>,
-            <%= assoc.camelCasedName %> => <%= assoc.camelCasedName %>.<%= assoc.entityName %>
+            <%= assoc.camelCasedName %> => <%= assoc.camelCasedName %>.<%= assoc.inverseSidePropertyName %>
         )
-        <%= assoc.pluralizedName %>: <%= assoc.name %>[]
-    
+        <%= assoc.pluralizedRelationshipName %>: <%= assoc.name %>[];
+
     <% } else if (assoc.type === 'ManyToOne') { %>
         <% if (assoc.index) { %>
         @Index()
         <% } %>
-        @ManyToOne(() => <%= assoc.name %><% if (assoc.biDirectional) { %>, <%= assoc.camelCasedName %> => <%= assoc.camelCasedName %>.<%= it.pluralizedName %><% } %><% if (assoc.cascadeDelete) { %>, { onDelete: "CASCADE" }<% } %>)
+        @ManyToOne(() => <%= assoc.name %><% if (assoc.biDirectional) { %>, <%= assoc.camelCasedName %> => <%= assoc.camelCasedName %>.<%= assoc.inverseSidePropertyName %><% } %><% if (assoc.cascadeDelete) { %>, { onDelete: "CASCADE" }<% } %>)
         @JoinColumn({ name: '<%= assoc.camelCasedId %>' })
-        <%= assoc.relationshipName %>: <%= assoc.name %>
+        <%= assoc.relationshipName %>: <%= assoc.name %>;
 
         @Column({ type: "integer", <% if (assoc.nullable) { %> nullable: true <% } %>})
         <%= assoc.camelCasedId %>: number;
-    
+
     <% } else if (assoc.type === 'ManyToMany') { %>
-    
-        @ManyToMany(() => <%= assoc.name %><% if (assoc.biDirectional) { %>, <%= assoc.camelCasedName %> => <%= assoc.camelCasedName %>.<%= it.pluralizedName %><% } %>)
-        <% if (assoc.joinTable) { %>@JoinTable()<% } %>
-        <%= assoc.pluralizedRelationshipName %>: <%= assoc.name %>[]
-    
+
+        @ManyToMany(() => <%= assoc.name %><% if (assoc.biDirectional) { %>, <%= assoc.camelCasedName %> => <%= assoc.camelCasedName %>.<%= assoc.inverseSidePropertyName %><% } %>)
+        <% if (assoc.joinTable) { %>
+        @JoinTable(<%
+          let joinTableArgs = [];
+          if (assoc.joinTableName) { joinTableArgs.push(`name: '${assoc.joinTableName}'`); }
+          if (assoc.joinColumnName) { joinTableArgs.push(`joinColumn: { name: '${assoc.joinColumnName}', referencedColumnName: 'id' }`); }
+          if (assoc.inverseJoinColumnName) { joinTableArgs.push(`inverseJoinColumn: { name: '${assoc.inverseJoinColumnName}', referencedColumnName: 'id' }`); }
+          if (joinTableArgs.length > 0) { 
+        %>{
+          <%~ joinTableArgs.join(',\n          ') %>
+        }<% } %>)
+        <% } %>
+        <%= assoc.pluralizedRelationshipName %>: <%= assoc.name %>[];
+
     <% } else if (assoc.type === 'OneToOne') { %>
-    
+
         @OneToOne(
             (type: any) => <%= assoc.name%>,
-            <% if (assoc.biDirectional) { %>(p) => p.<%= assoc.entityName %>,<% } %>
+             <% if (assoc.biDirectional) { %>(<%= assoc.camelCasedName %>) => <%= assoc.camelCasedName %>.<%= assoc.inverseSidePropertyName %>,<% } %>
             {
                 onDelete: "CASCADE",
                 cascade: ["insert", "update"],
             })
-        @JoinColumn()
-        <%= assoc.relationshipName %>: <%= assoc.name %>
+         <% if (assoc.joinTable) { %>@JoinColumn()<% } %>
+        <%= assoc.relationshipName %>: <%= assoc.name %>;
 
     <% } %>
 <% }) %>

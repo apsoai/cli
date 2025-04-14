@@ -13,9 +13,11 @@ export interface ApsorcRelationship {
   nullable?: boolean;
   /* eslint-disable-next-line  camelcase */
   bi_directional?: boolean;
-  /* eslint-disable-next-line  camelcase */
   cascadeDelete?: boolean;
   index?: boolean;
+  joinTableName?: string;
+  joinColumnName?: string;
+  inverseJoinColumnName?: string;
 }
 
 export interface Relationship {
@@ -27,6 +29,10 @@ export interface Relationship {
   biDirectional?: boolean;
   cascadeDelete?: boolean;
   index?: boolean;
+  joinTableName?: string;
+  joinColumnName?: string;
+  inverseJoinColumnName?: string;
+  inverseReferenceName?: string;
 }
 
 export interface RelationshipForTemplate extends Relationship {
@@ -38,6 +44,7 @@ export interface RelationshipForTemplate extends Relationship {
   entityName: string;
   joinTable: boolean;
   biDirectional: boolean;
+  inversePropertyName?: string;
 }
 
 export type RelationshipMap = { [key: string]: Relationship[] };
