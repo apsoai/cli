@@ -1,34 +1,51 @@
 import * as Eta from "eta";
 import * as path from "path";
 import { createFile } from "./utils/file-system";
+import { Entity } from "./types";
 
+/**
+ * Generates a NestJS module file for a given entity.
+ *
+ * @param apiBaseDir The base directory for the generated API module (e.g., 'src/autogen/users').
+ * @param entity The entity definition object from the parsed .apsorc.
+ * @param options Optional configuration flags.
+ * @param options.apiType The type of API being generated (default: "rest").
+ * @returns {Promise<void>} A promise that resolves when the module file is created.
+ */
 export const createModule = async (
   apiBaseDir: string,
-  entityName: string,
-  apiType: string
+  entity: Entity,
+  options?: { apiType?: string }
 ): Promise<void> => {
-  const File = path.join(apiBaseDir, `${entityName}.module.ts`);
-  // Dependencies
+  const { name: entityName } = entity;
+  const moduleFileName = path.join(apiBaseDir, `${entityName}.module.ts`);
+
+  // Names needed by the templates
+  const moduleName = `${entityName}Module`;
   const svcName = `${entityName}Service`;
-  const ctrlName = `${entityName}Controller`;
-  const modName = `${entityName}Module`;
-  const pluralEntityName = `${entityName}s`;
+  const ctrlName = `${entityName}Controller`; // Used by REST template
+  const resolverName = `${entityName}Resolver`; // Used by GQL template
+
+  // Data for the Eta templates
   const data = {
+    moduleName,
     svcName,
     ctrlName,
-    modName,
+    resolverName,
     entityName,
-    pluralEntityName,
   };
 
+  // Configure Eta
   Eta.configure({
     views: path.join(__dirname, "templates"),
   });
 
-  const content: any = await Eta.renderFileAsync(
-    `./${apiType}/module-${apiType}`,
-    data
-  );
+  // Determine template based on API type
+  const templatePath = options?.apiType === "graphql" ? "./graphql/gql-module-graphql" : "./rest/module-rest";
 
-  createFile(File, content);
+  // Render the template
+  const content: any = await Eta.renderFileAsync(templatePath, data);
+
+  // Create the module file
+  createFile(moduleFileName, content);
 };
