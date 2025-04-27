@@ -1,0 +1,38 @@
+import { Test, TestingModule } from '@nestjs/testing';
+import { <%= it.svcName %> } from './<%= it.entityName %>.service';
+import { getRepositoryToken } from '@nestjs/typeorm';
+import { <%= it.entityName %> } from './<%= it.entityName %>.entity';
+
+describe('<%= it.svcName %>', () => {
+  let service: <%= it.svcName %>;
+  let mockRepository: any;
+
+  beforeEach(async () => {
+    mockRepository = {
+      find: jest.fn().mockResolvedValue([]),
+      findOne: jest.fn().mockResolvedValue({}),
+      save: jest.fn().mockResolvedValue({}),
+      create: jest.fn().mockReturnValue({}),
+      update: jest.fn().mockResolvedValue({}),
+      delete: jest.fn().mockResolvedValue({}),
+    };
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        <%= it.svcName %>,
+        {
+          provide: getRepositoryToken(<%= it.entityName %>),
+          useValue: mockRepository,
+        },
+      ],
+    }).compile();
+
+    service = module.get<<%= it.svcName %>>(<%= it.svcName %>);
+  });
+
+  it('should be defined', () => {
+    expect(service).toBeDefined();
+  });
+
+  // Add more tests as needed
+}); 

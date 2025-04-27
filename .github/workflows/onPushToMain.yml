@@ -32,6 +32,19 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     
+    - name: Create GitHub Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ steps.bump_version.outputs.new_tag }}
+        release_name: Release ${{ steps.bump_version.outputs.new_tag }}
+        body: "" # Optional: Add custom body text here if needed
+        draft: false
+        prerelease: false
+        generate_release_notes: true # This enables automatic release note generation
+
     - name: Setup NPM Authentication
       run: |
         echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > ~/.npmrc

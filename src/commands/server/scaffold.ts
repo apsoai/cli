@@ -42,23 +42,23 @@ export default class Scaffold extends BaseCommand {
         await this.setupGraphqlFiles(dir, entity, relationshipMap);
         break;
       case ApiType.Rest:
-        await this.setupRestFiles(dir, entity, relationshipMap);
+        await this.setupRestFiles(dir, entity, relationshipMap, apiType);
         break;
       default:
         break;
     }
-    await createModule(filePath, entityName, apiType);
+    await createModule(filePath, entity, { apiType });
   }
 
   async setupRestFiles(
     dir: string,
     entity: Entity,
-    relationshipMap: RelationshipMap
+    relationshipMap: RelationshipMap,
+    apiType: string
   ) {
     const filePath = path.join(dir, entity.name);
-    const entityRelationships = relationshipMap[entity.name] || [];
-    await createDto(filePath, entity, entityRelationships);
-    await createService(filePath, entity.name);
+    await createDto(filePath, entity, { apiType });
+    await createService(filePath, entity);
     await createController(filePath, entity, relationshipMap);
   }
 
