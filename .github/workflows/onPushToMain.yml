@@ -32,11 +32,34 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     
+    - name: Explicitly Create and Push Tag
+      run: |
+        # Configure git
+        git config user.name "GitHub Actions"
+        git config user.email "actions@github.com"
+        
+        # Get version from package.json
+        VERSION=$(node -p "require('./package.json').version")
+        TAG="v$VERSION"
+        
+        echo "Creating and pushing tag: $TAG"
+        
+        # Create and push tag
+        git tag $TAG -m "Release $TAG"
+        git push origin $TAG
+      
+    - name: Debug Version Output
+      run: echo "New tag is ${{ steps.bump_version.outputs.new_tag }}"
+      
     - name: Create GitHub Release
       run: |
-        gh release create ${{ steps.bump_version.outputs.new_tag }} \
-          --title "Release ${{ steps.bump_version.outputs.new_tag }}" \
-          --generate-notes
+        if [ -n "${{ steps.bump_version.outputs.new_tag }}" ]; then
+          gh release create "${{ steps.bump_version.outputs.new_tag }}" \
+            --title "Release ${{ steps.bump_version.outputs.new_tag }}" \
+            --generate-notes
+        else
+          echo "No new tag was created, skipping release creation"
+        fi
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
