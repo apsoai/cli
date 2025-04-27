@@ -44,9 +44,21 @@ jobs:
         
         echo "Creating and pushing tag: $TAG"
         
-        # Create and push tag
-        git tag $TAG -m "Release $TAG"
-        git push origin $TAG
+        # Check if tag exists locally
+        if git rev-parse "$TAG" >/dev/null 2>&1; then
+          echo "Tag $TAG already exists locally, skipping tag creation"
+        else
+          # Create tag
+          git tag "$TAG" -m "Release $TAG"
+        fi
+        
+        # Check if tag exists on remote
+        if git ls-remote --tags origin | grep -q "refs/tags/$TAG$"; then
+          echo "Tag $TAG already exists on remote, skipping tag push"
+        else
+          # Push tag to remote
+          git push origin "$TAG"
+        fi
       
     - name: Debug Version Output
       run: echo "New tag is ${{ steps.bump_version.outputs.new_tag }}"
