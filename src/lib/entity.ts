@@ -44,7 +44,7 @@ export const createEntity = async (
     snakeCasedName: snakeCase(name),
     createdAt,
     updatedAt,
-    pluralizedName: pluralize(camelCase(name)),
+    pluralizedName: camelCase(pluralize(name)),
     columns,
     associations: [...new Set(relationships)],
     entitiesToImport,

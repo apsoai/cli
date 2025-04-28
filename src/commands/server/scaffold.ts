@@ -57,7 +57,8 @@ export default class Scaffold extends BaseCommand {
     apiType: string
   ) {
     const filePath = path.join(dir, entity.name);
-    await createDto(filePath, entity, { apiType });
+    const entityRelationships = relationshipMap[entity.name] || [];
+    await createDto(filePath, entity, entityRelationships, { apiType });
     await createService(filePath, entity);
     await createController(filePath, entity, relationshipMap);
   }

@@ -70,11 +70,11 @@ describe("getRelationshipForTemplate deduplication", () => {
     
     // Assertions
     
-    // Current behavior: Only one relationship is kept during name-based deduplication (second phase)
-    expect(result.length).toBe(1);
-    
-    // The first one is kept in the Set processing 
-    expect(result[0].relationshipName).toBe("workspaces");
+    // New behavior: Both relationships with different referenceName should be kept
+    expect(result.length).toBe(2);
+    const referenceNames = result.map(r => r.relationshipName || r.referenceName);
+    expect(referenceNames).toContain("workspaces");
+    expect(referenceNames).toContain("ownedWorkspaces");
   });
 
   test("should prioritize owner side (join=true) when deduplicating", () => {

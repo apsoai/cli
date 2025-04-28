@@ -18,23 +18,8 @@ export const parseOneToMany = (
   relationship: ApsorcRelationship
 ): RelationshipMap => {
   return {
-    [relationship.from]: [
-      {
-        name: relationship.to,
-        type: "OneToMany",
-        biDirectional: true
-      },
-    ],
-    [relationship.to]: [
-      {
-        name: relationship.from,
-        type: "ManyToOne",
-        nullable: relationship.nullable || false,
-        biDirectional: true,
-        index: relationship.index || false,
-        cascadeDelete: relationship.cascadeDelete || false
-      },
-    ],
+    [relationship.from]: [{ name: relationship.to, type: "OneToMany", biDirectional: true, referenceName: relationship.to_name || relationship.to, inverseReferenceName: relationship.from }],
+    [relationship.to]: [{ name: relationship.from, type: "ManyToOne", nullable: relationship.nullable || false, biDirectional: true, index: relationship.index || false, cascadeDelete: relationship.cascadeDelete || false, referenceName: relationship.from, inverseReferenceName: relationship.to_name || relationship.to }],
   };
 };
 
@@ -117,7 +102,7 @@ export const parseManyToMany = (
   }
 
   // Default currentPropertyName if to_name is not provided
-  const currentPropertyName = relationship.to_name || pluralize(camelCase(relationship.to));
+  const currentPropertyName = relationship.to_name || camelCase(pluralize(relationship.to));
   let inversePropertyName = inverseDefinition?.to_name;
 
   // For self-referencing pairs, store the other to_name as inverseReferenceName
@@ -137,8 +122,8 @@ export const parseManyToMany = (
   }
 
   // Calculate reference names, applying defaults if needed
-  const fromSideRefName = relationship.to_name || (relationship.to.toLowerCase() + 's');
-  const toSideRefName = inverseDefinition?.to_name || (relationship.from.toLowerCase() + 's');
+  const fromSideRefName = relationship.to_name || relationship.to;
+  const toSideRefName = inverseDefinition?.to_name || relationship.from;
 
   let joinTableName = relationship.joinTableName;
 
@@ -218,9 +203,9 @@ const createFromOneToOneRelationship = (
     type: "OneToOne",
     join: isOwner,
     nullable: relationship.nullable || false,
-    referenceName: relationship.to_name || relationship.to.toLowerCase(),
+    referenceName: relationship.to_name || relationship.to,
     biDirectional: relationship.bi_directional || false,
-    inverseReferenceName: inverseDefinition?.to_name || relationship.from.toLowerCase(),
+    inverseReferenceName: inverseDefinition?.to_name || relationship.from,
   };
 };
 
@@ -241,8 +226,8 @@ const createToOneToOneRelationship = (
     type: "OneToOne",
     biDirectional: true,
     join: !isOwner,
-    referenceName: inverseDefinition.to_name || relationship.from.toLowerCase(),
-    inverseReferenceName: relationship.to_name || relationship.to.toLowerCase(),
+    referenceName: inverseDefinition.to_name || relationship.from,
+    inverseReferenceName: relationship.to_name || relationship.to,
   };
 };
 
@@ -264,8 +249,8 @@ export const parseRelationship = (
 
   switch (relationship.type) {
     case "OneToMany": {
-        const fromSideRefName = relationship.to_name || (relationship.to.toLowerCase() + 's');
-        const toSideRefName = relationship.from.toLowerCase(); // Default singular name for the inverse side
+        const fromSideRefName = relationship.to_name || relationship.to;
+        const toSideRefName = relationship.from;
         return {
          [relationship.from]: [{ name: relationship.to, type: "OneToMany", biDirectional: true, referenceName: fromSideRefName, inverseReferenceName: toSideRefName }],
          [relationship.to]: [{ name: relationship.from, type: "ManyToOne", nullable: relationship.nullable || false, biDirectional: true, index: relationship.index || false, cascadeDelete: relationship.cascadeDelete || false, referenceName: toSideRefName, inverseReferenceName: fromSideRefName }],
@@ -273,7 +258,7 @@ export const parseRelationship = (
     }
     case "ManyToOne":
        return {
-         [relationship.from]: [{ name: relationship.to, type: "ManyToOne", referenceName: relationship.to_name || relationship.to.toLowerCase(), nullable: relationship.nullable || false, index: relationship.index || false }],
+         [relationship.from]: [{ name: relationship.to, type: "ManyToOne", referenceName: relationship.to_name || relationship.to, nullable: relationship.nullable || false, index: relationship.index || false }],
        };
     case "OneToOne": {
       const inverseOnetoOneDef = allRelationships.find(
@@ -310,7 +295,7 @@ export const parseRelationship = (
                 type: "OneToOne",
                 biDirectional: true,
                 join: !(fromRel.join || false), // Assume inverse of from side owner status
-                referenceName: relationship.from.toLowerCase(), // Fallback default name
+                referenceName: relationship.from, // Fallback default name
                 inverseReferenceName: fromRel.referenceName || undefined // Reference the 'from' side's name, default to undefined if null
             };
             responseMap[relationship.to] = [
@@ -422,43 +407,34 @@ export const getRelationshipForTemplate = (
     return [];
   }
 
-  // More comprehensive deduplication to handle all duplicate cases
-  const dedupedRelationships: Relationship[] = [];
-  const processedRefs = new Map<string, Relationship>();
-  
   // First pass: Group by name and referenceName (more specific)
+  const processedRefs = new Map<string, Relationship>();
   relationships.forEach((relationship: Relationship) => {
     const name = relationship.name;
     const refName = relationship.referenceName || "default";
     const key = `${name}:${refName}`;
-    
     // Use the relationship with join=true if there are duplicates (this is the owning side)
     if (!processedRefs.has(key) || (relationship.join && !processedRefs.get(key)?.join)) {
       processedRefs.set(key, relationship);
     }
   });
-  
-  // Second pass: Use name-only as a fallback for edge cases
-  // This helps with ManyToMany cases where both sides exist with different join flags
-  const nameOnlyKeys = new Set<string>();
-  processedRefs.forEach((rel) => {
-    if (!nameOnlyKeys.has(rel.name)) {
-      nameOnlyKeys.add(rel.name);
-      dedupedRelationships.push(rel);
-    } else if (rel.join === true) {
-      // If we already have this name but the current one is the owner (join=true), 
-      // replace the existing one
-      const existingIdx = dedupedRelationships.findIndex(r => r.name === rel.name);
-      if (existingIdx !== -1 && !dedupedRelationships[existingIdx].join) {
-        dedupedRelationships[existingIdx] = rel;
-      }
-    }
-  });
 
-  return dedupedRelationships.map((relationship: Relationship) => {
+  // Only deduplicate by name+referenceName, not just name
+  return [...processedRefs.values()].map((relationship: Relationship) => {
     const thisReferenceName = relationship.referenceName;
     const relationshipName = camelCase(thisReferenceName || relationship.name);
     const needsPluralInverse = relationship.type === 'ManyToOne' || relationship.type === 'ManyToMany';
+
+    // DEBUG LOGGING
+    if (process.env.DEBUG) {
+      console.log(
+        '[DEBUG] relationship.name:', relationship.name,
+        '| relationship.referenceName:', relationship.referenceName,
+        '| thisReferenceName:', thisReferenceName,
+        '| pluralizedRelationshipName:', camelCase(pluralize(thisReferenceName || relationship.name)),
+        '| pluralizedName:', camelCase(pluralize(relationship.name))
+      );
+    }
 
     const inverseSidePropertyName = calculateInversePropertyName(
       relationship,
@@ -475,8 +451,8 @@ export const getRelationshipForTemplate = (
     return {
       ...relationship,
       relationshipName,
-      pluralizedRelationshipName: pluralize(relationshipName),
-      pluralizedName: pluralize(camelCase(relationship.name)),
+      pluralizedRelationshipName: camelCase(pluralize(thisReferenceName || relationship.name)),
+      pluralizedName: camelCase(pluralize(relationship.name)),
       camelCasedName: camelCase(relationship.name),
       camelCasedId: getRelationshipIdField(relationship),
       entityName: camelCase(entityName),
@@ -512,11 +488,18 @@ export const getNestedRelationships = (
     const formattedName =
       type === "ManyToOne" || type === "OneToOne"
         ? camelCase(referenceName)
-        : pluralize(camelCase(referenceName));
+        : camelCase(pluralize(referenceName));
 
-    const relationshipPath = prefix
-      ? `${prefix}.${formattedName}`
-      : formattedName;
+    // Create the relationship path while preserving camelCase
+    let relationshipPath;
+    if (prefix) {
+      // Split the path by dots and preserve each segment's casing
+      const segments = prefix.split('.');
+      relationshipPath = `${segments.join('.')}.${formattedName}`;
+    } else {
+      relationshipPath = formattedName;
+    }
+
     const hasChild = relationshipPath.includes(".");
     const exists =
       prefix
@@ -524,7 +507,7 @@ export const getNestedRelationships = (
         .some(
           (a) =>
             a === camelCase(referenceName) ||
-            a === pluralize(camelCase(referenceName))
+            a === camelCase(pluralize(referenceName))
         );
     const deepEnough = prefix.split(".").length >= 4;
     const canAdd = hasChild && !exists && !deepEnough;

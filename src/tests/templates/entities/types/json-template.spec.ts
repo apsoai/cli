@@ -18,7 +18,7 @@ describe('JSON Entity Template Tests', () => {
         nullable: false
       },
       assertions: [
-        { type: 'contains', text: "@Column('json'" },
+        { type: 'contains', text: "@Column('jsonb'" },
         { type: 'contains', text: 'nullable: false' },
         { type: 'contains', text: 'jsonData: JSON;' }
       ]
@@ -31,7 +31,7 @@ describe('JSON Entity Template Tests', () => {
         nullable: true
       },
       assertions: [
-        { type: 'contains', text: "@Column('json'" },
+        { type: 'contains', text: "@Column('jsonb'" },
         { type: 'contains', text: 'nullable: true' },
         { type: 'contains', text: 'optionalJsonData: JSON;' }
       ]

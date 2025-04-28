@@ -5,7 +5,7 @@ import { ApiProperty } from '@nestjs/swagger';
 import * as enums from '../../enums';
 <% } %>
 
-export class <%= it.name %>Create {
+export class <%= it.entityName %>Create {
 <% it.columns.forEach((field) => { %>
     @ApiProperty()
   <%if (field.dataType.includes("Enum")) {%>
@@ -20,7 +20,7 @@ export class <%= it.name %>Create {
 <% }) %>
 };
 
-export class <%= it.name %> {
+export class <%= it.entityName %> {
 <% if (it.addDefaultPKProperty) { %>
     @ApiProperty()
     id: number;

@@ -30,26 +30,26 @@ describe('parseRelationships', () => {
           {
             name: 'EntityB',
             type: 'ManyToMany',
-            referenceName: 'entitybs', // Simplified default
+            referenceName: 'EntityB', // PascalCase entity name
             join: true, // Owning side by default if no explicit details
             biDirectional: true,
             joinTableName: undefined,
             joinColumnName: undefined,
             inverseJoinColumnName: undefined,
-            inverseReferenceName: 'entityas', // Simplified default
+            inverseReferenceName: 'EntityA', // PascalCase entity name
           },
         ],
         EntityB: [
           {
             name: 'EntityA',
             type: 'ManyToMany',
-            referenceName: 'entityas', // Simplified default
+            referenceName: 'EntityA', // PascalCase entity name
             join: false, // Non-owning side
             biDirectional: true,
             joinTableName: undefined,
             joinColumnName: undefined,
             inverseJoinColumnName: undefined,
-            inverseReferenceName: 'entitybs', // Simplified default
+            inverseReferenceName: 'EntityB', // PascalCase entity name
           },
         ],
       };
@@ -76,26 +76,26 @@ describe('parseRelationships', () => {
           {
             name: 'Group',
             type: 'ManyToMany',
-            referenceName: 'userGroups', // Expect preserved camelCase
+            referenceName: 'userGroups', // Preserved from to_name
             join: true, // Owning side by default
             biDirectional: true,
             joinTableName: undefined,
             joinColumnName: undefined,
             inverseJoinColumnName: undefined,
-            inverseReferenceName: 'users', // Simplified default
+            inverseReferenceName: 'User', // PascalCase entity name
           },
         ],
         Group: [
           {
             name: 'User',
             type: 'ManyToMany',
-            referenceName: 'users', // Simplified default
+            referenceName: 'User', // PascalCase entity name
             join: false, // Non-owning side
             biDirectional: true,
             joinTableName: undefined,
             joinColumnName: undefined,
             inverseJoinColumnName: undefined,
-            inverseReferenceName: 'userGroups', // Expect preserved camelCase
+            inverseReferenceName: 'userGroups', // Preserved camelCase from to_name
           },
         ],
       };
@@ -119,7 +119,7 @@ describe('parseRelationships', () => {
           {
             name: 'Tag',
             type: 'ManyToMany',
-            referenceName: 'tags', // Simplified default
+            referenceName: 'Tag', // PascalCase entity name
             join: true, // Owning side by default for unidirectional
             biDirectional: false,
             joinTableName: undefined,
@@ -157,26 +157,26 @@ describe('parseRelationships', () => {
             {
               name: 'Course',
               type: 'ManyToMany',
-              referenceName: 'courses', // Simplified default
+              referenceName: 'Course', // PascalCase entity name
               join: true, // Has join details, so owning side
               biDirectional: true,
               joinTableName: 'enrollments',
               joinColumnName: 'student_id',
               inverseJoinColumnName: 'course_id',
-              inverseReferenceName: 'students', // Simplified default
+              inverseReferenceName: 'Student', // PascalCase entity name
             },
           ],
           Course: [
             {
               name: 'Student',
               type: 'ManyToMany',
-              referenceName: 'students', // Simplified default
+              referenceName: 'Student', // PascalCase entity name
               join: false, // Inverse side is not owning
               biDirectional: true,
               joinTableName: undefined, // Details only on owning side map
               joinColumnName: undefined,
               inverseJoinColumnName: undefined,
-              inverseReferenceName: 'courses', // Simplified default
+              inverseReferenceName: 'Course', // PascalCase entity name
             },
           ],
         };
@@ -220,20 +220,31 @@ describe('parseRelationships', () => {
         // Check User relationships
         expect(result.User).toHaveLength(3);
         expect(result.User).toContainEqual(expect.objectContaining({ name: 'Profile', type: 'OneToOne', referenceName: 'userProfile', biDirectional: true, join: false })); // Expect preserved camelCase
-        expect(result.User).toContainEqual(expect.objectContaining({ name: 'Post', type: 'OneToMany', referenceName: 'posts', biDirectional: true })); // Simplified default
-        expect(result.User).toContainEqual(expect.objectContaining({ name: 'Role', type: 'ManyToMany', referenceName: 'roles', biDirectional: true, join: false })); // Simplified default
+        expect(result.User).toContainEqual(expect.objectContaining({ name: 'Post', type: 'OneToMany', referenceName: 'Post', biDirectional: true })); // PascalCase entity name
+        expect(result.User).toContainEqual(expect.objectContaining({ name: 'Role', type: 'ManyToMany', referenceName: 'Role', biDirectional: true, join: false })); // PascalCase entity name
 
         // Check Profile relationship
         expect(result.Profile).toHaveLength(1);
-        expect(result.Profile).toContainEqual(expect.objectContaining({ name: 'User', type: 'OneToOne', referenceName: 'user', biDirectional: true, join: true })); // Simplified default singular
+        expect(result.Profile).toContainEqual(expect.objectContaining({ 
+          name: 'User', 
+          type: 'OneToOne', 
+          referenceName: 'User', // PascalCase entity name
+          biDirectional: true, 
+          join: true 
+        }));
 
         // Check Post relationship
         expect(result.Post).toHaveLength(1);
-        expect(result.Post).toContainEqual(expect.objectContaining({ name: 'User', type: 'ManyToOne', referenceName: 'user', biDirectional: true })); // Simplified default singular
+        expect(result.Post).toContainEqual(expect.objectContaining({ 
+          name: 'User', 
+          type: 'ManyToOne', 
+          referenceName: 'User', // PascalCase entity name
+          biDirectional: true 
+        }));
         
         // Check Role relationship
         expect(result.Role).toHaveLength(1);
-        expect(result.Role).toContainEqual(expect.objectContaining({ name: 'User', type: 'ManyToMany', referenceName: 'users', biDirectional: true, join: true })); // Simplified default
+        expect(result.Role).toContainEqual(expect.objectContaining({ name: 'User', type: 'ManyToMany', referenceName: 'User', biDirectional: true, join: true })); // PascalCase entity name
       });
   });
 }); 

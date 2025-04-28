@@ -12,5 +12,5 @@ import {<%= it.ctrlName %>} from "./<%= it.entityName %>.controller";
   exports: [<%= it.svcName %>],
   controllers: [<%= it.ctrlName %>],
 })
-export class <%= it.modName %> {}
+export class <%= it.moduleName %> {}
   

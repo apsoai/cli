@@ -42,7 +42,7 @@ export const createGqlDTO = async (
     snakeCasedName: snakeCase(name),
     createdAt,
     updatedAt,
-    pluralizedName: pluralize(camelCase(name)),
+    pluralizedName: camelCase(pluralize(name)),
     columns,
     associations: relationships,
     entitiesToImport,

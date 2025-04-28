@@ -1,5 +1,5 @@
 import { FieldType, Field, ComputedField, Entity } from "../types";
-import { camelCase } from "./casing";
+import { pascalCase } from "./casing";
 
 export const getJsTypeFromFieldType = (type: FieldType): string => {
   switch (type) {
@@ -66,7 +66,7 @@ export const getFieldForTemplate = (
   }));
 
 export const fieldToEnumType = (fieldName: string, entityName: string) =>
-  `${camelCase(entityName, true)}${camelCase(fieldName, true)}Enum`;
+  `${pascalCase(entityName)}${pascalCase(fieldName)}Enum`;
 
 export const typeExistsInEntity = (entity: Entity, type: string) =>
   entity?.fields

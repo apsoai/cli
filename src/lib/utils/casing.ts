@@ -1,13 +1,23 @@
-export const camelCase = (str: string, firstUpper?: boolean): string => {
-  const firstLetter = firstUpper ? str[0].toUpperCase() : str[0].toLowerCase();
-  const restOfLetters = str
-    .slice(1)
-    .replace(/_[A-Za-z]/g, (underLetter) => underLetter[1].toUpperCase());
-  return `${firstLetter}${restOfLetters}`;
-};
+export function camelCase(str: string): string {
+  return str
+    // Insert a space before all caps that are followed by lower case (for PascalCase)
+    .replace(/([\da-z])([A-Z])/g, '$1 $2')
+    // Replace all separators with spaces
+    .replace(/[ _-]+/g, ' ')
+    // Lowercase the string, then uppercase the first letter of each word (except the first)
+    .toLowerCase()
+    .replace(/ (\w)/g, (_, c) => c ? c.toUpperCase() : '')
+    // Remove spaces
+    .replace(/ /g, '');
+}
 
 export const snakeCase = (str: string): string =>
   str[0].toLowerCase() +
   str
     .slice(1, str.length)
     .replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+
+export function pascalCase(str: string): string {
+  const c = camelCase(str);
+  return c.charAt(0).toUpperCase() + c.slice(1);
+}

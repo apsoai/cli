@@ -6,13 +6,14 @@ import { Entity } from "./types/entity";
 import { ComputedField } from "./types/field";
 import { getFieldForTemplate, typeExistsInEntity } from "./utils/field";
 import { getRelationshipForTemplate } from "./utils/relationships";
-import { camelCase } from "./utils/casing";
+import { pascalCase, camelCase } from "./utils/casing";
 
 /**
  * Generates Data Transfer Object (DTO) files (create and update) for a given entity.
  *
  * @param apiBaseDir The base directory for the generated API module (e.g., 'src/autogen/users').
  * @param entity The entity definition object from the parsed .apsorc.
+ * @param relationships The relationships array from the parsed .apsorc.
  * @param options Optional configuration flags.
  * @param options.apiType The type of API being generated (default: "rest").
  * @returns {Promise<void>} A promise that resolves when the DTO files are created.
@@ -20,17 +21,45 @@ import { camelCase } from "./utils/casing";
 export const createDto = async (
   apiBaseDir: string,
   entity: Entity,
+  relationships: any[], // Relationship[]
   options?: { apiType?: string }
 ): Promise<void> => {
-  const { name: entityName, fields = [], associations } = entity;
-  const dtoDir = path.join(apiBaseDir, "dto");
+  const { name: entityName, fields = [] } = entity;
+  const dtoDir = path.join(apiBaseDir, "dtos");
   const dtoFile = path.join(dtoDir, `${entityName}.dto.ts`);
 
   const columns = getFieldForTemplate(fields, entityName);
   const relationshipsTemplate = getRelationshipForTemplate(
     entityName,
-    associations || []
+    relationships
   );
+
+  if (process.env.DEBUG) {
+    console.log('[DTO DEBUG] Generating DTO for:', entityName);
+    console.log('[DTO DEBUG] relationshipsTemplate:', relationshipsTemplate);
+  }
+  // Add foreign key columns for ManyToOne relationships if not present
+  relationshipsTemplate.forEach(rel => {
+    if (rel.type === 'ManyToOne') {
+      const fkName = camelCase(rel.referenceName || rel.name) + 'Id';
+      if (process.env.DEBUG) {
+        console.log('[DTO DEBUG]', {
+          relType: rel.type,
+          relName: rel.name,
+          referenceName: rel.referenceName,
+          fkName,
+          columns: columns.map(c => c.name)
+        });
+      }
+      if (!columns.some(col => col.name === fkName)) {
+        columns.push({
+          name: fkName,
+          dataType: 'number',
+          type: 'integer',
+        });
+      }
+    }
+  });
 
   const primaryKeyColumns = columns.filter(
     (column: ComputedField) => column.primary === true
@@ -47,8 +76,8 @@ export const createDto = async (
   );
 
   // Class names
-  const createDtoName = `Create${camelCase(entityName, true)}Dto`;
-  const updateDtoName = `Update${camelCase(entityName, true)}Dto`;
+  const createDtoName = `Create${pascalCase(entityName)}Dto`;
+  const updateDtoName = `Update${pascalCase(entityName)}Dto`;
 
   const data = {
     entityName,
