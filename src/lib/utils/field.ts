@@ -1,22 +1,45 @@
 import { FieldType, Field, ComputedField, Entity } from "../types";
 import { pascalCase } from "./casing";
 
-export const getJsTypeFromFieldType = (type: FieldType): string => {
-  switch (type) {
-    case "array":
-      return "string[]";
-    case "boolean":
-      return "boolean";
-    case "integer":
-      return "number";
-    case "float":
-      return "number";
-    case "text":
-    case "enum":
-    default:
-      return "string";
-  }
+const typeToJsType: Record<string, string> = {
+  array: "string[]", // or handle elementType elsewhere
+  boolean: "boolean",
+  integer: "number",
+  float: "number",
+  real: "number",
+  double: "number",
+  decimal: "number",
+  numeric: "number",
+  smallint: "number",
+  serial: "number",
+  bigserial: "number",
+  smallserial: "number",
+  bigint: "string",
+  text: "string",
+  varchar: "string",
+  char: "string",
+  uuid: "string",
+  xml: "string",
+  inet: "string",
+  interval: "string",
+  money: "string",
+  date: "string",
+  timestamp: "string",
+  timestamptz: "string",
+  timetz: "string",
+  tsvector: "string",
+  string: "string",
+  json: "any",
+  jsonb: "any",
+  "json-plain": "any",
+  bytea: "Buffer",
+  point: "{ x: number, y: number }",
+  int4range: "{ lower: number, upper: number, lowerInclusive: boolean, upperInclusive: boolean }",
+  enum: "string", // handled elsewhere for custom enums
 };
+
+export const getJsTypeFromFieldType = (type: FieldType | string): string =>
+  typeToJsType[type] ?? "string";
 
 export const getDefaultValueForField = (field: Field): string | null => {
   switch (field.type) {
