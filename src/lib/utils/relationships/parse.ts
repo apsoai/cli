@@ -426,15 +426,15 @@ export const getRelationshipForTemplate = (
     const needsPluralInverse = relationship.type === 'ManyToOne' || relationship.type === 'ManyToMany';
 
     // DEBUG LOGGING
-    if (process.env.DEBUG) {
-      console.log(
-        '[DEBUG] relationship.name:', relationship.name,
-        '| relationship.referenceName:', relationship.referenceName,
-        '| thisReferenceName:', thisReferenceName,
-        '| pluralizedRelationshipName:', camelCase(pluralize(thisReferenceName || relationship.name)),
-        '| pluralizedName:', camelCase(pluralize(relationship.name))
-      );
-    }
+    // if (process.env.DEBUG) {
+    //   console.log(
+    //     '[DEBUG] relationship.name:', relationship.name,
+    //     '| relationship.referenceName:', relationship.referenceName,
+    //     '| thisReferenceName:', thisReferenceName,
+    //     '| pluralizedRelationshipName:', camelCase(pluralize(thisReferenceName || relationship.name)),
+    //     '| pluralizedName:', camelCase(pluralize(relationship.name))
+    //   );
+    // }
 
     const inverseSidePropertyName = calculateInversePropertyName(
       relationship,
@@ -464,69 +464,132 @@ export const getRelationshipForTemplate = (
   });
 };
 
-export const getNestedRelationships = (
+/**
+ * Generates all valid nested join paths for an entity, avoiding cycles and redundant paths.
+ * 
+ * Requirements enforced:
+ * 1. No cycles by tracking visited (entity, reference) pairs in the current path
+ * 2. Allow the same entity with different references (proper name vs alias)
+ * 3. Allow different aliases to the same entity in different branches
+ * 4. Respect max depth limit
+ * 
+ * @param entityName - Current entity to generate relationships from
+ * @param relationshipMap - Map of all entity relationships
+ * @param maxDepth - Maximum depth of nested joins (default: 6)
+ * @param path - Current join path being built (internal use)
+ * @param visitedPairs - Set of (entity, reference) pairs visited in current path (internal use)
+ * @param baseEntity - The root entity we started from (internal use)
+ * @returns Generator yielding valid join path strings
+ */
+export function* generateNestedRelationships(
   entityName: string,
   relationshipMap: RelationshipMap,
-  prefix = "",
-  visited: Set<string> = new Set()
-): string[] => {
-  const relationships: string[] = [];
+  maxDepth = 4,
+  path: string[] = [],
+  visitedPairs: Set<string> = new Set(),
+  baseEntity: string = entityName
+): Generator<string> {
+  // Stop if we've reached maximum depth
+  if (path.length >= maxDepth) return;
 
-  if (visited.has(entityName)) {
-    return relationships;
-  }
+  // Get relationships for the current entity
+  const relationships = relationshipMap[entityName];
+  if (!relationships) return;
 
-  const currentRelationships = relationshipMap[entityName];
-  if (!currentRelationships) return relationships;
-
-  visited.add(entityName);
-
-  for (const relationship of currentRelationships) {
-    const { name: relationshipName, type } = relationship;
-
+  for (const relationship of relationships) {
     const referenceName = getRelationshipName(relationship);
+    const type = relationship.type;
+    
+    // Format the property name based on relationship type
+    // OneToMany and ManyToMany relationships use plural forms
     const formattedName =
       type === "ManyToOne" || type === "OneToOne"
-        ? camelCase(referenceName)
-        : camelCase(pluralize(referenceName));
+        ? referenceName
+        : pluralize(referenceName);
 
-    // Create the relationship path while preserving camelCase
-    let relationshipPath;
-    if (prefix) {
-      // Split the path by dots and preserve each segment's casing
-      const segments = prefix.split('.');
-      relationshipPath = `${segments.join('.')}.${formattedName}`;
-    } else {
-      relationshipPath = formattedName;
+    // Create a unique key for this (entity, reference) pair
+    const entityReferencePair = `${relationship.name}:${referenceName}`;
+    
+    // Check if this exact (entity, reference) pair would create a cycle
+    const wouldCreateCycle = visitedPairs.has(entityReferencePair);
+    
+    // Special case: prevent immediate self-reference loops (same property name)
+    // But allow different properties on the same entity type
+    const isImmediateSelfLoop = relationship.name === entityName && 
+      path.length > 0 && 
+      path[path.length - 1] === formattedName;
+    
+    // Skip immediate self-loops (like networkStack.networkStack)
+    if (isImmediateSelfLoop) continue;
+    
+    // Skip cycles of the same (entity, reference) pair
+    if (wouldCreateCycle) continue;
+    
+    // Handle base entity returns: allow functional aliases but block generic relationships
+    if (relationship.name === baseEntity) {
+      // Check if this is a specific functional alias (different from default entity name)
+      const defaultSingularName = camelCase(relationship.name);
+      const defaultPluralName = camelCase(pluralize(relationship.name));
+      const originalEntityName = relationship.name;
+      const isSpecificFunctionalAlias = relationship.referenceName && 
+        relationship.referenceName !== defaultSingularName &&
+        relationship.referenceName !== defaultPluralName &&
+        relationship.referenceName !== originalEntityName &&
+        relationship.referenceName !== relationship.name.toLowerCase();
+      
+      // Block generic returns to base entity, allow functional aliases
+      if (!isSpecificFunctionalAlias) {
+        continue;
+      }
     }
 
-    const hasChild = relationshipPath.includes(".");
-    const exists =
-      prefix
-        .split(".")
-        .some(
-          (a) =>
-            a === camelCase(referenceName) ||
-            a === camelCase(pluralize(referenceName))
-        );
-    const deepEnough = prefix.split(".").length >= 4;
-    const canAdd = hasChild && !exists && !deepEnough;
+    // Build the new path
+    const newPath = [...path, formattedName];
 
-    if (canAdd) {
-      relationships.push(relationshipPath);
+    // Always yield the join path if it's longer than 1 level
+    if (newPath.length > 1) {
+      yield newPath.join(".");
     }
 
-    const nestedRelationships = getNestedRelationships(
-      relationshipName,
+    // Create new visited pairs set with the current relationship pair added
+    const newVisitedPairs = new Set(visitedPairs);
+    newVisitedPairs.add(entityReferencePair); // Add the relationship we're about to follow
+
+    // Recursively generate deeper nested relationships
+    yield* generateNestedRelationships(
+      relationship.name,
       relationshipMap,
-      relationshipPath,
-      new Set(visited)
+      maxDepth,
+      newPath,
+      newVisitedPairs,
+      baseEntity
     );
-    relationships.push(...nestedRelationships);
   }
+}
 
-  return relationships;
-};
+// In-memory collector
+export function getNestedRelationships(
+  entityName: string,
+  relationshipMap: RelationshipMap,
+  maxDepth?: number
+): string[] {
+  return [...generateNestedRelationships(entityName, relationshipMap, maxDepth)];
+}
+
+// Streaming function
+export async function streamNestedRelationships(
+  entityName: string,
+  relationshipMap: RelationshipMap,
+  writable: NodeJS.WritableStream,
+  maxDepth?: number
+): Promise<number> {
+  let count = 0;
+  for (const joinPath of generateNestedRelationships(entityName, relationshipMap, maxDepth)) {
+    writable.write(`"${joinPath}": { eager: false },\n`);
+    count++;
+  }
+  return count;
+}
 
 export const getRelationshipsForImport = (
   entityName: string,

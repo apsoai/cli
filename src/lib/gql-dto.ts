@@ -1,6 +1,6 @@
-import * as Eta from "eta";
 import * as path from "path";
 import pluralize from "pluralize";
+import * as Eta from "eta";
 
 import { Entity } from "./types/entity";
 import { ComputedField } from "./types/field";
@@ -49,14 +49,9 @@ export const createGqlDTO = async (
     importEnums: typeExistsInEntity(entity, "enum") !== -1,
   };
 
-  Eta.configure({
-    // This tells Eta to look for templates in the /templates directory
-    views: path.join(__dirname, "templates"),
-  });
-
   const contentEntity: any = await Eta.renderFileAsync(
     "./graphql/gql-dto-graphql",
     data
   );
-  createFile(File, contentEntity);
+  await createFile(File, contentEntity);
 };
