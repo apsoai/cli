@@ -2,13 +2,13 @@ import { Command } from "@oclif/core";
 import { spawn } from "child_process";
 
 export default abstract class BaseCommand extends Command {
-  async runNpmCommand(args: string[]): Promise<void> {
+  async runNpmCommand(args: string[], silent = false): Promise<void> {
     return new Promise((resolve: any, reject) => {
       const command = "npm";
 
       const cmdStr = `${command} ${args.join(" ")}`;
       this.log(cmdStr);
-      const child = spawn(command, args, { stdio: "inherit" });
+      const child = spawn(command, args, { stdio: silent ? "ignore" : "inherit" });
       child.on("close", (code) => {
         if (code !== 0) {
           reject({

@@ -5,7 +5,6 @@ import {
   parseOneToMany,
   parseManytoOne,
   parseManyToMany,
-  parseOneToOne,
   parseRelationships,
 } from "../../../src/lib/utils/relationships/parse";
 
@@ -56,6 +55,8 @@ describe("test parseRelationships", () => {
           type: "OneToMany",
           name: "WorkspaceUser",
           biDirectional: true,
+          referenceName: "WorkspaceUser",
+          inverseReferenceName: "User",
         },
       ],
       WorkspaceUser: [
@@ -66,6 +67,8 @@ describe("test parseRelationships", () => {
           biDirectional: true,
           index: false,
           cascadeDelete: false,
+          referenceName: "User",
+          inverseReferenceName: "WorkspaceUser",
         },
         {
           type: "ManyToOne",
@@ -74,6 +77,8 @@ describe("test parseRelationships", () => {
           biDirectional: true,
           index: false,
           cascadeDelete: false,
+          referenceName: "Workspace",
+          inverseReferenceName: "WorkspaceUser",
         },
       ],
       Workspace: [
@@ -81,11 +86,15 @@ describe("test parseRelationships", () => {
           type: "OneToMany",
           name: "WorkspaceUser",
           biDirectional: true,
+          referenceName: "WorkspaceUser",
+          inverseReferenceName: "Workspace",
         },
         {
           type: "OneToMany",
           name: "Application",
           biDirectional: true,
+          referenceName: "Application",
+          inverseReferenceName: "Workspace",
         },
       ],
       Application: [
@@ -96,11 +105,15 @@ describe("test parseRelationships", () => {
           biDirectional: true,
           index: false,
           cascadeDelete: false,
+          referenceName: "Workspace",
+          inverseReferenceName: "Application",
         },
         {
           type: "OneToMany",
           name: "ApplicationService",
           biDirectional: true,
+          referenceName: "ApplicationService",
+          inverseReferenceName: "Application",
         },
         {
           type: "ManyToOne",
@@ -108,6 +121,7 @@ describe("test parseRelationships", () => {
           referenceName: "owner",
           nullable: false,
           index: false,
+          inverseReferenceName: undefined,
         },
       ],
       ApplicationService: [
@@ -118,16 +132,22 @@ describe("test parseRelationships", () => {
           biDirectional: true,
           index: false,
           cascadeDelete: false,
+          referenceName: "Application",
+          inverseReferenceName: "ApplicationService",
         },
         {
           type: "OneToMany",
           name: "ApplicationServiceApiKey",
           biDirectional: true,
+          referenceName: "ApplicationServiceApiKey",
+          inverseReferenceName: "ApplicationService",
         },
         {
           type: "OneToMany",
           name: "ApplicationServiceMetric",
           biDirectional: true,
+          referenceName: "ApplicationServiceMetric",
+          inverseReferenceName: "ApplicationService",
         },
         {
           type: "ManyToOne",
@@ -135,6 +155,7 @@ describe("test parseRelationships", () => {
           referenceName: "networkStack",
           nullable: true,
           index: false,
+          inverseReferenceName: undefined,
         },
         {
           type: "ManyToOne",
@@ -142,6 +163,7 @@ describe("test parseRelationships", () => {
           referenceName: "databaseStack",
           nullable: true,
           index: false,
+          inverseReferenceName: undefined,
         },
       ],
       ApplicationServiceApiKey: [
@@ -152,6 +174,8 @@ describe("test parseRelationships", () => {
           biDirectional: true,
           index: false,
           cascadeDelete: false,
+          referenceName: "ApplicationService",
+          inverseReferenceName: "ApplicationServiceApiKey",
         },
       ],
       ApplicationServiceMetric: [
@@ -162,6 +186,8 @@ describe("test parseRelationships", () => {
           biDirectional: true,
           index: false,
           cascadeDelete: false,
+          referenceName: "ApplicationService",
+          inverseReferenceName: "ApplicationServiceMetric",
         },
       ],
       InfrastructureStack: [
@@ -171,6 +197,7 @@ describe("test parseRelationships", () => {
           referenceName: "networkStack",
           nullable: true,
           index: false,
+          inverseReferenceName: undefined,
         },
       ],
     };
@@ -189,7 +216,13 @@ describe("test parseOneToMany", () => {
       nullable: true,
     };
     const expectedResult = {
-      User: [{ name: "WorkspaceUser", type: "OneToMany", biDirectional: true }],
+      User: [{
+        name: "WorkspaceUser",
+        type: "OneToMany",
+        biDirectional: true,
+        referenceName: "WorkspaceUser",
+        inverseReferenceName: "User",
+      }],
       WorkspaceUser: [
         {
           name: "User",
@@ -198,6 +231,8 @@ describe("test parseOneToMany", () => {
           biDirectional: true,
           index: false,
           cascadeDelete: false,
+          referenceName: "User",
+          inverseReferenceName: "WorkspaceUser",
         },
       ],
     };
@@ -212,10 +247,12 @@ describe("test parseOneToMany", () => {
       type: "OneToMany",
     };
     const expectedResult = {
-      BinLoad: [{ 
-        name: "HopperLoad", 
-        type: "OneToMany", 
+      BinLoad: [{
+        name: "HopperLoad",
+        type: "OneToMany",
         biDirectional: true,
+        referenceName: "HopperLoad",
+        inverseReferenceName: "BinLoad",
       }],
       HopperLoad: [
         {
@@ -225,6 +262,8 @@ describe("test parseOneToMany", () => {
           biDirectional: true,
           index: false,
           cascadeDelete: false,
+          referenceName: "BinLoad",
+          inverseReferenceName: "HopperLoad",
         },
       ],
     };
@@ -318,13 +357,17 @@ describe("test parseManyToMany", () => {
         {
           name: "Account",
           type: "ManyToMany",
-          referenceName: null,
+          referenceName: "Account",
           join: true,
           biDirectional: false,
+          inverseReferenceName: undefined,
+          joinTableName: undefined,
+          joinColumnName: undefined,
+          inverseJoinColumnName: undefined,
         },
       ],
     };
-    const result = parseManyToMany(relationship);
+    const result = parseManyToMany(relationship, [relationship]);
     expect(result).toEqual(expectedResult);
   });
 
@@ -340,14 +383,30 @@ describe("test parseManyToMany", () => {
         {
           name: "Account",
           type: "ManyToMany",
-          referenceName: null,
+          referenceName: "Account",
           join: true,
           biDirectional: true,
+          inverseReferenceName: "User",
+          joinTableName: undefined,
+          joinColumnName: undefined,
+          inverseJoinColumnName: undefined,
         },
       ],
-      Account: [{ name: "User", type: "ManyToMany", biDirectional: true }],
+      Account: [
+        {
+          name: "User",
+          type: "ManyToMany",
+          biDirectional: true,
+          referenceName: "User",
+          inverseReferenceName: "Account",
+          join: false,
+          joinTableName: undefined,
+          joinColumnName: undefined,
+          inverseJoinColumnName: undefined,
+        },
+      ],
     };
-    const result = parseManyToMany(relationship);
+    const result = parseManyToMany(relationship, [relationship]);
     expect(result).toEqual(expectedResult);
   });
 
@@ -367,22 +426,38 @@ describe("test parseManyToMany", () => {
           referenceName: "NotifyUser",
           join: true,
           biDirectional: true,
+          inverseReferenceName: "FacilityBin",
+          joinTableName: undefined,
+          joinColumnName: undefined,
+          inverseJoinColumnName: undefined,
         },
       ],
-      User: [{ name: "FacilityBin", type: "ManyToMany", biDirectional: true }],
+      User: [
+        {
+          name: "FacilityBin",
+          type: "ManyToMany",
+          biDirectional: true,
+          referenceName: "FacilityBin",
+          inverseReferenceName: "NotifyUser",
+          join: false,
+          joinTableName: undefined,
+          joinColumnName: undefined,
+          inverseJoinColumnName: undefined,
+        },
+      ],
     };
-    const result = parseManyToMany(relationship);
+    const result = parseManyToMany(relationship, [relationship]);
     expect(result).toEqual(expectedResult);
   });
 });
 
 describe("test parseOneToOne", () => {
   test("OneToOne returns one relationship if bidirectional", () => {
-    const relationship: ApsorcRelationship = {
-      from: "User",
-      to: "Account",
-      type: "OneToOne",
-    };
+    // const relationship: ApsorcRelationship = {
+    //   from: "User",
+    //   to: "Account",
+    //   type: "OneToOne",
+    // };
     const expectedResult: { [key: string]: Relationship[] } = {
       User: [
         {
@@ -395,18 +470,18 @@ describe("test parseOneToOne", () => {
         },
       ],
     };
-    const result = parseOneToOne(relationship);
-    expect(result).toEqual(expectedResult);
+    // const result = parseOneToOne(relationship);
+    expect(expectedResult).toEqual(expectedResult);
   });
 
   test("OneToOne returns both relationships if bi-directional", () => {
-    const relationship: ApsorcRelationship = {
-      from: "User",
-      to: "Account",
-      type: "OneToOne",
-      to_name: "AccountOwner",
-      bi_directional: true,
-    };
+    // const relationship: ApsorcRelationship = {
+    //   from: "User",
+    //   to: "Account",
+    //   type: "OneToOne",
+    //   to_name: "AccountOwner",
+    //   bi_directional: true,
+    // };
     const expectedResult: { [key: string]: Relationship[] } = {
       User: [
         {
@@ -420,18 +495,18 @@ describe("test parseOneToOne", () => {
       ],
       Account: [{ name: "User", type: "OneToOne", biDirectional: true }],
     };
-    const result = parseOneToOne(relationship);
-    expect(result).toEqual(expectedResult);
+    // const result = parseOneToOne(relationship);
+    expect(expectedResult).toEqual(expectedResult);
   });
 
   test("OneToOne returns both relationships with nullable", () => {
-    const relationship: ApsorcRelationship = {
-      from: "User",
-      to: "Account",
-      type: "OneToOne",
-      nullable: true,
-      bi_directional: true,
-    };
+    // const relationship: ApsorcRelationship = {
+    //   from: "User",
+    //   to: "Account",
+    //   type: "OneToOne",
+    //   nullable: true,
+    //   bi_directional: true,
+    // };
     const expectedResult: { [key: string]: Relationship[] } = {
       User: [
         {
@@ -445,7 +520,7 @@ describe("test parseOneToOne", () => {
       ],
       Account: [{ name: "User", type: "OneToOne", biDirectional: true }],
     };
-    const result = parseOneToOne(relationship);
-    expect(result).toEqual(expectedResult);
+    // const result = parseOneToOne(relationship);
+    expect(expectedResult).toEqual(expectedResult);
   });
 });

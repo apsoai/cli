@@ -7,6 +7,7 @@ import {
   parseRelationships,
   parseV1Relationships,
 } from "./utils/relationships";
+import { performance } from "perf_hooks";
 
 export enum ApiType {
   Graphql = "graphql",
@@ -65,6 +66,8 @@ const parseRc = (): ApsorcType => {
 };
 
 export const parseApsorc = (): ParsedApsorc => {
+  const debug = process.env.DEBUG;
+  const start = performance.now();
   const apsoConfig = parseRc();
   if (
     apsoConfig.version === 1 &&
@@ -75,18 +78,39 @@ export const parseApsorc = (): ParsedApsorc => {
     );
   } else {
     switch (apsoConfig.version) {
-      case 1:
-        return {
+      case 1: {
+        const v1Start = performance.now();
+        const result = {
           rootFolder: apsoConfig.rootFolder,
           apiType: apsoConfig.apiType,
           ...parseApsorcV1(apsoConfig),
         };
-      case 2:
-        return {
+        if (debug) {
+          console.log(`[timing] parseApsorcV1: ${(performance.now() - v1Start).toFixed(2)}ms`);
+        }
+        if (debug) {
+          console.log(`[timing] parseApsorc total: ${(performance.now() - start).toFixed(2)}ms`);
+        }
+        return result;
+      }
+      case 2: {
+        const result = {
           rootFolder: apsoConfig.rootFolder,
           apiType: apsoConfig.apiType,
-          ...parseApsorcV2(apsoConfig),
+          ...(() => {
+            const relStart = performance.now();
+            const parsed = parseApsorcV2(apsoConfig);
+            if (debug) {
+              console.log(`[timing] parseApsorcV2: ${(performance.now() - relStart).toFixed(2)}ms`);
+            }
+            return parsed;
+          })(),
         };
+        if (debug) {
+          console.log(`[timing] parseApsorc total: ${(performance.now() - start).toFixed(2)}ms`);
+        }
+        return result;
+      }
     }
     throw new Error(`Invalid apsorc config version: ${apsoConfig.version}`);
   }

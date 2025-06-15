@@ -34,23 +34,23 @@ export const createDto = async (
     relationships
   );
 
-  if (process.env.DEBUG) {
-    console.log('[DTO DEBUG] Generating DTO for:', entityName);
-    console.log('[DTO DEBUG] relationshipsTemplate:', relationshipsTemplate);
-  }
+  // if (process.env.DEBUG) {
+  //   console.log('[DTO DEBUG] Generating DTO for:', entityName);
+  //   console.log('[DTO DEBUG] relationshipsTemplate:', relationshipsTemplate);
+  // }
   // Add foreign key columns for ManyToOne relationships if not present
   relationshipsTemplate.forEach(rel => {
     if (rel.type === 'ManyToOne') {
       const fkName = camelCase(rel.referenceName || rel.name) + 'Id';
-      if (process.env.DEBUG) {
-        console.log('[DTO DEBUG]', {
-          relType: rel.type,
-          relName: rel.name,
-          referenceName: rel.referenceName,
-          fkName,
-          columns: columns.map(c => c.name)
-        });
-      }
+      // if (process.env.DEBUG) {
+      //   console.log('[DTO DEBUG]', {
+      //     relType: rel.type,
+      //     relName: rel.name,
+      //     referenceName: rel.referenceName,
+      //     fkName,
+      //     columns: columns.map(c => c.name)
+      //   });
+      // }
       if (!columns.some(col => col.name === fkName)) {
         columns.push({
           name: fkName,
@@ -92,14 +92,9 @@ export const createDto = async (
     importEnums: typeExistsInEntity(entity, "enum") !== -1,
   };
 
-  // Configure Eta
-  Eta.configure({
-    views: path.join(__dirname, "templates"),
-  });
-
   // Render the unified template only once
   const dtoContent: any = await Eta.renderFileAsync("./rest/dto-rest", data);
 
   // Create only one DTO file
-  createFile(dtoFile, dtoContent);
+  await createFile(dtoFile, dtoContent);
 };
