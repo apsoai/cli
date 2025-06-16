@@ -1,5 +1,5 @@
-import { createFile } from "./utils/file-system";
 import * as Eta from "eta";
+import { createFile } from "./utils/file-system";
 import * as path from "path";
 import { Entity } from "./types";
 
@@ -29,22 +29,19 @@ export const createService = async (
     entityName,
   };
 
-  // Configure Eta
-  Eta.configure({
-    views: path.join(__dirname, "templates"),
-  });
-
   // Render service template
   const serviceContent: any = await Eta.renderFileAsync(
     "./rest/service-rest",
     data
   );
-  createFile(serviceFileName, serviceContent);
+  await createFile(serviceFileName, serviceContent);
+  Eta.templates.remove("./rest/service-rest");
 
   // Render spec template
   const specContent: any = await Eta.renderFileAsync(
     "./rest/service-rest-spec",
     data
   );
-  createFile(specFileName, specContent);
+  await createFile(specFileName, specContent);
+  Eta.templates.remove("./rest/service-rest-spec");
 };

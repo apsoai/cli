@@ -4,7 +4,7 @@ import { spawn } from "child_process";
 import os from "os";
 
 export default abstract class BaseCommand extends Command {
-  async runNpmCommand(args: string[]): Promise<void> {
+  async runNpmCommand(args: string[], silent = false): Promise<void> {
     return new Promise((resolve: any, reject) => {
       const isWindows = os.platform() === "win32";
       const command = isWindows ? "npm.cmd" : "npm";
@@ -16,6 +16,7 @@ export default abstract class BaseCommand extends Command {
         stdio: "inherit",
         shell: isWindows,
       });
+
 
       child.on("close", (code) => {
         if (code !== 0) {

@@ -1,4 +1,3 @@
-import * as Eta from "eta";
 import * as path from "path";
 import { createFile } from "./utils/file-system";
 import { Entity, Field, Relationship } from "./types";
@@ -6,6 +5,7 @@ import { typeExistsInEntity, getFieldForTemplate } from "./utils/field";
 import { getRelationshipsForImport, getRelationshipForTemplate } from "./utils/relationships";
 import { snakeCase, camelCase } from "./utils/casing";
 import pluralize from "pluralize";
+import * as Eta from "eta";
 
 /**
  * Generates a TypeORM entity file based on the entity definition and relationships.
@@ -52,13 +52,9 @@ export const createEntity = async (
     apiType,
   };
 
-  Eta.configure({
-    views: path.join(__dirname, "templates"),
-  });
-
   const templatePath = apiType === "graphql" ? "./graphql/gql-entity-graphql" : "./entities/entity";
 
   const content: any = await Eta.renderFileAsync(templatePath, data);
 
-  createFile(File, content);
+  await createFile(File, content);
 };

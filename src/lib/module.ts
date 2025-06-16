@@ -35,11 +35,6 @@ export const createModule = async (
     entityName,
   };
 
-  // Configure Eta
-  Eta.configure({
-    views: path.join(__dirname, "templates"),
-  });
-
   // Determine template based on API type
   const templatePath = options?.apiType === "graphql" ? "./graphql/gql-module-graphql" : "./rest/module-rest";
 
@@ -47,5 +42,5 @@ export const createModule = async (
   const content: any = await Eta.renderFileAsync(templatePath, data);
 
   // Create the module file
-  createFile(moduleFileName, content);
+  await createFile(moduleFileName, content);
 };
