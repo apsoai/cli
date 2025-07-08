@@ -5,6 +5,7 @@
 - [Usage](#usage)
 - [Local Development](#local-development)
 - [Populating an .apsorc File](#populating-an-apsorc-file)
+- [Auto-Generated Code Reference](#auto-generated-code-reference)
 - [Debugging](##debugging)
 - [Commands](#commands)
 
@@ -168,6 +169,264 @@ The `.apsorc` file defines your domain model, including entities and their relat
 ```
 
 For a full example, see [`apso-cli/test/apsorc-json/apsorc.v2.json`](./test/apsorc-json/apsorc.v2.json).
+
+## Auto-Generated Code Reference
+
+This section details the code that Apso CLI automatically generates from your `.apsorc` configuration, including fields, TypeORM mappings, validation, and naming conventions. Understanding these rules will help you predict and control your generated backend code.
+
+### 1. Auto-Generated Fields
+
+#### Primary Keys
+- Every entity automatically receives an `id` field, even if not defined in the `fields` array.
+- Decorated as `@PrimaryGeneratedColumn()` (auto-incrementing integer).
+- Type: `number`.
+
+  ```typescript
+  @PrimaryGeneratedColumn()
+  id: number;
+  ```
+
+#### Timestamps
+- If `"created_at": true` is set on the entity, generates:
+  ```typescript
+  @CreateDateColumn()
+  created_at: Date;
+  ```
+- If `"updated_at": true` is set on the entity, generates:
+  ```typescript
+  @UpdateDateColumn()
+  updated_at: Date;
+  ```
+- These are in addition to any fields you define.
+
+#### Foreign Key Fields
+- For each relationship, Apso generates the foreign key column and TypeORM decorators.
+- Example:
+  ```json
+  { "from": "Workspace", "to": "User", "type": "ManyToOne", "to_name": "owner" }
+  ```
+  Generates:
+  ```typescript
+  @ManyToOne(() => User)
+  @JoinColumn({ name: 'ownerId' })
+  owner: User;
+
+  @Column({ type: 'integer' })
+  ownerId: number;
+  ```
+
+### 2. Field Type Mapping Table
+
+| Apso Field Type | TypeORM Column Decorator                | Auto-Applied Validation                | Notes                                 |
+|-----------------|-----------------------------------------|----------------------------------------|---------------------------------------|
+| `text`          | `@Column({ type: 'text' })`             | `@IsString()`, `@IsNotEmpty()`         | With `length`: `@MaxLength(n)`        |
+| `json`          | `@Column('jsonb')`                      | None                                   | Uses JSONB in PostgreSQL              |
+| `enum`          | `@Column({ type: 'enum', enum: [...] })`| None                                   | Values array becomes enum             |
+| `boolean`       | `@Column({ type: 'boolean' })`          | `@IsBoolean()`                         | Default values supported              |
+| `integer`       | `@Column({ type: 'integer' })`          | `@IsNumber()`                          |                                       |
+| `decimal`       | `@Column({ type: 'decimal' })`          | `@IsNumber()`                          | Precision/scale supported             |
+| `timestamp`     | `@Column({ type: 'timestamp' })`        | None                                   |                                       |
+
+### 3. Validation Rules Documentation
+
+Field properties in `.apsorc` map to validation decorators as follows:
+
+- `"unique": true` → `@Column({ unique: true })`
+- `"nullable": true` → `@Column({ nullable: true })` and `@IsOptional()`
+- `"is_email": true` → `@IsEmail()`
+- `"length": 255` → `@MaxLength(255)`
+- `"required": false` → `@IsOptional()` (for CREATE group)
+
+### 4. Relationship Generation Rules
+
+#### OneToMany Relationships
+
+```json
+{ "from": "User", "to": "Workspace", "type": "OneToMany", "to_name": "ownedWorkspaces" }
+```
+Generates:
+```typescript
+@OneToMany(() => Workspace, (workspace) => workspace.user)
+ownedWorkspaces: Workspace[];
+```
+
+#### ManyToOne Relationships
+
+```json
+{ "from": "Workspace", "to": "User", "type": "ManyToOne", "to_name": "owner" }
+```
+Generates:
+```typescript
+@ManyToOne(() => User, (user) => user.ownedWorkspaces)
+@JoinColumn({ name: 'userId' })
+owner: User;
+
+@Column({ type: 'integer' })
+userId: number;
+```
+
+#### Foreign Key Naming
+- Foreign key columns use camelCase + `Id` (e.g., `userId`).
+- Join column names match the foreign key column name.
+
+### 5. Entity Naming Conventions
+- Entity class names remain as defined in `.apsorc` (e.g., `User`).
+- Table names are lowercased (e.g., `user`).
+- Foreign key columns use camelCase + `Id` (e.g., `userId`).
+- Join column names match the foreign key column name.
+
+### 6. Version 2 Format Differences
+
+Version 2 of the `.apsorc` format introduces several enhancements:
+- Separate `relationships` and `entities` arrays.
+- `created_at`/`updated_at` as boolean flags at the entity level.
+- Enhanced field types: `json`, `enum`, `timestamp`, `decimal`.
+- `to_name` property in relationships for custom property names.
+
+Refer to the [example v2 file](#example-apsorc-v2-file) for usage.
+
+## Relationships
+
+### 1. Relationships Best Practices
+
+> **Important:** Only define ONE side of a relationship in your `.apsorc` file. Apso CLI will auto-generate the inverse side for you. Defining both sides leads to duplicate properties, compilation errors, and entity conflicts.
+
+#### DO/DON'T Examples
+
+```json
+// ❌ WRONG - Creates Conflicts:
+{ "from": "User", "to": "Workspace", "type": "OneToMany" },
+{ "from": "Workspace", "to": "User", "type": "ManyToOne" }
+
+// ✅ CORRECT - One Side Only:
+{ "from": "Workspace", "to": "User", "type": "ManyToOne", "to_name": "owner" }
+```
+
+- **DO:** Define only the direction that best fits your domain model.
+- **DON'T:** Define both directions for the same relationship.
+- **Why?** Apso CLI auto-generates the inverse property and decorators. Duplicating both sides causes duplicate property and foreign key generation.
+
+### 2. Auto-Generated Properties Documentation
+
+#### ManyToOne Relationships
+- Generates:
+  - Entity property with `@ManyToOne`, `@JoinColumn`, and `@Column` decorators
+  - Foreign key column: `{relationName}Id`
+  - Example:
+    ```typescript
+    @ManyToOne(() => User)
+    @JoinColumn({ name: 'ownerId' })
+    owner: User;
+
+    @Column({ type: 'integer' })
+    ownerId: number;
+    ```
+
+#### OneToMany Relationships
+- Generates:
+  - Array property with `@OneToMany` decorator
+  - Inverse mapping to the ManyToOne property
+  - Example:
+    ```typescript
+    @OneToMany(() => Workspace, (workspace) => workspace.owner)
+    workspaces: Workspace[];
+    ```
+
+#### ManyToMany Relationships
+- Generates:
+  - Join table and array properties on both entities
+  - Example:
+    ```typescript
+    @ManyToMany(() => Tag, (tag) => tag.posts)
+    @JoinTable()
+    tags: Tag[];
+    ```
+- **Warning:** If you define both a ManyToMany relationship and an explicit join entity, you may get duplicate join tables and properties. Prefer one approach.
+
+### 3. Common Pitfalls and Solutions
+
+#### Duplicate Identifier Errors
+- **Cause:** Defining both sides of a relationship (bidirectional definitions)
+- **Solution:** Remove one side; only define the relationship once.
+
+#### "Property does not exist" Errors
+- **Cause:** Referencing an inverse property that was not generated (e.g., using a `to_name` that doesn't match)
+- **Solution:** Only use explicitly defined property names; check generated code for actual property names.
+
+#### "Multiple properties with same name" Errors
+- **Cause:** Complex or circular relationship chains, or duplicate relationship definitions
+- **Solution:** Simplify relationships, avoid deep nesting, and ensure each relationship is defined only once.
+
+#### ManyToMany + Explicit Join Entity Conflicts
+- **Cause:** Defining both a ManyToMany and a join entity for the same relationship
+- **Solution:** Use either a ManyToMany or a join entity, not both.
+
+#### Circular Eager Loading Issues
+- **Cause:** Deeply nested or circular relationships
+- **Solution:** Limit eager loading, use lazy relations, and avoid unnecessary deep nesting in your model.
+
+### 4. Relationship Patterns
+
+#### Multi-Tenant Architecture
+```json
+{ "from": "Resource", "to": "Workspace", "type": "ManyToOne", "to_name": "workspace" },
+{ "from": "Resource", "to": "User", "type": "ManyToOne", "to_name": "createdBy" }
+```
+
+#### Audit Trails, Deployment History, Optional Relationships
+```json
+{ "from": "Deployment", "to": "User", "type": "ManyToOne", "to_name": "deployedBy", "nullable": true },
+{ "from": "AuditLog", "to": "Resource", "type": "ManyToOne", "to_name": "resource" }
+```
+
+#### ManyToMany Example
+```json
+{ "from": "User", "to": "Role", "type": "ManyToMany", "to_name": "roles" }
+```
+
+### 5. Testing and Validation Guide
+
+- **Validate Relationship Generation:**
+  - After running `apso server scaffold`, inspect the generated entity files in the `autogen` or `src` directory.
+  - Check that only one property exists for each relationship per entity.
+  - Confirm that foreign key columns and decorators are present as expected.
+
+- **Build Testing Procedures:**
+  - Run `tsc` or your build process to catch duplicate or missing property errors early.
+  - Write unit tests for entity relationships if possible.
+
+- **Entity Inspection Checklist:**
+  - No duplicate properties or foreign keys
+  - All relationships have the correct decorators
+  - No circular imports or eager loading loops
+
+- **Clean Regeneration Practices:**
+  - Before re-scaffolding, remove old generated code:
+    ```sh
+    rm -rf autogen
+    apso server scaffold
+    ```
+  - This prevents stale or duplicate files from causing errors.
+
+### 6. Version 2 Format Clarity
+
+- In v2, relationships and entities are defined in separate arrays:
+  ```json
+  {
+    "version": 2,
+    "entities": [ ... ],
+    "relationships": [ ... ]
+  }
+  ```
+- Each relationship should only be defined once, with clear `to_name` if you want a custom property name.
+- Field types and validation are specified per the [Auto-Generated Code Reference](#auto-generated-code-reference).
+
+> **Summary:**
+>
+> - Only define one side of each relationship in `.apsorc`.
+> - Let Apso CLI auto-generate the inverse side.
+> - Avoid deep nesting and duplicate definitions.
+> - Always inspect generated code and test your build after scaffolding.
 
 ## Schema Reference
 
