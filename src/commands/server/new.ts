@@ -74,7 +74,7 @@ export default class New extends BaseCommand {
 
     shell.cd(projectPath);
     const repoUrl = process.env.APSO_GIT_PAT
-      ? `https://${process.env.APSO_GIT_PAT}:@github.com/mavric/apso-service-template.git`
+      ? `https://${process.env.APSO_GIT_PAT}@github.com/mavric/apso-service-template.git`
       : `git@github.com:mavric/apso-service-template.git`;
 
     shell.exec(`git clone --depth=1 --branch=main ${repoUrl} ${projectPath}`);
