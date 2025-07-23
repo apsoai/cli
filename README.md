@@ -4,27 +4,58 @@
 - [Prerequisites](#prerequisites)
 - [Usage](#usage)
 - [Local Development](#local-development)
+- [Populating an .apsorc File](#populating-an-apsorc-file)
 - [Debugging](##debugging)
 - [Commands](#commands)
 
-# Prerequisites
-
-You need to have setup access to Mavric's private NPM packages.
-Find out how [here](https://github.com/mavric/.github-private/blob/main/how-to/private-npm.md)
 
 # Usage
 
-```sh-session
-$ npm install -g @mavric/apso-cli
-$ apso COMMAND
-running command...
-$ apso (--version)
-@mavric/apso-cli/0.0.26 linux-x64 node-v18.20.2
-$ apso --help [COMMAND]
-USAGE
-  $ apso COMMAND
-...
-```
+Follow these steps to create and run a new APSO server project:
+
+1. **Install the CLI globally:**
+   ```sh
+   npm install -g @apso/apso-cli
+   ```
+
+2. **Initialize a new server project:**
+   ```sh
+   apso server new --name <PROJECT_NAME>
+   ```
+   This creates a new project folder with the necessary boilerplate.
+
+3. **Define your database schema:**
+   Edit the `.apsorc` file in your new project folder to describe your entities and relationships. See the [Populating an .apsorc File](#populating-an-apsorc-file) section for details and examples.
+
+4. **Generate code and database entities:**
+   ```sh
+   apso server scaffold
+   ```
+   This command generates all relevant modules and entity code based on your `.apsorc` file.
+
+5. **Configure your database connection:**
+   Update your project's `.env` file with the database credentials you want to use.
+
+6. **Start the local Postgres instance (Docker):**
+   ```sh
+   npm run compose
+   ```
+   This command uses Docker Compose to start a local Postgres database instance.
+
+7. **Provision your schema/database:**
+   ```sh
+   npm run provision
+   ```
+   This sets up your new schema instance in the database.
+
+8. **(Optional) Enable automatic model sync for local development:**
+   If you want to skip manual migrations and always sync your models with the database (useful for rapid prototyping or starting from scratch), set the following in your `.env` file:
+   ```env
+   DATABASE_SYNC=true
+   ```
+   With this setting, your models will be automatically synced to the database on startup.
+
+> For more details on configuring your schema, see the [Populating an .apsorc File](#populating-an-apsorc-file) section below.
 
 # Local Development
 
@@ -58,6 +89,103 @@ Now we will run the scaffold command which will generate the all the relevant mo
 ```sh-session
 apso server scaffold
 ```
+
+# Populating an .apsorc File
+
+The `.apsorc` file defines your domain model, including entities and their relationships, for APSO code generation. It is required for scaffolding your backend service.
+
+## How to Create and Populate `.apsorc`
+
+1. **Location**: Place the `.apsorc` file in the root of your service directory.
+2. **Version**: Set the `version` property to `2` for the latest schema.
+3. **Entities**: Define each domain entity, its fields, and any unique constraints.
+4. **Relationships**: Specify how entities relate (e.g., OneToMany, ManyToOne, etc.).
+5. **rootFolder**: Set the folder where generated code will be placed (e.g., `src`).
+
+> **Tip:** You can find sample `.apsorc` files in `apso-cli/test/apsorc-json/` for both v1 and v2 formats.
+
+### Example `.apsorc` v2 File
+
+```json
+{
+  "version": 2,
+  "rootFolder": "src",
+  "relationships": [
+    { "from": "User", "to": "WorkspaceUser", "type": "OneToMany", "nullable": true },
+    { "from": "Workspace", "to": "WorkspaceUser", "type": "OneToMany" },
+    { "from": "Workspace", "to": "Application", "type": "OneToMany", "index": true },
+    { "from": "Application", "to": "ApplicationService", "type": "OneToMany" },
+    { "from": "Application", "to": "User", "type": "ManyToOne", "to_name": "owner" },
+    { "from": "ApplicationService", "to": "ApplicationServiceApiKey", "type": "OneToMany" },
+    { "from": "ApplicationService", "to": "ApplicationServiceMetric", "type": "OneToMany" },
+    { "from": "ApplicationService", "to": "InfrastructureStack", "type": "ManyToOne", "to_name": "networkStack", "nullable": true },
+    { "from": "ApplicationService", "to": "InfrastructureStack", "type": "ManyToOne", "to_name": "databaseStack", "nullable": true },
+    { "from": "InfrastructureStack", "to": "InfrastructureStack", "type": "ManyToOne", "to_name": "networkStack", "nullable": true }
+  ],
+  "entities": [
+    {
+      "name": "User",
+      "created_at": true,
+      "updated_at": true,
+      "fields": [
+        { "name": "cognito_id", "type": "text", "unique": true },
+        { "name": "email", "type": "text", "length": 255, "is_email": true },
+        { "name": "fullName", "type": "text", "nullable": true }
+      ]
+    },
+    {
+      "name": "Workspace",
+      "created_at": true,
+      "updated_at": true,
+      "fields": [
+        { "name": "name", "type": "text" }
+      ]
+    },
+    {
+      "name": "WorkspaceUser",
+      "created_at": true,
+      "updated_at": true,
+      "fields": [
+        { "name": "email", "type": "text", "length": 255, "is_email": true },
+        { "name": "invite_code", "type": "text", "length": 64 },
+        { "name": "role", "type": "enum", "values": ["User", "Admin"], "default": "Admin" },
+        { "name": "status", "type": "enum", "values": ["Active", "Invited", "Inactive", "Deleted"] },
+        { "name": "activeAt", "type": "date", "nullable": true }
+      ]
+    },
+    {
+      "name": "Application",
+      "created_at": true,
+      "updated_at": true,
+      "fields": [
+        { "name": "name", "type": "text" },
+        { "name": "status", "type": "enum", "values": ["Active", "Deleted"] }
+      ]
+    }
+    // ... more entities as needed ...
+  ]
+}
+```
+
+For a full example, see [`apso-cli/test/apsorc-json/apsorc.v2.json`](./test/apsorc-json/apsorc.v2.json).
+
+## Schema Reference
+
+The `.apsorc` file must conform to the [APSO Configuration Schema](./apsorc.schema.json). This schema defines all valid properties, types, and constraints for your configuration file.
+
+### Inline Schema (apsorc.schema.json)
+
+```json
+// ... see full contents in apso-cli/apsorc.schema.json ...
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "APSO Configuration Schema",
+  "description": "Schema for the .apsorc file used by APSO to define entities and relationships.",
+  // ... (truncated for brevity) ...
+}
+```
+
+See the [full schema file](./apsorc.schema.json) for all details and validation rules.
 
 ## Debugging
 
