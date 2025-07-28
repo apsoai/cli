@@ -1,12 +1,12 @@
 import * as Eta from "eta";
 import * as path from "path";
 
-import { createFile } from "./utils/file-system";
+import { createFile, withGeneratedMeta } from "./utils/file-system";
 import { Entity } from "./types/entity";
 import { ComputedField } from "./types/field";
 import { getFieldForTemplate, typeExistsInEntity } from "./utils/field";
 import { getRelationshipForTemplate } from "./utils/relationships";
-import { pascalCase, camelCase } from "./utils/casing";
+import { camelCase, pascalCase } from "./utils/casing";
 
 /**
  * Generates Data Transfer Object (DTO) files (create and update) for a given entity.
@@ -93,7 +93,7 @@ export const createDto = async (
   };
 
   // Render the unified template only once
-  const dtoContent: any = await Eta.renderFileAsync("./rest/dto-rest", data);
+  const dtoContent: any = await Eta.renderFileAsync("./rest/dto-rest", withGeneratedMeta(data));
 
   // Create only one DTO file
   await createFile(dtoFile, dtoContent);

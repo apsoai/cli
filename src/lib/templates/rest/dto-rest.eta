@@ -1,5 +1,6 @@
-import { ApiProperty } from '@nestjs/swagger';
 <%~ includeFile('./header.eta') %>
+
+import { ApiProperty } from '@nestjs/swagger';
 
 <% if (it.importEnums) { %>
 import * as enums from '../../enums';

@@ -169,6 +169,8 @@
             "integer",
             "boolean",
             "float",
+            "decimal",
+            "numeric",
             "timestamptz",
             "json",
             "date" 
@@ -212,6 +214,18 @@
             "type": "string",
             "minLength": 1
           }
+        },
+        "precision": {
+          "description": "The total number of digits for decimal/numeric types.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 131072
+        },
+        "scale": {
+          "description": "The number of digits after the decimal point for decimal/numeric types.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 16383
         }
       },
       "required": [

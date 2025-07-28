@@ -67,3 +67,11 @@ const writeFile = (
     fs.chmodSync(fileWritePath, mode);
   }
 };
+
+export function withGeneratedMeta<T extends object>(data: T): T & { generatedAt: string; generatedBy: string } {
+  return {
+    ...data,
+    generatedAt: new Date().toISOString(),
+    generatedBy: process.env.USER || process.env.USERNAME || 'unknown',
+  };
+}

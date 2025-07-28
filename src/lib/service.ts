@@ -1,9 +1,9 @@
 import * as Eta from "eta";
-import { createFile } from "./utils/file-system";
+import { createFile, withGeneratedMeta } from "./utils/file-system";
 import * as path from "path";
 import { Entity } from "./types";
 
-/**
+/*
  * Generates NestJS service and spec files for a given entity.
  *
  * @param apiBaseDir The base directory for the generated API module (e.g., 'src/autogen/users').
@@ -12,7 +12,8 @@ import { Entity } from "./types";
  */
 export const createService = async (
   apiBaseDir: string,
-  entity: Entity
+  entity: Entity,
+  relationshipMap?: any // RelationshipMap, optional for backward compatibility
 ): Promise<void> => {
   const { name: entityName } = entity;
   const serviceFileName = path.join(apiBaseDir, `${entityName}.service.ts`);
@@ -22,17 +23,40 @@ export const createService = async (
   const svcName = `${entityName}Service`;
   const repoName = `${entityName}Repository`; // Assuming convention
 
+  // --- NEW: Recursively collect all related entities for the test file ---
+  let allRelatedEntities: string[] = [entityName];
+  if (relationshipMap && relationshipMap[entityName]) {
+    // Use a Set to avoid duplicates
+    const visited = new Set<string>();
+    const collect = (entity: string) => {
+      if (visited.has(entity)) return;
+      visited.add(entity);
+      allRelatedEntities.push(entity);
+      const rels = relationshipMap[entity] || [];
+      for (const rel of rels) {
+        if (!visited.has(rel.name)) {
+          collect(rel.name);
+        }
+      }
+    };
+    allRelatedEntities = [];
+    collect(entityName);
+    // Remove self-duplicates using spread operator
+    allRelatedEntities = [...new Set(allRelatedEntities)];
+  }
+
   // Data for the Eta templates
   const data = {
     svcName,
     repoName,
     entityName,
+    allRelatedEntities,
   };
 
   // Render service template
   const serviceContent: any = await Eta.renderFileAsync(
     "./rest/service-rest",
-    data
+    withGeneratedMeta(data)
   );
   await createFile(serviceFileName, serviceContent);
   Eta.templates.remove("./rest/service-rest");
@@ -40,7 +64,7 @@ export const createService = async (
   // Render spec template
   const specContent: any = await Eta.renderFileAsync(
     "./rest/service-rest-spec",
-    data
+    withGeneratedMeta(data)
   );
   await createFile(specFileName, specContent);
   Eta.templates.remove("./rest/service-rest-spec");

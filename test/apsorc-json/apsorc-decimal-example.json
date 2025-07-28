@@ -1,0 +1,33 @@
+{
+  "version": 2,
+  "rootFolder": "src",
+  "apiType": "Rest",
+  "entities": [
+    {
+      "name": "BandwidthUsage",
+      "created_at": true,
+      "updated_at": true,
+      "fields": [
+        {
+          "name": "bandwidth_gb",
+          "type": "decimal",
+          "precision": 10,
+          "scale": 3,
+          "default": 0,
+          "nullable": false
+        },
+        {
+          "name": "user_id",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "usage_date",
+          "type": "date",
+          "nullable": false
+        }
+      ]
+    }
+  ],
+  "relationships": []
+} 

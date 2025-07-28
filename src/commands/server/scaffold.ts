@@ -78,7 +78,7 @@ export default class Scaffold extends BaseCommand {
     }
 
     const tService = performance.now();
-    await createService(filePath, entity);
+    await createService(filePath, entity, relationshipMap);
     if (process.env.DEBUG) {
       console.log(`[timing] createService for ${entity.name}: ${(performance.now() - tService).toFixed(2)}ms`);
       const used = process.memoryUsage();

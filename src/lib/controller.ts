@@ -1,6 +1,6 @@
 import * as Eta from "eta";
 import * as path from "path";
-import { createFile } from "./utils/file-system";
+import { createFile, withGeneratedMeta } from "./utils/file-system";
 import { Entity, RelationshipMap } from "./types";
 import { getRelationshipForTemplate } from "./utils/relationships";
 import { streamNestedRelationships } from "./utils/relationships/parse";
@@ -71,7 +71,7 @@ export const createController = async (
   const startRenderController = performance.now();
   const controllerContent: any = await Eta.renderFileAsync(
     "./rest/controller-rest",
-    data
+    withGeneratedMeta(data)
   );
   const renderControllerTime = performance.now() - startRenderController;
   if (process.env.DEBUG) {
@@ -88,7 +88,7 @@ export const createController = async (
   const startRenderSpec = performance.now();
   const specContent: any = await Eta.renderFileAsync(
     "./rest/controller-rest-spec",
-    data
+    withGeneratedMeta(data)
   );
   const renderSpecTime = performance.now() - startRenderSpec;
   if (process.env.DEBUG) {

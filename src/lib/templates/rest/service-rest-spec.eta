@@ -1,7 +1,14 @@
+<%~ includeFile('./header.eta') %>
+
 import { Test, TestingModule } from '@nestjs/testing';
 import { <%= it.svcName %> } from './<%= it.entityName %>.service';
-import { getRepositoryToken } from '@nestjs/typeorm';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { <%= it.entityName %> } from './<%= it.entityName %>.entity';
+<% it.allRelatedEntities.forEach(function(entity) { if (entity !== it.entityName) { %>
+import { <%= entity %> } from '../<%= entity %>/<%= entity %>.entity';
+<% }}); %>
+
+// All related entities (including the main entity) are included below to ensure TypeORM can resolve relationships for this service's entity and its graph.
 
 describe('<%= it.svcName %>', () => {
   let service: <%= it.svcName %>;
@@ -18,13 +25,15 @@ describe('<%= it.svcName %>', () => {
     };
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        <%= it.svcName %>,
-        {
-          provide: getRepositoryToken(<%= it.entityName %>),
-          useValue: mockRepository,
-        },
+      imports: [
+        TypeOrmModule.forRoot({
+          // ...database config (provide your test DB config here)
+          entities: [<%= [it.entityName, ...it.allRelatedEntities.filter(e => e !== it.entityName)].join(', ') %>],
+          synchronize: true,
+        }),
+        TypeOrmModule.forFeature([<%= it.entityName %>]),
       ],
+      providers: [<%= it.svcName %>],
     }).compile();
 
     service = module.get<<%= it.svcName %>>(<%= it.svcName %>);

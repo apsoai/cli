@@ -1,5 +1,5 @@
 import * as path from "path";
-import { createFile } from "./utils/file-system";
+import { createFile, withGeneratedMeta } from "./utils/file-system";
 import { Entity, Field, Relationship } from "./types";
 import { typeExistsInEntity, getFieldForTemplate } from "./utils/field";
 import { getRelationshipsForImport, getRelationshipForTemplate } from "./utils/relationships";
@@ -54,7 +54,7 @@ export const createEntity = async (
 
   const templatePath = apiType === "graphql" ? "./graphql/gql-entity-graphql" : "./entities/entity";
 
-  const content: any = await Eta.renderFileAsync(templatePath, data);
+  const content: any = await Eta.renderFileAsync(templatePath, withGeneratedMeta(data));
 
   await createFile(File, content);
 };

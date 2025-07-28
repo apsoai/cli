@@ -1,5 +1,5 @@
 import pluralize from "pluralize";
-import { camelCase } from "../../utils/casing";
+import { camelCase } from "../casing";
 import {
   ApsorcRelationship,
   Relationship,

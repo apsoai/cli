@@ -79,14 +79,19 @@ export const getFieldForTemplate = (
   fields: Field[],
   entityName: string
 ): ComputedField[] =>
-  fields.map((field: Field) => ({
-    ...field,
-    default: getDefaultValueForField(field),
-    dataType:
-      field.type === "enum"
-        ? fieldToEnumType(field.name, entityName)
-        : getJsTypeFromFieldType(field.type),
-  }));
+  fields.map((field: Field) => {
+    // Validate decimal/numeric fields
+    validateDecimalField(field);
+    
+    return {
+      ...field,
+      default: getDefaultValueForField(field),
+      dataType:
+        field.type === "enum"
+          ? fieldToEnumType(field.name, entityName)
+          : getJsTypeFromFieldType(field.type),
+    };
+  });
 
 export const fieldToEnumType = (fieldName: string, entityName: string) =>
   `${pascalCase(entityName)}${pascalCase(fieldName)}Enum`;
@@ -95,3 +100,32 @@ export const typeExistsInEntity = (entity: Entity, type: string) =>
   entity?.fields
     ? entity?.fields.findIndex((field) => field.type === type)
     : -1;
+
+export const validateDecimalField = (field: Field): void => {
+  if (field.type !== "decimal" && field.type !== "numeric") {
+    return;
+  }
+
+  // Validate precision
+  if (field.precision !== undefined && (field.precision < 1 || field.precision > 131_072)) {
+    throw new Error(
+      `${field.name}: Invalid precision value ${field.precision}. Must be between 1 and 131072.`
+    );
+  }
+
+  // Validate scale
+  if (field.scale !== undefined) {
+    if (field.scale < 0 || field.scale > 16_383) {
+      throw new Error(
+        `${field.name}: Invalid scale value ${field.scale}. Must be between 0 and 16383.`
+      );
+    }
+
+    // Validate that scale doesn't exceed precision
+    if (field.precision !== undefined && field.scale > field.precision) {
+      throw new Error(
+        `${field.name}: Scale (${field.scale}) cannot be greater than precision (${field.precision}).`
+      );
+    }
+  }
+};

@@ -58,6 +58,94 @@ Follow these steps to create and run a new APSO server project:
 
 > For more details on configuring your schema, see the [Populating an .apsorc File](#populating-an-apsorc-file) section below.
 
+---
+
+## 📢 Important: Never Add Custom Code to Autogen Files
+
+Apso CLI generates all files in the `autogen/` directory automatically.  
+**Any changes you make directly to these files will be overwritten the next time you run Apso CLI.**  
+To keep your custom logic safe and maintainable, always use the `extensions/` directory for any customizations.
+
+### How to Extend Apso-Generated Entities
+
+#### 1. **Never modify files in `autogen/`**
+
+- All files in `src/autogen/` are managed by Apso CLI.
+- These include entities, services, controllers, DTOs, and modules.
+- **Do not add custom endpoints, business logic, or integrations here.**
+
+#### 2. **Add custom logic in `extensions/`**
+
+- For each entity you want to extend, create a corresponding folder in `src/extensions/[[EntityName]]/`.
+- Add your custom service, controller, and DTOs here.
+- You can inject and extend the autogen service in your extension service.
+
+#### 3. **Example Directory Structure**
+
+```
+src/
+  autogen/
+    LambdaDeployment/
+      LambdaDeployment.service.ts   # DO NOT MODIFY
+      LambdaDeployment.controller.ts
+      ...
+  extensions/
+    LambdaDeployment/
+      LambdaDeployment.service.ts   # Add custom logic here
+      LambdaDeployment.controller.ts
+      ...
+```
+
+#### 4. **Example: Extending LambdaDeployment**
+
+**Custom Service:**
+```typescript
+// src/extensions/LambdaDeployment/LambdaDeployment.service.ts
+import { Injectable } from '@nestjs/common';
+import { LambdaDeploymentService as AutogenLambdaDeploymentService } from '../../autogen/LambdaDeployment/LambdaDeployment.service';
+
+@Injectable()
+export class LambdaDeploymentService extends AutogenLambdaDeploymentService {
+  // Add your custom methods here
+  async deployWithLocalService(...) { ... }
+}
+```
+
+**Custom Controller:**
+```typescript
+// src/extensions/LambdaDeployment/LambdaDeployment.controller.ts
+import { Controller } from '@nestjs/common';
+import { LambdaDeploymentService } from './LambdaDeployment.service';
+
+@Controller('lambda-deployment')
+export class LambdaDeploymentController {
+  constructor(private readonly lambdaDeploymentService: LambdaDeploymentService) {}
+
+  // Add custom endpoints here
+}
+```
+
+#### 5. **Why This Matters**
+
+- Keeps your custom business logic safe from being overwritten.
+- Makes it easy to regenerate your API as your data model evolves.
+- Maintains a clean separation between generated code and your application logic.
+
+#### 6. **Best Practices**
+
+- Only use the autogen files for base CRUD and entity logic.
+- Place all custom endpoints, integrations, and business logic in the `extensions/` directory.
+- If you need to override or extend a method, subclass the autogen service in your extension service.
+
+---
+
+**Summary:**  
+> Always put your custom code in `src/extensions/[[EntityName]]/`.  
+> Never modify files in `src/autogen/`.  
+> This ensures your work is safe and your project remains maintainable as you evolve your data model with Apso CLI.
+
+---
+
 # Local Development
 
 Clone apso-cli on your machine. Navigate to the repo in your code editor and run the below commands
@@ -224,8 +312,45 @@ This section details the code that Apso CLI automatically generates from your `.
 | `enum`          | `@Column({ type: 'enum', enum: [...] })`| None                                   | Values array becomes enum             |
 | `boolean`       | `@Column({ type: 'boolean' })`          | `@IsBoolean()`                         | Default values supported              |
 | `integer`       | `@Column({ type: 'integer' })`          | `@IsNumber()`                          |                                       |
-| `decimal`       | `@Column({ type: 'decimal' })`          | `@IsNumber()`                          | Precision/scale supported             |
+| `decimal`       | `@Column({ type: 'decimal', precision: n, scale: m })` | `@IsNumber()`                          | Precision/scale supported             |
+| `numeric`       | `@Column({ type: 'numeric', precision: n, scale: m })` | `@IsNumber()`                          | Precision/scale supported             |
 | `timestamp`     | `@Column({ type: 'timestamp' })`        | None                                   |                                       |
+
+#### Decimal/Numeric Field Examples
+
+**Basic decimal field:**
+```json
+{
+  "name": "price",
+  "type": "decimal",
+  "precision": 10,
+  "scale": 2,
+  "default": 0,
+  "nullable": false
+}
+```
+Generates:
+```typescript
+@Column({ "type": "decimal", precision: 10, scale: 2, default: 0 })
+price: number;
+```
+
+**Numeric field with custom precision:**
+```json
+{
+  "name": "bandwidth_gb",
+  "type": "numeric",
+  "precision": 10,
+  "scale": 3,
+  "default": 0,
+  "nullable": false
+}
+```
+Generates:
+```typescript
+@Column({ "type": "numeric", precision: 10, scale: 3, default: 0 })
+bandwidth_gb: number;
+```
 
 ### 3. Validation Rules Documentation
 
@@ -235,6 +360,8 @@ Field properties in `.apsorc` map to validation decorators as follows:
 - `"nullable": true` → `@Column({ nullable: true })` and `@IsOptional()`
 - `"is_email": true` → `@IsEmail()`
 - `"length": 255` → `@MaxLength(255)`
+- `"precision": 10` → `@Column({ precision: 10 })` (for decimal/numeric types)
+- `"scale": 2` → `@Column({ scale: 2 })` (for decimal/numeric types)
 - `"required": false` → `@IsOptional()` (for CREATE group)
 
 ### 4. Relationship Generation Rules
@@ -280,8 +407,9 @@ userId: number;
 Version 2 of the `.apsorc` format introduces several enhancements:
 - Separate `relationships` and `entities` arrays.
 - `created_at`/`updated_at` as boolean flags at the entity level.
-- Enhanced field types: `json`, `enum`, `timestamp`, `decimal`.
+- Enhanced field types: `json`, `enum`, `timestamp`, `decimal`, `numeric`.
 - `to_name` property in relationships for custom property names.
+- `precision` and `scale` properties for decimal/numeric fields.
 
 Refer to the [example v2 file](#example-apsorc-v2-file) for usage.
 
@@ -387,7 +515,7 @@ Refer to the [example v2 file](#example-apsorc-v2-file) for usage.
 ### 5. Testing and Validation Guide
 
 - **Validate Relationship Generation:**
-  - After running `apso server scaffold`, inspect the generated entity files in the `autogen` or `src` directory.
+  - After running `apso server scaffold`, inspect the generated entity files in the `autogen` directory (never modify these directly—see above for extension instructions).
   - Check that only one property exists for each relationship per entity.
   - Confirm that foreign key columns and decorators are present as expected.
 
@@ -406,7 +534,7 @@ Refer to the [example v2 file](#example-apsorc-v2-file) for usage.
     rm -rf autogen
     apso server scaffold
     ```
-  - This prevents stale or duplicate files from causing errors.
+  This prevents stale or duplicate files from causing errors. **Never add custom code to autogen—use extensions as described above.**
 
 ### 6. Version 2 Format Clarity
 
