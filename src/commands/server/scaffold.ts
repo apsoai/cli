@@ -108,6 +108,23 @@ export default class Scaffold extends BaseCommand {
     const rootPath = path.join(process.cwd(), rootFolder);
     const autogenPath = path.join(rootPath, "autogen");
     const lowerCaseApiType = apiType.toLowerCase();
+
+    // --- Begin: Remove autogen directories/files for deleted entities ---
+    const fs = require("fs");
+    const entityNames = entities.map(e => e.name);
+    if (fs.existsSync(autogenPath)) {
+      const autogenFiles = fs.readdirSync(autogenPath, { withFileTypes: true });
+      for (const file of autogenFiles) {
+        // Remove .ts files and directories that do not match any entity name
+        const baseName = file.name.replace(/\..*$/, ""); // Remove extension for .ts files
+        if (!entityNames.includes(baseName)) {
+          const fullPath = path.join(autogenPath, file.name);
+          fs.rmSync(fullPath, { recursive: true, force: true });
+        }
+      }
+    }
+    // --- End: Remove autogen directories/files for deleted entities ---
+
     await createEnums(autogenPath, entities, lowerCaseApiType);
     await Promise.all(
       entities.map(async (entity) => {
