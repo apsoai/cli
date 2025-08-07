@@ -36,6 +36,15 @@ const typeToJsType: Record<string, string> = {
   point: "{ x: number, y: number }",
   int4range: "{ lower: number, upper: number, lowerInclusive: boolean, upperInclusive: boolean }",
   enum: "string", // handled elsewhere for custom enums
+  // PostGIS data types
+  geometry: "any",
+  geography: "any",
+  linestring: "{ coordinates: Array<{ x: number, y: number }> }",
+  polygon: "{ coordinates: Array<Array<{ x: number, y: number }>> }",
+  multipoint: "{ coordinates: Array<{ x: number, y: number }> }",
+  multilinestring: "{ coordinates: Array<Array<{ x: number, y: number }>> }",
+  multipolygon: "{ coordinates: Array<Array<Array<{ x: number, y: number }>>> }",
+  geometrycollection: "{ geometries: Array<any> }",
 };
 
 export const getJsTypeFromFieldType = (type: FieldType | string): string =>

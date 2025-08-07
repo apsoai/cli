@@ -161,7 +161,7 @@
           "minLength": 1
         },
         "type": {
-          "description": "The data type of the field.",
+          "description": "The data type of the field. Note: PostGIS data types (geometry, geography, point, linestring, polygon, multipoint, multilinestring, multipolygon, geometrycollection) require the PostGIS extension to be installed in PostgreSQL.",
           "type": "string",
           "enum": [
             "text",
@@ -173,7 +173,16 @@
             "numeric",
             "timestamptz",
             "json",
-            "date" 
+            "date",
+            "geometry",
+            "geography",
+            "point",
+            "linestring",
+            "polygon",
+            "multipoint",
+            "multilinestring",
+            "multipolygon",
+            "geometrycollection"
           ]
         },
         "unique": {

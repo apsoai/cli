@@ -1,0 +1,44 @@
+<% const {field} = it; %>
+
+@IsOptional({ groups: [UPDATE] })
+<% if (!field.nullable && !field.auto) { %>
+@IsNotEmpty({ groups: [CREATE] })
+<% } %>
+
+@Column({
+  "type": "multilinestring",
+  transformer: {
+    to: (multilinestring: { coordinates: Array<Array<{x: number, y: number}>> } | null) => {
+      if (!multilinestring) return null;
+      const linestrings = multilinestring.coordinates.map(linestring => {
+        const coords = linestring.map(coord => `${coord.x} ${coord.y}`).join(',');
+        return `(${coords})`;
+      });
+      return `MULTILINESTRING(${linestrings.join(',')})`;
+    },
+    from: (pgMultilinestring: string | null) => {
+      if (!pgMultilinestring) return null;
+      // Extract coordinates from MULTILINESTRING((x1 y1,x2 y2,...),(x1 y1,x2 y2,...)) format
+      const match = pgMultilinestring.match(/MULTILINESTRING\((.+)\)/);
+      if (!match) return null;
+      const linestrings = match[1].split('),(').map(linestring => {
+        const cleanLinestring = linestring.replace(/[()]/g, '');
+        const coords = cleanLinestring.split(',').map(coord => {
+          const [x, y] = coord.trim().split(' ');
+          return { x: parseFloat(x), y: parseFloat(y) };
+        });
+        return coords;
+      });
+      return { coordinates: linestrings };
+    }
+  }<% if (field.nullable) {%>,
+  nullable: true<% } %>
+})
+<% if (field.index ) {%>
+@Index()
+<% } %>
+<% if (field.primary ) {%>
+@PrimaryColumn()
+<% } %>
+
+<%= field.name %>: { coordinates: Array<Array<{ x: number, y: number }>> }; 

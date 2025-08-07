@@ -1,0 +1,44 @@
+<% const {field} = it; %>
+
+@IsOptional({ groups: [UPDATE] })
+<% if (!field.nullable && !field.auto) { %>
+@IsNotEmpty({ groups: [CREATE] })
+<% } %>
+
+@Column({
+  "type": "polygon",
+  transformer: {
+    to: (polygon: { coordinates: Array<Array<{x: number, y: number}>> } | null) => {
+      if (!polygon) return null;
+      const rings = polygon.coordinates.map(ring => {
+        const coords = ring.map(coord => `${coord.x} ${coord.y}`).join(',');
+        return `(${coords})`;
+      });
+      return `POLYGON(${rings.join(',')})`;
+    },
+    from: (pgPolygon: string | null) => {
+      if (!pgPolygon) return null;
+      // Extract coordinates from POLYGON((x1 y1,x2 y2,...),(x1 y1,x2 y2,...)) format
+      const match = pgPolygon.match(/POLYGON\((.+)\)/);
+      if (!match) return null;
+      const rings = match[1].split('),(').map(ring => {
+        const cleanRing = ring.replace(/[()]/g, '');
+        const coords = cleanRing.split(',').map(coord => {
+          const [x, y] = coord.trim().split(' ');
+          return { x: parseFloat(x), y: parseFloat(y) };
+        });
+        return coords;
+      });
+      return { coordinates: rings };
+    }
+  }<% if (field.nullable) {%>,
+  nullable: true<% } %>
+})
+<% if (field.index ) {%>
+@Index()
+<% } %>
+<% if (field.primary ) {%>
+@PrimaryColumn()
+<% } %>
+
+<%= field.name %>: { coordinates: Array<Array<{ x: number, y: number }>> }; 

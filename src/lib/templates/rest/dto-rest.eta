@@ -15,6 +15,18 @@ export class <%= it.entityName %>Create {
     <%= field.name %>: JSON;
   <%} else if (field.type === 'timestamp' || field.type === 'timestamptz') {%>
     <%= field.name %>: Date;
+  <%} else if (field.type === 'geometry' || field.type === 'geography') {%>
+    <%= field.name %>: any;
+  <%} else if (field.type === 'point') {%>
+    <%= field.name %>: { x: number, y: number };
+  <%} else if (field.type === 'linestring' || field.type === 'multipoint') {%>
+    <%= field.name %>: { coordinates: Array<{ x: number, y: number }> };
+  <%} else if (field.type === 'polygon' || field.type === 'multilinestring') {%>
+    <%= field.name %>: { coordinates: Array<Array<{ x: number, y: number }>> };
+  <%} else if (field.type === 'multipolygon') {%>
+    <%= field.name %>: { coordinates: Array<Array<Array<{ x: number, y: number }>>> };
+  <%} else if (field.type === 'geometrycollection') {%>
+    <%= field.name %>: { geometries: Array<any> };
   <%} else {%>
     <%= field.name %>: <%= field.dataType %>;
   <% } %>
@@ -34,6 +46,18 @@ export class <%= it.entityName %> {
     <%= field.name %>: JSON;
   <%} else if (field.type === 'timestamp' || field.type === 'timestamptz') {%>
     <%= field.name %>: Date;
+  <%} else if (field.type === 'geometry' || field.type === 'geography') {%>
+    <%= field.name %>: any;
+  <%} else if (field.type === 'point') {%>
+    <%= field.name %>: { x: number, y: number };
+  <%} else if (field.type === 'linestring' || field.type === 'multipoint') {%>
+    <%= field.name %>: { coordinates: Array<{ x: number, y: number }> };
+  <%} else if (field.type === 'polygon' || field.type === 'multilinestring') {%>
+    <%= field.name %>: { coordinates: Array<Array<{ x: number, y: number }>> };
+  <%} else if (field.type === 'multipolygon') {%>
+    <%= field.name %>: { coordinates: Array<Array<Array<{ x: number, y: number }>>> };
+  <%} else if (field.type === 'geometrycollection') {%>
+    <%= field.name %>: { geometries: Array<any> };
   <%} else {%>
     <%= field.name %>: <%= field.dataType %>;
   <% } %>

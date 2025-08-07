@@ -305,6 +305,12 @@ This section details the code that Apso CLI automatically generates from your `.
 
 ### 2. Field Type Mapping Table
 
+> **⚠️ PostGIS Requirements:** The following spatial data types require the PostGIS extension to be installed in your PostgreSQL database:
+> ```sql
+> CREATE EXTENSION IF NOT EXISTS postgis;
+> ```
+> Ensure PostGIS is installed before using any of the spatial data types listed below.
+
 | Apso Field Type | TypeORM Column Decorator                | Auto-Applied Validation                | Notes                                 |
 |-----------------|-----------------------------------------|----------------------------------------|---------------------------------------|
 | `text`          | `@Column({ type: 'text' })`             | `@IsString()`, `@IsNotEmpty()`         | With `length`: `@MaxLength(n)`        |
@@ -315,6 +321,15 @@ This section details the code that Apso CLI automatically generates from your `.
 | `decimal`       | `@Column({ type: 'decimal', precision: n, scale: m })` | `@IsNumber()`                          | Precision/scale supported             |
 | `numeric`       | `@Column({ type: 'numeric', precision: n, scale: m })` | `@IsNumber()`                          | Precision/scale supported             |
 | `timestamp`     | `@Column({ type: 'timestamp' })`        | None                                   |                                       |
+| `point`         | `@Column({ type: 'point' })`            | None                                   | PostGIS point geometry ⚠️ Requires PostGIS |
+| `linestring`    | `@Column({ type: 'linestring' })`       | None                                   | PostGIS line string geometry ⚠️ Requires PostGIS |
+| `polygon`       | `@Column({ type: 'polygon' })`          | None                                   | PostGIS polygon geometry ⚠️ Requires PostGIS |
+| `multipoint`    | `@Column({ type: 'multipoint' })`       | None                                   | PostGIS multi-point geometry ⚠️ Requires PostGIS |
+| `multilinestring` | `@Column({ type: 'multilinestring' })`  | None                                   | PostGIS multi-line string geometry ⚠️ Requires PostGIS |
+| `multipolygon`  | `@Column({ type: 'multipolygon' })`     | None                                   | PostGIS multi-polygon geometry ⚠️ Requires PostGIS |
+| `geometry`      | `@Column({ type: 'geometry' })`         | None                                   | PostGIS generic geometry type ⚠️ Requires PostGIS |
+| `geography`     | `@Column({ type: 'geography' })`        | None                                   | PostGIS geography type ⚠️ Requires PostGIS |
+| `geometrycollection` | `@Column({ type: 'geometrycollection' })` | None                              | PostGIS geometry collection ⚠️ Requires PostGIS |
 
 #### Decimal/Numeric Field Examples
 
@@ -350,6 +365,115 @@ Generates:
 ```typescript
 @Column({ "type": "numeric", precision: 10, scale: 3, default: 0 })
 bandwidth_gb: number;
+```
+
+#### PostGIS Field Examples
+
+> **📋 PostGIS Setup Required:** Before using any PostGIS data types, ensure your PostgreSQL database has the PostGIS extension installed:
+> ```sql
+> -- Install PostGIS extension
+> CREATE EXTENSION IF NOT EXISTS postgis;
+> 
+> -- Verify installation
+> SELECT PostGIS_Version();
+> ```
+> 
+> **Deployment Note:** When deploying applications with PostGIS fields, ensure the PostGIS extension is available in your production database environment.
+
+**Point geometry field:**
+```json
+{
+  "name": "location",
+  "type": "point",
+  "nullable": true
+}
+```
+Generates:
+```typescript
+@Column({
+  "type": "point",
+  transformer: {
+    to: (point: {x: number, y: number} | null) => {
+      if (!point) return null;
+      return `(${point.x},${point.y})`;
+    },
+    from: (pgPoint: string | null) => {
+      if (!pgPoint) return null;
+      const [x, y] = pgPoint.substring(1, pgPoint.length - 1).split(',');
+      return { x: parseFloat(x), y: parseFloat(y) };
+    }
+  },
+  nullable: true
+})
+location: { x: number, y: number };
+```
+
+**Polygon geometry field:**
+```json
+{
+  "name": "boundary",
+  "type": "polygon",
+  "nullable": true
+}
+```
+Generates:
+```typescript
+@Column({
+  "type": "polygon",
+  transformer: {
+    to: (polygon: { coordinates: Array<Array<{x: number, y: number}>> } | null) => {
+      if (!polygon) return null;
+      const rings = polygon.coordinates.map(ring => {
+        const coords = ring.map(coord => `${coord.x} ${coord.y}`).join(',');
+        return `(${coords})`;
+      });
+      return `POLYGON(${rings.join(',')})`;
+    },
+    from: (pgPolygon: string | null) => {
+      if (!pgPolygon) return null;
+      const match = pgPolygon.match(/POLYGON\((.+)\)/);
+      if (!match) return null;
+      const rings = match[1].split('),(').map(ring => {
+        const cleanRing = ring.replace(/[()]/g, '');
+        const coords = cleanRing.split(',').map(coord => {
+          const [x, y] = coord.trim().split(' ');
+          return { x: parseFloat(x), y: parseFloat(y) };
+        });
+        return coords;
+      });
+      return { coordinates: rings };
+    }
+  },
+  nullable: true
+})
+boundary: { coordinates: Array<Array<{ x: number, y: number }>> };
+```
+
+**Generic geometry field:**
+```json
+{
+  "name": "shape",
+  "type": "geometry",
+  "nullable": true
+}
+```
+Generates:
+```typescript
+@Column({
+  "type": "geometry",
+  transformer: {
+    to: (geometry: any) => {
+      if (!geometry) return null;
+      return geometry;
+    },
+    from: (pgGeometry: any) => {
+      if (!pgGeometry) return null;
+      return pgGeometry;
+    }
+  },
+  nullable: true
+})
+shape: any;
 ```
 
 ### 3. Validation Rules Documentation

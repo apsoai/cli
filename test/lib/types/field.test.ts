@@ -11,6 +11,16 @@ const fieldTypeToExpectedJSType = {
   array: "string[]",
   enum: "string",
   integer: "number",
+  // PostGIS data types
+  geometry: "any",
+  geography: "any",
+  point: "{ x: number, y: number }",
+  linestring: "{ coordinates: Array<{ x: number, y: number }> }",
+  polygon: "{ coordinates: Array<Array<{ x: number, y: number }>> }",
+  multipoint: "{ coordinates: Array<{ x: number, y: number }> }",
+  multilinestring: "{ coordinates: Array<Array<{ x: number, y: number }>> }",
+  multipolygon: "{ coordinates: Array<Array<Array<{ x: number, y: number }>>> }",
+  geometrycollection: "{ geometries: Array<any> }",
 };
 
 describe("test mapFieldTypeToJSType", () => {

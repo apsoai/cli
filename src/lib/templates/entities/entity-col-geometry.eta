@@ -1,0 +1,29 @@
+<% const {field} = it; %>
+
+@IsOptional({ groups: [UPDATE] })
+<% if (!field.nullable && !field.auto) { %>
+@IsNotEmpty({ groups: [CREATE] })
+<% } %>
+
+@Column({
+  "type": "geometry",
+  transformer: {
+    to: (geometry: any) => {
+      if (!geometry) return null;
+      return geometry;
+    },
+    from: (pgGeometry: any) => {
+      if (!pgGeometry) return null;
+      return pgGeometry;
+    }
+  }<% if (field.nullable) {%>,
+  nullable: true<% } %>
+})
+<% if (field.index ) {%>
+@Index()
+<% } %>
+<% if (field.primary ) {%>
+@PrimaryColumn()
+<% } %>
+
+<%= field.name %>: any; 

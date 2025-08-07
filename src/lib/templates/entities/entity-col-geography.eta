@@ -1,0 +1,29 @@
+<% const {field} = it; %>
+
+@IsOptional({ groups: [UPDATE] })
+<% if (!field.nullable && !field.auto) { %>
+@IsNotEmpty({ groups: [CREATE] })
+<% } %>
+
+@Column({
+  "type": "geography",
+  transformer: {
+    to: (geography: any) => {
+      if (!geography) return null;
+      return geography;
+    },
+    from: (pgGeography: any) => {
+      if (!pgGeography) return null;
+      return pgGeography;
+    }
+  }<% if (field.nullable) {%>,
+  nullable: true<% } %>
+})
+<% if (field.index ) {%>
+@Index()
+<% } %>
+<% if (field.primary ) {%>
+@PrimaryColumn()
+<% } %>
+
+<%= field.name %>: any; 

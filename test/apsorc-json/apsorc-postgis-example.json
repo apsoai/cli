@@ -1,0 +1,66 @@
+{
+  "version": 2,
+  "rootFolder": "src",
+  "entities": [
+    {
+      "name": "Location",
+      "fields": [
+        {
+          "name": "id",
+          "type": "integer",
+          "primary": true
+        },
+        {
+          "name": "name",
+          "type": "text"
+        },
+        {
+          "name": "point",
+          "type": "point",
+          "nullable": true
+        },
+        {
+          "name": "linestring",
+          "type": "linestring",
+          "nullable": true
+        },
+        {
+          "name": "polygon",
+          "type": "polygon",
+          "nullable": true
+        },
+        {
+          "name": "multipoint",
+          "type": "multipoint",
+          "nullable": true
+        },
+        {
+          "name": "multilinestring",
+          "type": "multilinestring",
+          "nullable": true
+        },
+        {
+          "name": "multipolygon",
+          "type": "multipolygon",
+          "nullable": true
+        },
+        {
+          "name": "geometry",
+          "type": "geometry",
+          "nullable": true
+        },
+        {
+          "name": "geography",
+          "type": "geography",
+          "nullable": true
+        },
+        {
+          "name": "geometrycollection",
+          "type": "geometrycollection",
+          "nullable": true
+        }
+      ]
+    }
+  ],
+  "relationships": []
+} 
