@@ -26,18 +26,31 @@
     "@oclif/core": "^2",
     "@oclif/plugin-help": "^5",
     "@oclif/plugin-plugins": "^3",
+    "axios": "^1.6.0",
+    "chalk": "^4.1.2",
+    "cli-table3": "^0.6.5",
     "debug": "^4.3.4",
+    "dotenv": "^17.2.1",
     "eta": "^2.0.0",
+    "inquirer": "^8.2.6",
+    "keytar": "^7.9.0",
+    "moment": "^2.30.1",
+    "node-fetch": "^2.7.0",
+    "open": "^8.4.2",
     "pluralize": "^8.0.0",
     "rc": "^1.2.8",
-    "shelljs": "^0.8.5"
+    "shelljs": "^0.8.5",
+    "simple-oauth2": "^5.0.0",
+    "yaml": "^2.3.4"
   },
   "devDependencies": {
     "@jest/globals": "^29.5.0",
     "@oclif/test": "^2.4.7",
     "@types/chai": "^4",
+    "@types/inquirer": "^8.2.10",
     "@types/mocha": "^10",
     "@types/node": "^20",
+    "@types/node-fetch": "^2.6.9",
     "@types/pluralize": "^0.0.29",
     "@types/rc": "^1.2.1",
     "@types/shelljs": "^0.8.15",
@@ -70,6 +83,15 @@
     "topics": {
       "hello": {
         "description": "Say hello to the world and others"
+      },
+      "github": {
+        "description": "GitHub authentication and integration commands"
+      },
+      "repo": {
+        "description": "Repository management commands"
+      },
+      "server": {
+        "description": "Server project management commands"
       }
     }
   },

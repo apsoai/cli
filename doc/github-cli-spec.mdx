@@ -1,0 +1,167 @@
+## Overview
+Extend the APSO CLI to support GitHub repository management commands, allowing developers to connect, create, and manage GitHub repositories for their services directly from the command line.
+
+## Requirements
+
+### New Commands
+
+#### GitHub Authentication
+- [ ] `apso github connect`
+  - Initiate OAuth flow in browser
+  - Store access token locally (encrypted)
+  - Display connection status
+  - Support `--browser` flag for custom browser
+
+- [ ] `apso github disconnect`
+  - Remove stored GitHub credentials
+  - Clear local token cache
+  - Confirm before disconnecting
+
+- [ ] `apso github status`
+  - Show connection status
+  - Display connected GitHub username
+  - Show token expiry information
+  - List connected repositories
+
+#### Repository Management
+- [ ] `apso repo list`
+  - List user's GitHub repositories
+  - Support pagination with `--page` flag
+  - Filter with `--filter` (public/private/all)
+  - Sort options `--sort` (name/updated/created)
+  - Output formats: table (default), json, yaml
+
+- [ ] `apso repo connect <service-name> <repo-url>`
+  - Connect GitHub repository to service
+  - Validate repository access
+  - Support shorthand: `owner/repo`
+  - Confirm before connecting
+  - Show success message with details
+
+- [ ] `apso repo create <repo-name>`
+  - Create new GitHub repository
+  - Options:
+    - `--private` (default: false)
+    - `--description "<desc>"`
+    - `--init` (add README)
+    - `--service <name>` (auto-connect to service)
+  - Return repository URL
+
+- [ ] `apso repo disconnect <service-name>`
+  - Disconnect repository from service
+  - Confirm before disconnecting
+  - Show what will be affected
+
+#### Service Integration Updates
+- [ ] Update `apso service create`
+  - Add `--github-repo <url>` option
+  - Add `--create-repo` flag
+  - Prompt for repository during interactive mode
+
+- [ ] Update `apso service deploy`
+  - Auto-detect repository type
+  - Use GitHub credentials if connected
+  - Show repository info in deployment summary
+
+### Configuration Management
+- [ ] Store GitHub configuration
+  ```yaml
+  # ~/.apso/config.yml
+  github:
+    connected: true
+    username: "user123"
+    token_encrypted: "..."
+    token_expires: "2024-12-31T23:59:59Z"
+  
+  services:
+    my-service:
+      repository:
+        type: "github"
+        url: "https://github.com/user/repo"
+        owner: "user"
+        name: "repo"
+  ```
+
+### Token Security
+- [ ] Encrypted token storage
+  - Use OS keychain when available
+  - Fallback to encrypted file storage
+  - Never store in plain text
+  - Auto-refresh when needed
+
+### Error Handling
+- [ ] Comprehensive error messages
+  - Clear authentication errors
+  - Repository access issues
+  - Network connectivity problems
+  - Rate limiting warnings
+  - Helpful suggestions for resolution
+
+### Interactive Features
+- [ ] Repository selector
+  - Interactive list with arrow navigation
+  - Search/filter repositories
+  - Show repository details
+  - Multi-select for batch operations
+
+- [ ] OAuth flow handling
+  - Auto-open browser for auth
+  - Provide manual URL if browser fails
+  - Listen for callback
+  - Clear success/failure indication
+
+### Output Formatting
+- [ ] Consistent output formats
+  ```bash
+  # Table format (default)
+  $ apso repo list
+  NAME                VISIBILITY  UPDATED       CONNECTED
+  my-api-service      private     2 hours ago   ✓
+  frontend-app        public      1 day ago     
+  data-processor      private     3 days ago    ✓
+  
+  # JSON format
+  $ apso repo list --output json
+  [
+    {
+      "name": "my-api-service",
+      "visibility": "private",
+      "updated": "2024-01-15T10:30:00Z",
+      "connected": true,
+      "service": "api-service-prod"
+    }
+  ]
+  ```
+
+### Help Documentation
+- [ ] Update command help text
+- [ ] Add examples for each command
+- [ ] Include troubleshooting guide
+- [ ] Add GitHub integration guide
+
+## Testing Requirements
+- [ ] Unit tests for all new commands
+- [ ] Integration tests with GitHub API mock
+- [ ] Token encryption/decryption tests
+- [ ] Interactive mode tests
+- [ ] Error scenario coverage
+
+## Dependencies
+- Platform API GitHub endpoints
+- GitHub OAuth App configuration
+- OS keychain libraries (optional)
+- Updated SDK for API calls
+
+## Migration Guide
+- [ ] Document migration from CodeCommit
+- [ ] Provide migration commands
+- [ ] Handle existing service mappings
+- [ ] Clear rollback instructions
+
+## Acceptance Criteria
+1. All GitHub commands work reliably
+2. Token storage is secure
+3. Clear error messages and help text
+4. Seamless integration with existing commands
+5. Backward compatibility maintained
+6. Interactive mode is user-friendly

@@ -4,6 +4,7 @@ import * as fs from "fs";
 import shell from 'shelljs';
 import BaseCommand from "../../lib/base-command";
 import * as path from "path";
+import chalk from 'chalk';
 
 export default class New extends BaseCommand {
   static description = "Initialize your server project";
@@ -19,6 +20,7 @@ export default class New extends BaseCommand {
       char: "t",
       description: "api type (rest or graphql)",
     }),
+    help: Flags.help({ char: 'h' }),
   };
 
   static args = { name: Args.string() };
@@ -40,7 +42,7 @@ export default class New extends BaseCommand {
       const args: string[] = ["start"];
 
       // Explicitly set cwd() to work around issues like
-      // https://github.com/facebook/create-react-app/issues/3326.
+      // `https://github.com/facebook/create-react-app/issues/3326.`
       // Unfortunately we can only do this for Yarn because npm support for
       // equivalent --prefix flag doesn't help with this issue.
       // This is why for npm, we run checkThatNpmCanReadCwd() early instead.
@@ -72,11 +74,22 @@ export default class New extends BaseCommand {
     }
 
     shell.cd(projectPath);
-    if (process.env.APSO_GIT_PAT) {
-      shell.exec(`git clone --depth=1 --branch=main https://${process.env.APSO_GIT_PAT}:@github.com/mavric/apso-service-template.git ${projectPath}`)
-    } else {
-      shell.exec(`git clone --depth=1 --branch=main git@github.com:mavric/apso-service-template.git ${projectPath}`)
+    // Execute git clone and capture the result using HTTPS
+    const cloneResult = shell.exec(`git clone --depth=1 --branch=main https://github.com/apsoai/service-template.git ${projectPath}`, { silent: true }); // Use silent: true to suppress default output
+
+    // Check if the command failed
+    if (cloneResult.code !== 0) {
+        // Provide a more generic error message for clone failures
+        this.error(
+          `Failed to clone the template repository from GitHub.\n` +
+          `Error Output:\n${cloneResult.stderr}\n\n` +
+          `Please check your network connection and ensure the repository exists at https://github.com/apsoai/service-template.git\n\n` +
+          `If the problem persists, please remove the partially created directory "${projectPath}" and try again.`
+        );
+        // Throwing error via this.error will stop execution
     }
+
+    // If clone was successful, proceed to remove the .git directory
     shell.exec(`rm -rf ${projectPath}/.git`);
     shell.cd(this.CURR_DIR);
   }
