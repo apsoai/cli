@@ -1,7 +1,6 @@
 import { Command, Flags } from '@oclif/core';
 import chalk from 'chalk';
 import ConfigManager from '../../lib/config-manager';
-import GitHubAuth from '../../lib/github-auth';
 import GitHubClient, { GitHubAPIError } from '../../lib/github-client';
 
 export default class GitHubStatus extends Command {
@@ -24,19 +23,19 @@ export default class GitHubStatus extends Command {
   async run(): Promise<void> {
     const { flags } = await this.parse(GitHubStatus);
     const configManager = new ConfigManager();
-    const githubAuth = new GitHubAuth(configManager);
 
     try {
       console.log(chalk.blue('🔍 GitHub Connection Status\n'));
 
-      // Basic authentication status
-      const authStatus = githubAuth.getAuthStatus();
+      // Check token directly
+      const token = await configManager.getGitHubToken();
+      const config = configManager.getGitHubConfig();
       
-      if (!authStatus.authenticated) {
+      if (!token || !config?.username) {
         console.log(chalk.red('❌ Not connected to GitHub'));
         
-        if (authStatus.tokenExpired) {
-          console.log(chalk.yellow('   Token has expired'));
+        if (token && !config?.username) {
+          console.log(chalk.yellow('   Token exists but username is missing'));
         } else {
           console.log(chalk.gray('   No GitHub credentials found'));
         }
@@ -46,8 +45,7 @@ export default class GitHubStatus extends Command {
         return;
       }
 
-      console.log(chalk.green('✓ Connected to GitHub'));
-      console.log(chalk.gray(`  Username: ${authStatus.username}`));
+      console.log(chalk.green(`✓ Connected to GitHub as ${chalk.bold(config.username)}`));
       
       // Test token validity
       const githubClient = new GitHubClient(configManager);
@@ -71,7 +69,7 @@ export default class GitHubStatus extends Command {
         if (userInfo.email) {
           console.log(chalk.gray(`  Email: ${userInfo.email}`));
         }
-      } catch (error: any) {
+      } catch {
         console.log(chalk.yellow('⚠ Could not fetch user information'));
       }
 
@@ -129,6 +127,7 @@ export default class GitHubStatus extends Command {
       
       // Repository count
       console.log(chalk.blue('\n📚 Repository Summary:'));
+      // eslint-disable-next-line camelcase, @typescript-eslint/no-unused-vars
       const repos = await githubClient.listRepositories({ per_page: 1 });
       // Note: This is just a sample; you'd need to get the actual count differently
       console.log(chalk.gray(`  Sample repository check completed`));

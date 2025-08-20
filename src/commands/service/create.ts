@@ -22,7 +22,7 @@ export default class ServiceCreate extends Command {
       default: 'node',
     }),
     'github-repo': Flags.string({
-      description: 'GitHub repository to connect (format: owner/repo or full URL)',
+      description: 'GitHub repository to connect',
     }),
     'create-repo': Flags.boolean({
       description: 'create a new GitHub repository',
@@ -36,19 +36,6 @@ export default class ServiceCreate extends Command {
     description: Flags.string({
       char: 'd',
       description: 'repository description (only with --create-repo)',
-    }),
-    init: Flags.boolean({
-      description: 'initialize repository with README (only with --create-repo)',
-      default: false,
-    }),
-    validate: Flags.boolean({
-      description: 'validate repository access before connecting',
-      default: true,
-    }),
-    force: Flags.boolean({
-      char: 'f',
-      description: 'force operation without confirmation prompts',
-      default: false,
     }),
   };
 
@@ -77,10 +64,10 @@ export default class ServiceCreate extends Command {
     try {
       // Check if GitHub integration is requested
       if (flags['github-repo'] || flags['create-repo'] || (!flags['github-repo'] && !flags['create-repo'])) {
-        // Check authentication
-        const authStatus = githubAuth.getAuthStatus();
-        if (!authStatus.authenticated) {
-          console.log(chalk.yellow('Not connected to GitHub. Run `apso github connect` first.'));
+        // Check GitHub authentication directly with token
+      const token = await configManager.getGitHubToken();
+      if (!token) {
+        console.log(chalk.yellow('Not connected to GitHub. Run `apso github connect` first.'));
           return;
         }
 

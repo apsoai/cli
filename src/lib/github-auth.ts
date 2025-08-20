@@ -1,24 +1,48 @@
+/* eslint-disable valid-jsdoc */
+/* eslint-disable no-await-in-loop */
+/* eslint-disable camelcase */
+/**
+ * GitHub Authentication Module
+ * 
+ * This module handles GitHub authentication using OAuth device flow.
+ * It implements secure token storage using:
+ * - OS keychain as primary storage (macOS Keychain, Windows Credential Manager, Linux libsecret)
+ * - Encrypted file storage as fallback (AES-256-GCM encryption)
+ * - Automatic token refresh when tokens expire
+ */
+
 import fetch from 'node-fetch';
 import open from 'open';
 import chalk from 'chalk';
 import ConfigManager from './config-manager';
 
+/**
+ * Response from GitHub device code endpoint
+ */
 interface DeviceCodeResponse {
-  device_code: string;
-  user_code: string;
-  verification_uri: string;
-  expires_in: number;
-  interval: number;
+  device_code: string;      // Code used for polling
+  user_code: string;        // Code shown to user
+  verification_uri: string; // URL for user to visit
+  expires_in: number;       // Seconds until the device code expires
+  interval: number;         // Polling interval in seconds
 }
 
+/**
+ * Response from GitHub access token endpoint
+ */
 interface AccessTokenResponse {
-  access_token: string;
-  token_type: string;
-  scope: string;
-  expires_in?: number;
-  refresh_token?: string;
+  access_token?: string;     // The GitHub access token
+  token_type?: string;       // Token type (usually "bearer")
+  scope?: string;            // Granted scopes
+  expires_in?: number;      // Seconds until token expires
+  refresh_token?: string;   // Token used to refresh access without re-auth
+  error?: string;           // Error code if request failed
+  error_description?: string; // Error description if request failed
 }
 
+/**
+ * Custom error class for GitHub authentication errors
+ */
 class GitHubAuthError extends Error {
   constructor(message: string) {
     super(message);
@@ -26,11 +50,25 @@ class GitHubAuthError extends Error {
   }
 }
 
+/**
+ * GitHub Authentication Manager
+ * 
+ * Handles the complete GitHub authentication flow:
+ * - OAuth device flow for authentication
+ * - Secure token storage (OS keychain with encrypted file fallback)
+ * - Token validation and auto-refresh
+ */
 class GitHubAuth {
   private configManager: ConfigManager;
   private clientId: string;
 
-  constructor(configManager: ConfigManager, clientId: string = 'Ov23lin8R9IGUWtxMgIi') {
+  /**
+   * Creates a new GitHub authentication manager
+   * 
+   * @param configManager - Configuration manager for storing tokens securely
+   * @param clientId - GitHub OAuth app client ID
+   */
+  constructor(configManager: ConfigManager, clientId = 'Ov23lin8R9IGUWtxMgIi') {
     this.configManager = configManager;
     this.clientId = clientId;
     
@@ -46,7 +84,7 @@ class GitHubAuth {
   /**
    * Initiate the GitHub OAuth device flow
    */
-  public async authenticate(openBrowser: boolean = true): Promise<string> {
+  public async authenticate(openBrowser = true): Promise<string> {
     try {
       // For development/demo purposes, use mock authentication if using the placeholder client ID
       if (this.clientId === 'your-github-app-client-id') {
@@ -54,10 +92,12 @@ class GitHubAuth {
         console.log(chalk.yellow('This is a simulated authentication for development purposes.'));
         
         // Simulate authentication delay
-        await new Promise(resolve => setTimeout(resolve, 1500));
+        await new Promise(resolve => {
+          setTimeout(resolve, 1500);
+        });
         
         // Use a mock token and username
-        const mockToken = 'mock_' + Math.random().toString(36).substring(2, 15);
+        const mockToken = 'mock_' + Math.random().toString(36).slice(2, 15);
         const mockUsername = 'demo_user';
         
         // Save the mock token and user info
@@ -82,7 +122,7 @@ class GitHubAuth {
         console.log(chalk.gray('\nOpening browser...'));
         try {
           await open(deviceCode.verification_uri);
-        } catch (error: any) {
+        } catch {
           console.log(chalk.yellow('Could not open browser automatically. Please visit the URL manually.'));
         }
       }
@@ -90,13 +130,31 @@ class GitHubAuth {
       console.log(chalk.gray('\nWaiting for authentication...'));
       
       // Step 3: Poll for access token
-      const accessToken = await this.pollForAccessToken(deviceCode);
+      const tokenResponse = await this.pollForAccessToken(deviceCode);
+      const accessToken = tokenResponse.access_token;
+      
+      // Check if accessToken is defined
+      if (!accessToken) {
+        throw new GitHubAuthError('Failed to obtain access token');
+      }
       
       // Step 4: Get user information and save configuration
       const userInfo = await this.getUserInfo(accessToken);
       
+      // Calculate expiry time if provided in the response
+      let expiresAt: Date | undefined;
+      if (tokenResponse.expires_in) {
+        expiresAt = new Date();
+        expiresAt.setSeconds(expiresAt.getSeconds() + tokenResponse.expires_in);
+      }
+      
       // Save the token and user info
-      this.configManager.setGitHubToken(accessToken, userInfo.login);
+      await this.configManager.setGitHubToken(
+        accessToken, 
+        userInfo.login, 
+        expiresAt, 
+        tokenResponse.refresh_token
+      );
       
       console.log(chalk.green(`\n✓ Successfully authenticated as ${chalk.bold(userInfo.login)}`));
       
@@ -140,9 +198,11 @@ class GitHubAuth {
   }
 
   /**
-   * Poll GitHub for access token after user authorization
+   * Poll GitHub for access token after user authorization.
+   * @param deviceCode - The device code response from GitHub's device flow.
+   * @returns A promise that resolves to the access token response.
    */
-  private async pollForAccessToken(deviceCode: DeviceCodeResponse): Promise<string> {
+  private async pollForAccessToken(deviceCode: DeviceCodeResponse): Promise<AccessTokenResponse> {
     const startTime = Date.now();
     const expiresInMs = deviceCode.expires_in * 1000;
     const intervalMs = deviceCode.interval * 1000;
@@ -165,19 +225,17 @@ class GitHubAuth {
           }),
         });
 
-        const data = await response.json() as any;
+        const data = await response.json() as AccessTokenResponse;
 
         if (data.access_token) {
-          return data.access_token;
+          return data;
         }
 
         if (data.error === 'authorization_pending') {
-          // Continue polling
           continue;
         }
 
         if (data.error === 'slow_down') {
-          // Increase polling interval
           await this.sleep(intervalMs);
           continue;
         }
@@ -191,10 +249,7 @@ class GitHubAuth {
         }
 
         throw new GitHubAuthError(`OAuth error: ${data.error_description || data.error}`);
-      } catch (error: any) {
-        if (error instanceof GitHubAuthError) {
-          throw error;
-        }
+      } catch {
         // Network errors - continue polling
         console.log(chalk.gray('.'));
       }
@@ -219,7 +274,7 @@ class GitHubAuth {
       throw new GitHubAuthError(`Failed to get user info: ${response.statusText}`);
     }
 
-    const userInfo = await response.json() as any;
+    const userInfo: any = await response.json();
     
     return {
       login: userInfo.login,
@@ -229,9 +284,9 @@ class GitHubAuth {
   }
 
   /**
-   * Validate existing token
+   * Validate existing token and auto-refresh if expired
    */
-  public async validateToken(token: string): Promise<boolean> {
+  public async validateToken(token: string, autoRefresh = true): Promise<boolean> {
     try {
       const response = await fetch('https://api.github.com/user', {
         headers: {
@@ -241,8 +296,22 @@ class GitHubAuth {
         },
       });
 
-      return response.ok;
-    } catch (error: any) {
+      // If token is valid, return true
+      if (response.ok) {
+        return true;
+      }
+      
+      // If auto-refresh is enabled and token is expired (401), try to refresh
+      if (autoRefresh && response.status === 401) {
+        const refreshed = await this.refreshToken();
+        if (refreshed) {
+          console.log(chalk.green('✓ GitHub token automatically refreshed'));
+          return true;
+        }
+      }
+
+      return false;
+    } catch {
       return false;
     }
   }
@@ -251,50 +320,53 @@ class GitHubAuth {
    * Refresh the access token using refresh token
    */
   async refreshToken(): Promise<boolean> {
-    const config = this.configManager.getConfig();
-    const refreshToken = config.github?.refreshToken;
-    
-    if (!refreshToken) {
-      return false;
-    }
-    
     try {
+      const refreshToken = await this.configManager.getGitHubRefreshToken();
+      if (!refreshToken) {
+        return false;
+      }
+      
       const response = await fetch('https://github.com/login/oauth/access_token', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
           'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          'User-Agent': 'apso-cli',
         },
         body: JSON.stringify({
           client_id: this.clientId,
-          client_secret: this.clientSecret,
-          refresh_token: refreshToken,
           grant_type: 'refresh_token',
+          refresh_token: refreshToken,
         }),
       });
-      
-      if (!response.ok) {
-        return false;
-      }
-      
+
       const data = await response.json() as AccessTokenResponse;
       
-      if (!data.access_token) {
-        return false;
+      if (data.access_token) {
+        // Calculate expiry time if provided
+        let expiresAt: Date | undefined;
+        if (data.expires_in) {
+          expiresAt = new Date();
+          expiresAt.setSeconds(expiresAt.getSeconds() + data.expires_in);
+        }
+        
+        // Get user info to confirm token works
+        const userInfo = await this.getUserInfo(data.access_token);
+        
+        // Save the new token
+        await this.configManager.setGitHubToken(
+          data.access_token, 
+          userInfo.login, 
+          expiresAt, 
+          data.refresh_token
+        );
+        
+        return true;
       }
       
-      // Update config with new tokens
-      this.configManager.updateConfig({
-        github: {
-          ...config.github,
-          token: data.access_token,
-          refreshToken: data.refresh_token || refreshToken,
-          expiresAt: data.expires_in ? new Date(Date.now() + data.expires_in * 1000).toISOString() : undefined,
-        },
-      });
-      
-      return true;
+      return false;
     } catch (error) {
+      console.warn('Token refresh failed:', error);
       return false;
     }
   }
@@ -304,7 +376,7 @@ class GitHubAuth {
    */
   public isAuthenticated(): boolean {
     const config = this.configManager.getGitHubConfig();
-    return !!(config?.connected && config.token_encrypted && !this.configManager.isGitHubTokenExpired());
+    return Boolean(config?.connected && config.token_encrypted && !this.configManager.isGitHubTokenExpired());
   }
 
   /**
@@ -333,8 +405,8 @@ class GitHubAuth {
   /**
    * Clear authentication
    */
-  public disconnect(): void {
-    this.configManager.clearGitHubConfig();
+  public async disconnect(): Promise<void> {
+    await this.configManager.clearGitHubConfig();
   }
 
   /**
@@ -367,7 +439,9 @@ class GitHubAuth {
    * Utility method to sleep for specified milliseconds
    */
   private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise(resolve => {
+      setTimeout(resolve, ms);
+    });
   }
 }
 

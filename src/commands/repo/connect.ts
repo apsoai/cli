@@ -1,184 +1,159 @@
-import { Command, Flags, Args } from '@oclif/core';
+/* eslint-disable camelcase */
+import { Args, Command, Flags } from '@oclif/core';
 import chalk from 'chalk';
 import ConfigManager from '../../lib/config-manager';
-import GitHubAuth from '../../lib/github-auth';
 import GitHubClient, { GitHubAPIError } from '../../lib/github-client';
 
 export default class RepoConnect extends Command {
   static description = 'Connect a GitHub repository to a service';
 
   static examples = [
-    '$ apso repo connect my-service https://github.com/user/repo',
-    '$ apso repo connect my-service user/repo',
-    '$ apso repo connect my-service user/repo --no-validate',
+    '$ apso repo connect my-service https://github.com/owner/repo',
+    '$ apso repo connect my-service owner/repo',
+    '$ apso repo connect my-service --interactive',
   ];
-
-  static args = {
-    service: Args.string({
-      description: 'service name',
-      required: true,
-    }),
-    repo: Args.string({
-      description: 'GitHub repository URL or owner/repo shorthand',
-      required: true,
-    }),
-  };
 
   static flags = {
     help: Flags.help({ char: 'h' }),
-    validate: Flags.boolean({
-      description: 'validate repository access before connecting',
-      default: true,
-      allowNo: true,
+    interactive: Flags.boolean({
+      char: 'i',
+      description: 'interactively select repository from list',
+      default: false,
+    }),
+    branch: Flags.string({
+      char: 'b',
+      description: 'repository branch to use',
+      default: 'main',
     }),
     force: Flags.boolean({
-      description: 'skip confirmation prompt',
-      default: false,
       char: 'f',
+      description: 'force connection even if service already has a repository',
+      default: false,
+    }),
+  };
+
+  static args = {
+    serviceName: Args.string({
+      name: 'serviceName',
+      required: true,
+      description: 'name of the service to connect',
+    }),
+    repoUrl: Args.string({
+      name: 'repoUrl',
+      required: false,
+      description: 'GitHub repository URL or owner/repo format',
     }),
   };
 
   async run(): Promise<void> {
     const { args, flags } = await this.parse(RepoConnect);
     const configManager = new ConfigManager();
-    const githubAuth = new GitHubAuth(configManager);
-    
-    // Check if authenticated
-    const authStatus = githubAuth.getAuthStatus();
-    if (!authStatus.authenticated) {
-      console.log(chalk.red('✗ Not connected to GitHub'));
-      console.log(chalk.yellow('Run `apso github connect` to authenticate with GitHub'));
-      return;
-    }
-    
+
+
     try {
+      // Check authenticationtry {
+      // Check authentication directly with token
+      const token = await configManager.getGitHubToken();
+      if (!token) {
+        this.error('Not connected to GitHub. Run `apso github connect` first.');
+      }
+
       const githubClient = new GitHubClient(configManager);
-      
-      // Parse repository URL or shorthand
-      let owner: string;
-      let repo: string;
-      let repoUrl: string;
-      
-      if (args.repo.includes('github.com')) {
-        // Parse URL
-        const url = new URL(args.repo);
-        const parts = url.pathname.split('/').filter(Boolean);
-        if (parts.length < 2) {
-          throw new Error('Invalid GitHub repository URL');
-        }
-        owner = parts[0];
-        repo = parts[1];
-        repoUrl = args.repo;
-      } else if (args.repo.includes('/')) {
-        // Parse owner/repo format
-        const parts = args.repo.split('/');
-        if (parts.length !== 2) {
-          throw new Error('Invalid repository format. Use owner/repo');
-        }
-        owner = parts[0];
-        repo = parts[1];
-        repoUrl = `https://github.com/${owner}/${repo}`;
-      } else {
-        throw new Error('Invalid repository format. Use URL or owner/repo');
+
+      // Validate token
+      const isTokenValid = await githubClient.validateToken();
+      if (!isTokenValid) {
+        this.error('GitHub token is invalid. Run `apso github connect` to re-authenticate.');
       }
-      
-      // Check if service exists
-      if (!configManager.serviceExists(args.service)) {
-        console.log(chalk.red(`Service '${args.service}' does not exist`));
-        console.log(chalk.yellow('Create the service first with `apso service create`'));
-        return;
-      }
-      
+
       // Check if service already has a repository
-      const existingRepo = configManager.getServiceRepository(args.service);
-      if (existingRepo) {
-        if (!flags.force) {
-          console.log(chalk.yellow(`Service '${args.service}' is already connected to repository:`));
-          console.log(chalk.yellow(`  ${existingRepo.url}`));
-          
-          const shouldReconnect = await this.confirm('Do you want to replace this connection?');
-          if (!shouldReconnect) {
-            return;
-          }
-        }
-        console.log(chalk.yellow('Removing existing repository connection...'));
-      }
-      
-      // Validate repository access if requested
-      if (flags.validate) {
-        console.log(chalk.blue('Validating repository access...'));
-        try {
-          const repository = await githubClient.getRepository(owner, repo);
-          
-          // Show repository details
-          console.log(chalk.green('Repository details:'));
-          console.log(`  Name: ${repository.full_name}`);
-          console.log(`  Visibility: ${repository.private ? 'Private' : 'Public'}`);
-          console.log(`  URL: ${repository.html_url}`);
-          
-          if (!flags.force) {
-            const shouldConnect = await this.confirm('Connect this repository to the service?');
-            if (!shouldConnect) {
-              return;
-            }
-          }
-          
-          // Connect repository to service
-          configManager.connectRepositoryToService(args.service, {
-            type: 'github',
-            url: repository.html_url,
-            owner: repository.owner.login,
-            name: repository.name,
-          });
-        } catch (error) {
-          if (error instanceof Error) {
-            console.log(chalk.red(`Repository validation failed: ${error.message}`));
-            console.log(chalk.yellow('The repository may not exist or you may not have access to it.'));
-            
-            if (!flags.force) {
-              const shouldContinue = await this.confirm('Connect anyway? (Not recommended)');
-              if (!shouldContinue) {
-                return;
-              }
-            }
-            
-            // Connect without validation
-            configManager.connectRepositoryToService(args.service, {
-              type: 'github',
-              url: repoUrl,
-              owner,
-              name: repo,
-            });
-          } else {
-            throw error;
-          }
-        }
-      } else {
-        // Connect without validation
-        configManager.connectRepositoryToService(args.service, {
-          type: 'github',
-          url: repoUrl,
-          owner,
-          name: repo,
-        });
-      }
-      
-      console.log(chalk.green(`✓ Connected ${chalk.bold(`${owner}/${repo}`)} to service ${chalk.bold(args.service)}`));
-      console.log(chalk.green(`Repository URL: ${repoUrl}`));
-      console.log(chalk.dim('You can now use this repository for deployments with `apso service deploy`'));
-    } catch (error) {
-      if (error instanceof Error) {
-        console.log(chalk.red(`Error: ${error.message}`));
+      const existingConfig = configManager.getServiceConfig(args.serviceName);
+      if (existingConfig?.repository && !flags.force) {
+        const repo = existingConfig.repository;
+        console.log(chalk.yellow(`Service '${args.serviceName}' is already connected to ${repo.type} repository: ${repo.owner}/${repo.name}`));
         
-        // Provide helpful suggestions
-        if (error.message.includes('not found')) {
-          console.log(chalk.yellow('The repository may not exist or you may not have access to it.'));
-          console.log(chalk.yellow('Check the repository name and your GitHub permissions.'));
-        } else if (error.message.includes('network')) {
-          console.log(chalk.yellow('Network error. Check your internet connection and try again.'));
+        const shouldOverwrite = await this.confirm('Do you want to overwrite this connection?');
+        if (!shouldOverwrite) {
+          console.log(chalk.gray('Operation cancelled.'));
+          return;
         }
+      }
+
+      let repositoryInfo: { owner: string; repo: string };
+
+      if (flags.interactive || !args.repoUrl) {
+        // Interactive mode - show repository selector
+        repositoryInfo = await this.selectRepositoryInteractively(githubClient);
       } else {
-        console.log(chalk.red('An unknown error occurred'));
+        // Parse repository URL/identifier
+        const parsed = githubClient.parseRepositoryUrl(args.repoUrl);
+        if (!parsed) {
+          this.error(
+            `Invalid repository format: ${args.repoUrl}\n` +
+            'Supported formats:\n' +
+            '  • https://github.com/owner/repo\n' +
+            '  • https://github.com/owner/repo.git\n' +
+            '  • git@github.com:owner/repo.git\n' +
+            '  • owner/repo'
+          );
+        }
+        repositoryInfo = parsed;
+      }
+
+      // Verify repository access
+      console.log(chalk.blue(`🔍 Verifying access to ${repositoryInfo.owner}/${repositoryInfo.repo}...`));
+      
+      const hasAccess = await githubClient.checkRepositoryAccess(
+        repositoryInfo.owner,
+        repositoryInfo.repo
+      );
+      
+      if (!hasAccess) {
+        this.error(
+          `Cannot access repository ${repositoryInfo.owner}/${repositoryInfo.repo}\n` +
+          'Please check that:\n' +
+          '  • The repository exists\n' +
+          '  • You have access to the repository\n' +
+          '  • The repository name is spelled correctly'
+        );
+      }
+
+      // Get repository details
+      const repoDetails = await githubClient.getRepository(
+        repositoryInfo.owner,
+        repositoryInfo.repo
+      );
+
+      // Save connection
+      const repositoryConfig = {
+        type: 'github' as const,
+        url: repoDetails.clone_url,
+        owner: repositoryInfo.owner,
+        name: repositoryInfo.repo,
+        branch: flags.branch,
+      };
+
+      configManager.setServiceRepository(args.serviceName, repositoryConfig);
+
+      console.log(chalk.green('\n✓ Repository connected successfully!'));
+      console.log(chalk.gray(`  Service: ${args.serviceName}`));
+      console.log(chalk.gray(`  Repository: ${repositoryInfo.owner}/${repositoryInfo.repo}`));
+      console.log(chalk.gray(`  Branch: ${flags.branch}`));
+      console.log(chalk.gray(`  Visibility: ${repoDetails.private ? 'Private' : 'Public'}`));
+      
+      if (repoDetails.description) {
+        console.log(chalk.gray(`  Description: ${repoDetails.description}`));
+      }
+
+      console.log(chalk.blue('\nNext steps:'));
+      console.log('• Run `apso repo list` to see connected repositories');
+      console.log(`• Run \`apso service deploy ${args.serviceName}\` to deploy with GitHub integration`);
+      
+    } catch (error: any) {
+      if (error instanceof GitHubAPIError) {
+        this.error(`GitHub API error: ${error.message}`);
+      } else {
+        this.error(`Failed to connect repository: ${error.message}`);
       }
     }
   }

@@ -26,15 +26,16 @@ export default class GitHubDisconnect extends Command {
     const githubAuth = new GitHubAuth(configManager);
 
     try {
-      // Check if currently connected
-      const authStatus = githubAuth.getAuthStatus();
+      // Check token directly
+      const token = await configManager.getGitHubToken();
       
-      if (!authStatus.authenticated) {
-        console.log(chalk.yellow('ℹ No GitHub connection found.'));
+      if (!token) {
+        console.log(chalk.yellow('Not connected to GitHub.'));
         return;
       }
 
-      console.log(chalk.blue(`Current GitHub connection: ${chalk.bold(authStatus.username)}`));
+      const config = configManager.getGitHubConfig();
+      console.log(chalk.blue(`Current GitHub connection: ${chalk.bold(config?.username || 'unknown')}`));
 
       // Confirm disconnection unless forced
       if (!flags.force) {

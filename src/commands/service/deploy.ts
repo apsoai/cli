@@ -1,126 +1,130 @@
+/* eslint-disable max-depth */
 import { Args, Command, Flags } from '@oclif/core';
 import chalk from 'chalk';
 import ConfigManager from '../../lib/config-manager';
-import GitHubAuth from '../../lib/github-auth';
 import GitHubClient from '../../lib/github-client';
 
 export default class ServiceDeploy extends Command {
-  static description = 'Deploy a service';
+  static description = 'Deploy a service with GitHub integration';
 
   static examples = [
     '$ apso service deploy my-service',
-    '$ apso service deploy my-service --env production',
     '$ apso service deploy my-service --branch main',
+    '$ apso service deploy my-service --tag v1.0.0',
   ];
 
   static flags = {
     help: Flags.help({ char: 'h' }),
-    env: Flags.string({
-      char: 'e',
-      description: 'environment to deploy to',
-      default: 'development',
-    }),
     branch: Flags.string({
       char: 'b',
-      description: 'GitHub branch to deploy',
+      description: 'branch to deploy',
       default: 'main',
+    }),
+    tag: Flags.string({
+      char: 't',
+      description: 'tag to deploy',
+      exclusive: ['branch'],
     }),
     force: Flags.boolean({
       char: 'f',
-      description: 'force deployment without confirmation',
+      description: 'force deployment',
       default: false,
     }),
   };
 
   static args = {
-    service: Args.string({
-      description: 'service name',
+    serviceName: Args.string({
+      name: 'serviceName',
       required: true,
+      description: 'name of the service to deploy',
     }),
   };
 
   async run(): Promise<void> {
     const { args, flags } = await this.parse(ServiceDeploy);
     const configManager = new ConfigManager();
-    
-    // Check if service exists
-    if (!configManager.serviceExists(args.service)) {
-      console.log(chalk.red(`Service '${args.service}' does not exist`));
-      console.log(chalk.yellow('Create the service first with `apso service create`'));
-      return;
-    }
-    
-    // Check if service has a repository connected
-    const repository = configManager.getServiceRepository(args.service);
-    if (!repository) {
-      console.log(chalk.red(`Service '${args.service}' does not have a repository connected`));
-      console.log(chalk.yellow('Connect a repository first with `apso repo connect`'));
-      return;
-    }
-    
-    // Check if repository is GitHub
-    if (repository.type !== 'github') {
-      console.log(chalk.red(`Service '${args.service}' is connected to a non-GitHub repository`));
-      console.log(chalk.yellow('Only GitHub repositories are supported for deployment'));
-      return;
-    }
-    
-    // Check GitHub authentication
-    const githubAuth = new GitHubAuth(configManager);
-    const authStatus = githubAuth.getAuthStatus();
-    if (!authStatus.authenticated) {
-      console.log(chalk.red('✗ Not connected to GitHub'));
-      console.log(chalk.yellow('Run `apso github connect` to authenticate with GitHub'));
-      return;
-    }
-    
-    // Confirm deployment
-    if (!flags.force) {
-      const shouldDeploy = await this.confirm(
-        `Are you sure you want to deploy service ${chalk.bold(args.service)} to ${chalk.bold(flags.env)} from branch ${chalk.bold(flags.branch)}?`
-      );
-      
-      if (!shouldDeploy) {
-        console.log(chalk.yellow('Deployment cancelled'));
-        return;
-      }
-    }
-    
-    // Deploy service
+
     try {
-      console.log(chalk.blue(`Deploying service ${chalk.bold(args.service)} to ${chalk.bold(flags.env)} from branch ${chalk.bold(flags.branch)}...`));
+      console.log(chalk.blue(`Deploying service: ${args.serviceName}`));
       
-      // Simulate deployment
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      console.log(chalk.green(`✓ Service ${chalk.bold(args.service)} deployed successfully to ${chalk.bold(flags.env)}`));
-      console.log(chalk.blue('\nDeployment details:'));
-      console.log(`• Service: ${args.service}`);
-      console.log(`• Environment: ${flags.env}`);
-      console.log(`• Repository: ${repository.owner}/${repository.name}`);
-      console.log(`• Branch: ${flags.branch}`);
-      console.log(`• Deployment ID: ${this.generateDeploymentId()}`);
-      console.log(`• Status: ${chalk.green('Success')}`);
-      
-    } catch (error) {
-      if (error instanceof Error) {
-        console.log(chalk.red(`Error: ${error.message}`));
+      // Check if service exists
+      if (!configManager.serviceExists(args.serviceName)) {
+        this.error(`Service '${args.serviceName}' does not exist. Create it first with 'apso service create ${args.serviceName}'.`);
+      }
+
+      // Get service repository configuration
+      const serviceConfig = configManager.getServiceConfig(args.serviceName);
+      const repository = serviceConfig?.repository;
+
+      // Auto-detect repository type and show repository info
+      if (repository) {
+        console.log(chalk.gray(`Repository: ${repository.type}://${repository.owner}/${repository.name}`));
+        console.log(chalk.gray(`Branch: ${flags.branch}`));
         
-        // Provide helpful suggestions
-        if (error.message.includes('rate limit')) {
-          console.log(chalk.yellow('GitHub API rate limit exceeded. Try again later.'));
-        } else if (error.message.includes('network')) {
-          console.log(chalk.yellow('Network error. Check your internet connection and try again.'));
-        } else if (error.message.includes('branch')) {
-          console.log(chalk.yellow(`Branch '${flags.branch}' not found. Check the branch name and try again.`));
+        // Check GitHub authentication if it's a GitHub repository
+        if (repository.type === 'github') {
+          const token = await configManager.getGitHubToken();
+          if (token) {
+            const githubClient = new GitHubClient(configManager);
+            
+            // Validate token
+            const isTokenValid = await githubClient.validateToken();
+            if (isTokenValid) {
+              // Show repository information
+              try {
+                const repoDetails = await githubClient.getRepository(repository.owner, repository.name);
+                console.log(chalk.gray(`Repository URL: ${repoDetails.html_url}`));
+                console.log(chalk.gray(`Repository Description: ${repoDetails.description || 'No description'}`));
+                console.log(chalk.gray(`Repository Visibility: ${repoDetails.private ? 'Private' : 'Public'}`));
+              } catch (error: any) {
+                console.log(chalk.yellow(`Could not fetch repository details: ${error.message}`));
+              }
+            } else {
+              console.log(chalk.yellow('GitHub token is invalid. Run `apso github connect` to re-authenticate.'));
+              // Continue deployment without GitHub integration
+            }
+          } else {
+            console.log(chalk.yellow('Not connected to GitHub. Run `apso github connect` first.'));
+            // Continue deployment without GitHub integration
+          }
         }
       } else {
-        console.log(chalk.red('An unknown error occurred'));
+        console.log(chalk.gray('No repository connected to this service'));
       }
+
+      // Deployment process (simulated)
+      console.log(chalk.blue('\n🚀 Starting deployment...'));
+      
+      // Simulate deployment steps
+      console.log(chalk.gray('  • Building service...'));
+      await this.sleep(1000);
+      
+      console.log(chalk.gray('  • Running tests...'));
+      await this.sleep(1000);
+      
+      console.log(chalk.gray('  • Packaging service...'));
+      await this.sleep(1000);
+      
+      if (flags.force) {
+        console.log(chalk.gray('  • Force deployment enabled'));
+      }
+      
+      console.log(chalk.green('\n✓ Service deployed successfully!'));
+      console.log(chalk.gray('Deployment completed at:'), new Date().toISOString());
+      
+      // Show next steps
+      console.log(chalk.blue('\nNext steps:'));
+      console.log('• Run `apso service logs ' + args.serviceName + '` to view logs');
+      console.log('• Run `apso service status ' + args.serviceName + '` to check status');
+      
+    } catch (error: any) {
+      this.error(`Failed to deploy service: ${error.message}`);
     }
   }
   
-  private generateDeploymentId(): string {
-    return `deploy-${Math.random().toString(36).substring(2, 10)}`;
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => {
+      setTimeout(resolve, ms);
+    });
   }
 }

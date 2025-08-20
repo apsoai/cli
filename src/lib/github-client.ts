@@ -1,3 +1,5 @@
+/* eslint-disable unicorn/numeric-separators-style */
+/* eslint-disable camelcase */
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
 import ConfigManager from './config-manager';
 
@@ -77,8 +79,8 @@ class GitHubClient {
     });
 
     // Add auth interceptor
-    this.client.interceptors.request.use((config) => {
-      const token = this.configManager.getGitHubToken();
+    this.client.interceptors.request.use(async (config) => {
+      const token = await this.configManager.getGitHubToken();
       if (token) {
         config.headers.Authorization = `token ${token}`;
       }
@@ -97,12 +99,23 @@ class GitHubClient {
             message += `: ${data.message}`;
           }
           
-          if (status === 401) {
+          switch (status) {
+          case 401: {
             message += ' - Please check your GitHub authentication';
-          } else if (status === 403) {
+          
+          break;
+          }
+          case 403: {
             message += ' - Rate limit exceeded or insufficient permissions';
-          } else if (status === 404) {
+          
+          break;
+          }
+          case 404: {
             message += ' - Repository or resource not found';
+          
+          break;
+          }
+          // No default
           }
           
           throw new GitHubAPIError(message, status, data);
@@ -118,7 +131,7 @@ class GitHubClient {
     try {
       const response: AxiosResponse<GitHubUser> = await this.client.get('/user');
       return response.data;
-    } catch (error: any) {
+    } catch {
       throw new GitHubAPIError('Failed to get current user information');
     }
   }
@@ -127,7 +140,7 @@ class GitHubClient {
     try {
       await this.getCurrentUser();
       return true;
-    } catch (error: any) {
+    } catch {
       return false;
     }
   }
@@ -145,7 +158,7 @@ class GitHubClient {
 
       const response: AxiosResponse<GitHubRepository[]> = await this.client.get('/user/repos', { params });
       return response.data;
-    } catch (error: any) {
+    } catch {
       throw new GitHubAPIError('Failed to list repositories');
     }
   }
@@ -154,7 +167,7 @@ class GitHubClient {
     try {
       const response: AxiosResponse<GitHubRepository> = await this.client.get(`/repos/${owner}/${repo}`);
       return response.data;
-    } catch (error: any) {
+    } catch {
       throw new GitHubAPIError(`Failed to get repository ${owner}/${repo}`);
     }
   }
@@ -179,7 +192,7 @@ class GitHubClient {
   public async deleteRepository(owner: string, repo: string): Promise<void> {
     try {
       await this.client.delete(`/repos/${owner}/${repo}`);
-    } catch (error: any) {
+    } catch {
       throw new GitHubAPIError(`Failed to delete repository ${owner}/${repo}`);
     }
   }
@@ -235,7 +248,7 @@ class GitHubClient {
     try {
       const response = await this.client.get('/rate_limit');
       return response.data;
-    } catch (error: any) {
+    } catch {
       throw new GitHubAPIError('Failed to get rate limit information');
     }
   }
@@ -254,7 +267,7 @@ class GitHubClient {
 
       const response = await this.client.get('/search/repositories', { params });
       return response.data;
-    } catch (error: any) {
+    } catch {
       throw new GitHubAPIError('Failed to search repositories');
     }
   }

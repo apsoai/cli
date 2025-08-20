@@ -3,7 +3,6 @@
 - [Apso CLI](#apso-cli)
 - [Prerequisites](#prerequisites)
 - [Usage](#usage)
-- [GitHub Integration](#github-integration)
 - [Local Development](#local-development)
 - [Debugging](##debugging)
 - [Commands](#commands)
@@ -25,68 +24,6 @@ $ apso --help [COMMAND]
 USAGE
   $ apso COMMAND
 ...
-```
-
-# GitHub Integration
-
-Apso CLI now includes GitHub integration for managing repositories and connecting them to your services.
-
-## Authentication
-
-```sh-session
-# Connect to GitHub (OAuth flow)
-$ apso github connect
-
-# Connect with a specific browser
-$ apso github connect --browser firefox
-
-# Connect with a personal access token
-$ apso github connect --token ghp_xxxxxxxxxxxx
-
-# Check connection status
-$ apso github status
-
-# Disconnect from GitHub
-$ apso github disconnect
-```
-
-## Repository Management
-
-```sh-session
-# List your GitHub repositories
-$ apso repo list
-
-# List with pagination and sorting
-$ apso repo list --page 2 --per-page 10 --sort updated
-
-# Output in different formats
-$ apso repo list --output json
-$ apso repo list --output yaml
-
-# Connect a repository to a service
-$ apso repo connect my-service octocat/hello-world
-
-# Create a new repository
-$ apso repo create my-new-repo --description "My new repository" --init
-
-# Create and connect to a service
-$ apso repo create my-new-repo --service my-service
-
-# Disconnect a repository from a service
-$ apso repo disconnect my-service
-```
-
-## Service Integration
-
-```sh-session
-# Create a service with GitHub repository
-$ apso service create my-service --github-repo octocat/hello-world
-
-# Create a service and a new GitHub repository
-$ apso service create my-service --create-repo
-
-# Deploy a service from GitHub
-$ apso service deploy my-service --env production --branch main
 ```
 
 # Local Development

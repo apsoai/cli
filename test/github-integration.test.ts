@@ -1,1 +1,154 @@
-import { describe, expect, test } from '@jest/globals';\nimport ConfigManager from '../src/lib/config-manager';\nimport GitHubAuth from '../src/lib/github-auth';\nimport GitHubClient from '../src/lib/github-client';\n\ndescribe('GitHub Integration', () => {\n  describe('ConfigManager', () => {\n    test('should create instance without error', () => {\n      expect(() => new ConfigManager()).not.toThrow();\n    });\n\n    test('should load empty config initially', () => {\n      const configManager = new ConfigManager();\n      const config = configManager.loadConfig();\n      expect(config).toEqual({});\n    });\n\n    test('should save and load configuration', () => {\n      const configManager = new ConfigManager();\n      const testConfig = {\n        github: {\n          connected: true,\n          username: 'testuser',\n        },\n      };\n      \n      configManager.saveConfig(testConfig);\n      const loadedConfig = configManager.loadConfig();\n      expect(loadedConfig.github?.username).toBe('testuser');\n    });\n  });\n\n  describe('GitHubAuth', () => {\n    test('should create instance without error', () => {\n      const configManager = new ConfigManager();\n      expect(() => new GitHubAuth(configManager)).not.toThrow();\n    });\n\n    test('should detect unauthenticated state initially', () => {\n      const configManager = new ConfigManager();\n      const githubAuth = new GitHubAuth(configManager);\n      \n      expect(githubAuth.isAuthenticated()).toBe(false);\n      \n      const authStatus = githubAuth.getAuthStatus();\n      expect(authStatus.authenticated).toBe(false);\n    });\n  });\n\n  describe('GitHubClient', () => {\n    test('should create instance without error', () => {\n      const configManager = new ConfigManager();\n      expect(() => new GitHubClient(configManager)).not.toThrow();\n    });\n\n    test('should parse repository URLs correctly', () => {\n      const configManager = new ConfigManager();\n      const githubClient = new GitHubClient(configManager);\n\n      // Test various URL formats\n      const testCases = [\n        {\n          input: 'https://github.com/owner/repo',\n          expected: { owner: 'owner', repo: 'repo' },\n        },\n        {\n          input: 'https://github.com/owner/repo.git',\n          expected: { owner: 'owner', repo: 'repo' },\n        },\n        {\n          input: 'git@github.com:owner/repo.git',\n          expected: { owner: 'owner', repo: 'repo' },\n        },\n        {\n          input: 'owner/repo',\n          expected: { owner: 'owner', repo: 'repo' },\n        },\n        {\n          input: 'invalid-url',\n          expected: null,\n        },\n      ];\n\n      testCases.forEach(({ input, expected }) => {\n        const result = githubClient.parseRepositoryUrl(input);\n        expect(result).toEqual(expected);\n      });\n    });\n\n    test('should format repository URLs correctly', () => {\n      const configManager = new ConfigManager();\n      const githubClient = new GitHubClient(configManager);\n\n      expect(githubClient.formatRepositoryUrl('owner', 'repo', 'https'))\n        .toBe('https://github.com/owner/repo.git');\n      \n      expect(githubClient.formatRepositoryUrl('owner', 'repo', 'ssh'))\n        .toBe('git@github.com:owner/repo.git');\n    });\n  });\n\n  describe('Configuration Management', () => {\n    test('should handle service repository connections', () => {\n      const configManager = new ConfigManager();\n      \n      const repositoryConfig = {\n        type: 'github' as const,\n        url: 'https://github.com/owner/repo.git',\n        owner: 'owner',\n        name: 'repo',\n        branch: 'main',\n      };\n\n      // Set repository connection\n      configManager.setServiceRepository('test-service', repositoryConfig);\n      \n      // Verify connection was saved\n      const serviceConfig = configManager.getServiceConfig('test-service');\n      expect(serviceConfig?.repository).toEqual(repositoryConfig);\n      \n      // List services with repositories\n      const servicesWithRepos = configManager.listServicesWithRepositories();\n      expect(servicesWithRepos).toHaveLength(1);\n      expect(servicesWithRepos[0].service).toBe('test-service');\n      expect(servicesWithRepos[0].repository).toEqual(repositoryConfig);\n      \n      // Remove repository connection\n      configManager.removeServiceRepository('test-service');\n      const updatedServiceConfig = configManager.getServiceConfig('test-service');\n      expect(updatedServiceConfig?.repository).toBeUndefined();\n    });\n\n    test('should handle GitHub configuration', () => {\n      const configManager = new ConfigManager();\n      \n      // Initially no GitHub config\n      expect(configManager.getGitHubConfig()).toBeNull();\n      \n      // Set GitHub config\n      configManager.setGitHubConfig({\n        connected: true,\n        username: 'testuser',\n      });\n      \n      const githubConfig = configManager.getGitHubConfig();\n      expect(githubConfig?.connected).toBe(true);\n      expect(githubConfig?.username).toBe('testuser');\n      \n      // Clear GitHub config\n      configManager.clearGitHubConfig();\n      expect(configManager.getGitHubConfig()).toBeNull();\n    });\n  });\n});"
+import { describe, expect, test } from '@jest/globals';
+import ConfigManager from '../src/lib/config-manager';
+import GitHubAuth from '../src/lib/github-auth';
+import GitHubClient from '../src/lib/github-client';
+
+describe('GitHub Integration', () => {
+  describe('ConfigManager', () => {
+    test('should create instance without error', () => {
+      expect(() => new ConfigManager()).not.toThrow();
+    });
+
+    test('should load empty config initially', () => {
+      const configManager = new ConfigManager();
+      const config = configManager.loadConfig();
+      expect(config).toEqual({});
+    });
+
+    test('should save and load configuration', () => {
+      const configManager = new ConfigManager();
+      const testConfig = {
+        github: {
+          connected: true,
+          username: 'testuser',
+        },
+      };
+      
+      configManager.saveConfig(testConfig);
+      const loadedConfig = configManager.loadConfig();
+      expect(loadedConfig.github?.username).toBe('testuser');
+    });
+  });
+
+  describe('GitHubAuth', () => {
+    test('should create instance without error', () => {
+      const configManager = new ConfigManager();
+      expect(() => new GitHubAuth(configManager)).not.toThrow();
+    });
+
+    test('should detect unauthenticated state initially', () => {
+      const configManager = new ConfigManager();
+      const githubAuth = new GitHubAuth(configManager);
+      
+      expect(githubAuth.isAuthenticated()).toBe(false);
+      
+      const authStatus = githubAuth.getAuthStatus();
+      expect(authStatus.authenticated).toBe(false);
+    });
+  });
+
+  describe('GitHubClient', () => {
+    test('should create instance without error', () => {
+      const configManager = new ConfigManager();
+      expect(() => new GitHubClient(configManager)).not.toThrow();
+    });
+
+    test('should parse repository URLs correctly', () => {
+      const configManager = new ConfigManager();
+      const githubClient = new GitHubClient(configManager);
+
+      // Test various URL formats
+      const testCases = [
+        {
+          input: 'https://github.com/owner/repo',
+          expected: { owner: 'owner', repo: 'repo' },
+        },
+        {
+          input: 'https://github.com/owner/repo.git',
+          expected: { owner: 'owner', repo: 'repo' },
+        },
+        {
+          input: 'git@github.com:owner/repo.git',
+          expected: { owner: 'owner', repo: 'repo' },
+        },
+        {
+          input: 'owner/repo',
+          expected: { owner: 'owner', repo: 'repo' },
+        },
+        {
+          input: 'invalid-url',
+          expected: null,
+        },
+      ];
+
+      testCases.forEach(({ input, expected }) => {
+        const result = githubClient.parseRepositoryUrl(input);
+        expect(result).toEqual(expected);
+      });
+    });
+
+    test('should format repository URLs correctly', () => {
+      const configManager = new ConfigManager();
+      const githubClient = new GitHubClient(configManager);
+
+      expect(githubClient.formatRepositoryUrl('owner', 'repo', 'https'))
+        .toBe('https://github.com/owner/repo.git');
+      
+      expect(githubClient.formatRepositoryUrl('owner', 'repo', 'ssh'))
+        .toBe('git@github.com:owner/repo.git');
+    });
+  });
+
+  describe('Configuration Management', () => {
+    test('should handle service repository connections', () => {
+      const configManager = new ConfigManager();
+      
+      const repositoryConfig = {
+        type: 'github' as const,
+        url: 'https://github.com/owner/repo.git',
+        owner: 'owner',
+        name: 'repo',
+        branch: 'main',
+      };
+
+      // Set repository connection
+      configManager.setServiceRepository('test-service', repositoryConfig);
+      
+      // Verify connection was saved
+      const serviceConfig = configManager.getServiceConfig('test-service');
+      expect(serviceConfig?.repository).toEqual(repositoryConfig);
+      
+      // List services with repositories
+      const servicesWithRepos = configManager.listServicesWithRepositories();
+      expect(servicesWithRepos).toHaveLength(1);
+      expect(servicesWithRepos[0].service).toBe('test-service');
+      expect(servicesWithRepos[0].repository).toEqual(repositoryConfig);
+      
+      // Remove repository connection
+      configManager.removeServiceRepository('test-service');
+      const updatedServiceConfig = configManager.getServiceConfig('test-service');
+      expect(updatedServiceConfig?.repository).toBeUndefined();
+    });
+
+    test('should handle GitHub configuration', () => {
+      const configManager = new ConfigManager();
+      
+      // Initially no GitHub config
+      expect(configManager.getGitHubConfig()).toBeNull();
+      
+      // Set GitHub config
+      configManager.setGitHubConfig({
+        connected: true,
+        username: 'testuser',
+      });
+      
+      const githubConfig = configManager.getGitHubConfig();
+      expect(githubConfig?.connected).toBe(true);
+      expect(githubConfig?.username).toBe('testuser');
+      
+      // Clear GitHub config
+      configManager.clearGitHubConfig();
+      expect(configManager.getGitHubConfig()).toBeNull();
+    });
+  });
+});
