@@ -1,0 +1,29 @@
+<% const {field} = it; %>
+
+@IsOptional({ groups: [UPDATE] })
+<% if (!field.nullable && !field.auto) { %>
+@IsNotEmpty({ groups: [CREATE] })
+<% } %>
+
+@Column({
+  "type": "geometrycollection",
+  transformer: {
+    to: (geometrycollection: { geometries: Array<any> } | null) => {
+      if (!geometrycollection) return null;
+      return geometrycollection;
+    },
+    from: (pgGeometryCollection: any) => {
+      if (!pgGeometryCollection) return null;
+      return pgGeometryCollection;
+    }
+  }<% if (field.nullable) {%>,
+  nullable: true<% } %>
+})
+<% if (field.index ) {%>
+@Index()
+<% } %>
+<% if (field.primary ) {%>
+@PrimaryColumn()
+<% } %>
+
+<%= field.name %>: { geometries: Array<any> }; 

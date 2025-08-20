@@ -1,0 +1,37 @@
+<% const {field} = it; %>
+
+@IsOptional({ groups: [UPDATE] })
+<% if (!field.nullable && !field.auto) { %>
+@IsNotEmpty({ groups: [CREATE] })
+<% } %>
+
+@Column({
+  "type": "linestring",
+  transformer: {
+    to: (linestring: { coordinates: Array<{x: number, y: number}> } | null) => {
+      if (!linestring) return null;
+      const coords = linestring.coordinates.map(coord => `${coord.x} ${coord.y}`).join(',');
+      return `LINESTRING(${coords})`;
+    },
+    from: (pgLinestring: string | null) => {
+      if (!pgLinestring) return null;
+      // Extract coordinates from LINESTRING(x1 y1,x2 y2,...) format
+      const match = pgLinestring.match(/LINESTRING\((.+)\)/);
+      if (!match) return null;
+      const coords = match[1].split(',').map(coord => {
+        const [x, y] = coord.trim().split(' ');
+        return { x: parseFloat(x), y: parseFloat(y) };
+      });
+      return { coordinates: coords };
+    }
+  }<% if (field.nullable) {%>,
+  nullable: true<% } %>
+})
+<% if (field.index ) {%>
+@Index()
+<% } %>
+<% if (field.primary ) {%>
+@PrimaryColumn()
+<% } %>
+
+<%= field.name %>: { coordinates: Array<{ x: number, y: number }> }; 

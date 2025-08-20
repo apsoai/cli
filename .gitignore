@@ -9,3 +9,5 @@ node_modules
 oclif.manifest.json
 test-app/
 *.env
+.npmrc
+.apsorc*

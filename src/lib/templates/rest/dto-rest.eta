@@ -1,11 +1,12 @@
-import { ApiProperty } from '@nestjs/swagger';
 <%~ includeFile('./header.eta') %>
+
+import { ApiProperty } from '@nestjs/swagger';
 
 <% if (it.importEnums) { %>
 import * as enums from '../../enums';
 <% } %>
 
-export class <%= it.name %>Create {
+export class <%= it.entityName %>Create {
 <% it.columns.forEach((field) => { %>
     @ApiProperty()
   <%if (field.dataType.includes("Enum")) {%>
@@ -14,13 +15,25 @@ export class <%= it.name %>Create {
     <%= field.name %>: JSON;
   <%} else if (field.type === 'timestamp' || field.type === 'timestamptz') {%>
     <%= field.name %>: Date;
+  <%} else if (field.type === 'geometry' || field.type === 'geography') {%>
+    <%= field.name %>: any;
+  <%} else if (field.type === 'point') {%>
+    <%= field.name %>: { x: number, y: number };
+  <%} else if (field.type === 'linestring' || field.type === 'multipoint') {%>
+    <%= field.name %>: { coordinates: Array<{ x: number, y: number }> };
+  <%} else if (field.type === 'polygon' || field.type === 'multilinestring') {%>
+    <%= field.name %>: { coordinates: Array<Array<{ x: number, y: number }>> };
+  <%} else if (field.type === 'multipolygon') {%>
+    <%= field.name %>: { coordinates: Array<Array<Array<{ x: number, y: number }>>> };
+  <%} else if (field.type === 'geometrycollection') {%>
+    <%= field.name %>: { geometries: Array<any> };
   <%} else {%>
     <%= field.name %>: <%= field.dataType %>;
   <% } %>
 <% }) %>
 };
 
-export class <%= it.name %> {
+export class <%= it.entityName %> {
 <% if (it.addDefaultPKProperty) { %>
     @ApiProperty()
     id: number;
@@ -33,6 +46,18 @@ export class <%= it.name %> {
     <%= field.name %>: JSON;
   <%} else if (field.type === 'timestamp' || field.type === 'timestamptz') {%>
     <%= field.name %>: Date;
+  <%} else if (field.type === 'geometry' || field.type === 'geography') {%>
+    <%= field.name %>: any;
+  <%} else if (field.type === 'point') {%>
+    <%= field.name %>: { x: number, y: number };
+  <%} else if (field.type === 'linestring' || field.type === 'multipoint') {%>
+    <%= field.name %>: { coordinates: Array<{ x: number, y: number }> };
+  <%} else if (field.type === 'polygon' || field.type === 'multilinestring') {%>
+    <%= field.name %>: { coordinates: Array<Array<{ x: number, y: number }>> };
+  <%} else if (field.type === 'multipolygon') {%>
+    <%= field.name %>: { coordinates: Array<Array<Array<{ x: number, y: number }>>> };
+  <%} else if (field.type === 'geometrycollection') {%>
+    <%= field.name %>: { geometries: Array<any> };
   <%} else {%>
     <%= field.name %>: <%= field.dataType %>;
   <% } %>

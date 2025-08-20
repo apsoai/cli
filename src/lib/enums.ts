@@ -1,8 +1,8 @@
-import * as Eta from "eta";
 import * as path from "path";
 import { createFile } from "./utils/file-system";
 import { Entity, Field } from "./types";
 import { fieldToEnumType } from "./utils/field";
+import * as Eta from "eta";
 
 export interface EnumType {
   name: string;
@@ -28,17 +28,13 @@ export const createEnums = async (
       .filter(Boolean);
 
     if (allEnumsFields.length > 0) {
-      Eta.configure({
-        views: path.join(__dirname, "templates"),
-      });
-
       const content: any = await Eta.renderFileAsync(
         `./${apiType}/enums-${apiType}`,
         {
           allEnumsFields,
         }
       );
-      createFile(outputFile, content);
+      await createFile(outputFile, content);
     }
   }
 };

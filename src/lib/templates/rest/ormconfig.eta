@@ -1,3 +1,5 @@
+<%~ includeFile('./header.eta') %>
+
 <% it.entities.forEach((entity) => { %>
 import {<%= entity.name %>} from './autogen/<%= entity.name %>/<%= entity.name %>.entity'
 <%}) %>

@@ -1,6 +1,6 @@
 {
   "name": "@apso/cli",
-  "version": "0.0.41",
+  "version": "0.3.0",
   "description": "Apso CLI",
   "author": "Apso by Mavric - @mavric",
   "bin": {
@@ -71,6 +71,7 @@
     "ts-jest": "^29.1.0",
     "ts-node": "^10.9.1",
     "tslib": "^2.5.0",
+    "typedoc": "^0.28.3",
     "typescript": "^5"
   },
   "oclif": {
@@ -110,6 +111,7 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
+    "docs:generate": "typedoc src/lib/index.ts --out docs",
     "version": "oclif readme && git add README.md"
   },
   "engines": {

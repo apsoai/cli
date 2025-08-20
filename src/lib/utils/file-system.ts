@@ -1,15 +1,16 @@
 import * as path from "path";
 import * as fs from "fs";
 
-const createDir = (dirname: string): void => {
+const createDir = async (dirname: string): Promise<void> => {
   if (!fs.existsSync(dirname)) {
-    fs.mkdirSync(dirname, { recursive: true });
+    await fs.promises.mkdir(dirname, { recursive: true });
   }
 };
-export const createFile = (file: string, content: string): void => {
+
+export const createFile = async (file: string, content: string): Promise<void> => {
   const dirname = path.dirname(file);
-  createDir(dirname);
-  fs.writeFileSync(file, content);
+  await createDir(dirname);
+  await fs.promises.writeFile(file, content);
 };
 
 export const createDirectoryContents = (
@@ -66,3 +67,11 @@ const writeFile = (
     fs.chmodSync(fileWritePath, mode);
   }
 };
+
+export function withGeneratedMeta<T extends object>(data: T): T & { generatedAt: string; generatedBy: string } {
+  return {
+    ...data,
+    generatedAt: new Date().toISOString(),
+    generatedBy: process.env.USER || process.env.USERNAME || 'unknown',
+  };
+}

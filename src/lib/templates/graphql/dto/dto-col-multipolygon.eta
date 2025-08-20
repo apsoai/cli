@@ -1,0 +1,4 @@
+<% const {field, isGql} = it; %>
+
+@Field(() => JSONResolver, { nullable: true })
+<%= field.name %>: { coordinates: Array<Array<Array<{ x: number, y: number }>>> }; 

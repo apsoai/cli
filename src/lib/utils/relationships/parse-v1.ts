@@ -103,23 +103,29 @@ const convertAssociationToRelationship = (
 export const parseV1Relationships = (entities: Entity[]): RelationshipMap => {
   const relationshipMap: RelationshipMap = {};
 
+  // First, convert all v1 associations to the v2 ApsorcRelationship format
+  const apsorcRelationships: ApsorcRelationship[] = [];
   for (const entity of entities) {
-    if (!entity.associations) {
-      continue;
-    }
-    for (const association of entity.associations) {
-      const apsorcRelationship = convertAssociationToRelationship(
-        entity.name,
-        association,
-        entities
-      );
-      if (apsorcRelationship === null) {
-        continue;
+    if (entity.associations) {
+      for (const association of entity.associations) {
+        const convertedRel = convertAssociationToRelationship(
+          entity.name,
+          association,
+          entities
+        );
+        if (convertedRel) {
+          apsorcRelationships.push(convertedRel);
+        }
       }
+    }
+  }
 
-      const parsedResult = parseRelationship(apsorcRelationship);
+  // Now, process each converted relationship, passing the full list
+  for (const apsorcRelationship of apsorcRelationships) {
+    const parsedResult = parseRelationship(apsorcRelationship, apsorcRelationships);
 
-      for (const key of Object.keys(parsedResult)) {
+    for (const key of Object.keys(parsedResult)) {
+      if (parsedResult[key] && parsedResult[key].length > 0) { // Ensure non-empty result
         relationshipMap[key] = [
           ...(relationshipMap[key] || []),
           ...parsedResult[key],

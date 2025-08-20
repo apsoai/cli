@@ -1,0 +1,50 @@
+<% const {field} = it; %>
+
+@IsOptional({ groups: [UPDATE] })
+<% if (!field.nullable && !field.auto) { %>
+@IsNotEmpty({ groups: [CREATE] })
+<% } %>
+
+@Column({
+  "type": "multipolygon",
+  transformer: {
+    to: (multipolygon: { coordinates: Array<Array<Array<{x: number, y: number}>>> } | null) => {
+      if (!multipolygon) return null;
+      const polygons = multipolygon.coordinates.map(polygon => {
+        const rings = polygon.map(ring => {
+          const coords = ring.map(coord => `${coord.x} ${coord.y}`).join(',');
+          return `(${coords})`;
+        });
+        return `(${rings.join(',')})`;
+      });
+      return `MULTIPOLYGON(${polygons.join(',')})`;
+    },
+    from: (pgMultipolygon: string | null) => {
+      if (!pgMultipolygon) return null;
+      // Extract coordinates from MULTIPOLYGON(((x1 y1,x2 y2,...),(x1 y1,x2 y2,...)),((x1 y1,x2 y2,...),(x1 y1,x2 y2,...))) format
+      const match = pgMultipolygon.match(/MULTIPOLYGON\((.+)\)/);
+      if (!match) return null;
+      const polygons = match[1].split(')),((').map(polygon => {
+        const cleanPolygon = polygon.replace(/[()]/g, '');
+        const rings = cleanPolygon.split('),(').map(ring => {
+          const coords = ring.split(',').map(coord => {
+            const [x, y] = coord.trim().split(' ');
+            return { x: parseFloat(x), y: parseFloat(y) };
+          });
+          return coords;
+        });
+        return rings;
+      });
+      return { coordinates: polygons };
+    }
+  }<% if (field.nullable) {%>,
+  nullable: true<% } %>
+})
+<% if (field.index ) {%>
+@Index()
+<% } %>
+<% if (field.primary ) {%>
+@PrimaryColumn()
+<% } %>
+
+<%= field.name %>: { coordinates: Array<Array<Array<{ x: number, y: number }>>> }; 

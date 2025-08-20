@@ -1,4 +1,4 @@
-name: version, tag and publish package
+name: Version, Tag and Publish to npm
 
 on:
   push:
@@ -16,11 +16,13 @@ jobs:
       uses: actions/setup-node@v3
       with:
         node-version: '18'  # Set to your Node.js version
-        registry-url: 'https://npm.pkg.github.com'
-        scope: '@mavric'
+        registry-url: 'https://registry.npmjs.org/'
       
     - name: Install dependencies
-      run: npm install
+      run: npm ci
+
+    - name: Build
+      run: npm run build
 
     - name: Bump version and tag
       id: bump_version
@@ -29,9 +31,61 @@ jobs:
         tag-prefix: 'v'  # Set this to 'v' if you want your tags like 'v1.0.0'
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    - run: npm ci
-    - run: npm publish
+    
+    - name: Explicitly Create and Push Tag
+      run: |
+        # Configure git
+        git config user.name "GitHub Actions"
+        git config user.email "actions@github.com"
+        
+        # Get version from package.json
+        VERSION=$(node -p "require('./package.json').version")
+        TAG="v$VERSION"
+        
+        echo "Creating and pushing tag: $TAG"
+        
+        # Check if tag exists locally
+        if git rev-parse "$TAG" >/dev/null 2>&1; then
+          echo "Tag $TAG already exists locally, skipping tag creation"
+        else
+          # Create tag
+          git tag "$TAG" -m "Release $TAG"
+        fi
+        
+        # Check if tag exists on remote
+        if git ls-remote --tags origin | grep -q "refs/tags/$TAG$"; then
+          echo "Tag $TAG already exists on remote, skipping tag push"
+        else
+          # Push tag to remote
+          git push origin "$TAG"
+        fi
+      
+    - name: Debug Version Output
+      run: echo "New tag is ${{ steps.bump_version.outputs.new_tag }}"
+      
+    - name: Create GitHub Release
+      run: |
+        if [ -n "${{ steps.bump_version.outputs.new_tag }}" ]; then
+          gh release create "${{ steps.bump_version.outputs.new_tag }}" \
+            --title "Release ${{ steps.bump_version.outputs.new_tag }}" \
+            --generate-notes
+        else
+          echo "No new tag was created, skipping release creation"
+        fi
       env:
-        NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Setup NPM Authentication
+      run: |
+        echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > ~/.npmrc
+        cat ~/.npmrc
+      env:
+        NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN }}
+    
+    - name: Publish to npm
+      run: |
+        npm config set access public
+        npm publish
+      env:
+        NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN }}
 
