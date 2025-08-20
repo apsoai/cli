@@ -4,7 +4,6 @@ import * as fs from "fs";
 import shell from 'shelljs';
 import BaseCommand from "../../lib/base-command";
 import * as path from "path";
-import chalk from 'chalk';
 
 export default class New extends BaseCommand {
   static description = "Initialize your server project";

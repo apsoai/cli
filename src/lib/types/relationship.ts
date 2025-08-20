@@ -13,7 +13,6 @@ export interface ApsorcRelationship {
   nullable?: boolean;
   /* eslint-disable-next-line  camelcase */
   bi_directional?: boolean;
-  /* eslint-disable-next-line  camelcase */
   cascadeDelete?: boolean;
   index?: boolean;
 }
