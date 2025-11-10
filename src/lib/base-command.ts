@@ -8,15 +8,15 @@ export default abstract class BaseCommand extends Command {
     return new Promise((resolve: any, reject) => {
       const isWindows = os.platform() === "win32";
       const command = isWindows ? "npm.cmd" : "npm";
+      const stdio = silent ? "ignore" : "inherit";
 
       const cmdStr = `${command} ${args.join(" ")}`;
       this.log(`Running: ${cmdStr}`);
 
       const child = spawn(command, args, {
-        stdio: "inherit",
+        stdio,
         shell: isWindows,
       });
-
 
       child.on("close", (code) => {
         if (code !== 0) {

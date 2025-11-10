@@ -1,6 +1,6 @@
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
-import { parseRelationships } from './parse';
-import { ApsorcRelationship, RelationshipMap } from '../../types';
+import { parseRelationships, getRelationshipForTemplate } from './parse';
+import { ApsorcRelationship, RelationshipMap, Relationship } from '../../types';
 
 describe('parseRelationships', () => {
 
@@ -246,5 +246,176 @@ describe('parseRelationships', () => {
         expect(result.Role).toHaveLength(1);
         expect(result.Role).toContainEqual(expect.objectContaining({ name: 'User', type: 'ManyToMany', referenceName: 'User', biDirectional: true, join: true })); // PascalCase entity name
       });
+  });
+});
+
+describe('getRelationshipForTemplate', () => {
+
+  // Mock console.warn to prevent test output clutter
+  beforeEach(() => {
+    jest.spyOn(console, 'warn').mockImplementation(() => { /* No output */ });
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  describe('UUID Primary Key Support', () => {
+    it('should populate referencedEntityPrimaryKeyType as uuid when referenced entity has uuid primary key', () => {
+      const entities = [
+        { name: 'User', primaryKeyType: 'uuid' as const },
+        { name: 'Account', primaryKeyType: 'serial' as const },
+      ];
+
+      const relationships: Relationship[] = [
+        {
+          name: 'User',
+          type: 'ManyToOne',
+          referenceName: null,
+          nullable: false,
+          index: false,
+        },
+      ];
+
+      const result = getRelationshipForTemplate('Account', relationships, entities);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]).toMatchObject({
+        name: 'User',
+        type: 'ManyToOne',
+        referencedEntityPrimaryKeyType: 'uuid',
+      });
+    });
+
+    it('should populate referencedEntityPrimaryKeyType as serial when referenced entity has serial primary key', () => {
+      const entities = [
+        { name: 'User', primaryKeyType: 'serial' as const },
+        { name: 'Post', primaryKeyType: 'serial' as const },
+      ];
+
+      const relationships: Relationship[] = [
+        {
+          name: 'User',
+          type: 'ManyToOne',
+          referenceName: null,
+          nullable: false,
+          index: false,
+        },
+      ];
+
+      const result = getRelationshipForTemplate('Post', relationships, entities);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]).toMatchObject({
+        name: 'User',
+        type: 'ManyToOne',
+        referencedEntityPrimaryKeyType: 'serial',
+      });
+    });
+
+    it('should default referencedEntityPrimaryKeyType to serial when entity does not specify primaryKeyType', () => {
+      const entities = [
+        { name: 'User' }, // No primaryKeyType specified
+        { name: 'Post', primaryKeyType: 'serial' as const },
+      ];
+
+      const relationships: Relationship[] = [
+        {
+          name: 'User',
+          type: 'ManyToOne',
+          referenceName: null,
+          nullable: false,
+          index: false,
+        },
+      ];
+
+      const result = getRelationshipForTemplate('Post', relationships, entities);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]).toMatchObject({
+        name: 'User',
+        type: 'ManyToOne',
+        referencedEntityPrimaryKeyType: 'serial',
+      });
+    });
+
+    it('should default referencedEntityPrimaryKeyType to serial when entities array is not provided', () => {
+      const relationships: Relationship[] = [
+        {
+          name: 'User',
+          type: 'ManyToOne',
+          referenceName: null,
+          nullable: false,
+          index: false,
+        },
+      ];
+
+      const result = getRelationshipForTemplate('Post', relationships);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]).toMatchObject({
+        name: 'User',
+        type: 'ManyToOne',
+        referencedEntityPrimaryKeyType: 'serial',
+      });
+    });
+
+    it('should handle multiple relationships with mixed primary key types', () => {
+      const entities = [
+        { name: 'User', primaryKeyType: 'uuid' as const },
+        { name: 'Organization', primaryKeyType: 'serial' as const },
+        { name: 'Team', primaryKeyType: 'uuid' as const },
+        { name: 'Post', primaryKeyType: 'serial' as const },
+      ];
+
+      const relationships: Relationship[] = [
+        {
+          name: 'User',
+          type: 'ManyToOne',
+          referenceName: null,
+          nullable: false,
+          index: true,
+        },
+        {
+          name: 'Organization',
+          type: 'ManyToOne',
+          referenceName: null,
+          nullable: false,
+          index: false,
+        },
+        {
+          name: 'Team',
+          type: 'ManyToOne',
+          referenceName: null,
+          nullable: true,
+          index: false,
+        },
+      ];
+
+      const result = getRelationshipForTemplate('Post', relationships, entities);
+
+      expect(result).toHaveLength(3);
+
+      const userRel = result.find(r => r.name === 'User');
+      expect(userRel).toMatchObject({
+        name: 'User',
+        type: 'ManyToOne',
+        referencedEntityPrimaryKeyType: 'uuid',
+      });
+
+      const orgRel = result.find(r => r.name === 'Organization');
+      expect(orgRel).toMatchObject({
+        name: 'Organization',
+        type: 'ManyToOne',
+        referencedEntityPrimaryKeyType: 'serial',
+      });
+
+      const teamRel = result.find(r => r.name === 'Team');
+      expect(teamRel).toMatchObject({
+        name: 'Team',
+        type: 'ManyToOne',
+        referencedEntityPrimaryKeyType: 'uuid',
+      });
+    });
   });
 }); 

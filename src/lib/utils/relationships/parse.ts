@@ -397,14 +397,24 @@ const calculateInversePropertyName = (
  * Calculates additional helper properties like pluralized names and inverse property names.
  * @param entityName The name of the entity for which to generate template data.
  * @param relationships An array of Relationship objects for the given entity.
+ * @param entities Optional array of all entities, used to determine referenced entity's primary key type.
  * @returns An array of RelationshipForTemplate objects with extra properties for the template.
  */
 export const getRelationshipForTemplate = (
   entityName: string,
-  relationships: Relationship[]
+  relationships: Relationship[],
+  entities?: any[]
 ): RelationshipForTemplate[] => {
   if (!relationships) {
     return [];
+  }
+
+  // Create entity map for looking up primary key types
+  const entityMap = new Map<string, any>();
+  if (entities) {
+    entities.forEach(entity => {
+      entityMap.set(entity.name, entity);
+    });
   }
 
   // First pass: Group by name and referenceName (more specific)
@@ -443,10 +453,15 @@ export const getRelationshipForTemplate = (
       needsPluralInverse
     );
 
-    if (relationship.biDirectional && !relationship.inverseReferenceName && 
+    if (relationship.biDirectional && !relationship.inverseReferenceName &&
         (relationship.type === 'ManyToMany' || relationship.type === 'OneToMany' || relationship.type === 'OneToOne')) {
       console.info(`[APSO INFO] Using default property name '${inverseSidePropertyName}' for ${relationship.name}->${entityName}. To customize, add 'to_name' in your relationship definition.`);
     }
+
+    // Look up the referenced entity's primary key type
+    const referencedEntity = entityMap.get(relationship.name);
+    const referencedEntityPrimaryKeyType: 'serial' | 'uuid' | undefined =
+      referencedEntity?.primaryKeyType || 'serial'; // Default to 'serial' if not specified
 
     return {
       ...relationship,
@@ -460,6 +475,7 @@ export const getRelationshipForTemplate = (
       biDirectional: relationship.biDirectional || false,
       referenceName: thisReferenceName || undefined,
       inverseSidePropertyName,
+      referencedEntityPrimaryKeyType,
     };
   });
 };
