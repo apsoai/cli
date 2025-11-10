@@ -52,8 +52,14 @@ const { CREATE, UPDATE } = CrudValidationGroups;
 export class <%= it.name %> {
 <% if (it.createPrimaryKey) { %>
     // Fields
+    <% if (it.primaryKeyType === 'uuid') { %>
+    @Column({ type: 'uuid' })
+    @PrimaryColumn()
+    id: string;
+    <% } else { %>
     @PrimaryGeneratedColumn()
     id!: number;
+    <% } %>
 <% } %>
 
 <% if (it.createdAt) { %>
@@ -95,8 +101,13 @@ export class <%= it.name %> {
         @JoinColumn({ name: '<%= assoc.camelCasedId %>' })
         <%= assoc.relationshipName %>: <%= assoc.name %>;
 
+        <% if (assoc.referencedEntityPrimaryKeyType === 'uuid') { %>
+        @Column({ type: "uuid", <% if (assoc.nullable) { %> nullable: true <% } %>})
+        <%= assoc.camelCasedId %>: string;
+        <% } else { %>
         @Column({ type: "integer", <% if (assoc.nullable) { %> nullable: true <% } %>})
         <%= assoc.camelCasedId %>: number;
+        <% } %>
 
     <% } else if (assoc.type === 'ManyToMany') { %>
 

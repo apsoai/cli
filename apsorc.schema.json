@@ -109,6 +109,12 @@
           "description": "Indicates if the entity should have an 'updated_at' timestamp field.",
           "type": "boolean"
         },
+        "primaryKeyType": {
+          "description": "The type of primary key to use for this entity. Defaults to 'serial' (auto-increment integer). Use 'uuid' for UUID-based primary keys.",
+          "type": "string",
+          "enum": ["serial", "uuid"],
+          "default": "serial"
+        },
         "uniques": {
           "description": "Defines unique constraints spanning multiple fields.",
           "type": "array",

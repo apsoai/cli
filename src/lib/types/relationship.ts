@@ -45,6 +45,7 @@ export interface RelationshipForTemplate extends Relationship {
   joinTable: boolean;
   biDirectional: boolean;
   inversePropertyName?: string;
+  referencedEntityPrimaryKeyType?: 'serial' | 'uuid';
 }
 
 export type RelationshipMap = { [key: string]: Relationship[] };

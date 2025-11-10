@@ -32,19 +32,27 @@ export default class Scaffold extends BaseCommand {
 
   static args = {};
 
-  async scaffoldServer(
-    dir: string,
-    entity: Entity,
-    relationshipMap: RelationshipMap,
-    apiType: string
-  ): Promise<void> {
+  async scaffoldServer(options: {
+    dir: string;
+    entity: Entity;
+    relationshipMap: RelationshipMap;
+    apiType: string;
+    allEntities: Entity[];
+  }): Promise<void> {
+    const { dir, entity, relationshipMap, apiType, allEntities } = options;
     const entityBuildStart = performance.now();
     this.log(`Building... ${entity.name}`);
 
     const entityName = entity.name;
     const filePath = path.join(dir, entityName);
     const entityRelationships = relationshipMap[entity.name] || [];
-    await createEntity(filePath, entity, entityRelationships, apiType);
+    await createEntity({
+      apiBaseDir: filePath,
+      entity,
+      relationships: entityRelationships,
+      apiType,
+      allEntities
+    });
     switch (apiType) {
       case ApiType.Graphql:
         await this.setupGraphqlFiles(dir, entity, relationshipMap);
@@ -112,7 +120,13 @@ export default class Scaffold extends BaseCommand {
     await Promise.all(
       entities.map(async (entity) => {
         const scaffoldModel = this.scaffoldServer.bind(this);
-        await scaffoldModel(autogenPath, entity, relationshipMap, lowerCaseApiType);
+        await scaffoldModel({
+          dir: autogenPath,
+          entity,
+          relationshipMap,
+          apiType: lowerCaseApiType,
+          allEntities: entities
+        });
         if (process.env.DEBUG) {
           const used = process.memoryUsage();
           console.log(`[mem] heapUsed after ${entity.name}: ${(used.heapUsed / 1024 / 1024).toFixed(2)} MB`);

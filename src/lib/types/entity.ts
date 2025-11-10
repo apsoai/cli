@@ -9,6 +9,7 @@ export interface Entity {
   created_at?: boolean;
   /* eslint-disable-next-line  camelcase */
   updated_at?: boolean;
+  primaryKeyType?: 'serial' | 'uuid';
   fields?: Field[];
   indexes?: Index[];
   uniques?: Unique[];
