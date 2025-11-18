@@ -36,7 +36,7 @@ export class <%= it.entityName %>Create {
 export class <%= it.entityName %> {
 <% if (it.addDefaultPKProperty) { %>
     @ApiProperty()
-    id: number;
+    id: <%= it.primaryKeyType === 'uuid' ? 'string' : 'number' %>;
 <% } %>
 <% it.columns.forEach((field) => { %>
     @ApiProperty()
