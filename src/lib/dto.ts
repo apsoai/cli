@@ -16,13 +16,14 @@ import { camelCase, pascalCase } from "./utils/casing";
  * @param relationships The relationships array from the parsed .apsorc.
  * @param options Optional configuration flags.
  * @param options.apiType The type of API being generated (default: "rest").
+ * @param options.allEntities Optional array of all entities, used to determine foreign key types.
  * @returns {Promise<void>} A promise that resolves when the DTO files are created.
  */
 export const createDto = async (
   apiBaseDir: string,
   entity: Entity,
   relationships: any[], // Relationship[]
-  options?: { apiType?: string }
+  options?: { apiType?: string; allEntities?: Entity[] }
 ): Promise<void> => {
   const { name: entityName, fields = [] } = entity;
   const dtoDir = path.join(apiBaseDir, "dtos");
@@ -42,20 +43,29 @@ export const createDto = async (
   relationshipsTemplate.forEach(rel => {
     if (rel.type === 'ManyToOne') {
       const fkName = camelCase(rel.referenceName || rel.name) + 'Id';
+
+      // Look up the referenced entity to determine the foreign key type
+      const referencedEntity = options?.allEntities?.find(e => e.name === rel.name);
+      const referencedPrimaryKeyType = referencedEntity?.primaryKeyType || 'serial';
+      const fkDataType = referencedPrimaryKeyType === 'uuid' ? 'string' : 'number';
+      const fkType = referencedPrimaryKeyType === 'uuid' ? 'uuid' : 'integer';
+
       // if (process.env.DEBUG) {
       //   console.log('[DTO DEBUG]', {
       //     relType: rel.type,
       //     relName: rel.name,
       //     referenceName: rel.referenceName,
       //     fkName,
+      //     referencedPrimaryKeyType,
+      //     fkDataType,
       //     columns: columns.map(c => c.name)
       //   });
       // }
       if (!columns.some(col => col.name === fkName)) {
         columns.push({
           name: fkName,
-          dataType: 'number',
-          type: 'integer',
+          dataType: fkDataType,
+          type: fkType,
         });
       }
     }
