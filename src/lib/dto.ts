@@ -68,6 +68,7 @@ export const createDto = async (
 
   const createdAt = entity.created_at;
   const updatedAt = entity.updated_at;
+  const primaryKeyType = entity.primaryKeyType || 'serial'; // Default to 'serial' if not specified
 
   // Filter columns: remove id, createdAt, updatedAt
   const dtoColumns = columns.filter(
@@ -82,6 +83,7 @@ export const createDto = async (
   const data = {
     entityName,
     addDefaultPKProperty,
+    primaryKeyType,
     createdAt,
     updatedAt,
     columns: dtoColumns,
