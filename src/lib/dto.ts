@@ -48,7 +48,7 @@ export const createDto = async (
       const referencedEntity = options?.allEntities?.find(e => e.name === rel.name);
       const referencedPrimaryKeyType = referencedEntity?.primaryKeyType || 'serial';
       const fkDataType = referencedPrimaryKeyType === 'uuid' ? 'string' : 'number';
-      const fkType = referencedPrimaryKeyType === 'uuid' ? 'uuid' : 'integer';
+      const fkType = referencedPrimaryKeyType === 'uuid' ? 'text' : 'integer';
 
       // if (process.env.DEBUG) {
       //   console.log('[DTO DEBUG]', {
