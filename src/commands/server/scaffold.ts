@@ -58,7 +58,7 @@ export default class Scaffold extends BaseCommand {
         await this.setupGraphqlFiles(dir, entity, relationshipMap);
         break;
       case ApiType.Rest:
-        await this.setupRestFiles(dir, entity, relationshipMap, apiType);
+        await this.setupRestFiles(dir, entity, relationshipMap, apiType, allEntities);
         break;
       default:
         break;
@@ -72,13 +72,14 @@ export default class Scaffold extends BaseCommand {
     dir: string,
     entity: Entity,
     relationshipMap: RelationshipMap,
-    apiType: string
+    apiType: string,
+    allEntities: Entity[]
   ) {
     const filePath = path.join(dir, entity.name);
     const entityRelationships = relationshipMap[entity.name] || [];
 
     const tDto = performance.now();
-    await createDto(filePath, entity, entityRelationships, { apiType });
+    await createDto(filePath, entity, entityRelationships, { apiType, allEntities });
     if (process.env.DEBUG) {
       console.log(`[timing] createDto for ${entity.name}: ${(performance.now() - tDto).toFixed(2)}ms`);
       const used = process.memoryUsage();
