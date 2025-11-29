@@ -87,8 +87,8 @@ export const ENTITY_SCOPES: Record<string, ScopeConfig> = {
 <% }) %>
     ],
     injectOnCreate: <%= entity.injectOnCreate %>,
-    enforceOn: [<%= entity.enforceOn.map(op => `'${op}'`).join(', ') %>],
-    bypassRoles: [<%= entity.bypassRoles.map(role => `'${role}'`).join(', ') %>],
+    enforceOn: [<%~ entity.enforceOn.map(op => `'${op}'`).join(', ') %>],
+    bypassRoles: [<%~ entity.bypassRoles.map(role => `'${role}'`).join(', ') %>],
   }<%= index < it.scopedEntities.length - 1 ? ',' : '' %>
 <% }) %>
 };

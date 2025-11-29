@@ -33,7 +33,7 @@ interface ScopedEntityConfig {
  */
 const DEFAULT_SCOPE_OPTIONS: Required<ScopeOptions> = {
   injectOnCreate: true,
-  enforceOn: ['find', 'get', 'create', 'update', 'delete'],
+  enforceOn: ["find", "get", "create", "update", "delete"],
   bypassRoles: [],
 };
 
@@ -46,13 +46,13 @@ const DEFAULT_SCOPE_OPTIONS: Required<ScopeOptions> = {
 function parseScopeBy(scopeBy: string | string[]): ScopeFieldConfig[] {
   const scopes = Array.isArray(scopeBy) ? scopeBy : [scopeBy];
 
-  return scopes.map(scope => {
-    const isDirect = !scope.includes('.');
-    const field = isDirect ? scope : scope.split('.')[0];
+  return scopes.map((scope) => {
+    const isDirect = !scope.includes(".");
+    const field = isDirect ? scope : scope.split(".")[0];
 
     // For direct fields, contextKey is the same as field
     // For nested paths like 'task.workspaceId', we extract 'workspaceId' as contextKey
-    const contextKey = isDirect ? scope : scope.split('.').pop()!;
+    const contextKey = isDirect ? scope : scope.split(".").pop()!;
 
     return {
       field,
@@ -94,8 +94,8 @@ function toRepoName(entityName: string): string {
  */
 export function getScopedEntities(entities: Entity[]): ScopedEntityConfig[] {
   return entities
-    .filter(entity => entity.scopeBy)
-    .map(entity => {
+    .filter((entity) => entity.scopeBy)
+    .map((entity) => {
       const options = { ...DEFAULT_SCOPE_OPTIONS, ...entity.scopeOptions };
 
       return {
@@ -117,7 +117,7 @@ export function getScopedEntities(entities: Entity[]): ScopedEntityConfig[] {
  * @returns True if at least one entity has scopeBy defined.
  */
 export function hasScopedEntities(entities: Entity[]): boolean {
-  return entities.some(entity => entity.scopeBy);
+  return entities.some((entity) => entity.scopeBy);
 }
 
 /**
@@ -134,11 +134,13 @@ export const createGuards = async (
 ): Promise<void> => {
   // Only generate guards if there are scoped entities
   if (!hasScopedEntities(entities)) {
-    console.log('[apso] No scopeBy configurations found, skipping guards generation');
+    console.log(
+      "[apso] No scopeBy configurations found, skipping guards generation"
+    );
     return;
   }
 
-  const guardsDir = path.join(rootPath, 'guards');
+  const guardsDir = path.join(rootPath, "guards");
 
   // Ensure guards directory exists
   if (!fs.existsSync(guardsDir)) {
@@ -151,26 +153,37 @@ export const createGuards = async (
   const templateData = {
     scopedEntities,
     generatedAt: new Date().toISOString(),
-    generatedBy: 'Apso CLI',
+    generatedBy: "Apso CLI",
   };
 
   // Generate scope.guard.ts
-  const scopeGuardPath = path.join(guardsDir, 'scope.guard.ts');
-  const scopeGuardContent = await Eta.renderFileAsync('./guards/scope.guard', templateData);
+  const scopeGuardPath = path.join(guardsDir, "scope.guard.ts");
+  const scopeGuardContent = await Eta.renderFileAsync(
+    "./guards/scope.guard.eta",
+    templateData
+  );
   await createFile(scopeGuardPath, scopeGuardContent as string);
   console.log(`[apso] Generated ${scopeGuardPath}`);
 
   // Generate guards.module.ts
-  const guardsModulePath = path.join(guardsDir, 'guards.module.ts');
-  const guardsModuleContent = await Eta.renderFileAsync('./guards/guards.module', templateData);
+  const guardsModulePath = path.join(guardsDir, "guards.module.ts");
+  const guardsModuleContent = await Eta.renderFileAsync(
+    "./guards/guards.module.eta",
+    templateData
+  );
   await createFile(guardsModulePath, guardsModuleContent as string);
   console.log(`[apso] Generated ${guardsModulePath}`);
 
   // Generate index.ts
-  const indexPath = path.join(guardsDir, 'index.ts');
-  const indexContent = await Eta.renderFileAsync('./guards/index', templateData);
+  const indexPath = path.join(guardsDir, "index.ts");
+  const indexContent = await Eta.renderFileAsync(
+    "./guards/index.eta",
+    templateData
+  );
   await createFile(indexPath, indexContent as string);
   console.log(`[apso] Generated ${indexPath}`);
 
-  console.log(`[apso] Generated guards for ${scopedEntities.length} scoped entities`);
+  console.log(
+    `[apso] Generated guards for ${scopedEntities.length} scoped entities`
+  );
 };
