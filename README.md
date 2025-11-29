@@ -1,14 +1,46 @@
 # Apso CLI
 
-- [Apso CLI](#apso-cli)
-- [Prerequisites](#prerequisites)
+Generate production-ready NestJS backends from schema definitions.
+
+## Quick Start
+
+```bash
+# 1. Install CLI
+npm install -g @apso/apso-cli
+
+# 2. Create new project
+apso server new --name myapp
+
+# 3. Edit .apsorc to define your schema (see examples below)
+
+# 4. Generate code
+apso server scaffold
+
+# 5. Start database & provision schema
+npm run compose && npm run provision
+
+# 6. Run development server
+npm run start:dev
+```
+
+---
+
+## Table of Contents
+
+- [Quick Start](#quick-start)
 - [Usage](#usage)
+- [Important: Never Modify Autogen Files](#-important-never-add-custom-code-to-autogen-files)
+- [Common First-Time Mistakes](#️-common-first-time-mistakes)
 - [Local Development](#local-development)
 - [Populating an .apsorc File](#populating-an-apsorc-file)
 - [Auto-Generated Code Reference](#auto-generated-code-reference)
-- [Debugging](##debugging)
+- [Relationships](#relationships)
+- [Data Scoping (Multi-Tenant Isolation)](#data-scoping-multi-tenant-isolation)
+- [Schema Reference](#schema-reference)
+- [Debugging](#debugging)
 - [Commands](#commands)
 
+---
 
 # Usage
 
@@ -139,10 +171,44 @@ export class LambdaDeploymentController {
 
 ---
 
-**Summary:**  
-> Always put your custom code in `src/extensions/[[EntityName]]/`.  
-> Never modify files in `src/autogen/`.  
+**Summary:**
+> Always put your custom code in `src/extensions/[[EntityName]]/`.
+> Never modify files in `src/autogen/`.
 > This ensures your work is safe and your project remains maintainable as you evolve your data model with Apso CLI.
+
+---
+
+## ⚠️ Common First-Time Mistakes
+
+### 1. Modifying `autogen/` Files
+**Problem:** Changes get overwritten on next scaffold
+**Solution:** Always use `extensions/` directory for custom code
+
+### 2. Defining Both Sides of Relationships
+**Problem:** Duplicate properties and TypeScript errors
+**Solution:** Define relationships **once** - Apso auto-generates the inverse side
+
+Example:
+```json
+// ❌ WRONG - Creates conflicts
+{ "from": "User", "to": "Workspace", "type": "OneToMany" }
+{ "from": "Workspace", "to": "User", "type": "ManyToOne" }
+
+// ✅ CORRECT - Define one side only
+{ "from": "Workspace", "to": "User", "type": "ManyToOne", "to_name": "owner" }
+```
+
+### 3. Skipping Database Provisioning
+**Problem:** Server fails to start with missing table errors
+**Solution:** Always run `npm run provision` after scaffold
+
+### 4. Wrong .apsorc Version
+**Problem:** Schema doesn't generate correctly
+**Solution:** Ensure `"version": 2` at top of .apsorc
+
+### 5. Forgetting to Start Docker
+**Problem:** Database connection refused errors
+**Solution:** Run `npm run compose` before starting server
 
 ---
 
@@ -679,6 +745,221 @@ Refer to the [example v2 file](#example-apsorc-v2-file) for usage.
 > - Let Apso CLI auto-generate the inverse side.
 > - Avoid deep nesting and duplicate definitions.
 > - Always inspect generated code and test your build after scaffolding.
+
+## Data Scoping (Multi-Tenant Isolation)
+
+Apso CLI supports automatic generation of scope guards that enforce data isolation at the application layer. This is useful for multi-tenant applications where users should only access data within their assigned scope (e.g., workspace, organization, team).
+
+### What is scopeBy?
+
+The `scopeBy` property on entities defines which field(s) determine the authorization scope for that entity. When configured, Apso generates NestJS guards that:
+
+- **Auto-inject** scope values on create operations (POST requests)
+- **Auto-filter** queries by scope values on list operations (GET without ID)
+- **Verify ownership** on single-resource operations (GET/PUT/PATCH/DELETE by ID)
+
+This is Apso's answer to PostgreSQL Row-Level Security (RLS), implemented at the application layer for flexibility and visibility.
+
+### Basic Example
+
+```json
+{
+  "version": 2,
+  "entities": [
+    {
+      "name": "Project",
+      "scopeBy": "workspaceId",
+      "fields": [
+        { "name": "name", "type": "text" }
+      ]
+    }
+  ]
+}
+```
+
+This generates a guard that ensures:
+- All Project queries filter by `workspaceId` from the request context
+- New Projects automatically get the `workspaceId` injected
+- Single Project access verifies the Project belongs to the user's workspace
+
+### scopeBy Configuration Options
+
+#### Single Field Scoping
+```json
+{
+  "name": "Project",
+  "scopeBy": "workspaceId"
+}
+```
+
+#### Multiple Field Scoping
+```json
+{
+  "name": "Task",
+  "scopeBy": ["workspaceId", "projectId"]
+}
+```
+
+#### Nested Path Scoping
+For entities that don't have a direct scope field but inherit scope through a relationship:
+```json
+{
+  "name": "Comment",
+  "scopeBy": "task.workspaceId"
+}
+```
+This tells the guard to look up the Task relationship and verify the workspaceId through that path.
+
+### scopeOptions
+
+Fine-tune scoping behavior with `scopeOptions`:
+
+```json
+{
+  "name": "AuditLog",
+  "scopeBy": "workspaceId",
+  "scopeOptions": {
+    "injectOnCreate": false,
+    "enforceOn": ["find", "get"],
+    "bypassRoles": ["admin", "superadmin"]
+  }
+}
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `injectOnCreate` | boolean | `true` | Auto-inject scope value on POST requests |
+| `enforceOn` | string[] | `["find", "get", "create", "update", "delete"]` | Operations where scope is enforced |
+| `bypassRoles` | string[] | `[]` | Roles that skip scope checking |
+
+### Generated Files
+
+When entities have `scopeBy` configured, `apso server scaffold` generates:
+
+```
+src/
+  guards/
+    scope.guard.ts      # Main guard implementation
+    guards.module.ts    # NestJS module with providers
+    index.ts            # Exports
+```
+
+### Enabling Guards
+
+Guards are generated but **not enabled globally by default** (for backward compatibility). To enable:
+
+#### Option 1: Global Enable (Recommended)
+Uncomment the APP_GUARD provider in `src/guards/guards.module.ts`:
+
+```typescript
+providers: [
+  ScopeGuard,
+  // Uncomment to enable globally:
+  {
+    provide: APP_GUARD,
+    useClass: ScopeGuard,
+  },
+],
+```
+
+#### Option 2: Per-Controller Enable
+Apply to specific controllers:
+
+```typescript
+import { ScopeGuard } from '../guards';
+
+@UseGuards(ScopeGuard)
+@Controller('projects')
+export class ProjectController { }
+```
+
+#### Option 3: Per-Route Enable
+Apply to specific routes:
+
+```typescript
+@UseGuards(ScopeGuard)
+@Get(':id')
+findOne(@Param('id') id: string) { }
+```
+
+### Decorators
+
+The generated guard supports these decorators:
+
+```typescript
+import { Public, SkipScopeCheck } from './guards';
+
+@Public()  // Skip ALL guards for this route
+@Get('public-endpoint')
+publicRoute() { }
+
+@SkipScopeCheck()  // Skip only scope checking (other guards still run)
+@Get('admin-dashboard')
+adminRoute() { }
+```
+
+### Request Context Integration
+
+The guard expects scope values in the request object. Set these in your authentication middleware:
+
+```typescript
+// In your auth middleware
+request.workspaceId = user.currentWorkspaceId;
+request.user = { roles: ['user'] };
+```
+
+### Complete Example
+
+```json
+{
+  "version": 2,
+  "entities": [
+    {
+      "name": "Workspace",
+      "fields": [{ "name": "name", "type": "text" }]
+    },
+    {
+      "name": "Project",
+      "scopeBy": "workspaceId",
+      "fields": [{ "name": "name", "type": "text" }]
+    },
+    {
+      "name": "Task",
+      "scopeBy": ["workspaceId", "projectId"],
+      "fields": [{ "name": "title", "type": "text" }]
+    },
+    {
+      "name": "Comment",
+      "scopeBy": "task.workspaceId",
+      "scopeOptions": {
+        "enforceOn": ["find", "get", "create", "delete"]
+      },
+      "fields": [{ "name": "text", "type": "text" }]
+    }
+  ],
+  "relationships": [
+    { "from": "Project", "to": "Workspace", "type": "ManyToOne" },
+    { "from": "Task", "to": "Project", "type": "ManyToOne" },
+    { "from": "Comment", "to": "Task", "type": "ManyToOne" }
+  ]
+}
+```
+
+### Scoping vs Authorization
+
+**Scoping** (what `scopeBy` provides):
+- Answers: "Which rows can this user see/modify?"
+- Data isolation based on tenant/workspace membership
+- Automatic filtering and injection
+
+**Authorization** (separate concern, not covered by `scopeBy`):
+- Answers: "Can this user perform this action?"
+- Role-based access control (RBAC)
+- Permission checking (create, read, update, delete)
+
+These are intentionally separate. Use `scopeBy` for data isolation, and implement authorization guards separately for permission checking.
+
+---
 
 ## Schema Reference
 

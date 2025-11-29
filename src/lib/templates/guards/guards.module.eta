@@ -1,0 +1,54 @@
+<%~ includeFile('../header.eta') %>
+
+import { Module, Global } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { APP_GUARD } from '@nestjs/core';
+
+import { ScopeGuard } from './scope.guard';
+
+<% /* Import all entities that have scopeBy defined */ %>
+<% it.scopedEntities.forEach((entity) => { %>
+import { <%= entity.name %> } from '../autogen/<%= entity.name %>/<%= entity.name %>.entity';
+<% }) %>
+
+/**
+ * GuardsModule provides scope-based data isolation guards.
+ *
+ * Auto-generated from .apsorc scopeBy definitions.
+ *
+ * Usage:
+ * 1. Import GuardsModule in your AppModule
+ * 2. Guards are NOT enabled globally by default (for backward compatibility)
+ * 3. To enable guards globally, uncomment the APP_GUARD provider below
+ * 4. Or apply guards selectively using @UseGuards(ScopeGuard) on controllers/routes
+ *
+ * When guards are enabled:
+ * - All scoped routes enforce data isolation based on scopeBy config
+ * - POST requests auto-inject scope fields from request context
+ * - GET requests auto-filter by scope fields
+ * - GET/PUT/PATCH/DELETE by ID verify resource ownership
+ *
+ * Decorators:
+ * - @Public() - Skip all guards for a route
+ * - @SkipScopeCheck() - Skip only scope checking
+ */
+@Global()
+@Module({
+  imports: [
+    TypeOrmModule.forFeature([
+<% it.scopedEntities.forEach((entity, index) => { %>
+      <%= entity.name %><%= index < it.scopedEntities.length - 1 ? ',' : '' %>
+<% }) %>
+    ]),
+  ],
+  providers: [
+    ScopeGuard,
+    // UNCOMMENT BELOW TO ENABLE GLOBAL SCOPE ENFORCEMENT
+    // {
+    //   provide: APP_GUARD,
+    //   useClass: ScopeGuard,
+    // },
+  ],
+  exports: [ScopeGuard],
+})
+export class GuardsModule {}

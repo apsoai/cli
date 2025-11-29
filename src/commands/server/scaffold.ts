@@ -12,6 +12,7 @@ import {
   parseApsorc,
   createEnums,
   createGqlDTO,
+  createGuards,
 } from "../../lib";
 import BaseCommand from "../../lib/base-command";
 import { ApiType } from "../../lib/apsorc-parser";
@@ -134,12 +135,16 @@ export default class Scaffold extends BaseCommand {
         }
       })
     );
+
+    // Generate scope guards if any entities have scopeBy configured
+    await createGuards(rootPath, entities);
+
     await createIndexAppModule(autogenPath, entities, lowerCaseApiType);
     const totalBuildTime = performance.now() - totalBuildStart;
     console.log(`[apso] Finished building all entities in ${totalBuildTime.toFixed(2)} ms`);
     const formatStart = performance.now();
     console.log("[apso] Formatting files...");
-    await this.runNpmCommand(["run", "format", "src/autogen/**/*.ts"], true);
+    await this.runNpmCommand(["run", "format", "src/autogen/**/*.ts", "src/guards/**/*.ts"], true);
     const formatTime = performance.now() - formatStart;
     console.log(`[apso] Finished formatting in ${formatTime.toFixed(2)} ms`);
   }

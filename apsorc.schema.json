@@ -150,6 +150,44 @@
             "$ref": "#/definitions/field"
           },
           "minItems": 1
+        },
+        "scopeBy": {
+          "description": "Fields or paths that define the authorization scope for this entity. These typically correspond to generated foreign key columns (e.g., workspaceId, serviceId) or relationship-based paths (e.g., task.workspaceId). Used to auto-generate guards that enforce data isolation.",
+          "oneOf": [
+            { "type": "string", "minLength": 1 },
+            {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "minItems": 1
+            }
+          ]
+        },
+        "scopeOptions": {
+          "description": "Optional configuration for how scope enforcement should behave for this entity.",
+          "type": "object",
+          "properties": {
+            "injectOnCreate": {
+              "description": "If true (default), scope fields are automatically injected from the request context on create when not provided.",
+              "type": "boolean",
+              "default": true
+            },
+            "enforceOn": {
+              "description": "Which operations should enforce scope. Defaults to all operations.",
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["find", "get", "create", "update", "delete"]
+              },
+              "minItems": 1,
+              "default": ["find", "get", "create", "update", "delete"]
+            },
+            "bypassRoles": {
+              "description": "Roles allowed to bypass scope enforcement (e.g., system_admin).",
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            }
+          },
+          "additionalProperties": false
         }
       },
       "required": [

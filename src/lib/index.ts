@@ -8,3 +8,4 @@ export { createIndexAppModule } from "./index-module";
 export { createDto } from "./dto";
 export { createEnums } from "./enums";
 export { createGqlDTO } from "./gql-dto";
+export { createGuards, hasScopedEntities, getScopedEntities } from "./guards";

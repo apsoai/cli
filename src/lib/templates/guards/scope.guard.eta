@@ -1,0 +1,319 @@
+<%~ includeFile('../header.eta') %>
+
+import {
+  Injectable,
+  CanActivate,
+  ExecutionContext,
+  ForbiddenException,
+} from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+
+<% /* Import all entities that have scoped relationships */ %>
+<% it.scopedEntities.forEach((entity) => { %>
+import { <%= entity.name %> } from '../autogen/<%= entity.name %>/<%= entity.name %>.entity';
+<% }) %>
+
+/**
+ * Decorator to skip scope check for certain routes
+ */
+export const SKIP_SCOPE_CHECK = 'skipScopeCheck';
+export const SkipScopeCheck = () =>
+  (target: any, key?: string, descriptor?: PropertyDescriptor) => {
+    Reflect.defineMetadata(
+      SKIP_SCOPE_CHECK,
+      true,
+      descriptor?.value || target,
+    );
+  };
+
+/**
+ * Decorator to mark routes as public (no auth required)
+ */
+export const IS_PUBLIC_KEY = 'isPublic';
+export const Public = () =>
+  (target: any, key?: string, descriptor?: PropertyDescriptor) => {
+    Reflect.defineMetadata(
+      IS_PUBLIC_KEY,
+      true,
+      descriptor?.value || target,
+    );
+  };
+
+/**
+ * Scope configuration for each entity
+ * Generated from .apsorc scopeBy definitions
+ */
+export interface ScopeConfig {
+  /** The scope fields or paths (e.g., 'workspaceId' or 'task.workspaceId') */
+  scopes: ScopeField[];
+  /** Whether to inject scope on create */
+  injectOnCreate: boolean;
+  /** Which operations to enforce scope on */
+  enforceOn: string[];
+  /** Roles that can bypass scope enforcement */
+  bypassRoles: string[];
+}
+
+export interface ScopeField {
+  /** The field name on the entity (e.g., 'workspaceId') or first segment of path */
+  field: string;
+  /** The context key to get the value from (defaults to field name) */
+  contextKey: string;
+  /** Whether this is a direct field (true) or nested path (false) */
+  direct: boolean;
+  /** For nested paths, the full path (e.g., 'task.workspaceId') */
+  path?: string;
+}
+
+/**
+ * Entity scope configuration map
+ * Auto-generated from .apsorc
+ */
+export const ENTITY_SCOPES: Record<string, ScopeConfig> = {
+<% it.scopedEntities.forEach((entity, index) => { %>
+  '<%= entity.routeName %>': {
+    scopes: [
+<% entity.scopes.forEach((scope, scopeIndex) => { %>
+      {
+        field: '<%= scope.field %>',
+        contextKey: '<%= scope.contextKey %>',
+        direct: <%= scope.direct %>,
+<% if (scope.path) { %>
+        path: '<%= scope.path %>',
+<% } %>
+      }<%= scopeIndex < entity.scopes.length - 1 ? ',' : '' %>
+<% }) %>
+    ],
+    injectOnCreate: <%= entity.injectOnCreate %>,
+    enforceOn: [<%= entity.enforceOn.map(op => `'${op}'`).join(', ') %>],
+    bypassRoles: [<%= entity.bypassRoles.map(role => `'${role}'`).join(', ') %>],
+  }<%= index < it.scopedEntities.length - 1 ? ',' : '' %>
+<% }) %>
+};
+
+@Injectable()
+export class ScopeGuard implements CanActivate {
+  constructor(
+    private reflector: Reflector,
+<% it.scopedEntities.forEach((entity) => { %>
+    @InjectRepository(<%= entity.name %>)
+    private <%= entity.repoName %>: Repository<<%= entity.name %>>,
+<% }) %>
+  ) {}
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    // Check if route should skip scope check
+    const skipCheck = this.reflector.getAllAndOverride<boolean>(
+      SKIP_SCOPE_CHECK,
+      [context.getHandler(), context.getClass()],
+    );
+
+    if (skipCheck) {
+      return true;
+    }
+
+    // Check if route is public
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+
+    if (isPublic) {
+      return true;
+    }
+
+    const request = context.switchToHttp().getRequest();
+
+    // Get the resource path from the request
+    const path = request.route?.path || request.path;
+    const method = request.method;
+
+    // Extract entity type from path (e.g., /Projects/:id -> projects)
+    const entityMatch = path.match(/^\/([^\/]+)/);
+    if (!entityMatch) {
+      return true;
+    }
+
+    const entityType = entityMatch[1].toLowerCase();
+
+    // Check if this is a scoped entity
+    const scopeConfig = ENTITY_SCOPES[entityType];
+    if (!scopeConfig) {
+      // Not a scoped entity, allow through
+      return true;
+    }
+
+    // Check if user has bypass role
+    const userRoles: string[] = request.user?.roles || request.roles || [];
+    if (scopeConfig.bypassRoles.some(role => userRoles.includes(role))) {
+      return true;
+    }
+
+    // Map HTTP method to operation
+    const operation = this.mapMethodToOperation(method, request.params?.id);
+
+    // Check if this operation should be enforced
+    if (!scopeConfig.enforceOn.includes(operation)) {
+      return true;
+    }
+
+    // For GET requests with an ID, verify the resource belongs to this scope
+    if ((operation === 'get' || operation === 'update' || operation === 'delete') && request.params?.id) {
+      const hasAccess = await this.verifyResourceAccess(
+        entityType,
+        request.params.id,
+        request,
+        scopeConfig,
+      );
+      if (!hasAccess) {
+        throw new ForbiddenException('You do not have access to this resource');
+      }
+    }
+
+    // For POST requests, inject scope values if configured
+    if (operation === 'create' && scopeConfig.injectOnCreate) {
+      this.injectScopeValues(request, scopeConfig);
+    }
+
+    // For GET (list) requests, add scope filter
+    if (operation === 'find') {
+      this.addScopeFilter(request, scopeConfig);
+    }
+
+    return true;
+  }
+
+  private mapMethodToOperation(method: string, hasId: boolean): string {
+    switch (method) {
+      case 'GET':
+        return hasId ? 'get' : 'find';
+      case 'POST':
+        return 'create';
+      case 'PUT':
+      case 'PATCH':
+        return 'update';
+      case 'DELETE':
+        return 'delete';
+      default:
+        return 'find';
+    }
+  }
+
+  private async verifyResourceAccess(
+    entityType: string,
+    resourceId: string,
+    request: any,
+    scopeConfig: ScopeConfig,
+  ): Promise<boolean> {
+    try {
+      const repo = this.getRepository(entityType);
+      if (!repo) {
+        return true; // Unknown entity, allow through
+      }
+
+      // Build relations array for nested scopes
+      const relations: string[] = [];
+      for (const scope of scopeConfig.scopes) {
+        if (!scope.direct && scope.path) {
+          // Extract relation name from path (e.g., 'task.workspaceId' -> 'task')
+          const relationName = scope.path.split('.')[0];
+          if (!relations.includes(relationName)) {
+            relations.push(relationName);
+          }
+        }
+      }
+
+      const entity = await repo.findOne({
+        where: { id: resourceId },
+        relations,
+      });
+
+      if (!entity) {
+        return false;
+      }
+
+      // Verify all scope conditions
+      for (const scope of scopeConfig.scopes) {
+        const expectedValue = this.getScopeValue(request, scope.contextKey);
+        if (!expectedValue) {
+          continue; // No scope value in context, skip this check
+        }
+
+        let actualValue: any;
+        if (scope.direct) {
+          actualValue = (entity as any)[scope.field];
+        } else if (scope.path) {
+          // Navigate the path (e.g., 'task.workspaceId')
+          actualValue = this.getNestedValue(entity, scope.path);
+        }
+
+        if (actualValue !== expectedValue) {
+          return false;
+        }
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Scope verification error:', error);
+      return false;
+    }
+  }
+
+  private injectScopeValues(request: any, scopeConfig: ScopeConfig): void {
+    if (!request.body || typeof request.body !== 'object') {
+      return;
+    }
+
+    for (const scope of scopeConfig.scopes) {
+      if (scope.direct) {
+        const scopeValue = this.getScopeValue(request, scope.contextKey);
+        if (scopeValue && !request.body[scope.field]) {
+          request.body[scope.field] = scopeValue;
+        }
+      }
+    }
+  }
+
+  private addScopeFilter(request: any, scopeConfig: ScopeConfig): void {
+    if (!request.query) {
+      request.query = {};
+    }
+
+    for (const scope of scopeConfig.scopes) {
+      if (scope.direct) {
+        const scopeValue = this.getScopeValue(request, scope.contextKey);
+        if (scopeValue) {
+          // Add filter for @nestjsx/crud
+          request.query[`filter.${scope.field}`] = `$eq:${scopeValue}`;
+        }
+      }
+    }
+  }
+
+  private getScopeValue(request: any, contextKey: string): string | undefined {
+    // Try multiple locations for the scope value
+    return (
+      request[contextKey] ||
+      request.user?.[contextKey] ||
+      request.scope?.[contextKey] ||
+      request.context?.[contextKey]
+    );
+  }
+
+  private getNestedValue(obj: any, path: string): any {
+    return path.split('.').reduce((current, key) => current?.[key], obj);
+  }
+
+  private getRepository(entityType: string): Repository<any> | null {
+    switch (entityType) {
+<% it.scopedEntities.forEach((entity) => { %>
+      case '<%= entity.routeName %>':
+        return this.<%= entity.repoName %>;
+<% }) %>
+      default:
+        return null;
+    }
+  }
+}
