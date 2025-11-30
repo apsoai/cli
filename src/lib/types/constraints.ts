@@ -1,5 +1,4 @@
 export interface Unique {
-    fields: string[];
-    name?: string;
-  }
-  
+  fields: string[];
+  name?: string;
+}

@@ -40,15 +40,19 @@ export const createDto = async (
   //   console.log('[DTO DEBUG] relationshipsTemplate:', relationshipsTemplate);
   // }
   // Add foreign key columns for ManyToOne relationships if not present
-  relationshipsTemplate.forEach(rel => {
-    if (rel.type === 'ManyToOne') {
-      const fkName = camelCase(rel.referenceName || rel.name) + 'Id';
+  relationshipsTemplate.forEach((rel) => {
+    if (rel.type === "ManyToOne") {
+      const fkName = camelCase(rel.referenceName || rel.name) + "Id";
 
       // Look up the referenced entity to determine the foreign key type
-      const referencedEntity = options?.allEntities?.find(e => e.name === rel.name);
-      const referencedPrimaryKeyType = referencedEntity?.primaryKeyType || 'serial';
-      const fkDataType = referencedPrimaryKeyType === 'uuid' ? 'string' : 'number';
-      const fkType = referencedPrimaryKeyType === 'uuid' ? 'text' : 'integer';
+      const referencedEntity = options?.allEntities?.find(
+        (e) => e.name === rel.name
+      );
+      const referencedPrimaryKeyType =
+        referencedEntity?.primaryKeyType || "serial";
+      const fkDataType =
+        referencedPrimaryKeyType === "uuid" ? "string" : "number";
+      const fkType = referencedPrimaryKeyType === "uuid" ? "text" : "integer";
 
       // if (process.env.DEBUG) {
       //   console.log('[DTO DEBUG]', {
@@ -61,7 +65,7 @@ export const createDto = async (
       //     columns: columns.map(c => c.name)
       //   });
       // }
-      if (!columns.some(col => col.name === fkName)) {
+      if (!columns.some((col) => col.name === fkName)) {
         columns.push({
           name: fkName,
           dataType: fkDataType,
@@ -78,12 +82,11 @@ export const createDto = async (
 
   const createdAt = entity.created_at;
   const updatedAt = entity.updated_at;
-  const primaryKeyType = entity.primaryKeyType || 'serial'; // Default to 'serial' if not specified
+  const primaryKeyType = entity.primaryKeyType || "serial"; // Default to 'serial' if not specified
 
   // Filter columns: remove id, createdAt, updatedAt
   const dtoColumns = columns.filter(
-    (col: ComputedField) =>
-      !["id", "createdAt", "updatedAt"].includes(col.name)
+    (col: ComputedField) => !["id", "createdAt", "updatedAt"].includes(col.name)
   );
 
   // Class names
@@ -105,7 +108,10 @@ export const createDto = async (
   };
 
   // Render the unified template only once
-  const dtoContent: any = await Eta.renderFileAsync("./rest/dto-rest", withGeneratedMeta(data));
+  const dtoContent: any = await Eta.renderFileAsync(
+    "./rest/dto-rest",
+    withGeneratedMeta(data)
+  );
 
   // Create only one DTO file
   await createFile(dtoFile, dtoContent);

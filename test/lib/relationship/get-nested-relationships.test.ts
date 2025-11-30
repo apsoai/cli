@@ -392,19 +392,18 @@ describe("test getNestedRelationships", () => {
         // "workspaceUsers.workspace.applications.applicationServices.databaseStack",
         // "workspaceUsers.workspace.applications.applicationServices.databaseStack.networkStack",
         "workspaceUsers.workspace.applications.owner",
-
       ],
       Workspace: [
-           "workspaceUsers.user",
-           "applications.applicationServices",
-           "applications.applicationServices.applicationServiceApiKeys",
-           "applications.applicationServices.applicationServiceMetrics",
-           "applications.applicationServices.networkStack",
-           "applications.applicationServices.databaseStack",
-           "applications.applicationServices.databaseStack.networkStack",
-           "applications.owner",
-           "applications.owner.workspaceUsers",
-          "applications.owner.workspaceUsers.user"
+        "workspaceUsers.user",
+        "applications.applicationServices",
+        "applications.applicationServices.applicationServiceApiKeys",
+        "applications.applicationServices.applicationServiceMetrics",
+        "applications.applicationServices.networkStack",
+        "applications.applicationServices.databaseStack",
+        "applications.applicationServices.databaseStack.networkStack",
+        "applications.owner",
+        "applications.owner.workspaceUsers",
+        "applications.owner.workspaceUsers.user",
       ],
     };
 
@@ -541,7 +540,7 @@ describe("getNestedRelationships requirements", () => {
           name: "User",
           referenceName: "owner",
           nullable: false,
-        }
+        },
       ],
     };
     const result = getNestedRelationships("User", map);
@@ -581,7 +580,7 @@ describe("getNestedRelationships requirements", () => {
           name: "User",
           referenceName: "owner",
           nullable: false,
-        }
+        },
       ],
     };
     const result = getNestedRelationships("User", map);
@@ -621,7 +620,7 @@ describe("getNestedRelationships requirements", () => {
           name: "User",
           referenceName: "owner",
           nullable: false,
-        }
+        },
       ],
     };
     const result = getNestedRelationships("User", map);
@@ -661,7 +660,7 @@ describe("getNestedRelationships requirements", () => {
           name: "User",
           referenceName: "owner",
           nullable: false,
-        }
+        },
       ],
     };
     const result = getNestedRelationships("User", map);

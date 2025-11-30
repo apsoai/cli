@@ -216,13 +216,15 @@ describe("test parseOneToMany", () => {
       nullable: true,
     };
     const expectedResult = {
-      User: [{
-        name: "WorkspaceUser",
-        type: "OneToMany",
-        biDirectional: true,
-        referenceName: "WorkspaceUser",
-        inverseReferenceName: "User",
-      }],
+      User: [
+        {
+          name: "WorkspaceUser",
+          type: "OneToMany",
+          biDirectional: true,
+          referenceName: "WorkspaceUser",
+          inverseReferenceName: "User",
+        },
+      ],
       WorkspaceUser: [
         {
           name: "User",
@@ -247,13 +249,15 @@ describe("test parseOneToMany", () => {
       type: "OneToMany",
     };
     const expectedResult = {
-      BinLoad: [{
-        name: "HopperLoad",
-        type: "OneToMany",
-        biDirectional: true,
-        referenceName: "HopperLoad",
-        inverseReferenceName: "BinLoad",
-      }],
+      BinLoad: [
+        {
+          name: "HopperLoad",
+          type: "OneToMany",
+          biDirectional: true,
+          referenceName: "HopperLoad",
+          inverseReferenceName: "BinLoad",
+        },
+      ],
       HopperLoad: [
         {
           name: "BinLoad",

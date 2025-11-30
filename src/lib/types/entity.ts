@@ -6,7 +6,7 @@ import { Association } from "./relationship";
 /**
  * Operations that can have scope enforcement applied
  */
-export type ScopeOperation = 'find' | 'get' | 'create' | 'update' | 'delete';
+export type ScopeOperation = "find" | "get" | "create" | "update" | "delete";
 
 /**
  * Configuration options for scope enforcement behavior
@@ -35,7 +35,7 @@ export interface Entity {
   created_at?: boolean;
   /* eslint-disable-next-line  camelcase */
   updated_at?: boolean;
-  primaryKeyType?: 'serial' | 'uuid';
+  primaryKeyType?: "serial" | "uuid";
   fields?: Field[];
   indexes?: Index[];
   uniques?: Unique[];

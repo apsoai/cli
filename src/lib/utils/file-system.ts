@@ -7,7 +7,10 @@ const createDir = async (dirname: string): Promise<void> => {
   }
 };
 
-export const createFile = async (file: string, content: string): Promise<void> => {
+export const createFile = async (
+  file: string,
+  content: string
+): Promise<void> => {
   const dirname = path.dirname(file);
   await createDir(dirname);
   await fs.promises.writeFile(file, content);
@@ -68,10 +71,12 @@ const writeFile = (
   }
 };
 
-export function withGeneratedMeta<T extends object>(data: T): T & { generatedAt: string; generatedBy: string } {
+export function withGeneratedMeta<T extends object>(
+  data: T
+): T & { generatedAt: string; generatedBy: string } {
   return {
     ...data,
     generatedAt: new Date().toISOString(),
-    generatedBy: process.env.USER || process.env.USERNAME || 'unknown',
+    generatedBy: process.env.USER || process.env.USERNAME || "unknown",
   };
 }

@@ -39,9 +39,9 @@ const relationshipMap: RelationshipMap = {
       name: "WorkspaceUser",
     },
     {
-      type: "ManyToOne", 
+      type: "ManyToOne",
       name: "WorkspaceService",
-    }
+    },
   ],
   WorkspaceService: [
     {
@@ -57,14 +57,14 @@ const relationshipMap: RelationshipMap = {
     {
       type: "ManyToOne",
       name: "WorkspaceService",
-    }
-  ]
+    },
+  ],
 };
 
 // Run the test for User entity
 console.log("Nested relationships for User:");
 const userNestedRelationships = getNestedRelationships("User", relationshipMap);
-userNestedRelationships.forEach(rel => console.log(` - ${rel}`));
+userNestedRelationships.forEach((rel) => console.log(` - ${rel}`));
 
 // Run test for CustomerCard entity (similar to what's shown in the diff)
 // Create a CustomerCard example with the pattern seen in the diff
@@ -73,11 +73,11 @@ const customerCardRelationshipMap: RelationshipMap = {
     {
       type: "ManyToOne",
       name: "User",
-    }
+    },
   ],
   User: [
     {
-      type: "OneToMany", 
+      type: "OneToMany",
       name: "Workspace",
     },
   ],
@@ -87,9 +87,9 @@ const customerCardRelationshipMap: RelationshipMap = {
       name: "WorkspaceUser",
     },
     {
-      type: "OneToMany", 
-      name: "WorkspaceService", 
-    }
+      type: "OneToMany",
+      name: "WorkspaceService",
+    },
   ],
   WorkspaceService: [
     {
@@ -101,16 +101,19 @@ const customerCardRelationshipMap: RelationshipMap = {
     {
       type: "ManyToOne",
       name: "WorkspaceService",
-    }
-  ]
+    },
+  ],
 };
 
 console.log("\nNested relationships for CustomerCard:");
-const customerCardNestedRelationships = getNestedRelationships("CustomerCard", customerCardRelationshipMap);
-customerCardNestedRelationships.forEach(rel => console.log(` - ${rel}`));
+const customerCardNestedRelationships = getNestedRelationships(
+  "CustomerCard",
+  customerCardRelationshipMap
+);
+customerCardNestedRelationships.forEach((rel) => console.log(` - ${rel}`));
 
 // Expected to see properly camelCased names like:
 // - workspace.workspaceUsers
 // - workspace.workspaceUsers.workspaceServiceUsers
 // - workspace.workspaceUsers.workspaceServiceUsers.workspaceService
-// - workspace.workspaceUsers.workspaceServiceUsers.workspaceService.workspaceServiceApiKeys 
+// - workspace.workspaceUsers.workspaceServiceUsers.workspaceService.workspaceServiceApiKeys

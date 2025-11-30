@@ -19,7 +19,8 @@ const fieldTypeToExpectedJSType = {
   polygon: "{ coordinates: Array<Array<{ x: number, y: number }>> }",
   multipoint: "{ coordinates: Array<{ x: number, y: number }> }",
   multilinestring: "{ coordinates: Array<Array<{ x: number, y: number }>> }",
-  multipolygon: "{ coordinates: Array<Array<Array<{ x: number, y: number }>>> }",
+  multipolygon:
+    "{ coordinates: Array<Array<Array<{ x: number, y: number }>>> }",
   geometrycollection: "{ geometries: Array<any> }",
 };
 

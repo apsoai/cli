@@ -36,7 +36,10 @@ export const createModule = async (
   };
 
   // Determine template based on API type
-  const templatePath = options?.apiType === "graphql" ? "./graphql/gql-module-graphql" : "./rest/module-rest";
+  const templatePath =
+    options?.apiType === "graphql"
+      ? "./graphql/gql-module-graphql"
+      : "./rest/module-rest";
 
   // Render the template
   const content: any = await Eta.renderFileAsync(templatePath, data);

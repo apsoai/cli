@@ -122,10 +122,14 @@ export const parseV1Relationships = (entities: Entity[]): RelationshipMap => {
 
   // Now, process each converted relationship, passing the full list
   for (const apsorcRelationship of apsorcRelationships) {
-    const parsedResult = parseRelationship(apsorcRelationship, apsorcRelationships);
+    const parsedResult = parseRelationship(
+      apsorcRelationship,
+      apsorcRelationships
+    );
 
     for (const key of Object.keys(parsedResult)) {
-      if (parsedResult[key] && parsedResult[key].length > 0) { // Ensure non-empty result
+      if (parsedResult[key] && parsedResult[key].length > 0) {
+        // Ensure non-empty result
         relationshipMap[key] = [
           ...(relationshipMap[key] || []),
           ...parsedResult[key],

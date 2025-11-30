@@ -1,4 +1,3 @@
-
 import { Command } from "@oclif/core";
 import { spawn } from "child_process";
 import os from "os";
@@ -32,9 +31,3 @@ export default abstract class BaseCommand extends Command {
     });
   }
 }
-
-
-
-
-
-

@@ -2,7 +2,10 @@ import * as path from "path";
 import { createFile, withGeneratedMeta } from "./utils/file-system";
 import { Entity, Field, Relationship } from "./types";
 import { typeExistsInEntity, getFieldForTemplate } from "./utils/field";
-import { getRelationshipsForImport, getRelationshipForTemplate } from "./utils/relationships";
+import {
+  getRelationshipsForImport,
+  getRelationshipForTemplate,
+} from "./utils/relationships";
 import { snakeCase, camelCase } from "./utils/casing";
 import pluralize from "pluralize";
 import * as Eta from "eta";
@@ -25,20 +28,29 @@ export const createEntity = async (options: {
   apiType: string;
   allEntities?: Entity[];
 }): Promise<void> => {
-  const { apiBaseDir, entity, relationships: relationshipsNew, apiType, allEntities } = options;
+  const {
+    apiBaseDir,
+    entity,
+    relationships: relationshipsNew,
+    apiType,
+    allEntities,
+  } = options;
   const { name, fields = [], indexes, uniques } = entity;
   const File = path.join(apiBaseDir, `${name}.entity.ts`);
   const columns = getFieldForTemplate(fields, name);
 
   const createPrimaryKey =
-    columns.filter((column: Field) => column.primary === true)
-      .length === 0;
+    columns.filter((column: Field) => column.primary === true).length === 0;
 
   const createdAt = entity.created_at;
   const updatedAt = entity.updated_at;
-  const primaryKeyType = entity.primaryKeyType || 'serial'; // Default to 'serial' if not specified
+  const primaryKeyType = entity.primaryKeyType || "serial"; // Default to 'serial' if not specified
 
-  const relationships = getRelationshipForTemplate(name, relationshipsNew, allEntities);
+  const relationships = getRelationshipForTemplate(
+    name,
+    relationshipsNew,
+    allEntities
+  );
   const entitiesToImport = getRelationshipsForImport(name, relationships);
 
   const data = {
@@ -58,9 +70,15 @@ export const createEntity = async (options: {
     apiType,
   };
 
-  const templatePath = apiType === "graphql" ? "./graphql/gql-entity-graphql" : "./entities/entity";
+  const templatePath =
+    apiType === "graphql"
+      ? "./graphql/gql-entity-graphql"
+      : "./entities/entity";
 
-  const content: any = await Eta.renderFileAsync(templatePath, withGeneratedMeta(data));
+  const content: any = await Eta.renderFileAsync(
+    templatePath,
+    withGeneratedMeta(data)
+  );
 
   await createFile(File, content);
 };

@@ -25,8 +25,14 @@ export const createController = async (
   relationshipMap: RelationshipMap
 ): Promise<void> => {
   const { name: entityName } = entity;
-  const controllerFileName = path.join(apiBaseDir, `${entityName}.controller.ts`);
-  const specFileName = path.join(apiBaseDir, `${entityName}.controller.spec.ts`);
+  const controllerFileName = path.join(
+    apiBaseDir,
+    `${entityName}.controller.ts`
+  );
+  const specFileName = path.join(
+    apiBaseDir,
+    `${entityName}.controller.spec.ts`
+  );
 
   const startTotal = performance.now();
 
@@ -37,22 +43,39 @@ export const createController = async (
   );
   const relTime = performance.now() - startRel;
   if (process.env.DEBUG) {
-    console.log(`[createController][${entityName}] getRelationshipForTemplate: ${relTime.toFixed(2)} ms`);
+    console.log(
+      `[createController][${entityName}] getRelationshipForTemplate: ${relTime.toFixed(
+        2
+      )} ms`
+    );
   }
 
   const startNested = performance.now();
   const tmpDir = os.tmpdir();
-  const nestedJoinsFile = path.join(tmpDir, `apso-nested-joins-${entityName}-${Date.now()}.eta`);
-  const nestedJoinsStream = fs.createWriteStream(nestedJoinsFile, { encoding: "utf8" });
+  const nestedJoinsFile = path.join(
+    tmpDir,
+    `apso-nested-joins-${entityName}-${Date.now()}.eta`
+  );
+  const nestedJoinsStream = fs.createWriteStream(nestedJoinsFile, {
+    encoding: "utf8",
+  });
   let nestedCount = 0;
-  nestedCount = await streamNestedRelationships(entityName, relationshipMap, nestedJoinsStream);
+  nestedCount = await streamNestedRelationships(
+    entityName,
+    relationshipMap,
+    nestedJoinsStream
+  );
   nestedJoinsStream.end();
   await new Promise((resolve) => {
     nestedJoinsStream.on("finish", resolve);
   });
   const nestedTime = performance.now() - startNested;
   if (process.env.DEBUG) {
-    console.log(`[createController][${entityName}] getNestedRelationships (streamed ${nestedCount} paths): ${nestedTime.toFixed(2)} ms`);
+    console.log(
+      `[createController][${entityName}] getNestedRelationships (streamed ${nestedCount} paths): ${nestedTime.toFixed(
+        2
+      )} ms`
+    );
   }
 
   const svcName = `${entityName}Service`;
@@ -75,14 +98,22 @@ export const createController = async (
   );
   const renderControllerTime = performance.now() - startRenderController;
   if (process.env.DEBUG) {
-    console.log(`[createController][${entityName}] renderController: ${renderControllerTime.toFixed(2)} ms`);
+    console.log(
+      `[createController][${entityName}] renderController: ${renderControllerTime.toFixed(
+        2
+      )} ms`
+    );
   }
 
   const startWriteController = performance.now();
   await createFile(controllerFileName, controllerContent);
   const writeControllerTime = performance.now() - startWriteController;
   if (process.env.DEBUG) {
-    console.log(`[createController][${entityName}] writeController: ${writeControllerTime.toFixed(2)} ms`);
+    console.log(
+      `[createController][${entityName}] writeController: ${writeControllerTime.toFixed(
+        2
+      )} ms`
+    );
   }
 
   const startRenderSpec = performance.now();
@@ -92,24 +123,37 @@ export const createController = async (
   );
   const renderSpecTime = performance.now() - startRenderSpec;
   if (process.env.DEBUG) {
-    console.log(`[createController][${entityName}] renderSpec: ${renderSpecTime.toFixed(2)} ms`);
+    console.log(
+      `[createController][${entityName}] renderSpec: ${renderSpecTime.toFixed(
+        2
+      )} ms`
+    );
   }
 
   const startWriteSpec = performance.now();
   await createFile(specFileName, specContent);
   const writeSpecTime = performance.now() - startWriteSpec;
   if (process.env.DEBUG) {
-    console.log(`[createController][${entityName}] writeSpec: ${writeSpecTime.toFixed(2)} ms`);
+    console.log(
+      `[createController][${entityName}] writeSpec: ${writeSpecTime.toFixed(
+        2
+      )} ms`
+    );
   }
 
   try {
     await unlinkAsync(nestedJoinsFile);
   } catch (error) {
-    console.warn(`[createController][${entityName}] Warning: Failed to delete temp file ${nestedJoinsFile}:`, error);
+    console.warn(
+      `[createController][${entityName}] Warning: Failed to delete temp file ${nestedJoinsFile}:`,
+      error
+    );
   }
 
   const totalTime = performance.now() - startTotal;
   if (process.env.DEBUG) {
-    console.log(`[createController][${entityName}] TOTAL: ${totalTime.toFixed(2)} ms`);
+    console.log(
+      `[createController][${entityName}] TOTAL: ${totalTime.toFixed(2)} ms`
+    );
   }
 };

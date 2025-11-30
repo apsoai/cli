@@ -34,7 +34,8 @@ const typeToJsType: Record<string, string> = {
   "json-plain": "any",
   bytea: "Buffer",
   point: "{ x: number, y: number }",
-  int4range: "{ lower: number, upper: number, lowerInclusive: boolean, upperInclusive: boolean }",
+  int4range:
+    "{ lower: number, upper: number, lowerInclusive: boolean, upperInclusive: boolean }",
   enum: "string", // handled elsewhere for custom enums
   // PostGIS data types
   geometry: "any",
@@ -43,7 +44,8 @@ const typeToJsType: Record<string, string> = {
   polygon: "{ coordinates: Array<Array<{ x: number, y: number }>> }",
   multipoint: "{ coordinates: Array<{ x: number, y: number }> }",
   multilinestring: "{ coordinates: Array<Array<{ x: number, y: number }>> }",
-  multipolygon: "{ coordinates: Array<Array<Array<{ x: number, y: number }>>> }",
+  multipolygon:
+    "{ coordinates: Array<Array<Array<{ x: number, y: number }>>> }",
   geometrycollection: "{ geometries: Array<any> }",
 };
 
@@ -91,7 +93,7 @@ export const getFieldForTemplate = (
   fields.map((field: Field) => {
     // Validate decimal/numeric fields
     validateDecimalField(field);
-    
+
     return {
       ...field,
       default: getDefaultValueForField(field),
@@ -116,7 +118,10 @@ export const validateDecimalField = (field: Field): void => {
   }
 
   // Validate precision
-  if (field.precision !== undefined && (field.precision < 1 || field.precision > 131_072)) {
+  if (
+    field.precision !== undefined &&
+    (field.precision < 1 || field.precision > 131_072)
+  ) {
     throw new Error(
       `${field.name}: Invalid precision value ${field.precision}. Must be between 1 and 131072.`
     );
