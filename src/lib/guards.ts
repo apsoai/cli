@@ -2,7 +2,14 @@ import * as Eta from "eta";
 import * as path from "path";
 import * as fs from "fs";
 import { createFile } from "./utils/file-system";
-import { Entity, ScopeOptions } from "./types";
+import {
+  Entity,
+  ScopeOptions,
+  AuthConfig,
+  DbSessionAuthConfig,
+  isDbSessionAuth,
+  DB_SESSION_AUTH_DEFAULTS,
+} from "./types";
 import pluralize from "pluralize";
 
 /**
@@ -121,21 +128,51 @@ export function hasScopedEntities(entities: Entity[]): boolean {
 }
 
 /**
+ * Normalizes auth config by applying defaults for DB session providers
+ * @param {AuthConfig | undefined} auth - The auth configuration to normalize
+ * @returns {DbSessionAuthConfig | undefined} The normalized auth config or undefined
+ */
+function normalizeAuthConfig(
+  auth: AuthConfig | undefined
+): DbSessionAuthConfig | undefined {
+  if (!auth) return undefined;
+
+  if (isDbSessionAuth(auth)) {
+    return {
+      ...DB_SESSION_AUTH_DEFAULTS,
+      ...auth,
+    };
+  }
+
+  // For now, only DB session providers are supported
+  // JWT providers will be added later
+  console.log(
+    `[apso] Auth provider '${auth.provider}' is not yet supported, skipping auth guard generation`
+  );
+  return undefined;
+}
+
+/**
  * Generates the guards module directory and files.
- * Creates scope.guard.ts, guards.module.ts, and index.ts in the guards directory.
+ * Creates auth.guard.ts, scope.guard.ts, guards.module.ts, and index.ts in the guards directory.
  *
  * @param rootPath The root path of the generated source (e.g., 'src').
  * @param entities All entities from the parsed .apsorc.
+ * @param auth Optional auth configuration from .apsorc.
  * @returns {Promise<void>} A promise that resolves when the guard files are created.
  */
 export const createGuards = async (
   rootPath: string,
-  entities: Entity[]
+  entities: Entity[],
+  auth?: AuthConfig
 ): Promise<void> => {
-  // Only generate guards if there are scoped entities
-  if (!hasScopedEntities(entities)) {
+  const hasScopes = hasScopedEntities(entities);
+  const normalizedAuth = normalizeAuthConfig(auth);
+
+  // Only generate guards if there are scoped entities OR auth config
+  if (!hasScopes && !normalizedAuth) {
     console.log(
-      "[apso] No scopeBy configurations found, skipping guards generation"
+      "[apso] No scopeBy or auth configurations found, skipping guards generation"
     );
     return;
   }
@@ -152,18 +189,32 @@ export const createGuards = async (
   // Common template data
   const templateData = {
     scopedEntities,
+    authConfig: normalizedAuth,
     generatedAt: new Date().toISOString(),
     generatedBy: "Apso CLI",
   };
 
-  // Generate scope.guard.ts
-  const scopeGuardPath = path.join(guardsDir, "scope.guard.ts");
-  const scopeGuardContent = await Eta.renderFileAsync(
-    "./guards/scope.guard.eta",
-    templateData
-  );
-  await createFile(scopeGuardPath, scopeGuardContent as string);
-  console.log(`[apso] Generated ${scopeGuardPath}`);
+  // Generate auth.guard.ts if auth is configured
+  if (normalizedAuth) {
+    const authGuardPath = path.join(guardsDir, "auth.guard.ts");
+    const authGuardContent = await Eta.renderFileAsync(
+      "./guards/auth.guard.eta",
+      templateData
+    );
+    await createFile(authGuardPath, authGuardContent as string);
+    console.log(`[apso] Generated ${authGuardPath}`);
+  }
+
+  // Generate scope.guard.ts if there are scoped entities
+  if (hasScopes) {
+    const scopeGuardPath = path.join(guardsDir, "scope.guard.ts");
+    const scopeGuardContent = await Eta.renderFileAsync(
+      "./guards/scope.guard.eta",
+      templateData
+    );
+    await createFile(scopeGuardPath, scopeGuardContent as string);
+    console.log(`[apso] Generated ${scopeGuardPath}`);
+  }
 
   // Generate guards.module.ts
   const guardsModulePath = path.join(guardsDir, "guards.module.ts");
@@ -183,7 +234,10 @@ export const createGuards = async (
   await createFile(indexPath, indexContent as string);
   console.log(`[apso] Generated ${indexPath}`);
 
-  console.log(
-    `[apso] Generated guards for ${scopedEntities.length} scoped entities`
-  );
+  // Summary
+  const parts = [];
+  if (normalizedAuth) parts.push(`auth (${normalizedAuth.provider})`);
+  if (scopedEntities.length > 0)
+    parts.push(`${scopedEntities.length} scoped entities`);
+  console.log(`[apso] Generated guards for ${parts.join(" + ")}`);
 };

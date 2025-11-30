@@ -192,7 +192,13 @@ describe("guards module", () => {
 
       expect(result).toHaveLength(1);
       expect(result[0].injectOnCreate).toBe(true); // default
-      expect(result[0].enforceOn).toEqual(["find", "get", "create", "update", "delete"]); // default
+      expect(result[0].enforceOn).toEqual([
+        "find",
+        "get",
+        "create",
+        "update",
+        "delete",
+      ]); // default
       expect(result[0].bypassRoles).toEqual(["admin"]); // custom
     });
 
@@ -267,7 +273,7 @@ describe("guards module", () => {
       const result = getScopedEntities(entities);
 
       expect(result).toHaveLength(2);
-      expect(result.map(e => e.name)).toEqual(["Project", "Task"]);
+      expect(result.map((e) => e.name)).toEqual(["Project", "Task"]);
     });
   });
 });

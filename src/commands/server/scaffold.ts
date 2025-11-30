@@ -21,7 +21,7 @@ import * as Eta from "eta";
 
 Eta.configure({
   views: path.join(__dirname, "../../lib/templates"),
-  cache: false
+  cache: false,
 });
 
 export default class Scaffold extends BaseCommand {
@@ -52,21 +52,31 @@ export default class Scaffold extends BaseCommand {
       entity,
       relationships: entityRelationships,
       apiType,
-      allEntities
+      allEntities,
     });
     switch (apiType) {
       case ApiType.Graphql:
         await this.setupGraphqlFiles(dir, entity, relationshipMap);
         break;
       case ApiType.Rest:
-        await this.setupRestFiles(dir, entity, relationshipMap, apiType, allEntities);
+        await this.setupRestFiles(
+          dir,
+          entity,
+          relationshipMap,
+          apiType,
+          allEntities
+        );
         break;
       default:
         break;
     }
     await createModule(filePath, entity, { apiType });
     const entityBuildTime = performance.now() - entityBuildStart;
-    console.log(`[apso] Finished building entity '${entity.name}' in ${entityBuildTime.toFixed(2)} ms`);
+    console.log(
+      `[apso] Finished building entity '${
+        entity.name
+      }' in ${entityBuildTime.toFixed(2)} ms`
+    );
   }
 
   async setupRestFiles(
@@ -80,25 +90,52 @@ export default class Scaffold extends BaseCommand {
     const entityRelationships = relationshipMap[entity.name] || [];
 
     const tDto = performance.now();
-    await createDto(filePath, entity, entityRelationships, { apiType, allEntities });
+    await createDto(filePath, entity, entityRelationships, {
+      apiType,
+      allEntities,
+    });
     if (process.env.DEBUG) {
-      console.log(`[timing] createDto for ${entity.name}: ${(performance.now() - tDto).toFixed(2)}ms`);
+      console.log(
+        `[timing] createDto for ${entity.name}: ${(
+          performance.now() - tDto
+        ).toFixed(2)}ms`
+      );
       const used = process.memoryUsage();
-      console.log(`[mem] heapUsed after createDto for ${entity.name}: ${(used.heapUsed / 1024 / 1024).toFixed(2)} MB`);
+      console.log(
+        `[mem] heapUsed after createDto for ${entity.name}: ${(
+          used.heapUsed /
+          1024 /
+          1024
+        ).toFixed(2)} MB`
+      );
     }
 
     const tService = performance.now();
     await createService(filePath, entity, relationshipMap);
     if (process.env.DEBUG) {
-      console.log(`[timing] createService for ${entity.name}: ${(performance.now() - tService).toFixed(2)}ms`);
+      console.log(
+        `[timing] createService for ${entity.name}: ${(
+          performance.now() - tService
+        ).toFixed(2)}ms`
+      );
       const used = process.memoryUsage();
-      console.log(`[mem] heapUsed after createService for ${entity.name}: ${(used.heapUsed / 1024 / 1024).toFixed(2)} MB`);
+      console.log(
+        `[mem] heapUsed after createService for ${entity.name}: ${(
+          used.heapUsed /
+          1024 /
+          1024
+        ).toFixed(2)} MB`
+      );
     }
 
     const tController = performance.now();
     await createController(filePath, entity, relationshipMap);
     if (process.env.DEBUG) {
-      console.log(`[timing] createController for ${entity.name}: ${(performance.now() - tController).toFixed(2)}ms`);
+      console.log(
+        `[timing] createController for ${entity.name}: ${(
+          performance.now() - tController
+        ).toFixed(2)}ms`
+      );
     }
   }
 
@@ -114,7 +151,7 @@ export default class Scaffold extends BaseCommand {
 
   async run(): Promise<void> {
     const totalBuildStart = performance.now();
-    const { rootFolder, entities, relationshipMap, apiType } = parseApsorc();
+    const { rootFolder, entities, relationshipMap, apiType, auth } = parseApsorc();
     const rootPath = path.join(process.cwd(), rootFolder);
     const autogenPath = path.join(rootPath, "autogen");
     const lowerCaseApiType = apiType.toLowerCase();
@@ -127,24 +164,35 @@ export default class Scaffold extends BaseCommand {
           entity,
           relationshipMap,
           apiType: lowerCaseApiType,
-          allEntities: entities
+          allEntities: entities,
         });
         if (process.env.DEBUG) {
           const used = process.memoryUsage();
-          console.log(`[mem] heapUsed after ${entity.name}: ${(used.heapUsed / 1024 / 1024).toFixed(2)} MB`);
+          console.log(
+            `[mem] heapUsed after ${entity.name}: ${(
+              used.heapUsed /
+              1024 /
+              1024
+            ).toFixed(2)} MB`
+          );
         }
       })
     );
 
-    // Generate scope guards if any entities have scopeBy configured
-    await createGuards(rootPath, entities);
+    // Generate guards (auth and/or scope) based on .apsorc configuration
+    await createGuards(rootPath, entities, auth);
 
     await createIndexAppModule(autogenPath, entities, lowerCaseApiType);
     const totalBuildTime = performance.now() - totalBuildStart;
-    console.log(`[apso] Finished building all entities in ${totalBuildTime.toFixed(2)} ms`);
+    console.log(
+      `[apso] Finished building all entities in ${totalBuildTime.toFixed(2)} ms`
+    );
     const formatStart = performance.now();
     console.log("[apso] Formatting files...");
-    await this.runNpmCommand(["run", "format", "src/autogen/**/*.ts", "src/guards/**/*.ts"], true);
+    await this.runNpmCommand(
+      ["run", "format", "src/autogen/**/*.ts", "src/guards/**/*.ts"],
+      true
+    );
     const formatTime = performance.now() - formatStart;
     console.log(`[apso] Finished formatting in ${formatTime.toFixed(2)} ms`);
   }

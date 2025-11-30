@@ -28,6 +28,13 @@ export const SkipScopeCheck = () =>
     );
   };
 
+<% if (it.authConfig) { %>
+/**
+ * Import Public decorator from auth.guard to avoid duplicate exports
+ */
+import { IS_PUBLIC_KEY, Public } from './auth.guard';
+export { IS_PUBLIC_KEY, Public };
+<% } else { %>
 /**
  * Decorator to mark routes as public (no auth required)
  */
@@ -40,6 +47,7 @@ export const Public = () =>
       descriptor?.value || target,
     );
   };
+<% } %>
 
 /**
  * Scope configuration for each entity

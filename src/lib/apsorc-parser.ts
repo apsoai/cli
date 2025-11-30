@@ -3,6 +3,7 @@ import * as path from "path";
 import rc from "rc";
 import { Entity } from "./types/entity";
 import { ApsorcRelationship, RelationshipMap } from "./types/relationship";
+import { AuthConfig } from "./types/auth";
 import {
   parseRelationships,
   parseV1Relationships,
@@ -20,6 +21,7 @@ export type ApsorcType = {
   entities: Entity[];
   apiType: ApiType;
   relationships: ApsorcRelationship[];
+  auth?: AuthConfig;
 };
 
 type ParsedApsorcData = {
@@ -31,6 +33,7 @@ type ParsedApsorc = {
   apiType: string;
   entities: Entity[];
   relationshipMap: RelationshipMap;
+  auth?: AuthConfig;
 };
 
 export const parseApsorcV1 = (apsorc: ApsorcType): ParsedApsorcData => {
@@ -55,6 +58,7 @@ const parseRc = (): ApsorcType => {
   const version = apsoConfig.version || 1;
   const entities = apsoConfig.entities || [];
   const relationships = apsoConfig.relationships || [];
+  const auth = apsoConfig.auth as AuthConfig | undefined;
 
   return {
     rootFolder,
@@ -62,6 +66,7 @@ const parseRc = (): ApsorcType => {
     version,
     entities,
     relationships,
+    auth,
   };
 };
 
@@ -83,13 +88,22 @@ export const parseApsorc = (): ParsedApsorc => {
         const result = {
           rootFolder: apsoConfig.rootFolder,
           apiType: apsoConfig.apiType,
+          auth: apsoConfig.auth,
           ...parseApsorcV1(apsoConfig),
         };
         if (debug) {
-          console.log(`[timing] parseApsorcV1: ${(performance.now() - v1Start).toFixed(2)}ms`);
+          console.log(
+            `[timing] parseApsorcV1: ${(performance.now() - v1Start).toFixed(
+              2
+            )}ms`
+          );
         }
         if (debug) {
-          console.log(`[timing] parseApsorc total: ${(performance.now() - start).toFixed(2)}ms`);
+          console.log(
+            `[timing] parseApsorc total: ${(performance.now() - start).toFixed(
+              2
+            )}ms`
+          );
         }
         return result;
       }
@@ -97,17 +111,26 @@ export const parseApsorc = (): ParsedApsorc => {
         const result = {
           rootFolder: apsoConfig.rootFolder,
           apiType: apsoConfig.apiType,
+          auth: apsoConfig.auth,
           ...(() => {
             const relStart = performance.now();
             const parsed = parseApsorcV2(apsoConfig);
             if (debug) {
-              console.log(`[timing] parseApsorcV2: ${(performance.now() - relStart).toFixed(2)}ms`);
+              console.log(
+                `[timing] parseApsorcV2: ${(
+                  performance.now() - relStart
+                ).toFixed(2)}ms`
+              );
             }
             return parsed;
           })(),
         };
         if (debug) {
-          console.log(`[timing] parseApsorc total: ${(performance.now() - start).toFixed(2)}ms`);
+          console.log(
+            `[timing] parseApsorc total: ${(performance.now() - start).toFixed(
+              2
+            )}ms`
+          );
         }
         return result;
       }
@@ -159,32 +182,34 @@ export const findConfigPath = (): string | null => {
  * @returns The unified configuration (entities, relationships, rootFolder).
  * @throws Error if the config file cannot be found, is invalid, or migration fails.
  */
-export const loadConfig = (
-  appName = "apso",
-  defaults = {}
-): UnifiedConfig => {
+export const loadConfig = (appName = "apso", defaults = {}): UnifiedConfig => {
   // Use rc to find and load the configuration file (.apsorc)
   const configData = rc(appName, defaults);
   const rootFolder = configData.rootFolder || "src"; // Get rootFolder early
 
   // Check if rc found and loaded the config
-  // rc returns an object with default keys if nothing is found, 
+  // rc returns an object with default keys if nothing is found,
   // so check for more than just default keys or if configData.config exists
-  const hasMeaningfulConfig = configData && 
-                             Object.keys(configData).some(key => !Object.prototype.hasOwnProperty.call(defaults, key) && key !== '_') && 
-                             configData.configs && configData.configs.length > 0;
+  const hasMeaningfulConfig =
+    configData &&
+    Object.keys(configData).some(
+      (key) =>
+        !Object.prototype.hasOwnProperty.call(defaults, key) && key !== "_"
+    ) &&
+    configData.configs &&
+    configData.configs.length > 0;
 
   if (!hasMeaningfulConfig) {
-      // If rc didn't find it, try our manual search as a fallback
-      const foundPath = findConfigPath();
-      // Use ternary to satisfy unicorn/prefer-ternary rule
-      throw foundPath
-         ? new Error(
-             `Configuration file found at: ${foundPath}, but failed to parse. Ensure it is valid JSON or INI.`
-           )
-         : new Error(
-             ".apsorc configuration file not found in the current directory or any parent directory."
-           );
+    // If rc didn't find it, try our manual search as a fallback
+    const foundPath = findConfigPath();
+    // Use ternary to satisfy unicorn/prefer-ternary rule
+    throw foundPath
+      ? new Error(
+          `Configuration file found at: ${foundPath}, but failed to parse. Ensure it is valid JSON or INI.`
+        )
+      : new Error(
+          ".apsorc configuration file not found in the current directory or any parent directory."
+        );
   }
 
   // Determine version and parse accordingly using existing functions
@@ -197,29 +222,31 @@ export const loadConfig = (
     rootFolder: rootFolder,
     entities: configData.entities || [],
     apiType: configData.apiType || ApiType.Rest, // Assuming ApiType enum is available
-    relationships: configData.relationships || []
+    relationships: configData.relationships || [],
   };
 
   if (version === 1) {
-     // Pass the correctly structured object
-     parsedData = parseApsorcV1(apsorcInput); 
+    // Pass the correctly structured object
+    parsedData = parseApsorcV1(apsorcInput);
   } else if (version === 2 && Array.isArray(configData.relationships)) {
-     // Pass the correctly structured object
-     parsedData = parseApsorcV2(apsorcInput);
+    // Pass the correctly structured object
+    parsedData = parseApsorcV2(apsorcInput);
   } else {
-     throw new Error(
-       "Invalid .apsorc format. Could not determine configuration version or structure."
-     );
+    throw new Error(
+      "Invalid .apsorc format. Could not determine configuration version or structure."
+    );
   }
 
   // Basic validation on the result of parsing
   if (!parsedData.entities || !Array.isArray(parsedData.entities)) {
-    throw new Error("Invalid config: 'entities' array is missing or invalid after parsing.");
+    throw new Error(
+      "Invalid config: 'entities' array is missing or invalid after parsing."
+    );
   }
-  if (!rootFolder || typeof rootFolder !== 'string') {
-      throw new Error(
-        "Invalid config: 'rootFolder' string is missing or invalid."
-      );
+  if (!rootFolder || typeof rootFolder !== "string") {
+    throw new Error(
+      "Invalid config: 'rootFolder' string is missing or invalid."
+    );
   }
   // Relationships are implicitly validated by parseRelationships/parseV1Relationships
 
@@ -229,6 +256,6 @@ export const loadConfig = (
     // or adjust UnifiedConfig. For now, returning empty array as placeholder.
     // The relationshipMap is the primary output needed by downstream code.
     relationships: [], // Placeholder - loadConfig users might need relationshipMap instead
-    rootFolder: rootFolder
+    rootFolder: rootFolder,
   };
 };

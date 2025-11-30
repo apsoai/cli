@@ -4,51 +4,111 @@ import { Module, Global } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { APP_GUARD } from '@nestjs/core';
 
+<% if (it.scopedEntities && it.scopedEntities.length > 0) { %>
 import { ScopeGuard } from './scope.guard';
+<% } %>
+<% if (it.authConfig) { %>
+import { AuthGuard } from './auth.guard';
+<% } %>
 
-<% /* Import all entities that have scopeBy defined */ %>
+<% /* Import all entities for ScopeGuard */ %>
+<% if (it.scopedEntities && it.scopedEntities.length > 0) { %>
+// Entities for ScopeGuard
 <% it.scopedEntities.forEach((entity) => { %>
 import { <%= entity.name %> } from '../autogen/<%= entity.name %>/<%= entity.name %>.entity';
 <% }) %>
+<% } %>
+
+<% /* Import entities for AuthGuard */ %>
+<% if (it.authConfig) { %>
+// Entities for AuthGuard
+import { <%= it.authConfig.sessionEntity %> } from '../autogen/<%= it.authConfig.sessionEntity %>/<%= it.authConfig.sessionEntity %>.entity';
+import { <%= it.authConfig.userEntity %> } from '../autogen/<%= it.authConfig.userEntity %>/<%= it.authConfig.userEntity %>.entity';
+<% if (it.authConfig.accountUserEntity) { %>
+import { <%= it.authConfig.accountUserEntity %> } from '../autogen/<%= it.authConfig.accountUserEntity %>/<%= it.authConfig.accountUserEntity %>.entity';
+<% } %>
+<% } %>
 
 /**
- * GuardsModule provides scope-based data isolation guards.
+ * GuardsModule provides authentication and scope-based data isolation guards.
  *
- * Auto-generated from .apsorc scopeBy definitions.
+ * Auto-generated from .apsorc configuration.
+ * Generated at: <%= it.generatedAt %>
  *
  * Usage:
  * 1. Import GuardsModule in your AppModule
  * 2. Guards are NOT enabled globally by default (for backward compatibility)
- * 3. To enable guards globally, uncomment the APP_GUARD provider below
- * 4. Or apply guards selectively using @UseGuards(ScopeGuard) on controllers/routes
+ * 3. To enable guards globally, uncomment the APP_GUARD providers below
+ * 4. Or apply guards selectively using @UseGuards(AuthGuard, ScopeGuard) on controllers
  *
- * When guards are enabled:
- * - All scoped routes enforce data isolation based on scopeBy config
- * - POST requests auto-inject scope fields from request context
+<% if (it.authConfig) { %>
+ * AuthGuard:
+ * - Validates session tokens from cookies/headers
+ * - Loads user and organization context
+ * - Attaches normalized AuthContext to request.auth
+ * - Provider: <%= it.authConfig.provider %>
+ *
+<% } %>
+<% if (it.scopedEntities && it.scopedEntities.length > 0) { %>
+ * ScopeGuard:
+ * - Enforces data isolation based on scopeBy config
+ * - POST requests auto-inject scope fields from request.auth
  * - GET requests auto-filter by scope fields
  * - GET/PUT/PATCH/DELETE by ID verify resource ownership
  *
+<% } %>
  * Decorators:
  * - @Public() - Skip all guards for a route
+<% if (it.scopedEntities && it.scopedEntities.length > 0) { %>
  * - @SkipScopeCheck() - Skip only scope checking
+<% } %>
  */
 @Global()
 @Module({
   imports: [
     TypeOrmModule.forFeature([
-<% it.scopedEntities.forEach((entity, index) => { %>
-      <%= entity.name %><%= index < it.scopedEntities.length - 1 ? ',' : '' %>
+<% /* Collect all unique entities */ %>
+<% const allEntities = new Set(); %>
+<% if (it.scopedEntities) { it.scopedEntities.forEach(e => allEntities.add(e.name)); } %>
+<% if (it.authConfig) { %>
+<%   allEntities.add(it.authConfig.sessionEntity); %>
+<%   allEntities.add(it.authConfig.userEntity); %>
+<%   if (it.authConfig.accountUserEntity) { allEntities.add(it.authConfig.accountUserEntity); } %>
+<% } %>
+<% const entityArray = Array.from(allEntities); %>
+<% entityArray.forEach((entity, index) => { %>
+      <%= entity %><%= index < entityArray.length - 1 ? ',' : '' %>
 <% }) %>
     ]),
   ],
   providers: [
+<% if (it.authConfig) { %>
+    AuthGuard,
+<% } %>
+<% if (it.scopedEntities && it.scopedEntities.length > 0) { %>
     ScopeGuard,
-    // UNCOMMENT BELOW TO ENABLE GLOBAL SCOPE ENFORCEMENT
+<% } %>
+    // UNCOMMENT BELOW TO ENABLE GLOBAL GUARDS
+<% if (it.authConfig) { %>
+    // {
+    //   provide: APP_GUARD,
+    //   useClass: AuthGuard,
+    // },
+<% } %>
+<% if (it.scopedEntities && it.scopedEntities.length > 0) { %>
     // {
     //   provide: APP_GUARD,
     //   useClass: ScopeGuard,
     // },
+<% } %>
   ],
-  exports: [ScopeGuard],
+  exports: [
+<% if (it.authConfig) { %>
+    AuthGuard,
+<% } %>
+<% if (it.scopedEntities && it.scopedEntities.length > 0) { %>
+    ScopeGuard,
+<% } %>
+  ],
 })
 export class GuardsModule {}

@@ -35,7 +35,9 @@ npm run start:dev
 - [Populating an .apsorc File](#populating-an-apsorc-file)
 - [Auto-Generated Code Reference](#auto-generated-code-reference)
 - [Relationships](#relationships)
+- [Authentication (Bring Your Own Auth)](#authentication-bring-your-own-auth)
 - [Data Scoping (Multi-Tenant Isolation)](#data-scoping-multi-tenant-isolation)
+- [Authentication + Scoping: Working Together](#authentication--scoping-working-together)
 - [Schema Reference](#schema-reference)
 - [Debugging](#debugging)
 - [Commands](#commands)
@@ -746,9 +748,354 @@ Refer to the [example v2 file](#example-apsorc-v2-file) for usage.
 > - Avoid deep nesting and duplicate definitions.
 > - Always inspect generated code and test your build after scaffolding.
 
+## Authentication (Bring Your Own Auth)
+
+Apso provides flexible, provider-agnostic authentication that generates NestJS guards from your `.apsorc` configuration. Unlike monolithic platforms that force vendor lock-in through proprietary auth systems, Apso embraces **code ownership** - you choose your auth provider, and you own the generated code.
+
+### Philosophy: Why Bring Your Own Auth Matters
+
+Traditional BaaS platforms like Supabase and Firebase provide authentication as a core feature, but this creates dependency:
+- Your user data lives in their systems
+- Migrating away requires rewriting auth logic
+- You're bound to their pricing, features, and roadmap
+
+**Apso takes a different approach:**
+- **Provider flexibility** - Use Better Auth, Auth0, Cognito, Clerk, or custom solutions
+- **Code ownership** - Generated guards are standard NestJS code you can inspect, modify, and extend
+- **Zero lock-in** - Switch providers by changing configuration, not rewriting code
+- **Normalized interface** - All providers produce the same `AuthContext` consumed by scoping and RBAC
+
+This philosophy ensures your authentication layer is **timeless** - it grows with your needs and migrates with your stack.
+
+### Supported Authentication Providers
+
+| Provider | Type | Best For |
+|----------|------|----------|
+| `better-auth` | Database Sessions | Self-hosted apps, maximum control |
+| `custom-db-session` | Database Sessions | Existing session tables, custom flows |
+| `auth0` | JWT | Enterprise SSO, social login |
+| `clerk` | JWT | Modern SaaS with prebuilt UI |
+| `cognito` | JWT | AWS ecosystem integration |
+| `api-key` | API Keys | Service-to-service auth, public APIs |
+
+### Basic Configuration
+
+Add an `auth` block to your `.apsorc`:
+
+```json
+{
+  "version": 2,
+  "auth": {
+    "provider": "better-auth"
+  },
+  "entities": [...]
+}
+```
+
+Run `apso server scaffold` to generate the auth guard.
+
+### Provider-Specific Configuration
+
+#### Better Auth / Custom DB Sessions
+
+For database-backed session authentication:
+
+```json
+{
+  "auth": {
+    "provider": "better-auth",
+    "sessionEntity": "session",
+    "userEntity": "User",
+    "accountUserEntity": "AccountUser",
+    "cookiePrefix": "myapp",
+    "organizationField": "organizationId",
+    "roleField": "role"
+  }
+}
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `sessionEntity` | `"session"` | Entity storing session tokens |
+| `userEntity` | `"User"` | Entity for user accounts |
+| `accountUserEntity` | `"AccountUser"` | Junction entity for user-org mapping |
+| `cookiePrefix` | service name | Cookie name prefix (e.g., `myapp.session_token`) |
+| `organizationField` | `"organizationId"` | Field on accountUserEntity for org ID |
+| `roleField` | `"role"` | Field on accountUserEntity for user role |
+
+#### JWT Providers (Auth0, Clerk, Cognito)
+
+For JWT-based authentication:
+
+```json
+{
+  "auth": {
+    "provider": "auth0",
+    "jwt": {
+      "issuer": "https://your-tenant.auth0.com/",
+      "audience": "https://your-api.example.com",
+      "jwksUri": "https://your-tenant.auth0.com/.well-known/jwks.json",
+      "algorithms": ["RS256"]
+    },
+    "claims": {
+      "userId": "sub",
+      "email": "email",
+      "organizationId": "org_id",
+      "roles": "permissions"
+    }
+  }
+}
+```
+
+| JWT Option | Default | Description |
+|------------|---------|-------------|
+| `issuer` | Required | JWT issuer URL |
+| `audience` | Required | Expected JWT audience |
+| `jwksUri` | `issuer + /.well-known/jwks.json` | JWKS endpoint for key rotation |
+| `algorithms` | `["RS256"]` | Accepted signing algorithms |
+
+| Claims Option | Default | Description |
+|---------------|---------|-------------|
+| `userId` | `"sub"` | Claim containing user ID |
+| `email` | `"email"` | Claim containing user email |
+| `organizationId` | - | Claim for org/workspace ID |
+| `roles` | `"roles"` | Claim containing role array |
+
+#### API Key Authentication
+
+For service-to-service or public API authentication:
+
+```json
+{
+  "auth": {
+    "provider": "api-key",
+    "apiKeyHeader": "x-api-key",
+    "apiKeyEntity": "ApiKey",
+    "workspaceField": "workspaceId",
+    "roleField": "permissions"
+  }
+}
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `apiKeyHeader` | `"x-api-key"` | Header name for API key |
+| `apiKeyEntity` | `"ApiKey"` | Entity storing API keys |
+| `workspaceField` | - | Field on entity for workspace ID |
+| `roleField` | - | Field on entity for permissions |
+
+### The AuthContext Interface
+
+All auth providers produce a normalized `AuthContext` that's attached to every authenticated request:
+
+```typescript
+interface AuthContext {
+  userId?: string;           // The authenticated user's ID
+  email?: string;            // User's email (if available)
+  workspaceId?: string;      // Workspace/tenant ID
+  organizationId?: string;   // Organization ID (alias)
+  roles: string[];           // User's roles/permissions
+  serviceId?: string;        // For API key auth: the key identifier
+  user?: unknown;            // Raw user object (provider-specific)
+  session?: unknown;         // Raw session object (provider-specific)
+}
+```
+
+This normalization is powerful - your business logic works with the same interface regardless of whether you're using Auth0 JWTs or Better Auth sessions.
+
+### Generated Files
+
+When `auth` is configured, `apso server scaffold` generates:
+
+```
+src/
+  guards/
+    auth.guard.ts       # Authentication guard implementation
+    scope.guard.ts      # Data scoping guard (if scopeBy used)
+    guards.module.ts    # NestJS module with providers
+    index.ts            # Exports
+```
+
+### Enabling Authentication
+
+Guards are generated but **not enabled globally by default**. Enable them based on your needs:
+
+#### Option 1: Global Enable (Recommended for most apps)
+
+Edit `src/guards/guards.module.ts`:
+
+```typescript
+providers: [
+  AuthGuard,
+  ScopeGuard,
+  // Uncomment to enable globally:
+  {
+    provide: APP_GUARD,
+    useClass: AuthGuard,
+  },
+  {
+    provide: APP_GUARD,
+    useClass: ScopeGuard,
+  },
+],
+```
+
+#### Option 2: Controller-Level Enable
+
+```typescript
+import { AuthGuard } from '../guards';
+
+@UseGuards(AuthGuard)
+@Controller('projects')
+export class ProjectController { }
+```
+
+#### Option 3: Route-Level Enable
+
+```typescript
+@UseGuards(AuthGuard)
+@Get('me')
+getProfile(@Req() req: AuthenticatedRequest) {
+  return req.auth;
+}
+```
+
+### Decorators
+
+```typescript
+import { Public, SkipScopeCheck } from './guards';
+
+// Skip ALL guards (no authentication required)
+@Public()
+@Get('health')
+healthCheck() { }
+
+// Skip only scope checking (auth still required)
+@SkipScopeCheck()
+@Get('admin/stats')
+adminStats() { }
+```
+
+### Accessing Auth Context
+
+In controllers and services, access the authenticated context:
+
+```typescript
+import { AuthenticatedRequest, getAuthContext, requireAuthContext } from './guards';
+
+@Controller('projects')
+export class ProjectController {
+  @Get()
+  findAll(@Req() req: AuthenticatedRequest) {
+    // Direct access
+    const userId = req.auth.userId;
+    const orgId = req.auth.organizationId;
+
+    // Or use helpers
+    const ctx = requireAuthContext(req); // Throws if not authenticated
+    return this.projectService.findByOrg(ctx.organizationId);
+  }
+}
+```
+
+### Token Extraction
+
+The generated auth guard extracts tokens from multiple locations (in order):
+
+1. **Authorization header**: `Bearer <token>`
+2. **Cookies**: `{cookiePrefix}.session_token`, `better-auth.session_token`, or `session_token`
+3. **Custom header**: `X-Session-Token`
+
+This flexibility supports both browser-based apps (cookies) and API clients (headers).
+
+### Complete Example
+
+```json
+{
+  "version": 2,
+  "auth": {
+    "provider": "better-auth",
+    "sessionEntity": "session",
+    "userEntity": "User",
+    "accountUserEntity": "AccountUser",
+    "cookiePrefix": "myapp",
+    "organizationField": "organizationId",
+    "roleField": "role"
+  },
+  "entities": [
+    {
+      "name": "User",
+      "fields": [
+        { "name": "email", "type": "text", "unique": true },
+        { "name": "name", "type": "text", "nullable": true }
+      ]
+    },
+    {
+      "name": "session",
+      "fields": [
+        { "name": "token", "type": "text", "unique": true },
+        { "name": "expiresAt", "type": "timestamp" },
+        { "name": "userId", "type": "text" }
+      ]
+    },
+    {
+      "name": "Organization",
+      "fields": [
+        { "name": "name", "type": "text" }
+      ]
+    },
+    {
+      "name": "AccountUser",
+      "fields": [
+        { "name": "role", "type": "enum", "values": ["owner", "admin", "member"] }
+      ]
+    },
+    {
+      "name": "Project",
+      "scopeBy": "organizationId",
+      "fields": [
+        { "name": "name", "type": "text" }
+      ]
+    }
+  ],
+  "relationships": [
+    { "from": "AccountUser", "to": "User", "type": "ManyToOne" },
+    { "from": "AccountUser", "to": "Organization", "type": "ManyToOne" },
+    { "from": "Project", "to": "Organization", "type": "ManyToOne" }
+  ]
+}
+```
+
+### Migrating Between Providers
+
+One of Apso's key advantages is seamless provider migration:
+
+1. Update the `auth` block in `.apsorc`
+2. Run `apso server scaffold`
+3. Update your frontend to use the new provider's login flow
+
+Your business logic remains unchanged because it only interacts with the normalized `AuthContext`.
+
+---
+
 ## Data Scoping (Multi-Tenant Isolation)
 
-Apso CLI supports automatic generation of scope guards that enforce data isolation at the application layer. This is useful for multi-tenant applications where users should only access data within their assigned scope (e.g., workspace, organization, team).
+Apso provides application-layer data isolation that rivals PostgreSQL's Row-Level Security (RLS) - but with greater flexibility, visibility, and portability. This is Apso's answer to one of the most critical challenges in SaaS development: ensuring users only see and modify data they're authorized to access.
+
+### Philosophy: Application-Layer RLS
+
+Traditional approaches to multi-tenant data isolation include:
+- **Database RLS (Supabase)** - Powerful but opaque, tied to PostgreSQL, difficult to debug
+- **Manual filtering** - Error-prone, repetitive, easy to forget on new endpoints
+- **ORM middleware** - Often complex, hard to customize
+
+**Apso's approach delivers the best of all worlds:**
+- **Declarative** - Define scope once in `.apsorc`, applied everywhere
+- **Transparent** - Generated guards are standard NestJS code you can inspect and debug
+- **Portable** - Works with any database, not locked to PostgreSQL RLS
+- **Flexible** - Configure per-entity behavior: auto-injection, filtering, bypass rules
+
+This design is **timeless** - your data isolation logic is explicit code, not hidden database magic.
 
 ### What is scopeBy?
 
@@ -958,6 +1305,168 @@ request.user = { roles: ['user'] };
 - Permission checking (create, read, update, delete)
 
 These are intentionally separate. Use `scopeBy` for data isolation, and implement authorization guards separately for permission checking.
+
+---
+
+## Authentication + Scoping: Working Together
+
+Auth and Scoping are designed to work together seamlessly. This combined system delivers enterprise-grade security with minimal configuration.
+
+### How They Connect
+
+When both `auth` and `scopeBy` are configured:
+
+1. **AuthGuard runs first** - Validates the session/token and populates `request.auth`
+2. **ScopeGuard runs second** - Reads `organizationId`/`workspaceId` from `request.auth` and enforces isolation
+
+The `AuthContext` automatically provides the scope values that `scopeBy` needs:
+
+```typescript
+// AuthGuard sets this on every authenticated request:
+request.auth = {
+  userId: "user_123",
+  organizationId: "org_456",  // <-- ScopeGuard uses this
+  workspaceId: "org_456",     // <-- Or this (alias)
+  roles: ["admin"],
+  // ...
+}
+
+// ScopeGuard then uses organizationId to:
+// - Filter GET /projects -> only org_456's projects
+// - Inject on POST /projects -> auto-set organizationId
+// - Verify on GET /projects/:id -> ensure it belongs to org_456
+```
+
+### Complete Multi-Tenant Example
+
+```json
+{
+  "version": 2,
+  "auth": {
+    "provider": "better-auth",
+    "sessionEntity": "session",
+    "userEntity": "User",
+    "accountUserEntity": "AccountUser",
+    "organizationField": "organizationId"
+  },
+  "entities": [
+    {
+      "name": "User",
+      "fields": [
+        { "name": "email", "type": "text", "unique": true },
+        { "name": "name", "type": "text", "nullable": true }
+      ]
+    },
+    {
+      "name": "session",
+      "fields": [
+        { "name": "token", "type": "text", "unique": true },
+        { "name": "expiresAt", "type": "timestamp" },
+        { "name": "userId", "type": "text" }
+      ]
+    },
+    {
+      "name": "Organization",
+      "fields": [
+        { "name": "name", "type": "text" },
+        { "name": "plan", "type": "enum", "values": ["free", "pro", "enterprise"] }
+      ]
+    },
+    {
+      "name": "AccountUser",
+      "fields": [
+        { "name": "role", "type": "enum", "values": ["owner", "admin", "member"] }
+      ]
+    },
+    {
+      "name": "Project",
+      "scopeBy": "organizationId",
+      "fields": [
+        { "name": "name", "type": "text" },
+        { "name": "status", "type": "enum", "values": ["active", "archived"] }
+      ]
+    },
+    {
+      "name": "Task",
+      "scopeBy": ["organizationId", "projectId"],
+      "fields": [
+        { "name": "title", "type": "text" },
+        { "name": "completed", "type": "boolean", "default": false }
+      ]
+    },
+    {
+      "name": "AuditLog",
+      "scopeBy": "organizationId",
+      "scopeOptions": {
+        "injectOnCreate": true,
+        "enforceOn": ["find", "get"],
+        "bypassRoles": ["superadmin"]
+      },
+      "fields": [
+        { "name": "action", "type": "text" },
+        { "name": "details", "type": "json" }
+      ]
+    }
+  ],
+  "relationships": [
+    { "from": "AccountUser", "to": "User", "type": "ManyToOne" },
+    { "from": "AccountUser", "to": "Organization", "type": "ManyToOne" },
+    { "from": "Project", "to": "Organization", "type": "ManyToOne" },
+    { "from": "Task", "to": "Project", "type": "ManyToOne" },
+    { "from": "Task", "to": "Organization", "type": "ManyToOne" },
+    { "from": "AuditLog", "to": "Organization", "type": "ManyToOne" }
+  ]
+}
+```
+
+### Guard Execution Order
+
+Enable both guards globally for automatic protection:
+
+```typescript
+// src/guards/guards.module.ts
+providers: [
+  AuthGuard,
+  ScopeGuard,
+  {
+    provide: APP_GUARD,
+    useClass: AuthGuard,    // Runs first
+  },
+  {
+    provide: APP_GUARD,
+    useClass: ScopeGuard,   // Runs second
+  },
+],
+```
+
+### The Apso Security Stack
+
+| Layer | Guard | Question Answered | Configuration |
+|-------|-------|-------------------|---------------|
+| 1. Identity | AuthGuard | "Who is this user?" | `auth` in `.apsorc` |
+| 2. Isolation | ScopeGuard | "Which data can they see?" | `scopeBy` on entities |
+| 3. Authorization | (Your implementation) | "What actions can they take?" | Custom RBAC guard |
+
+Apso handles layers 1 and 2 automatically. Layer 3 (fine-grained permissions like "can edit this specific resource") is left to your business logic since it varies widely between applications.
+
+### Why This Matters: The Supabase Comparison
+
+| Feature | Supabase | Apso |
+|---------|----------|------|
+| **Auth** | Built-in, proprietary | Bring your own, code you own |
+| **Data Isolation** | PostgreSQL RLS (opaque) | Application-layer guards (transparent) |
+| **Portability** | Locked to Supabase | Works with any database |
+| **Debugging** | Database logs, hard to trace | Standard NestJS code, full visibility |
+| **Customization** | Limited to RLS policies | Unlimited - it's your code |
+| **Migration Path** | Rewrite required | Change config, regenerate |
+
+Apso delivers equivalent functionality to Supabase's auth + RLS combo, but with:
+- **Full code ownership** - No vendor lock-in
+- **Provider flexibility** - Auth0, Clerk, Cognito, or self-hosted
+- **Database freedom** - PostgreSQL, MySQL, MongoDB, or any TypeORM-supported database
+- **Complete transparency** - Debug with standard tools, not vendor-specific dashboards
+
+This architecture is **timeless** - it grows with your needs, migrates with your stack, and remains fully under your control.
 
 ---
 
