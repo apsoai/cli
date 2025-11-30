@@ -11,21 +11,21 @@ import { ScopeGuard } from './scope.guard';
 import { AuthGuard } from './auth.guard';
 <% } %>
 
-<% /* Import all entities for ScopeGuard */ %>
+<% /* Import all entities for ScopeGuard (from sibling autogen folders) */ %>
 <% if (it.scopedEntities && it.scopedEntities.length > 0) { %>
 // Entities for ScopeGuard
 <% it.scopedEntities.forEach((entity) => { %>
-import { <%= entity.name %> } from '../autogen/<%= entity.name %>/<%= entity.name %>.entity';
+import { <%= entity.name %> } from '../<%= entity.name %>/<%= entity.name %>.entity';
 <% }) %>
 <% } %>
 
-<% /* Import entities for AuthGuard */ %>
+<% /* Import entities for AuthGuard (from sibling autogen folders) */ %>
 <% if (it.authConfig) { %>
 // Entities for AuthGuard
-import { <%= it.authConfig.sessionEntity %> } from '../autogen/<%= it.authConfig.sessionEntity %>/<%= it.authConfig.sessionEntity %>.entity';
-import { <%= it.authConfig.userEntity %> } from '../autogen/<%= it.authConfig.userEntity %>/<%= it.authConfig.userEntity %>.entity';
+import { <%= it.authConfig.sessionEntity %> } from '../<%= it.authConfig.sessionEntity %>/<%= it.authConfig.sessionEntity %>.entity';
+import { <%= it.authConfig.userEntity %> } from '../<%= it.authConfig.userEntity %>/<%= it.authConfig.userEntity %>.entity';
 <% if (it.authConfig.accountUserEntity) { %>
-import { <%= it.authConfig.accountUserEntity %> } from '../autogen/<%= it.authConfig.accountUserEntity %>/<%= it.authConfig.accountUserEntity %>.entity';
+import { <%= it.authConfig.accountUserEntity %> } from '../<%= it.authConfig.accountUserEntity %>/<%= it.authConfig.accountUserEntity %>.entity';
 <% } %>
 <% } %>
 

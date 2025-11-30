@@ -10,9 +10,9 @@ import { Reflector } from '@nestjs/core';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
-<% /* Import all entities that have scoped relationships */ %>
+<% /* Import all entities that have scoped relationships (from sibling autogen folders) */ %>
 <% it.scopedEntities.forEach((entity) => { %>
-import { <%= entity.name %> } from '../autogen/<%= entity.name %>/<%= entity.name %>.entity';
+import { <%= entity.name %> } from '../<%= entity.name %>/<%= entity.name %>.entity';
 <% }) %>
 
 /**

@@ -177,7 +177,7 @@ export const createGuards = async (
     return;
   }
 
-  const guardsDir = path.join(rootPath, "guards");
+  const guardsDir = path.join(rootPath, "autogen", "guards");
 
   // Ensure guards directory exists
   if (!fs.existsSync(guardsDir)) {
