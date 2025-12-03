@@ -7,6 +7,10 @@ import * as enums from '../../enums';
 <% } %>
 
 export class <%= it.entityName %>Create {
+<% if (it.addDefaultPKProperty && (it.primaryKeyType === 'uuid' || it.primaryKeyType === 'text')) { %>
+    @ApiProperty()
+    id: string;
+<% } %>
 <% it.columns.forEach((field) => { %>
     @ApiProperty()
   <%if (field.dataType.includes("Enum")) {%>
@@ -36,7 +40,7 @@ export class <%= it.entityName %>Create {
 export class <%= it.entityName %> {
 <% if (it.addDefaultPKProperty) { %>
     @ApiProperty()
-    id: <%= it.primaryKeyType === 'uuid' ? 'string' : 'number' %>;
+    id: <%= (it.primaryKeyType === 'uuid' || it.primaryKeyType === 'text') ? 'string' : 'number' %>;
 <% } %>
 <% it.columns.forEach((field) => { %>
     @ApiProperty()
