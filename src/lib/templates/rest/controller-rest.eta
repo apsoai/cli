@@ -15,6 +15,13 @@ import {<%= it.svcName %>} from './<%= it.entityName %>.service';
         update: <%= it.entityName %>,
         replace: <%= it.entityName %>,
     },
+    params: {
+        id: {
+            field: 'id',
+            type: 'string',
+            primary: true,
+        },
+    },
     query: {
         /**
         * commenting out limit and pagination because of an issue with Crud lib: https://github.com/nestjsx/crud/issues/777

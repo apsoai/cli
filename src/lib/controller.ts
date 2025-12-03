@@ -81,12 +81,14 @@ export const createController = async (
   const svcName = `${entityName}Service`;
   const ctrlName = `${entityName}Controller`;
   const pluralEntityName = pluralize(entityName);
+  const primaryKeyType = entity.primaryKeyType || "serial"; // Default to 'serial' if not specified
 
   const data = {
     svcName,
     ctrlName,
     entityName,
     pluralEntityName,
+    primaryKeyType,
     associations: [...new Set(relationships)],
     nestedJoinsFile,
   };
