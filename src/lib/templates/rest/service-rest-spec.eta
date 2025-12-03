@@ -1,14 +1,9 @@
 <%~ includeFile('./header.eta') %>
 
 import { Test, TestingModule } from '@nestjs/testing';
+import { getRepositoryToken } from '@nestjs/typeorm';
 import { <%= it.svcName %> } from './<%= it.entityName %>.service';
-import { TypeOrmModule } from '@nestjs/typeorm';
 import { <%= it.entityName %> } from './<%= it.entityName %>.entity';
-<% it.allRelatedEntities.forEach(function(entity) { if (entity !== it.entityName) { %>
-import { <%= entity %> } from '../<%= entity %>/<%= entity %>.entity';
-<% }}); %>
-
-// All related entities (including the main entity) are included below to ensure TypeORM can resolve relationships for this service's entity and its graph.
 
 describe('<%= it.svcName %>', () => {
   let service: <%= it.svcName %>;
@@ -22,18 +17,25 @@ describe('<%= it.svcName %>', () => {
       create: jest.fn().mockReturnValue({}),
       update: jest.fn().mockResolvedValue({}),
       delete: jest.fn().mockResolvedValue({}),
+      createQueryBuilder: jest.fn(() => ({
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        skip: jest.fn().mockReturnThis(),
+        take: jest.fn().mockReturnThis(),
+        getMany: jest.fn().mockResolvedValue([]),
+        getOne: jest.fn().mockResolvedValue({}),
+      })),
     };
 
     const module: TestingModule = await Test.createTestingModule({
-      imports: [
-        TypeOrmModule.forRoot({
-          // ...database config (provide your test DB config here)
-          entities: [<%= [it.entityName, ...it.allRelatedEntities.filter(e => e !== it.entityName)].join(', ') %>],
-          synchronize: true,
-        }),
-        TypeOrmModule.forFeature([<%= it.entityName %>]),
+      providers: [
+        <%= it.svcName %>,
+        {
+          provide: getRepositoryToken(<%= it.entityName %>),
+          useValue: mockRepository,
+        },
       ],
-      providers: [<%= it.svcName %>],
     }).compile();
 
     service = module.get<<%= it.svcName %>>(<%= it.svcName %>);
