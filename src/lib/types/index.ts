@@ -2,6 +2,7 @@ export { Entity, ScopeOptions, ScopeOperation } from "./entity";
 export { FieldType, Field, ComputedField } from "./field";
 export { Index } from "./indices";
 export { JSONValue } from "./json";
+export { ProjectLink } from "./link";
 export {
   RelationshipType,
   Association,

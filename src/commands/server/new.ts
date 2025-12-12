@@ -27,13 +27,26 @@ export default class New extends BaseCommand {
 
   async installModules(projectPath: string): Promise<void> {
     this.log("Installing modules...");
-    await this.runNpmCommand(["install", "--force", "--prefix", projectPath]);
+    // Change to project directory before running npm install
+    const originalDir = process.cwd();
+    try {
+      process.chdir(projectPath);
+      await this.runNpmCommand(["install", "--force"]);
+    } finally {
+      process.chdir(originalDir);
+    }
   }
 
   async formatApp(projectPath: string): Promise<void> {
     this.log("Formatting code...");
-    shell.cd(projectPath);
-    await this.runNpmCommand(["run", "format", "--prefix", projectPath]);
+    // Change to project directory before running npm format
+    const originalDir = process.cwd();
+    try {
+      process.chdir(projectPath);
+      await this.runNpmCommand(["run", "format"]);
+    } finally {
+      process.chdir(originalDir);
+    }
   }
 
   async startApp(projectPath: string): Promise<void> {
@@ -91,7 +104,11 @@ export default class New extends BaseCommand {
     }
 
     // If clone was successful, proceed to remove the .git directory
-    shell.exec(`rm -rf ${projectPath}/.git`);
+    // Use shelljs rm which is cross-platform compatible
+    const gitDir = path.join(projectPath, ".git");
+    if (fs.existsSync(gitDir)) {
+      shell.rm("-rf", gitDir);
+    }
     shell.cd(this.CURR_DIR);
   }
 

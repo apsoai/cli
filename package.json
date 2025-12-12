@@ -87,6 +87,7 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
+    "test:real-link": "ts-node --transpile-only test-real-link.ts",
     "docs:generate": "typedoc src/lib/index.ts --out docs",
     "version": "oclif readme && git add README.md"
   },

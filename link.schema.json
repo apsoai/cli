@@ -1,0 +1,73 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Apso Project Link Schema",
+  "description": "Schema for .apso/link.json file that links a local project to a platform service",
+  "type": "object",
+  "required": [
+    "workspaceId",
+    "workspaceSlug",
+    "serviceId",
+    "serviceSlug",
+    "githubBranch",
+    "linkedAt",
+    "createdBy"
+  ],
+  "properties": {
+    "workspaceId": {
+      "type": "string",
+      "description": "Platform workspace identifier"
+    },
+    "workspaceSlug": {
+      "type": "string",
+      "description": "Platform workspace slug (human-readable identifier)"
+    },
+    "serviceId": {
+      "type": "string",
+      "description": "Platform service identifier"
+    },
+    "serviceSlug": {
+      "type": "string",
+      "description": "Platform service slug (human-readable identifier)"
+    },
+    "githubRepo": {
+      "type": ["string", "null"],
+      "description": "GitHub repository in format 'owner/repo' or null if not connected"
+    },
+    "githubBranch": {
+      "type": "string",
+      "description": "GitHub branch name (e.g., 'main', 'master')",
+      "default": "main"
+    },
+    "linkedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the project was linked"
+    },
+    "lastSyncedAt": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of last sync, or null if never synced"
+    },
+    "lastSyncDirection": {
+      "type": ["string", "null"],
+      "enum": ["pull", "push", "both", null],
+      "description": "Direction of last sync operation"
+    },
+    "localSchemaHash": {
+      "type": ["string", "null"],
+      "description": "SHA256 hash of local schema for conflict detection, or null if not calculated"
+    },
+    "remoteSchemaHash": {
+      "type": ["string", "null"],
+      "description": "SHA256 hash of remote schema for conflict detection, or null if not calculated"
+    },
+    "createdBy": {
+      "type": "string",
+      "format": "email",
+      "description": "Email address of the user who created the link"
+    }
+  },
+  "additionalProperties": false
+}
+
+

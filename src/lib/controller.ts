@@ -66,7 +66,7 @@ export const createController = async (
     nestedJoinsStream
   );
   nestedJoinsStream.end();
-  await new Promise((resolve) => {
+  await new Promise<void>((resolve: () => void) => {
     nestedJoinsStream.on("finish", resolve);
   });
   const nestedTime = performance.now() - startNested;
