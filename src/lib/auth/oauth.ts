@@ -1,9 +1,8 @@
 import * as http from "http";
-import * as url from "url";
+import { URL } from "url";
 import { promisify } from "util";
 import { exec } from "child_process";
-import { getApiBaseUrl, getWebBaseUrl, writeCredentials } from "../config/index";
-import type { Credentials } from "../config/index";
+import { getApiBaseUrl, getWebBaseUrl } from "../config/index";
 
 const execAsync = promisify(exec);
 
@@ -35,17 +34,17 @@ function startCallbackServer(): Promise<string> {
         return;
       }
 
-      const parsedUrl = url.parse(req.url, true);
+      const fullUrl = new URL(req.url, `http://localhost:${OAUTH_CALLBACK_PORT}`);
       
       if (process.env.DEBUG || process.env.APSO_DEBUG) {
         console.log(`Callback server received request: ${req.url}`);
-        console.log(`Pathname: ${parsedUrl.pathname}, Expected: ${OAUTH_CALLBACK_PATH}`);
+        console.log(`Pathname: ${fullUrl.pathname}, Expected: ${OAUTH_CALLBACK_PATH}`);
       }
       
       // Handle both /callback and /oauth/callback for compatibility
-      if (parsedUrl.pathname === OAUTH_CALLBACK_PATH || parsedUrl.pathname === "/oauth/callback") {
-        const code = parsedUrl.query.code as string;
-        const error = parsedUrl.query.error as string;
+      if (fullUrl.pathname === OAUTH_CALLBACK_PATH || fullUrl.pathname === "/oauth/callback") {
+        const code = fullUrl.searchParams.get("code") as string | null;
+        const error = fullUrl.searchParams.get("error") as string | null;
 
         if (error) {
           res.writeHead(400);
@@ -121,7 +120,7 @@ async function openBrowser(oauthUrl: string): Promise<void> {
 
   try {
     await execAsync(command);
-  } catch (error) {
+  } catch {
     // Browser might not open, but that's okay - user can manually open
     throw new Error(
       `Failed to open browser automatically. Please open this URL manually:\n${oauthUrl}`
@@ -142,7 +141,7 @@ async function exchangeCodeForTokens(
   if (process.env.DEBUG || process.env.APSO_DEBUG) {
     console.log(`Exchanging authorization code for tokens...`);
     console.log(`API URL: ${tokenExchangeUrl}`);
-    console.log(`Code: ${code.substring(0, 10)}...`);
+    console.log(`Code: ${code.slice(0, 10)}...`);
   }
 
   try {
@@ -220,12 +219,11 @@ export async function performOAuthFlow(webBaseUrl?: string): Promise<OAuthResult
   const callbackUrl = `http://localhost:${OAUTH_CALLBACK_PORT}${OAUTH_CALLBACK_PATH}`;
   
   // Build OAuth URL with standard OAuth 2.0 parameters
-  const oauthParams = new URLSearchParams({
-    client_id: OAUTH_CLIENT_ID,
-    redirect_uri: callbackUrl,
-    response_type: "code",
-    scope: "read write",
-  });
+  const oauthParams = new URLSearchParams();
+  oauthParams.set("client_id", OAUTH_CLIENT_ID);
+  oauthParams.set("redirect_uri", callbackUrl);
+  oauthParams.set("response_type", "code");
+  oauthParams.set("scope", "read write");
   const oauthUrl = `${baseUrl}/auth/cli-login?${oauthParams.toString()}`;
 
   // Start callback server

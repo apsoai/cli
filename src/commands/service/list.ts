@@ -9,6 +9,7 @@ interface WorkspaceService {
   slug: string;
   subdomain: string;
   status: string;
+  // eslint-disable-next-line camelcase
   created_at?: string;
 }
 

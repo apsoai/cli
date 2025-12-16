@@ -12,8 +12,10 @@ interface ConnectGithubResponse {
 interface GithubConnectionStatus {
   connectionId: number;
   connected: boolean;
+  // eslint-disable-next-line camelcase
   github_username?: string;
   scopes?: string[];
+  // eslint-disable-next-line camelcase
   token_expires_at?: string;
 }
 
@@ -65,8 +67,10 @@ export default class GithubConnect extends BaseCommand {
     const initialCount = await this.getConnectionCount(workspaceId);
 
     for (let i = 0; i < maxAttempts; i++) {
+      // eslint-disable-next-line no-await-in-loop
       await this.sleep(2000); // Wait 2 seconds between polls
 
+      // eslint-disable-next-line no-await-in-loop
       const response = await apiClient.get<WorkspaceGithubConnectionStatusResponse>(
         `/github-connections/workspace/${workspaceId}/statuses`
       );
@@ -113,7 +117,11 @@ export default class GithubConnect extends BaseCommand {
    * Sleep utility
    */
   private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+    return new Promise<void>((resolve) => {
+      setTimeout(() => {
+        resolve();
+      }, ms);
+    });
   }
 
   async run(): Promise<void> {
@@ -150,7 +158,7 @@ export default class GithubConnect extends BaseCommand {
 
       try {
         await open(response.url);
-      } catch (error) {
+      } catch {
         this.log(`\nCould not open browser automatically. Please visit:\n${response.url}\n`);
       }
 

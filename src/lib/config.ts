@@ -29,13 +29,7 @@ export class ConfigManager {
   constructor() {
     // Determine config directory based on OS
     const homeDir = os.homedir();
-    if (process.platform === 'win32') {
-      // Windows: %APPDATA%/.apso
-      this.configDir = path.join(process.env.APPDATA || homeDir, '.apso');
-    } else {
-      // Unix-like: ~/.apso
-      this.configDir = path.join(homeDir, '.apso');
-    }
+    this.configDir = process.platform === 'win32' ? path.join(process.env.APPDATA || homeDir, '.apso') : path.join(homeDir, '.apso');
     this.configPath = path.join(this.configDir, 'config.json');
   }
 
@@ -71,9 +65,9 @@ export class ConfigManager {
         return null;
       }
 
-      const data = fs.readFileSync(this.configPath, 'utf8');
-      return JSON.parse(data) as CliConfig;
-    } catch (error) {
+      const data = fs.readFileSync(this.configPath);
+      return JSON.parse(data.toString('utf8')) as CliConfig;
+    } catch {
       // If file is corrupted or unreadable, return null
       return null;
     }
@@ -137,7 +131,7 @@ export class ConfigManager {
    */
   isLoggedIn(): boolean {
     const config = this.getConfig();
-    return !!(config && config.token);
+    return Boolean(config && config.token);
   }
 
   /**

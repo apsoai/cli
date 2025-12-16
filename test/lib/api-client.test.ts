@@ -54,7 +54,7 @@ describe('ApiClient', () => {
           headers: {
             'Content-Type': 'application/json',
           },
-          timeout: 30000,
+          timeout: 30_000,
         })
       );
     });
@@ -62,7 +62,7 @@ describe('ApiClient', () => {
 
   describe('get', () => {
     it('should make GET request and return data', async () => {
-      const mockResponse = { data: { id: 1, name: 'Test' } };
+      const mockResponse = { data: { id: 1000, name: 'Test' } };
       mockAxiosInstance.get.mockResolvedValue(mockResponse);
 
       const result = await apiClient.get('/test');

@@ -1,9 +1,8 @@
 import BaseCommand from '../../lib/base-command';
 import { configManager } from '../../lib/config';
-import { apiClient } from '../../lib/api-client';
 import open from 'open';
 import * as http from 'http';
-import * as url from 'url';
+import { URL } from 'url';
 import axios from 'axios';
 
 interface LoginUrlResponse {
@@ -126,11 +125,13 @@ export default class Login extends BaseCommand {
         // Log incoming requests for debugging
         this.log(`\n[DEBUG] Received request: ${req.method} ${req.url}`);
 
-        const parsedUrl = url.parse(req.url, true);
-        const { token, authToken, error } = parsedUrl.query;
+        const callbackUrl = new URL(req.url, `http://localhost:${this.callbackPort}`);
+        const token = callbackUrl.searchParams.get('token');
+        const authToken = callbackUrl.searchParams.get('authToken');
+        const error = callbackUrl.searchParams.get('error');
 
         // Handle callback
-        if (parsedUrl.pathname === '/callback') {
+        if (callbackUrl.pathname === '/callback') {
           this.log(`[DEBUG] Callback received - token: ${token ? 'present' : 'missing'}, authToken: ${authToken ? 'present' : 'missing'}`);
           if (error) {
             res.writeHead(400);
@@ -172,29 +173,36 @@ export default class Login extends BaseCommand {
                 }
                 this.server?.close();
               })
-              .catch((err) => {
-                this.log(`[DEBUG] Error processing callback: ${err.message}`);
+              .catch((error_) => {
+                this.log(`[DEBUG] Error processing callback: ${error_.message}`);
                 if (callbackReject) {
-                  callbackReject(err);
+                  callbackReject(error_);
                 }
                 this.server?.close();
               });
-          } else {
-            this.log(`[DEBUG] Invalid callback - token match: ${token === sessionToken}, has authToken: ${!!authToken}`);
+          } else if (token !== sessionToken || !authToken) {
+            const hasAuthToken = Boolean(authToken);
+            this.log(
+              `[DEBUG] Invalid callback - token match: ${token === sessionToken}, has authToken: ${hasAuthToken}`
+            );
             res.writeHead(400);
             res.end(`
               <html>
                 <body>
                   <h1>Invalid Callback</h1>
                   <p>Missing or invalid parameters.</p>
-                  <p>Expected token: ${sessionToken.substring(0, 10)}...</p>
-                  <p>Received token: ${token ? (token as string).substring(0, 10) + '...' : 'missing'}</p>
+                  <p>Expected token: ${sessionToken.slice(0, 10)}...</p>
+                  <p>Received token: ${token ? (token as string).slice(0, 10) + '...' : 'missing'}</p>
                 </body>
               </html>
             `);
             this.server?.close();
             if (callbackReject) {
-              callbackReject(new Error(`Invalid callback parameters - token match: ${token === sessionToken}, has authToken: ${!!authToken}`));
+              callbackReject(
+                new Error(
+                  `Invalid callback parameters - token match: ${token === sessionToken}, has authToken: ${hasAuthToken}`
+                )
+              );
             }
           }
         } else {
@@ -212,11 +220,9 @@ export default class Login extends BaseCommand {
           const callbackUrl = `http://localhost:${port}/callback`;
           serverInfo = { port, callbackUrl };
           // Don't resolve yet - wait for callback
-        } else {
-          if (callbackReject) {
+        } else if (callbackReject) {
             callbackReject(new Error('Failed to start callback server'));
           }
-        }
       });
 
       this.server.on('error', (err) => {
@@ -287,7 +293,7 @@ export default class Login extends BaseCommand {
       }
     } catch (error: any) {
       if (error instanceof Error) {
-        throw new Error(`Failed to complete login: ${error.message}`);
+        throw new TypeError(`Failed to complete login: ${error.message}`);
       }
       throw error;
     }
@@ -310,11 +316,18 @@ export default class Login extends BaseCommand {
       this.log('Starting local callback server...');
       
       // Start callback server - it will resolve only after callback is received
-      const callbackPromise = this.startCallbackServer(sessionToken);
-      
-      // Wait a moment for server to start and get the callback URL
-      await new Promise(resolve => setTimeout(resolve, 100));
-      const callbackUrl = `http://localhost:${this.callbackPort}/callback`;
+      // and we don't rely on the promise executor return value
+      let callbackUrl = '';
+      const callbackPromise = new Promise<{ port: number; callbackUrl: string }>(
+        (resolve, reject) => {
+          this.startCallbackServer(sessionToken)
+            .then((info) => {
+              callbackUrl = info.callbackUrl;
+              resolve(info);
+            })
+            .catch(reject);
+        }
+      );
 
       // Update login URL with callback URL
       const loginUrlWithCallback = `${loginUrl}&callbackUrl=${encodeURIComponent(callbackUrl)}`;
@@ -326,7 +339,7 @@ export default class Login extends BaseCommand {
       // Open browser
       try {
         await open(loginUrlWithCallback);
-      } catch (error) {
+      } catch {
         this.log(
           `\nCould not open browser automatically. Please visit:\n${loginUrlWithCallback}\n`
         );

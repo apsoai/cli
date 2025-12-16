@@ -62,9 +62,10 @@ export function readConfig(): Config {
     return defaultConfig;
   }
   try {
-    const content = fs.readFileSync(CONFIG_FILE, "utf-8");
+    const contentBuffer = fs.readFileSync(CONFIG_FILE);
+    const content = contentBuffer.toString("utf-8");
     return JSON.parse(content) as Config;
-  } catch (error) {
+  } catch {
     // If file is corrupted, return defaults
     const defaultConfig: Config = {
       colorScheme: "auto",
@@ -112,9 +113,10 @@ export function readCredentials(): Credentials | null {
     return null;
   }
   try {
-    const content = fs.readFileSync(CREDENTIALS_FILE, "utf-8");
+    const contentBuffer = fs.readFileSync(CREDENTIALS_FILE);
+    const content = contentBuffer.toString("utf-8");
     return JSON.parse(content) as Credentials;
-  } catch (error) {
+  } catch {
     return null;
   }
 }

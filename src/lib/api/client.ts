@@ -70,7 +70,7 @@ export class APIClient {
         });
         this.accessToken = refreshed.accessToken;
         return refreshed.accessToken;
-      } catch (error) {
+      } catch {
         throw new APIError(
           "Token refresh failed. Please run 'apso login' again.",
           401,
@@ -140,7 +140,7 @@ export class APIClient {
 
             return retryResponse.json();
           }
-        } catch (refreshError) {
+        } catch {
           throw new APIError(
             "Authentication failed. Please run 'apso login' again.",
             401,

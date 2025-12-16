@@ -158,7 +158,7 @@ export default class ServicePush extends BaseCommand {
       return response.url;
     } catch (error: any) {
       if (error instanceof Error) {
-        throw new Error(`Failed to upload to S3: ${error.message}`);
+        throw new TypeError(`Failed to upload to S3: ${error.message}`);
       }
       throw error;
     }
@@ -218,8 +218,9 @@ export default class ServicePush extends BaseCommand {
     } catch (error: any) {
       if (error instanceof Error) {
         this.error(error.message);
+      } else {
+        this.error('Failed to push code');
       }
-      this.error('Failed to push code');
     } finally {
       // Cleanup zip file
       if (zipPath && fs.existsSync(zipPath)) {

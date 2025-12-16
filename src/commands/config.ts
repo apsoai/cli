@@ -78,18 +78,16 @@ export default class Config extends BaseCommand {
         this.log(`Config key '${key}' is not set`);
       }
       this.exit(1);
-    } else {
-      if (json) {
+    } else if (json) {
         this.log(JSON.stringify({ key, value }));
       } else {
         this.log(value);
       }
-    }
   }
 
   private async handleSet(key: string, value: string): Promise<void> {
-    const config = readConfig();
-    
+    readConfig();
+
     // Validate key
     const validKeys = [
       "defaultWorkspace",
@@ -112,16 +110,28 @@ export default class Config extends BaseCommand {
 
     // Parse value based on key type
     let parsedValue: any = value;
-    if (key === "jsonOutput" || key === "telemetry") {
+    switch (key) {
+    case "jsonOutput": 
+    case "telemetry": {
       parsedValue = value.toLowerCase() === "true";
-    } else if (key === "colorScheme") {
+    
+    break;
+    }
+    case "colorScheme": {
       if (!["auto", "light", "dark"].includes(value)) {
         this.error(`Invalid colorScheme. Must be: auto, light, or dark`);
       }
-    } else if (key === "logLevel") {
+    
+    break;
+    }
+    case "logLevel": {
       if (!["debug", "info", "warn", "error"].includes(value)) {
         this.error(`Invalid logLevel. Must be: debug, info, warn, or error`);
       }
+    
+    break;
+    }
+    // No default
     }
 
     updateConfig({ [key]: parsedValue });
@@ -133,13 +143,14 @@ export default class Config extends BaseCommand {
     
     if (json) {
       this.log(JSON.stringify(config, null, 2));
-    } else {
-      this.log("Current configuration:");
-      this.log("");
-      for (const [key, value] of Object.entries(config)) {
-        if (value !== undefined) {
-          this.log(`  ${key}: ${value}`);
-        }
+      return;
+    }
+
+    this.log("Current configuration:");
+    this.log("");
+    for (const [key, value] of Object.entries(config)) {
+      if (value !== undefined) {
+        this.log(`  ${key}: ${value}`);
       }
     }
   }

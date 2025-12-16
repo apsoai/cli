@@ -37,8 +37,8 @@ export default class Login extends BaseCommand {
     }
 
     // Get web URL from flag, environment variable, config, or auto-detect
-    const { getWebBaseUrl, getWebBaseUrlSync } = await import("../lib/config/index");
-    let webBaseUrl = flags["web-url"] || await getWebBaseUrl();
+    const { getWebBaseUrl } = await import("../lib/config/index");
+    const webBaseUrl = flags["web-url"] || (await getWebBaseUrl());
     
     // Show helpful messages based on detected URL
     if (webBaseUrl.includes("localhost")) {
@@ -54,12 +54,12 @@ export default class Login extends BaseCommand {
     }
     
     const callbackUrl = `http://localhost:8899/callback`;
-    const oauthParams = new URLSearchParams({
-      client_id: "apso-cli",
-      redirect_uri: callbackUrl,
-      response_type: "code",
-      scope: "read write",
-    });
+    // These parameter names follow the OAuth 2.0 spec and must use snake_case.
+    const oauthParams = new URLSearchParams();
+    oauthParams.set("client_id", "apso-cli");
+    oauthParams.set("redirect_uri", callbackUrl);
+    oauthParams.set("response_type", "code");
+    oauthParams.set("scope", "read write");
     const oauthUrl = `${webBaseUrl}/auth/cli-login?${oauthParams.toString()}`;
     
     this.log("Opening browser for authentication...");

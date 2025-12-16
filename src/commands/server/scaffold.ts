@@ -59,13 +59,13 @@ export default class Scaffold extends BaseCommand {
         await this.setupGraphqlFiles(dir, entity, relationshipMap);
         break;
       case ApiType.Rest:
-        await this.setupRestFiles(
+        await this.setupRestFiles({
           dir,
           entity,
           relationshipMap,
           apiType,
-          allEntities
-        );
+          allEntities,
+        });
         break;
       default:
         break;
@@ -79,13 +79,14 @@ export default class Scaffold extends BaseCommand {
     );
   }
 
-  async setupRestFiles(
-    dir: string,
-    entity: Entity,
-    relationshipMap: RelationshipMap,
-    apiType: string,
-    allEntities: Entity[]
-  ) {
+  async setupRestFiles(options: {
+    dir: string;
+    entity: Entity;
+    relationshipMap: RelationshipMap;
+    apiType: string;
+    allEntities: Entity[];
+  }) {
+    const { dir, entity, relationshipMap, apiType, allEntities } = options;
     const filePath = path.join(dir, entity.name);
     const entityRelationships = relationshipMap[entity.name] || [];
 

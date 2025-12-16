@@ -6,8 +6,10 @@ import { apiClient } from '../../lib/api-client';
 interface GithubConnectionStatus {
   connectionId: number;
   connected: boolean;
+  // eslint-disable-next-line camelcase
   github_username?: string;
   scopes?: string[];
+  // eslint-disable-next-line camelcase
   token_expires_at?: string;
 }
 

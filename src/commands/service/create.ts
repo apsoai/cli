@@ -4,7 +4,6 @@ import { configManager } from '../../lib/config';
 import { apiClient } from '../../lib/api-client';
 import * as fs from 'fs';
 import * as path from 'path';
-import rc from 'rc';
 
 interface CreateServiceResponse {
   id: number;
@@ -84,8 +83,8 @@ export default class ServiceCreate extends BaseCommand {
     }
 
     try {
-      const apsorcContent = fs.readFileSync(apsorcPath, 'utf8');
-      return JSON.parse(apsorcContent);
+      const apsorcContent = fs.readFileSync(apsorcPath);
+      return JSON.parse(apsorcContent.toString('utf8'));
     } catch (error) {
       this.error(`Failed to read .apsorc file: ${(error as Error).message}`);
     }
@@ -97,7 +96,7 @@ export default class ServiceCreate extends BaseCommand {
   private generateSubdomain(name: string): string {
     return name
       .toLowerCase()
-      .replace(/[^a-z0-9]/g, '-')
+      .replace(/[^\da-z]/g, '-')
       .replace(/-+/g, '-')
       .replace(/^-|-$/g, '');
   }
@@ -133,7 +132,9 @@ export default class ServiceCreate extends BaseCommand {
           status: 'Draft',
           tags: [],
           pricingPlanId: 1, // Default plan
+          // eslint-disable-next-line camelcase
           repository_source: 'github',
+          // eslint-disable-next-line camelcase
           infrastructure_details: {},
         }
       );
@@ -145,15 +146,15 @@ export default class ServiceCreate extends BaseCommand {
       this.log(`  Subdomain: ${service.subdomain}`);
 
       // Handle GitHub repository connection if requested
-      if (flags['repo-name'] || flags['repo-url']) {
-        if (!flags['github-account']) {
-          this.warn(
-            'GitHub account not specified. Skipping repository connection.'
-          );
-        } else {
-          // TODO: Implement repository creation/connection
-          this.log('Repository connection not yet implemented in CLI.');
-        }
+      const wantsRepoConnection = Boolean(flags['repo-name'] || flags['repo-url']);
+      const hasGithubAccount = Boolean(flags['github-account']);
+      if (wantsRepoConnection && !hasGithubAccount) {
+        this.warn(
+          'GitHub account not specified. Skipping repository connection.'
+        );
+      } else if (wantsRepoConnection && hasGithubAccount) {
+        // Repository creation/connection will be implemented in the future
+        this.log('Repository connection not yet implemented in CLI.');
       }
 
       // Handle push if requested

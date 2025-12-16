@@ -36,7 +36,7 @@ export class ApiClient {
       headers: {
         'Content-Type': 'application/json',
       },
-      timeout: 30000, // 30 seconds
+      timeout: 30_000, // 30 seconds
     });
 
     // Add request interceptor to inject auth token
