@@ -10,3 +10,4 @@ oclif.manifest.json
 test-app/
 .npmrc
 .apsorc*
+.env*
