@@ -26,9 +26,13 @@ Eta.configure({
 
 export default class Scaffold extends BaseCommand {
   static description = "Setup new entities and interfaces for an Apso Server";
-  static examples = [`$ apso server scaffold`];
+  static examples = [`$ apso server scaffold`, `$ apso server scaffold --skip-format`];
   static flags = {
     help: Flags.help({ char: "h" }),
+    "skip-format": Flags.boolean({
+      description: "Skip the formatting step (useful when prettier is not available)",
+      default: false,
+    }),
   };
 
   static args = {};
@@ -150,6 +154,9 @@ export default class Scaffold extends BaseCommand {
   }
 
   async run(): Promise<void> {
+    const { flags } = await this.parse(Scaffold);
+    const skipFormat = flags["skip-format"];
+
     const totalBuildStart = performance.now();
     const { rootFolder, entities, relationshipMap, apiType, auth } = parseApsorc();
     const rootPath = path.join(process.cwd(), rootFolder);
@@ -187,13 +194,18 @@ export default class Scaffold extends BaseCommand {
     console.log(
       `[apso] Finished building all entities in ${totalBuildTime.toFixed(2)} ms`
     );
-    const formatStart = performance.now();
-    console.log("[apso] Formatting files...");
-    await this.runNpmCommand(
-      ["run", "format", "src/autogen/**/*.ts", "src/guards/**/*.ts"],
-      true
-    );
-    const formatTime = performance.now() - formatStart;
-    console.log(`[apso] Finished formatting in ${formatTime.toFixed(2)} ms`);
+
+    if (!skipFormat) {
+      const formatStart = performance.now();
+      console.log("[apso] Formatting files...");
+      await this.runNpmCommand(
+        ["run", "format", "src/autogen/**/*.ts", "src/guards/**/*.ts"],
+        true
+      );
+      const formatTime = performance.now() - formatStart;
+      console.log(`[apso] Finished formatting in ${formatTime.toFixed(2)} ms`);
+    } else {
+      console.log("[apso] Skipping formatting (--skip-format flag set)");
+    }
   }
 }
