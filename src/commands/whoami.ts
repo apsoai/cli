@@ -1,6 +1,6 @@
 import { Flags } from "@oclif/core";
 import BaseCommand from "../lib/base-command";
-import { configManager } from "../lib/config";
+import { readCredentials, isAuthenticated } from "../lib/config/index";
 
 export default class Whoami extends BaseCommand {
   static description = "Display current authentication status";
@@ -18,28 +18,25 @@ export default class Whoami extends BaseCommand {
   async run(): Promise<void> {
     const { flags } = await this.parse(Whoami);
 
-    if (configManager.isLoggedIn()) {
-      const config = configManager.getConfig();
+    // Use the same credential store as 'apso login'
+    if (isAuthenticated()) {
+      const creds = readCredentials();
 
-      if (config?.user) {
+      if (creds?.user) {
         if (flags.json) {
           this.log(
             JSON.stringify({
               authenticated: true,
-              userId: config.user.id,
-              email: config.user.email,
-              fullName: config.user.fullName,
-              defaultWorkspace: config.defaultWorkspace ?? null,
+              userId: creds.user.id,
+              email: creds.user.email,
+              fullName: `${creds.user.firstName ?? ""} ${creds.user.lastName ?? ""}`.trim() || null,
             })
           );
         } else {
-          this.log(`Logged in as ${config.user.email}`);
-          this.log(`Name: ${config.user.fullName}`);
-
-          if (config.defaultWorkspace) {
-            this.log(
-              `Default workspace: ${config.defaultWorkspace.name}`
-            );
+          this.log(`Logged in as ${creds.user.email}`);
+          const fullName = `${creds.user.firstName ?? ""} ${creds.user.lastName ?? ""}`.trim();
+          if (fullName) {
+            this.log(`Name: ${fullName}`);
           }
         }
 

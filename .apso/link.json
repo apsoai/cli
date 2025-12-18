@@ -1,0 +1,15 @@
+{
+  "workspaceId": "249",
+  "workspaceSlug": "ebfbd479",
+  "serviceId": "413",
+  "serviceSlug": "daaa5dea",
+  "githubRepo": "kashif281/subscription-manager",
+  "githubBranch": "main",
+  "linkedAt": "2025-12-18T11:39:40.828Z",
+  "lastSyncedAt": "2025-12-18T15:00:22.801Z",
+  "lastSyncDirection": "push",
+  "localSchemaHash": "sha256:ae9a497620f7a048",
+  "remoteSchemaHash": "sha256:ae9a497620f7a048",
+  "createdBy": "fysokory@mailinator.com",
+  "cliVersion": "0.7.3"
+}
