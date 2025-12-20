@@ -1,0 +1,4 @@
+    <%= it.field.name %>: Mapped[<% if (!it.field.required) { %>Optional[enums.<%= it.field.enumType || it.field.name.charAt(0).toUpperCase() + it.field.name.slice(1) %>]<% } else { %>enums.<%= it.field.enumType || it.field.name.charAt(0).toUpperCase() + it.field.name.slice(1) %><% } %>] = mapped_column(
+        SAEnum(enums.<%= it.field.enumType || it.field.name.charAt(0).toUpperCase() + it.field.name.slice(1) %>),
+        nullable=<%= !it.field.required %>
+    )

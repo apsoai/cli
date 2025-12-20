@@ -1,0 +1,212 @@
+<%~ includeFile('../header.eta') %>
+
+package handlers
+
+import (
+	"net/http"
+	"strconv"
+
+	"app/dto"
+	"app/services"
+	"github.com/gin-gonic/gin"
+	"github.com/go-playground/validator/v10"
+)
+
+type <%= it.entityName %>Handler struct {
+	service  *services.<%= it.entityName %>Service
+	validate *validator.Validate
+}
+
+func New<%= it.entityName %>Handler(service *services.<%= it.entityName %>Service) *<%= it.entityName %>Handler {
+	return &<%= it.entityName %>Handler{
+		service:  service,
+		validate: validator.New(),
+	}
+}
+
+// RegisterRoutes registers all routes for <%= it.entityName %>
+func (h *<%= it.entityName %>Handler) RegisterRoutes(r *gin.RouterGroup) {
+	group := r.Group("/<%= it.kebabPluralName %>")
+	{
+		group.GET("", h.FindAll)
+		group.GET("/:id", h.FindOne)
+		group.POST("", h.Create)
+		group.PUT("/:id", h.Update)
+		group.PATCH("/:id", h.Update)
+		group.DELETE("/:id", h.Delete)
+	}
+}
+
+// FindAll godoc
+// @Summary      List all <%= it.pluralName %>
+// @Description  Get a paginated list of <%= it.pluralName %>
+// @Tags         <%= it.pluralName %>
+// @Accept       json
+// @Produce      json
+// @Param        page     query    int  false  "Page number"  default(1)
+// @Param        pageSize query    int  false  "Page size"    default(10)
+// @Success      200  {object}  dto.<%= it.entityName %>PaginatedResponse
+// @Failure      500  {object}  map[string]string
+// @Router       /<%= it.kebabPluralName %> [get]
+func (h *<%= it.entityName %>Handler) FindAll(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "10"))
+
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 10
+	}
+
+	result, err := h.service.FindAll(c.Request.Context(), page, pageSize)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}
+
+// FindOne godoc
+// @Summary      Get a <%= it.entityName %>
+// @Description  Get a <%= it.entityName %> by ID
+// @Tags         <%= it.pluralName %>
+// @Accept       json
+// @Produce      json
+// @Param        id   path      <%= it.primaryKeySwaggerType || 'integer' %>  true  "<%= it.entityName %> ID"
+// @Success      200  {object}  dto.<%= it.entityName %>Response
+// @Failure      404  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /<%= it.kebabPluralName %>/{id} [get]
+func (h *<%= it.entityName %>Handler) FindOne(c *gin.Context) {
+	id := c.Param("id")
+<% if (it.primaryKeyType === 'uuid') { %>
+	// UUID primary key
+<% } else { %>
+	idInt, err := strconv.ParseUint(id, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID format"})
+		return
+	}
+	id = strconv.FormatUint(idInt, 10)
+<% } %>
+
+	result, err := h.service.FindOne(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "<%= it.entityName %> not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}
+
+// Create godoc
+// @Summary      Create a <%= it.entityName %>
+// @Description  Create a new <%= it.entityName %>
+// @Tags         <%= it.pluralName %>
+// @Accept       json
+// @Produce      json
+// @Param        body  body      dto.<%= it.entityName %>Create  true  "<%= it.entityName %> data"
+// @Success      201   {object}  dto.<%= it.entityName %>Response
+// @Failure      400   {object}  map[string]string
+// @Failure      500   {object}  map[string]string
+// @Router       /<%= it.kebabPluralName %> [post]
+func (h *<%= it.entityName %>Handler) Create(c *gin.Context) {
+	var input dto.<%= it.entityName %>Create
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := h.validate.Struct(input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	result, err := h.service.Create(c.Request.Context(), &input)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, result)
+}
+
+// Update godoc
+// @Summary      Update a <%= it.entityName %>
+// @Description  Update an existing <%= it.entityName %>
+// @Tags         <%= it.pluralName %>
+// @Accept       json
+// @Produce      json
+// @Param        id    path      <%= it.primaryKeySwaggerType || 'integer' %>  true  "<%= it.entityName %> ID"
+// @Param        body  body      dto.<%= it.entityName %>Update  true  "<%= it.entityName %> data"
+// @Success      200   {object}  dto.<%= it.entityName %>Response
+// @Failure      400   {object}  map[string]string
+// @Failure      404   {object}  map[string]string
+// @Failure      500   {object}  map[string]string
+// @Router       /<%= it.kebabPluralName %>/{id} [put]
+func (h *<%= it.entityName %>Handler) Update(c *gin.Context) {
+	id := c.Param("id")
+<% if (it.primaryKeyType === 'uuid') { %>
+	// UUID primary key
+<% } else { %>
+	idInt, err := strconv.ParseUint(id, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID format"})
+		return
+	}
+	id = strconv.FormatUint(idInt, 10)
+<% } %>
+
+	var input dto.<%= it.entityName %>Update
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := h.validate.Struct(input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	result, err := h.service.Update(c.Request.Context(), id, &input)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}
+
+// Delete godoc
+// @Summary      Delete a <%= it.entityName %>
+// @Description  Delete a <%= it.entityName %> by ID
+// @Tags         <%= it.pluralName %>
+// @Accept       json
+// @Produce      json
+// @Param        id   path      <%= it.primaryKeySwaggerType || 'integer' %>  true  "<%= it.entityName %> ID"
+// @Success      204
+// @Failure      404  {object}  map[string]string
+// @Failure      500  {object}  map[string]string
+// @Router       /<%= it.kebabPluralName %>/{id} [delete]
+func (h *<%= it.entityName %>Handler) Delete(c *gin.Context) {
+	id := c.Param("id")
+<% if (it.primaryKeyType === 'uuid') { %>
+	// UUID primary key
+<% } else { %>
+	idInt, err := strconv.ParseUint(id, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID format"})
+		return
+	}
+	id = strconv.FormatUint(idInt, 10)
+<% } %>
+
+	if err := h.service.Delete(c.Request.Context(), id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.Status(http.StatusNoContent)
+}

@@ -1,0 +1,4 @@
+    <%= it.field.name %>: Mapped[<% if (!it.field.required) { %>Optional[datetime]<% } else { %>datetime<% } %>] = mapped_column(
+        DateTime,
+        nullable=<%= !it.field.required %>
+    )

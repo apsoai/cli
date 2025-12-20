@@ -28,6 +28,7 @@
     "@oclif/plugin-plugins": "^3",
     "debug": "^4.3.4",
     "eta": "^2.0.0",
+    "inquirer": "^9.3.8",
     "pluralize": "^8.0.0",
     "rc": "^1.2.8",
     "shelljs": "^0.8.5"
@@ -36,6 +37,7 @@
     "@jest/globals": "^29.5.0",
     "@oclif/test": "^2.4.7",
     "@types/chai": "^4",
+    "@types/inquirer": "^9.0.9",
     "@types/mocha": "^10",
     "@types/node": "^20",
     "@types/pluralize": "^0.0.29",

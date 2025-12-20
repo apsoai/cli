@@ -1,0 +1,1 @@
+    <%= it.field.name %>: <% if (!it.field.required || it.forUpdate) { %>Optional[enums.<%= it.field.enumType || it.field.name.charAt(0).toUpperCase() + it.field.name.slice(1) %>] = None<% } else { %>enums.<%= it.field.enumType || it.field.name.charAt(0).toUpperCase() + it.field.name.slice(1) %><% } %>

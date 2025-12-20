@@ -1,0 +1,1 @@
+    <%= it.field.name %>: <% if (!it.field.required || it.forUpdate) { %>Optional[bool] = None<% } else { %>bool<% if (it.field.default !== undefined) { %> = <%= it.field.default %><% } %><% } %>

@@ -1,0 +1,12 @@
+<%~ includeFile('./header.eta') %>
+
+from enum import Enum
+
+<% it.allEnumsFields.forEach((field) => { %>
+
+class <%= field.name %>(str, Enum):
+    """Enum for <%= field.name %>"""
+<% (field.values || []).forEach((value) => { %>
+    <%= value.toUpperCase().replace(/[^A-Z0-9_]/g, '_') %> = "<%= value %>"
+<% }) %>
+<% }) %>

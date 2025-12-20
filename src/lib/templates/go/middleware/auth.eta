@@ -1,0 +1,101 @@
+<%~ includeFile('../header.eta') %>
+
+package middleware
+
+import (
+	"net/http"
+	"strings"
+
+	"github.com/gin-gonic/gin"
+)
+
+// AuthMiddleware provides authentication middleware for protected routes
+func AuthMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authorization header required"})
+			return
+		}
+
+		parts := strings.SplitN(authHeader, " ", 2)
+		if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid authorization header format"})
+			return
+		}
+
+		token := parts[1]
+
+		// TODO: Validate the token
+		// This is a placeholder - implement your actual token validation logic
+		if token == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
+			return
+		}
+
+		// Set user info in context if token is valid
+		// c.Set("user_id", userId)
+		// c.Set("user_roles", roles)
+
+		c.Next()
+	}
+}
+
+<% if (it.auth && it.auth.roles && it.auth.roles.length > 0) { %>
+// RoleMiddleware checks if the user has the required role
+func RoleMiddleware(allowedRoles ...string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Get user roles from context (set by AuthMiddleware)
+		userRoles, exists := c.Get("user_roles")
+		if !exists {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "No roles found"})
+			return
+		}
+
+		roles, ok := userRoles.([]string)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Invalid roles format"})
+			return
+		}
+
+		// Check if user has any of the allowed roles
+		for _, userRole := range roles {
+			for _, allowedRole := range allowedRoles {
+				if userRole == allowedRole {
+					c.Next()
+					return
+				}
+			}
+		}
+
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Insufficient permissions"})
+	}
+}
+
+// Role constants
+const (
+<% it.auth.roles.forEach((role) => { %>
+	Role<%= role.charAt(0).toUpperCase() + role.slice(1) %> = "<%= role %>"
+<% }) %>
+)
+<% } %>
+
+<% if (it.auth && it.auth.multiTenant) { %>
+// TenantMiddleware extracts and validates tenant from requests
+func TenantMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		tenantID := c.GetHeader("X-Tenant-ID")
+		if tenantID == "" {
+			tenantID = c.Query("tenantId")
+		}
+
+		if tenantID == "" {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Tenant ID required"})
+			return
+		}
+
+		c.Set("tenant_id", tenantID)
+		c.Next()
+	}
+}
+<% } %>

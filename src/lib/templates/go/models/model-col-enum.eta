@@ -1,0 +1,1 @@
+	<%= it.column.pascalName %> <% if (!it.column.required) { %>*<% } %>enums.<%= it.column.enumType %> `gorm:"type:varchar(50)<% if (!it.column.required) { %>;default:null<% } %>" json:"<%= it.column.name %><% if (!it.column.required) { %>,omitempty<% } %>"`

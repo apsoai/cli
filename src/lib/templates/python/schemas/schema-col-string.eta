@@ -1,0 +1,1 @@
+    <%= it.field.name %>: <% if (!it.field.required || it.forUpdate) { %>Optional[str] = None<% } else { %>str = Field(max_length=<%= it.field.length || 255 %>)<% } %>

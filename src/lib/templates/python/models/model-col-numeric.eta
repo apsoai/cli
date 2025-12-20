@@ -1,0 +1,4 @@
+    <%= it.field.name %>: Mapped[<% if (!it.field.required) { %>Optional[Decimal]<% } else { %>Decimal<% } %>] = mapped_column(
+        Numeric(precision=<%= it.field.precision || 10 %>, scale=<%= it.field.scale || 2 %>),
+        nullable=<%= !it.field.required %>
+    )

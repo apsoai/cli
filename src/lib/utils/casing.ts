@@ -23,3 +23,13 @@ export function pascalCase(str: string): string {
   const c = camelCase(str);
   return c.charAt(0).toUpperCase() + c.slice(1);
 }
+
+export function kebabCase(str: string): string {
+  return str
+    // Insert a hyphen before all caps that are followed by lower case (for PascalCase)
+    .replace(/([\da-z])([A-Z])/g, "$1-$2")
+    // Replace all separators with hyphens
+    .replace(/[ _]+/g, "-")
+    // Lowercase the entire string
+    .toLowerCase();
+}
