@@ -1,4 +1,4 @@
-<%~ includeFile('../header.eta') %>
+<%~ includeFile('../header.eta', it) %>
 
 from typing import List, Optional, Tuple, Any, Dict
 from sqlalchemy import select, func, desc, asc

@@ -1,4 +1,4 @@
-<%~ includeFile('../header.eta') %>
+<%~ includeFile('../../header.eta', it) %>
 
 package models
 
