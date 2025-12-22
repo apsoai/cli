@@ -28,16 +28,91 @@ export interface ExistingLinkInfo {
   path: string;
 }
 
+/**
+ * Check if a directory is the CLI repository
+ */
+function isCliRepository(dir: string): boolean {
+  const packageJsonPath = path.join(dir, "package.json");
+  if (!fs.existsSync(packageJsonPath)) {
+    return false;
+  }
+  try {
+    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+    return packageJson.name === "@apso/cli";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Find the project root by walking up the directory tree
+ * looking for .apso/link.json. If not found, use current directory.
+ * Also ensures we're outside the CLI repository if we're inside it.
+ */
+function findProjectRoot(startDir: string = process.cwd()): string {
+  let currentDir = path.resolve(startDir);
+  const root = path.parse(currentDir).root;
+  let cliRepoPath: string | null = null;
+
+  // First, check if we're inside the CLI repository
+  let checkDir = currentDir;
+  while (checkDir !== root) {
+    if (isCliRepository(checkDir)) {
+      cliRepoPath = checkDir;
+      break;
+    }
+    checkDir = path.dirname(checkDir);
+  }
+
+  // Find project root (where .apso/link.json is)
+  while (currentDir !== root) {
+    const linkPath = path.join(currentDir, ".apso", "link.json");
+    if (fs.existsSync(linkPath)) {
+      // If we found the project root, check if it's inside the CLI repo
+      if (cliRepoPath && currentDir.startsWith(cliRepoPath)) {
+        // Project root is inside CLI repo, use parent directory
+        return path.dirname(cliRepoPath);
+      }
+      return currentDir;
+    }
+    currentDir = path.dirname(currentDir);
+  }
+
+  // If no .apso/link.json found, but we're in CLI repo, use parent
+  if (cliRepoPath) {
+    return path.dirname(cliRepoPath);
+  }
+
+  // Otherwise, return the original directory
+  return path.resolve(startDir);
+}
+
 function getApsoDir(cwd: string = process.cwd()): string {
-  return path.join(cwd, ".apso");
+  const projectRoot = findProjectRoot(cwd);
+  return path.join(projectRoot, ".apso");
 }
 
 function getLinkFilePath(cwd: string = process.cwd()): string {
-  return path.join(getApsoDir(cwd), "link.json");
+  // For link.json, we still want to find it even if we're in CLI repo
+  let currentDir = path.resolve(cwd);
+  const root = path.parse(currentDir).root;
+
+  while (currentDir !== root) {
+    const linkPath = path.join(currentDir, ".apso", "link.json");
+    if (fs.existsSync(linkPath)) {
+      return linkPath;
+    }
+    currentDir = path.dirname(currentDir);
+  }
+
+  // Fallback to project root
+  const projectRoot = findProjectRoot(cwd);
+  return path.join(projectRoot, ".apso", "link.json");
 }
 
 export function getServiceCodeDir(cwd: string = process.cwd()): string {
-  return path.join(getApsoDir(cwd), "service-code");
+  const projectRoot = findProjectRoot(cwd);
+  return path.join(projectRoot, ".apso", "service-code");
 }
 
 

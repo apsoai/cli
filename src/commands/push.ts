@@ -1,6 +1,6 @@
 import { Flags, ux } from "@oclif/core";
 import BaseCommand from "../lib/base-command";
-import { isAuthenticated } from "../lib/config/index";
+import { getWebBaseUrlSync } from "../lib/config/index";
 import {
   readProjectLink,
   writeProjectLink,
@@ -44,28 +44,22 @@ export default class Push extends BaseCommand {
       description: "Validate and show what would change without actually pushing",
       default: false,
     }),
+    "generate-code": Flags.boolean({
+      char: "g",
+      description: "Trigger code generation after schema push and poll until completion",
+      default: false,
+    }),
   };
 
   async run(): Promise<void> {
     const { flags } = await this.parse(Push);
 
-    // Check authentication
-    if (!isAuthenticated()) {
-      const shouldLogin = await ux.confirm(
-        "You are not logged in. Would you like to log in now? (y/n)"
-      );
-      if (shouldLogin) {
-        await this.config.runCommand("login", []);
-        // Re-check after login
-        if (!isAuthenticated()) {
-          this.error(
-            "Authentication failed. Please run 'apso login' manually and try again."
-          );
-        }
-      } else {
-        this.error("Please run 'apso login' first and try again.");
-      }
-    }
+    // Ensure authentication (supports non-interactive mode via APSO_NON_INTERACTIVE).
+    await this.ensureAuthenticated({
+      nonInteractive:
+        process.env.APSO_NON_INTERACTIVE === "1" ||
+        process.env.APSO_NON_INTERACTIVE === "true",
+    });
 
     // Read project link
     const linkInfo = readProjectLink();
@@ -252,10 +246,18 @@ export default class Push extends BaseCommand {
       // Push code if it exists
       await this.pushServiceCode(api, link);
 
+      // Trigger code generation if requested
+      if (flags["generate-code"]) {
+        await this.triggerAndPollCodeGeneration(api, link);
+      }
+
       this.log("");
       this.log("Next steps:");
       this.log("  • Review the schema on the platform");
-      this.log("  • Run 'apso server scaffold' to regenerate code if needed");
+      if (!flags["generate-code"]) {
+        this.log("  • Run 'apso push --generate-code' to trigger code generation");
+      }
+      this.log("  • Run 'apso server scaffold' to regenerate code locally if needed");
     } catch (error) {
       const err = error as Error;
       this.error(
@@ -370,6 +372,169 @@ export default class Push extends BaseCommand {
       this.warn(`Failed to push service code: ${err.message}`);
       this.warn("Schema push succeeded, but code push failed.");
     }
+  }
+
+  private async triggerAndPollCodeGeneration(
+    api: ReturnType<typeof createApiClient>,
+    link: { serviceId: string }
+  ): Promise<void> {
+    try {
+      const serviceId = Number(link.serviceId);
+      if (Number.isNaN(serviceId)) {
+        this.warn("Invalid service ID. Skipping code generation.");
+        return;
+      }
+
+      this.log("");
+      this.log("Triggering code generation...");
+
+      // Trigger code generation via the API
+      // Note: This calls the Next.js API route which triggers AWS Step Functions
+      // The endpoint is on the frontend, so we need to use the web base URL
+      let triggerResponse: { success?: boolean; executionArn?: string } | null = null;
+      
+      try {
+        const webBaseUrl = getWebBaseUrlSync();
+        const token = await (api as any).getAccessToken();
+        
+        const response = await fetch(`${webBaseUrl}/api/triggerServiceDeploy/${serviceId}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`,
+          },
+          body: JSON.stringify({}),
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        triggerResponse = await response.json();
+      } catch (error) {
+        // If trigger fails, we'll still poll (code generation might be triggered automatically)
+        const err = error as Error;
+        if (process.env.DEBUG || process.env.APSO_DEBUG) {
+          this.log(`[DEBUG] Trigger endpoint error (will continue polling): ${err.message}`);
+        }
+        this.warn("Could not trigger code generation endpoint. Polling anyway (it may have been auto-triggered)...");
+      }
+
+      if (triggerResponse && !triggerResponse.success && !triggerResponse.executionArn) {
+        this.warn("Code generation trigger returned unexpected response. Polling anyway...");
+      }
+
+      this.log("✓ Code generation started");
+      this.log("  Polling for completion...");
+
+      // Poll for build status
+      await this.pollBuildStatus(api, serviceId);
+    } catch (error) {
+      const err = error as Error;
+      this.warn(`Failed to trigger code generation: ${err.message}`);
+      this.warn("Schema push succeeded, but code generation failed.");
+    }
+  }
+
+  private async pollBuildStatus(
+    api: ReturnType<typeof createApiClient>,
+    serviceId: number,
+    maxAttempts: number = 120, // 10 minutes max (5 second intervals)
+    intervalMs: number = 5000
+  ): Promise<void> {
+    const statusMessages: Record<string, string> = {
+      New: "Initializing...",
+      ProvisioningDatabase: "Provisioning database...",
+      DatabaseProvisioned: "Database provisioned",
+      ProvisioningCodebase: "Provisioning codebase...",
+      CodebaseProvisioned: "Codebase provisioned",
+      InitializingService: "Initializing service...",
+      ServiceInitialized: "Service initialized",
+      Scaffolding: "Scaffolding code...",
+      Scaffolded: "Code scaffolded",
+      Building: "Building service...",
+      BuildDone: "Build complete",
+      Ready: "Ready",
+      TriggeringCodeBuild: "Triggering code build...",
+      CodeBuildTriggered: "Code build triggered",
+      GeneratingMigrations: "Generating migrations...",
+      MigrationsGenerated: "Migrations generated",
+      RunningMigrations: "Running migrations...",
+      MigrationsCompleted: "Migrations completed",
+    };
+
+    const errorStatuses = [
+      "ErrorProvisioningDatabase",
+      "ErrorProvisioningCodebase",
+      "ErrorInitializingService",
+      "ErrorScaffolding",
+      "ErrorBuilding",
+      "ErrorTriggeringCodeBuild",
+      "ErrorGeneratingMigrations",
+      "ErrorRunningMigrations",
+      "ErrorUpdatingStack",
+      "ErrorCreatingStack",
+    ];
+
+    const successStatuses = ["Ready", "BuildDone", "MigrationsCompleted", "StackUpdated", "StackCreated"];
+
+    let lastStatus: string | null = null;
+    let attempts = 0;
+
+    while (attempts < maxAttempts) {
+      try {
+        // Fetch service to get build_status
+        const service = await api.rawRequest<{ build_status?: string }>(
+          `/WorkspaceServices/${serviceId}`
+        );
+
+        const currentStatus = service.build_status || "Unknown";
+
+        // Show status change
+        if (currentStatus !== lastStatus) {
+          const statusMessage = statusMessages[currentStatus] || currentStatus;
+          this.log(`  ${statusMessage} (${currentStatus})`);
+          lastStatus = currentStatus;
+        } else {
+          // Show spinner for same status
+          process.stdout.write(".");
+        }
+
+        // Check for completion
+        if (successStatuses.includes(currentStatus)) {
+          this.log("");
+          this.log("✓ Code generation completed successfully!");
+          this.log(`  Final status: ${currentStatus}`);
+          return;
+        }
+
+        // Check for errors
+        if (errorStatuses.includes(currentStatus)) {
+          this.log("");
+          this.error(`Code generation failed with status: ${currentStatus}`);
+          return;
+        }
+
+        attempts++;
+        await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      } catch (error) {
+        const err = error as Error;
+        // If it's a 404 or auth error, stop polling
+        if (err.message.includes("404") || err.message.includes("401")) {
+          this.log("");
+          this.warn(`Polling stopped: ${err.message}`);
+          return;
+        }
+        // For other errors, continue polling
+        attempts++;
+        await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      }
+    }
+
+    // Timeout
+    this.log("");
+    this.warn(`Code generation polling timed out after ${maxAttempts * intervalMs / 1000} seconds`);
+    this.warn("The code generation may still be in progress. Check the platform for status.");
   }
 }
 

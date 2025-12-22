@@ -1,6 +1,5 @@
 import { Flags, ux } from "@oclif/core";
 import BaseCommand from "../../lib/base-command";
-import { isAuthenticated } from "../../lib/config/index";
 import { createApiClient } from "../../lib/api/client";
 import {
   ExistingLinkInfo,
@@ -23,17 +22,48 @@ type WorkspaceGithubConnectionStatusDto = {
 };
 
 type ListGithubRepositoriesPayload = {
-  data: {
-    fullName: string;
-    htmlUrl: string;
-    defaultBranch: string;
-  }[];
+  repositories: Array<{
+    fullName?: string;
+    full_name?: string;
+    name?: string;
+    owner?: string;
+    htmlUrl?: string;
+    html_url?: string;
+    defaultBranch?: string;
+    default_branch?: string;
+  }>;
+  totalCount?: number;
+  totalPages?: number;
 };
 
 type FetchBranchesPayload = {
   data: {
     name: string;
   }[];
+};
+
+type CreateGithubRepositoryInput = {
+  connectionId: number;
+  serviceName: string;
+  private?: boolean;
+  auto_init?: boolean;
+  gitignore_template?: string;
+  license_template?: string;
+};
+
+type CreateRepositoryPayload = {
+  success?: boolean;
+  message?: string;
+  repository: {
+    fullName?: string;
+    full_name?: string;
+    name: string;
+    owner?: {
+      login?: string;
+    };
+    default_branch?: string;
+    defaultBranch?: string;
+  };
 };
 
 const execAsync = promisify(exec);
@@ -84,22 +114,12 @@ export default class GithubConnect extends BaseCommand {
   async run(): Promise<void> {
     const { flags } = await this.parse(GithubConnect);
 
-    // 1. Ensure user is authenticated
-    if (!isAuthenticated()) {
-      const shouldLogin = await ux.confirm(
-        "You are not logged in. Would you like to log in now? (y/n)"
-      );
-      if (shouldLogin) {
-        await this.config.runCommand("login", []);
-        if (!isAuthenticated()) {
-          this.error(
-            "Authentication failed. Please run 'apso login' manually and try again."
-          );
-        }
-      } else {
-        this.error("Please run 'apso login' first and try again.");
-      }
-    }
+    // 1. Ensure user is authenticated (supports non-interactive mode via APSO_NON_INTERACTIVE)
+    await this.ensureAuthenticated({
+      nonInteractive:
+        process.env.APSO_NON_INTERACTIVE === "1" ||
+        process.env.APSO_NON_INTERACTIVE === "true",
+    });
 
     // 2. Read link.json for workspace/service context
     const linkInfo = this.readOrErrorLink();
@@ -217,69 +237,143 @@ export default class GithubConnect extends BaseCommand {
     } else {
       this.log("");
       this.log("Multiple GitHub connections found. Please select one:");
-      const nameToId = new Map<string, number>();
-      const items = connections.map((c) => {
+      connections.forEach((c, idx) => {
         const label = `${
           c.github_username || "account " + c.connectionId
         } (id=${c.connectionId})`;
-        nameToId.set(label, c.connectionId);
-        return label;
+        this.log(`  [${idx + 1}] ${label}`);
       });
-      const chosen = await ux.prompt(
-        `GitHub account`,
-        { type: "autocomplete", name: "account", choices: items } as any
-      );
-      connectionId = nameToId.get(chosen)!;
+      this.log("");
+
+      const answer = await ux.prompt("Select a GitHub account by number", {
+        required: true,
+      });
+
+      const index = Number.parseInt(answer, 10);
+
+      if (Number.isNaN(index) || index < 1 || index > connections.length) {
+        this.error("Invalid GitHub account selection.");
+      }
+
+      connectionId = connections[index - 1].connectionId;
     }
 
     // 6. List repositories for that connection and let user choose (or filter)
     this.log("");
     this.log("Fetching repositories from GitHub...");
-    const repos = await this.listGithubRepositories(api, connectionId);
+    let repos = await this.listGithubRepositories(api, connectionId);
+    let selectedRepo: { fullName: string; htmlUrl: string; defaultBranch: string } | null = null;
+
     if (!repos.length) {
-      this.error(
-        "No repositories found for this GitHub connection. Please create a repository in GitHub and try again."
+      this.log("");
+      this.warn("No repositories found for this GitHub connection.");
+      this.log("");
+      
+      const shouldCreate = await ux.confirm(
+        "Would you like to create a new repository? (y/n)"
       );
-    }
 
-    const repoChoices = repos.map((r) => r.fullName);
-    const repoFullName = await ux.prompt(
-      "Select repository (or type to search)",
-      { type: "autocomplete", name: "repo", choices: repoChoices } as any
-    );
+      if (!shouldCreate) {
+        this.log("");
+        this.log("Possible reasons for no repositories:");
+        this.log("  • The GitHub account has no repositories");
+        this.log("  • The OAuth token doesn't have access to repositories");
+        this.log("  • The repositories are private and the token lacks permissions");
+        this.log("");
+        this.log("Troubleshooting:");
+        this.log("  • Check your GitHub account has repositories");
+        this.log("  • Verify the OAuth app has 'repo' scope permissions");
+        this.log("  • Try disconnecting and reconnecting GitHub");
+        this.log("  • Run with DEBUG=1 for more details: $env:APSO_DEBUG='1'; apso github:connect");
+        this.error(
+          "No repositories found. Please create a repository in GitHub or run this command again to create one."
+        );
+      }
 
-    const selectedRepo = repos.find((r) => r.fullName === repoFullName);
-    if (!selectedRepo) {
-      this.error(`Repository "${repoFullName}" not found in the fetched list.`);
+      // Create a new repository
+      selectedRepo = await this.createNewRepository(api, connectionId, link.serviceSlug);
+    } else {
+      // User selects from existing repositories
+      this.log("");
+      this.log("Available repositories:");
+      repos.forEach((r, idx) => {
+        this.log(`  [${idx + 1}] ${r.fullName}`);
+      });
+      this.log("");
+
+      const answer = await ux.prompt("Select a repository by number", {
+        required: true,
+      });
+
+      const index = Number.parseInt(answer, 10);
+
+      if (Number.isNaN(index) || index < 1 || index > repos.length) {
+        this.error("Invalid repository selection.");
+      }
+
+      selectedRepo = repos[index - 1];
     }
 
     // 7. List branches for the selected repository
     this.log("");
     this.log(`Fetching branches for ${selectedRepo.fullName}...`);
-    const branches = await this.listBranches(
+    
+    // For newly created repositories, wait a moment and retry if no branches found
+    let branches = await this.listBranches(
       api,
       connectionId,
       selectedRepo.fullName
     );
 
     if (!branches.length) {
-      this.error(
-        `No branches found in repository ${selectedRepo.fullName}. Please create a branch in GitHub and try again.`
-      );
+      // If repository was just created, wait and retry
+      this.log("No branches found yet. Waiting for repository to initialize...");
+      const maxRetries = 5;
+      const retryDelay = 2000; // 2 seconds
+
+      for (let attempt = 0; attempt < maxRetries && !branches.length; attempt++) {
+        if (attempt > 0) {
+          this.log(`  Retrying... (attempt ${attempt + 1}/${maxRetries})`);
+          await new Promise((resolve) => setTimeout(resolve, retryDelay));
+        }
+        branches = await this.listBranches(api, connectionId, selectedRepo.fullName);
+      }
+
+      if (!branches.length) {
+        // Default to 'main' branch for new repositories
+        this.warn("No branches found. Using 'main' as default branch.");
+        branches = [{ name: "main" }];
+      }
     }
 
-    const branchChoices = branches.map((b) => b.name);
-    const defaultBranch =
-      selectedRepo.defaultBranch && branchChoices.includes(selectedRepo.defaultBranch)
-        ? selectedRepo.defaultBranch
-        : branchChoices[0];
+    this.log("");
+    this.log("Available branches:");
+    branches.forEach((b, idx) => {
+      const isDefault = b.name === (selectedRepo.defaultBranch || "main");
+      this.log(`  [${idx + 1}] ${b.name}${isDefault ? " (default)" : ""}`);
+    });
+    this.log("");
 
-    const selectedBranch = await ux.prompt(
-      `Select branch [default: ${defaultBranch}]`,
-      { type: "autocomplete", name: "branch", choices: branchChoices } as any
+    const defaultBranch =
+      selectedRepo.defaultBranch && branches.some((b) => b.name === selectedRepo.defaultBranch)
+        ? selectedRepo.defaultBranch
+        : branches[0]?.name || "main";
+
+    const answer = await ux.prompt(
+      `Select a branch by number [default: ${defaultBranch}]`,
+      { required: false }
     );
 
-    const branchName = selectedBranch || defaultBranch;
+    let branchName: string;
+    if (!answer.trim()) {
+      branchName = defaultBranch;
+    } else {
+      const index = Number.parseInt(answer, 10);
+      if (Number.isNaN(index) || index < 1 || index > branches.length) {
+        this.error("Invalid branch selection.");
+      }
+      branchName = branches[index - 1].name;
+    }
 
     // 8. Call backend to connect repository to service
     this.log("");
@@ -364,8 +458,17 @@ export default class GithubConnect extends BaseCommand {
     }
 
     // Backend GithubConnectionController exposes GET /github-connections/connect/:workspaceId
-    const apiBaseUrl = (api as any)["apiBaseUrl"] || "";
-    return `${apiBaseUrl}/github-connections/connect/${numericId}`;
+    // It returns JSON with a 'url' field containing the GitHub OAuth URL
+    const path = `/github-connections/connect/${numericId}`;
+    const response = await api.rawRequest<{ url: string; message?: string }>(path);
+    
+    if (!response.url) {
+      this.error(
+        `Backend did not return a GitHub OAuth URL. Response: ${JSON.stringify(response)}`
+      );
+    }
+    
+    return response.url;
   }
 
   private async listGithubRepositories(
@@ -373,13 +476,35 @@ export default class GithubConnect extends BaseCommand {
     connectionId: number
   ): Promise<{ fullName: string; htmlUrl: string; defaultBranch: string }[]> {
     const path = `/github-connections/list-github-repos/${connectionId}`;
-    const resp = await api.rawRequest<ListGithubRepositoriesPayload>(path);
-    const items = resp.data || [];
-    return items.map((r: any) => ({
-      fullName: r.fullName || r.full_name || `${r.owner}/${r.name}`,
-      htmlUrl: r.htmlUrl || r.html_url,
-      defaultBranch: r.defaultBranch || r.default_branch || "main",
-    }));
+    
+    try {
+      const resp = await api.rawRequest<ListGithubRepositoriesPayload>(path);
+      
+      if (process.env.DEBUG || process.env.APSO_DEBUG) {
+        this.log(`[DEBUG] Repository API response: ${JSON.stringify(resp, null, 2).substring(0, 500)}`);
+      }
+      
+      // Backend returns { repositories: [...], totalCount: number, totalPages: number }
+      const items = resp.repositories || [];
+      
+      if (process.env.DEBUG || process.env.APSO_DEBUG) {
+        this.log(`[DEBUG] Found ${items.length} repositories from API (totalCount: ${resp.totalCount || 'unknown'})`);
+      }
+      
+      return items.map((r: any) => ({
+        fullName: r.fullName || r.full_name || `${r.owner?.login || r.owner || 'unknown'}/${r.name || 'unknown'}`,
+        htmlUrl: r.htmlUrl || r.html_url || r.html_url,
+        defaultBranch: r.defaultBranch || r.default_branch || "main",
+      }));
+    } catch (error) {
+      const err = error as Error;
+      this.warn(`Failed to fetch repositories: ${err.message}`);
+      if (process.env.DEBUG || process.env.APSO_DEBUG) {
+        this.log(`[DEBUG] Full error: ${err.stack}`);
+      }
+      // Return empty array so the calling code can show a helpful error message
+      return [];
+    }
   }
 
   private async listBranches(
@@ -431,6 +556,102 @@ export default class GithubConnect extends BaseCommand {
       method: "POST",
       body: JSON.stringify({}),
     });
+  }
+
+  private async createNewRepository(
+    api: ReturnType<typeof createApiClient>,
+    connectionId: number,
+    serviceSlug: string
+  ): Promise<{ fullName: string; htmlUrl: string; defaultBranch: string }> {
+    this.log("");
+    this.log("Creating a new GitHub repository...");
+    this.log("");
+
+    // Prompt for repository name (default to service slug)
+    const repoName = await ux.prompt("Repository name", {
+      default: serviceSlug,
+      required: true,
+    });
+
+    // Prompt for repository visibility
+    const isPrivate = await ux.confirm(
+      "Make this repository private? (y/n)"
+    );
+
+    // Prompt for auto-initialize (creates README, .gitignore, license)
+    const autoInit = await ux.confirm(
+      "Initialize repository with README, .gitignore, and license? (y/n)"
+    );
+
+    let gitignoreTemplate: string | undefined;
+    let licenseTemplate: string | undefined;
+
+    if (autoInit) {
+      // For now, we'll use common templates. In the future, could prompt for specific ones.
+      // GitHub API accepts templates like "Node", "Python", etc.
+      const useGitignore = await ux.confirm(
+        "Add a .gitignore template? (y/n)"
+      );
+      if (useGitignore) {
+        gitignoreTemplate = "Node"; // Default to Node.js template
+      }
+
+      const useLicense = await ux.confirm(
+        "Add a license? (y/n)"
+      );
+      if (useLicense) {
+        licenseTemplate = "mit"; // Default to MIT license
+      }
+    }
+
+    try {
+      this.log("");
+      this.log(`Creating repository "${repoName}"...`);
+
+      const createPayload: CreateGithubRepositoryInput = {
+        connectionId,
+        serviceName: repoName,
+        private: isPrivate,
+        auto_init: autoInit,
+        gitignore_template: gitignoreTemplate,
+        license_template: licenseTemplate,
+      };
+
+      const path = `/github-connections/create-repository`;
+      const response = await api.rawRequest<CreateRepositoryPayload>(path, {
+        method: "POST",
+        body: JSON.stringify(createPayload),
+      });
+
+      if (!response.repository) {
+        throw new Error("Repository creation response missing repository data");
+      }
+
+      const repo = response.repository;
+      const fullName =
+        repo.fullName ||
+        repo.full_name ||
+        `${repo.owner?.login || "unknown"}/${repo.name}`;
+
+      this.log("");
+      this.log(`✓ Repository "${fullName}" created successfully!`);
+
+      return {
+        fullName,
+        htmlUrl: "",
+        defaultBranch: repo.default_branch || repo.defaultBranch || "main",
+      };
+    } catch (error) {
+      const err = error as Error;
+      this.error(
+        `Failed to create repository: ${err.message}\n` +
+          "\nTroubleshooting:" +
+          "\n  • Check that the repository name is valid (alphanumeric, hyphens, underscores)" +
+          "\n  • Ensure the repository name doesn't already exist" +
+          "\n  • Verify your GitHub connection has permission to create repositories" +
+          "\n  • Run with DEBUG=1 for more details: $env:APSO_DEBUG='1'; apso github:connect"
+      );
+    }
   }
 }
 

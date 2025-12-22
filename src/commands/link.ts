@@ -1,6 +1,6 @@
 import { Flags, ux } from "@oclif/core";
 import BaseCommand from "../lib/base-command";
-import { isAuthenticated, readCredentials } from "../lib/config/index";
+import { readCredentials } from "../lib/config/index";
 import {
   createApiClient,
   ServiceSummary,
@@ -44,8 +44,13 @@ export default class Link extends BaseCommand {
     const { flags } = await this.parse(Link);
     const api = createApiClient();
 
-    // Ensure user is authenticated, reuse existing login flow if possible.
-    await this.ensureAuthenticated();
+    // Ensure user is authenticated, reuse shared helper.
+    const nonInteractive =
+      Boolean(flags.workspace || flags.service) ||
+      process.env.APSO_NON_INTERACTIVE === "1" ||
+      process.env.APSO_NON_INTERACTIVE === "true";
+
+    await this.ensureAuthenticated({ nonInteractive });
 
     const existing = this.safeReadExistingLink();
 
@@ -55,31 +60,6 @@ export default class Link extends BaseCommand {
       await this.handleNonInteractive(flags.workspace, flags.service, flags.env, api, existing);
     } else {
       await this.handleInteractive(flags.env, api, existing);
-    }
-  }
-
-  private async ensureAuthenticated(): Promise<void> {
-    if (isAuthenticated()) {
-      return;
-    }
-
-    this.log("You are not logged in.");
-
-    // Try to reuse oclif's command runner to invoke `apso login`.
-    const shouldLogin = await ux.confirm(
-      "Do you want to run 'apso login' now? (y/n)"
-    );
-
-    if (!shouldLogin) {
-      this.error("Authentication is required to link a project. Aborting.");
-    }
-
-    await this.config.runCommand("login", []);
-
-    if (!isAuthenticated()) {
-      this.error(
-        "Login did not complete successfully. Please run 'apso login' and try again."
-      );
     }
   }
 

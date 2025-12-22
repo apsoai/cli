@@ -1,6 +1,5 @@
 import { Flags, ux } from "@oclif/core";
 import BaseCommand from "../lib/base-command";
-import { isAuthenticated } from "../lib/config/index";
 import {
   readProjectLink,
   writeProjectLink,
@@ -108,23 +107,12 @@ export default class Pull extends BaseCommand {
   async run(): Promise<void> {
     const { flags } = await this.parse(Pull);
 
-    // Check authentication
-    if (!isAuthenticated()) {
-      const shouldLogin = await ux.confirm(
-        "You are not logged in. Would you like to log in now? (y/n)"
-      );
-      if (shouldLogin) {
-        await this.config.runCommand("login", []);
-        // Re-check after login
-        if (!isAuthenticated()) {
-          this.error(
-            "Authentication failed. Please run 'apso login' manually and try again."
-          );
-        }
-      } else {
-        this.error("Please run 'apso login' first and try again.");
-      }
-    }
+    // Ensure authentication (supports non-interactive mode via APSO_NON_INTERACTIVE).
+    await this.ensureAuthenticated({
+      nonInteractive:
+        process.env.APSO_NON_INTERACTIVE === "1" ||
+        process.env.APSO_NON_INTERACTIVE === "true",
+    });
 
     // Read project link
     const linkInfo = readProjectLink();
