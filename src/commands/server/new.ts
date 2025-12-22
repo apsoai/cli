@@ -2,13 +2,26 @@ import { Args, Flags } from "@oclif/core";
 import { spawn } from "child_process";
 import * as fs from "fs";
 import shell from "shelljs";
+import inquirer from "inquirer";
 import BaseCommand from "../../lib/base-command";
 import * as path from "path";
+
+type TargetLanguage = "typescript" | "python" | "go";
+
+const TEMPLATE_REPOS: Record<TargetLanguage, string> = {
+  typescript: "https://github.com/apsoai/service-template.git",
+  python: "https://github.com/apsoai/service-template-python.git",
+  go: "https://github.com/apsoai/service-template-go.git",
+};
 
 export default class New extends BaseCommand {
   static description = "Initialize your server project";
 
-  static examples = [`$ apso server new --name TestProject`];
+  static examples = [
+    `$ apso server new --name TestProject`,
+    `$ apso server new --name TestProject --language python`,
+    `$ apso server new --name TestProject --language go`,
+  ];
 
   private CURR_DIR = process.cwd();
 
@@ -20,6 +33,11 @@ export default class New extends BaseCommand {
     type: Flags.string({
       char: "t",
       description: "api type (rest or graphql)",
+    }),
+    language: Flags.string({
+      char: "l",
+      description: "target language (typescript, python, go)",
+      options: ["typescript", "python", "go"],
     }),
   };
 
@@ -65,8 +83,9 @@ export default class New extends BaseCommand {
     });
   }
 
-  async cloneTemplate(projectPath: string): Promise<void> {
-    this.log("Cloning service template...");
+  async cloneTemplate(projectPath: string, language: TargetLanguage): Promise<void> {
+    const repoUrl = TEMPLATE_REPOS[language];
+    this.log(`Cloning ${language} service template...`);
 
     if (!fs.existsSync(projectPath) && this.CURR_DIR !== projectPath) {
       fs.mkdirSync(projectPath);
@@ -74,7 +93,7 @@ export default class New extends BaseCommand {
 
     shell.cd(projectPath);
     const cloneResult = shell.exec(
-      `git clone --depth=1 --branch=main https://github.com/apsoai/service-template.git ${projectPath}`,
+      `git clone --depth=1 --branch=main ${repoUrl} ${projectPath}`,
       { silent: true }
     ); // Use silent: true to suppress default output
 
@@ -84,7 +103,7 @@ export default class New extends BaseCommand {
       this.error(
         `Failed to clone the template repository from GitHub.\n` +
           `Error Output:\n${cloneResult.stderr}\n\n` +
-          `Please check your network connection and ensure the repository exists at https://github.com/apsoai/service-template.git\n\n` +
+          `Please check your network connection and ensure the repository exists at ${repoUrl}\n\n` +
           `If the problem persists, please remove the partially created directory "${projectPath}" and try again.`
       );
       // Throwing error via this.error will stop execution
@@ -100,6 +119,7 @@ export default class New extends BaseCommand {
 
     let projectName = flags.name;
     let apiType = flags.type?.toLowerCase();
+    let language = flags.language as TargetLanguage | undefined;
 
     if (!projectName) {
       projectName = "";
@@ -113,17 +133,46 @@ export default class New extends BaseCommand {
       this.error("`apiType` must be 'rest' or 'graphql'");
     }
 
-    return { projectName, apiType };
+    // Prompt for language if not provided
+    if (!language) {
+      const response = await inquirer.prompt([
+        {
+          type: "list",
+          name: "language",
+          message: "Select your target language:",
+          choices: [
+            { name: "TypeScript", value: "typescript" },
+            { name: "Python", value: "python" },
+            { name: "Go", value: "go" },
+          ],
+          default: "typescript",
+        },
+      ]);
+      language = response.language as TargetLanguage;
+    }
+
+    return { projectName, apiType, language };
   }
 
   async run(): Promise<void> {
     this.log("Initializing New Apso Server...");
-    const { projectName } = await this.validateFlags();
+    const { projectName, language } = await this.validateFlags();
     const CURR_DIR = process.cwd();
     const projectPath = path.join(CURR_DIR, projectName);
 
-    await this.cloneTemplate(projectPath);
-    await this.installModules(projectPath);
-    await this.formatApp(projectPath);
+    await this.cloneTemplate(projectPath, language);
+
+    // Language-specific setup
+    if (language === "typescript") {
+      await this.installModules(projectPath);
+      await this.formatApp(projectPath);
+    } else if (language === "python") {
+      this.log("Python project created. Run 'pip install -e .[dev]' to install dependencies.");
+    } else if (language === "go") {
+      this.log("Go project created. Run 'go mod tidy' to install dependencies.");
+    }
+
+    this.log(`\n✓ Project created at ${projectPath}`);
+    this.log(`  Language: ${language}`);
   }
 }
