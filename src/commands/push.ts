@@ -16,11 +16,12 @@ import {
   ConflictType,
 } from "../lib/conflict-detector";
 import { LocalApsorcSchema } from "../lib/schema-converter/types";
-import { getServiceCodeDir, getAuthoritativeApsorcPath, syncApsorcToCodeBundle, getRootApsorcPath } from "../lib/project-link";
+import { getServiceCodeDir, getAuthoritativeApsorcPath, syncApsorcToCodeBundle, getRootApsorcPath, getProjectRoot } from "../lib/project-link";
 import * as fs from "fs";
 import * as path from "path";
 import * as AdmZip from "adm-zip";
 import * as FormData from "form-data";
+import { spawn } from "child_process";
 
 export default class Push extends BaseCommand {
   static description =
@@ -47,6 +48,11 @@ export default class Push extends BaseCommand {
     "generate-code": Flags.boolean({
       char: "g",
       description: "Trigger code generation after schema push and poll until completion",
+      default: false,
+    }),
+    "git-pull": Flags.boolean({
+      description:
+        "After successful code push to GitHub, run 'git pull' in the project root to fetch latest remote changes",
       default: false,
     }),
   };
@@ -296,7 +302,7 @@ export default class Push extends BaseCommand {
       }
 
       // Push code if it exists
-      await this.pushServiceCode(api, link);
+      await this.pushServiceCode(api, link, flags);
 
       // Trigger code generation if requested
       if (flags["generate-code"]) {
@@ -325,7 +331,8 @@ export default class Push extends BaseCommand {
 
   private async pushServiceCode(
     api: ReturnType<typeof createApiClient>,
-    link: { workspaceId: string; serviceId: string; githubRepo?: string | null; githubBranch?: string | null }
+    link: { workspaceId: string; serviceId: string; githubRepo?: string | null; githubBranch?: string | null },
+    flags: { [name: string]: any }
   ): Promise<void> {
     const codeDir = getServiceCodeDir();
     if (!fs.existsSync(codeDir)) {
@@ -427,6 +434,68 @@ export default class Push extends BaseCommand {
       this.log("✓ Code pushed successfully to GitHub");
       this.log(`  Repository: ${link.githubRepo}`);
       this.log(`  Branch:     ${link.githubBranch}`);
+
+      // After a successful code push to GitHub, optionally run `git pull` locally
+      // to bring the user's working copy up to date with the remote.
+      const projectRoot = getProjectRoot();
+      const gitDir = path.join(projectRoot, ".git");
+
+      if (!fs.existsSync(projectRoot) || !fs.existsSync(gitDir)) {
+        this.log("");
+        this.log("Git pull skipped: project root is not a Git repository.");
+        this.log(`  Project root: ${projectRoot}`);
+        return;
+      }
+
+      let shouldRunGitPull = false;
+
+      if (flags["git-pull"]) {
+        // Non-interactive opt-in via flag
+        shouldRunGitPull = true;
+      } else {
+        // Interactive prompt (only if not in non-interactive mode)
+        const nonInteractive =
+          process.env.APSO_NON_INTERACTIVE === "1" ||
+          process.env.APSO_NON_INTERACTIVE === "true";
+
+        if (!nonInteractive) {
+          this.log("");
+          const answer = await ux.confirm(
+            "Do you want to run 'git pull' in the project root to fetch latest remote changes? (y/n)"
+          );
+          shouldRunGitPull = answer;
+        }
+      }
+
+      if (shouldRunGitPull) {
+        this.log("");
+        this.log(`Running 'git pull' in project root: ${projectRoot}`);
+
+        await new Promise<void>((resolve) => {
+          const isWindows = process.platform === "win32";
+          const gitCmd = isWindows ? "git.exe" : "git";
+
+          const child = spawn(gitCmd, ["pull"], {
+            cwd: projectRoot,
+            stdio: "inherit",
+            shell: isWindows,
+          });
+
+          child.on("close", (code) => {
+            if (code !== 0) {
+              this.warn(`git pull exited with code ${code}. Please resolve any issues manually.`);
+            } else {
+              this.log("✓ git pull completed successfully.");
+            }
+            resolve();
+          });
+
+          child.on("error", (err) => {
+            this.warn(`Failed to run 'git pull': ${(err as Error).message}`);
+            resolve();
+          });
+        });
+      }
     } catch (error) {
       const err = error as Error;
       this.warn(`Failed to push service code: ${err.message}`);

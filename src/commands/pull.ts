@@ -11,7 +11,7 @@ import { convertPlatformToLocal } from "../lib/schema-converter";
 import { calculateSchemaHash } from "../lib/schema-hash";
 import { detectConflict, getConflictSummary, ConflictType } from "../lib/conflict-detector";
 import { LocalApsorcSchema } from "../lib/schema-converter/types";
-import { getServiceCodeDir, syncApsorcToRoot, syncApsorcToCodeBundle } from "../lib/project-link";
+import { getServiceCodeDir, syncApsorcToRoot, syncApsorcToCodeBundle, getProjectRoot } from "../lib/project-link";
 import * as fs from "fs";
 import * as path from "path";
 import * as AdmZip from "adm-zip";
@@ -124,6 +124,13 @@ export default class Pull extends BaseCommand {
     }
 
     const { link } = linkInfo;
+
+    // Git pre-flight: detect uncommitted changes before modifying files
+    // (applies to pull since it can overwrite .apsorc and code).
+    const projectRoot = getProjectRoot();
+    const gitContext = await this.gitPreflight(projectRoot, {
+      operationName: "pull",
+    });
     this.log(`Pulling schema for service: ${link.serviceSlug} (${link.serviceId})`);
     this.log(`Workspace: ${link.workspaceSlug} (${link.workspaceId})`);
 
@@ -350,6 +357,9 @@ export default class Pull extends BaseCommand {
       }
       const err = error as Error;
       this.error(`Failed to write .apsorc: ${err.message}`);
+    } finally {
+      // After modifying files, restore any stashed changes (if applicable)
+      await this.gitPostflight(projectRoot, gitContext);
     }
   }
 

@@ -101,6 +101,16 @@ export function getServiceCodeDir(cwd: string = process.cwd()): string {
 }
 
 /**
+ * Get the detected project root directory (where .apso/link.json lives).
+ *
+ * This is the directory where Git operations (like `git pull`) should be run
+ * when integrating with the platform's code push flows.
+ */
+export function getProjectRoot(cwd: string = process.cwd()): string {
+  return findProjectRoot(cwd);
+}
+
+/**
  * Get the authoritative .apsorc file path.
  * 
  * Architecture: Code bundle .apsorc is the single source of truth
