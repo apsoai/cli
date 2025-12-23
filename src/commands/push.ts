@@ -16,7 +16,7 @@ import {
   ConflictType,
 } from "../lib/conflict-detector";
 import { LocalApsorcSchema } from "../lib/schema-converter/types";
-import { getServiceCodeDir } from "../lib/project-link";
+import { getServiceCodeDir, getAuthoritativeApsorcPath, syncApsorcToCodeBundle, getRootApsorcPath } from "../lib/project-link";
 import * as fs from "fs";
 import * as path from "path";
 import * as AdmZip from "adm-zip";
@@ -74,24 +74,76 @@ export default class Push extends BaseCommand {
     this.log(`Pushing schema for service: ${link.serviceSlug} (${link.serviceId})`);
     this.log(`Workspace: ${link.workspaceSlug} (${link.workspaceId})`);
 
-    // Check if .apsorc exists
-    const apsorcPath = path.join(process.cwd(), ".apsorc");
+    // Get project root path (not process.cwd() which might be a subdirectory)
+    const rootApsorc = getRootApsorcPath();
+
+    // Get authoritative .apsorc path.
+    // IMPORTANT: This now prefers the code bundle .apsorc if it exists and is valid.
+    // That means:
+    // - After a pull, edits to `.apso/service-code/.apsorc` are treated as the source of truth.
+    // - Root `.apsorc` is a convenience mirror that we keep in sync from the authoritative file.
+    const apsorcPath = getAuthoritativeApsorcPath();
     if (!fs.existsSync(apsorcPath)) {
       this.error(
-        ".apsorc file not found in the current directory.\n" +
+        ".apsorc file not found.\n" +
           "Please create a .apsorc file first or run 'apso pull' to fetch the schema from the platform."
       );
     }
 
-    // Read and parse local .apsorc
+    // Read and fix .apsorc if it's missing required fields
     let localSchema: LocalApsorcSchema;
     try {
-      // First validate using parser
+      const rawContent = fs.readFileSync(apsorcPath, "utf8");
+      let parsed = JSON.parse(rawContent);
+      
+      // Auto-fix incomplete .apsorc files by adding missing required fields
+      let needsFix = false;
+      if (!parsed.version) {
+        parsed.version = 2; // Default to version 2
+        needsFix = true;
+      }
+      if (!parsed.rootFolder) {
+        parsed.rootFolder = "src"; // Default root folder
+        needsFix = true;
+      }
+      if (!parsed.apiType) {
+        parsed.apiType = "Rest"; // Default API type
+        needsFix = true;
+      }
+      
+      // If we fixed it, write it back to the authoritative path
+      if (needsFix) {
+        const fixedContent = JSON.stringify(parsed, null, 2);
+        fs.writeFileSync(apsorcPath, fixedContent, "utf8");
+        this.log(`✓ Fixed incomplete .apsorc file (added missing required fields: version, rootFolder, apiType)`);
+      }
+
+      // ALWAYS ensure root .apsorc exists and is complete
+      // This is critical because parseApsorc() uses rc("apso") which searches from cwd upward
+      // We need the project root .apsorc to exist so rc() finds it BEFORE parent directories
+      const rootDir = path.dirname(rootApsorc);
+      if (!fs.existsSync(rootDir)) {
+        fs.mkdirSync(rootDir, { recursive: true });
+      }
+      
+      // Copy authoritative .apsorc to root (whether we fixed it or not)
+      // This ensures rc() finds the correct, complete .apsorc in project root
+      fs.copyFileSync(apsorcPath, rootApsorc);
+      if (!needsFix) {
+        this.log(`✓ Synced authoritative .apsorc to root for validation`);
+      }
+      
+      // Also sync to code bundle if we fixed it (to keep them in sync)
+      if (needsFix && apsorcPath !== path.join(getServiceCodeDir(), ".apsorc")) {
+        syncApsorcToCodeBundle();
+      }
+      
+      // Now validate using parser (it reads from current directory via rc)
+      // rc() will find the root .apsorc we just synced/fixed
       parseApsorc();
 
-      // Then read the raw file for conversion
-      const rawContent = fs.readFileSync(apsorcPath, "utf8");
-      localSchema = JSON.parse(rawContent) as LocalApsorcSchema;
+      // Then use the parsed content for conversion
+      localSchema = parsed as LocalApsorcSchema;
     } catch (error) {
       const err = error as Error;
       this.error(
@@ -279,6 +331,14 @@ export default class Push extends BaseCommand {
     if (!fs.existsSync(codeDir)) {
       // Code directory doesn't exist, skip code push
       return;
+    }
+
+    // Ensure code bundle .apsorc is up to date before pushing
+    // This ensures the code bundle always has the latest schema
+    const syncedPath = syncApsorcToCodeBundle();
+    if (syncedPath) {
+      this.log("");
+      this.log("✓ Ensured code bundle .apsorc is up to date");
     }
 
     try {

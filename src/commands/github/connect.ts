@@ -346,17 +346,21 @@ export default class GithubConnect extends BaseCommand {
       }
     }
 
+    if (!selectedRepo) {
+      this.error("No repository selected. This should not happen.");
+    }
+
     this.log("");
     this.log("Available branches:");
     branches.forEach((b, idx) => {
-      const isDefault = b.name === (selectedRepo.defaultBranch || "main");
+      const isDefault = b.name === (selectedRepo!.defaultBranch || "main");
       this.log(`  [${idx + 1}] ${b.name}${isDefault ? " (default)" : ""}`);
     });
     this.log("");
 
     const defaultBranch =
-      selectedRepo.defaultBranch && branches.some((b) => b.name === selectedRepo.defaultBranch)
-        ? selectedRepo.defaultBranch
+      selectedRepo!.defaultBranch && branches.some((b) => b.name === selectedRepo!.defaultBranch)
+        ? selectedRepo!.defaultBranch
         : branches[0]?.name || "main";
 
     const answer = await ux.prompt(

@@ -47,40 +47,25 @@ function isCliRepository(dir: string): boolean {
 /**
  * Find the project root by walking up the directory tree
  * looking for .apso/link.json. If not found, use current directory.
- * Also ensures we're outside the CLI repository if we're inside it.
+ *
+ * IMPORTANT:
+ * - We now always treat the directory that actually contains `.apso/link.json`
+ *   as the project root, even if it is inside the CLI repo.
+ * - This ensures that when you run `apso` from `cli/`, all paths
+ *   (service-code dir, .apsorc, etc.) stay under `cli/` instead of
+ *   escaping to the parent `Apso/` folder.
  */
 function findProjectRoot(startDir: string = process.cwd()): string {
   let currentDir = path.resolve(startDir);
   const root = path.parse(currentDir).root;
-  let cliRepoPath: string | null = null;
-
-  // First, check if we're inside the CLI repository
-  let checkDir = currentDir;
-  while (checkDir !== root) {
-    if (isCliRepository(checkDir)) {
-      cliRepoPath = checkDir;
-      break;
-    }
-    checkDir = path.dirname(checkDir);
-  }
 
   // Find project root (where .apso/link.json is)
   while (currentDir !== root) {
     const linkPath = path.join(currentDir, ".apso", "link.json");
     if (fs.existsSync(linkPath)) {
-      // If we found the project root, check if it's inside the CLI repo
-      if (cliRepoPath && currentDir.startsWith(cliRepoPath)) {
-        // Project root is inside CLI repo, use parent directory
-        return path.dirname(cliRepoPath);
-      }
       return currentDir;
     }
     currentDir = path.dirname(currentDir);
-  }
-
-  // If no .apso/link.json found, but we're in CLI repo, use parent
-  if (cliRepoPath) {
-    return path.dirname(cliRepoPath);
   }
 
   // Otherwise, return the original directory
@@ -113,6 +98,107 @@ function getLinkFilePath(cwd: string = process.cwd()): string {
 export function getServiceCodeDir(cwd: string = process.cwd()): string {
   const projectRoot = findProjectRoot(cwd);
   return path.join(projectRoot, ".apso", "service-code");
+}
+
+/**
+ * Get the authoritative .apsorc file path.
+ * 
+ * Architecture: Code bundle .apsorc is the single source of truth
+ * - .apso/service-code/.apsorc = authoritative (matches generated code in bundle)
+ * - .apsorc (root) = convenience copy for editing
+ * 
+ * Priority: 1) Code bundle (.apso/service-code/.apsorc), 2) Root (.apsorc)
+ * The code bundle version is authoritative because it matches the generated code.
+ * 
+ * Sync flow:
+ * - After `pull`: code bundle .apsorc → root .apsorc (code bundle is authoritative)
+ * - Before `push`: root .apsorc → code bundle .apsorc (ensure bundle has latest edits)
+ */
+export function getAuthoritativeApsorcPath(cwd: string = process.cwd()): string {
+  const projectRoot = findProjectRoot(cwd);
+  const codeBundleApsorc = path.join(projectRoot, ".apso", "service-code", ".apsorc");
+  const rootApsorc = path.join(projectRoot, ".apsorc");
+
+  // Prefer code bundle .apsorc if it exists and is valid
+  if (fs.existsSync(codeBundleApsorc)) {
+    // Validate code bundle .apsorc has required fields
+    try {
+      const content = fs.readFileSync(codeBundleApsorc, "utf8");
+      const parsed = JSON.parse(content);
+      if (parsed.version && parsed.rootFolder && parsed.apiType) {
+        return codeBundleApsorc;
+      }
+      // Code bundle .apsorc exists but is incomplete, fall back to root
+    } catch {
+      // If we can't parse it, fall back to root
+    }
+  }
+
+  // Fallback to root .apsorc
+  return rootApsorc;
+}
+
+/**
+ * Get the root .apsorc path (convenience copy for editing)
+ */
+export function getRootApsorcPath(cwd: string = process.cwd()): string {
+  const projectRoot = findProjectRoot(cwd);
+  return path.join(projectRoot, ".apsorc");
+}
+
+/**
+ * Sync .apsorc from code bundle to root (for convenience editing)
+ * Returns the path that was written to
+ */
+export function syncApsorcToRoot(cwd: string = process.cwd()): string | null {
+  const projectRoot = findProjectRoot(cwd);
+  const codeBundleApsorc = path.join(projectRoot, ".apso", "service-code", ".apsorc");
+  const rootApsorc = path.join(projectRoot, ".apsorc");
+
+  if (!fs.existsSync(codeBundleApsorc)) {
+    return null;
+  }
+
+  // Copy code bundle .apsorc to root
+  fs.copyFileSync(codeBundleApsorc, rootApsorc);
+  return rootApsorc;
+}
+
+/**
+ * Sync .apsorc from root to code bundle (before code upload)
+ * Ensures code bundle has the latest schema before pushing
+ */
+export function syncApsorcToCodeBundle(cwd: string = process.cwd()): string | null {
+  const projectRoot = findProjectRoot(cwd);
+  const codeBundleApsorc = path.join(projectRoot, ".apso", "service-code", ".apsorc");
+  const rootApsorc = path.join(projectRoot, ".apsorc");
+
+  if (!fs.existsSync(rootApsorc)) {
+    return null;
+  }
+
+  // Validate root .apsorc has required fields before syncing
+  try {
+    const rootContent = fs.readFileSync(rootApsorc, "utf8");
+    const rootParsed = JSON.parse(rootContent);
+    if (!rootParsed.version || !rootParsed.rootFolder || !rootParsed.apiType) {
+      // Root .apsorc is incomplete, don't sync
+      return null;
+    }
+  } catch {
+    // If we can't parse root .apsorc, don't sync
+    return null;
+  }
+
+  // Ensure code bundle directory exists
+  const codeBundleDir = path.dirname(codeBundleApsorc);
+  if (!fs.existsSync(codeBundleDir)) {
+    fs.mkdirSync(codeBundleDir, { recursive: true });
+  }
+
+  // Copy root .apsorc to code bundle
+  fs.copyFileSync(rootApsorc, codeBundleApsorc);
+  return codeBundleApsorc;
 }
 
 

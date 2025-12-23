@@ -11,7 +11,7 @@ import { convertPlatformToLocal } from "../lib/schema-converter";
 import { calculateSchemaHash } from "../lib/schema-hash";
 import { detectConflict, getConflictSummary, ConflictType } from "../lib/conflict-detector";
 import { LocalApsorcSchema } from "../lib/schema-converter/types";
-import { getServiceCodeDir } from "../lib/project-link";
+import { getServiceCodeDir, syncApsorcToRoot, syncApsorcToCodeBundle } from "../lib/project-link";
 import * as fs from "fs";
 import * as path from "path";
 import * as AdmZip from "adm-zip";
@@ -310,9 +310,28 @@ export default class Pull extends BaseCommand {
 
       writeProjectLink(updatedLink);
 
-      // Download code unless --schema-only flag is set
-      if (!flags["schema-only"]) {
+      // If schema-only, also sync to code bundle if it exists (for consistency)
+      if (flags["schema-only"]) {
+        const codeBundleDir = getServiceCodeDir();
+        if (fs.existsSync(codeBundleDir)) {
+          const syncedPath = syncApsorcToCodeBundle();
+          if (syncedPath) {
+            this.log("");
+            this.log(`✓ Synced .apsorc to code bundle (${syncedPath})`);
+          }
+        }
+      } else {
+        // Download code (which includes .apsorc in the bundle)
         await this.downloadServiceCode(api, link);
+        
+        // After downloading code, sync .apsorc from code bundle to root
+        // Code bundle .apsorc is authoritative (matches the generated code)
+        const syncedPath = syncApsorcToRoot();
+        if (syncedPath) {
+          this.log("");
+          this.log(`✓ Synced .apsorc from code bundle to root`);
+          this.log(`  Code bundle .apsorc is the authoritative version (matches generated code)`);
+        }
       }
 
       this.log("");
@@ -320,6 +339,7 @@ export default class Pull extends BaseCommand {
       this.log("  • Review the updated .apsorc file");
       if (!flags["schema-only"]) {
         this.log("  • Review the downloaded code in .apso/service-code/");
+        this.log("  • Note: .apso/service-code/.apsorc is the authoritative version");
       }
       this.log("  • Run 'apso server scaffold' to regenerate code from the schema");
     } catch (error) {
