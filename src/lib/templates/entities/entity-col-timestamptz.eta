@@ -1,4 +1,11 @@
 <% const {field} = it; %>
-
+<% if (field.name === 'createdAt') { %>
+@CreateDateColumn()
+createdAt: Date;
+<% } else if (field.name === 'updatedAt') { %>
+@UpdateDateColumn()
+updatedAt: Date;
+<% } else { %>
 @Column({ type: 'timestamptz', nullable: <%= Boolean(field.nullable) %> })
 <%= field.name %>: Date;
+<% } %>

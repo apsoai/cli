@@ -13,13 +13,13 @@ from sqlalchemy.sql import func
 
 from app.database import Base
 <% if (it.importEnums) { %>
-from app.models import enums
+from . import enums
 <% } %>
 
 <% if (it.entitiesToImport && it.entitiesToImport.length > 0) { %>
 if TYPE_CHECKING:
 <% it.entitiesToImport.forEach((assocName) => { %>
-    from app.models.<%= assocName.toLowerCase() %> import <%= assocName %>
+    from .<%= assocName.toLowerCase() %> import <%= assocName %>
 <% }) %>
 <% } %>
 
@@ -69,8 +69,16 @@ class <%= it.name %>(Base):
 <% } %>
 
     # Columns
-<% it.columns.forEach((field) => { %>
-<%~ includeFile(`./model-col-${field.type}`, { field }) %>
+<%
+// Filter out id (if createPrimaryKey), createdAt, and updatedAt since they're handled separately
+const columnsToProcess = it.columns.filter(c => {
+  if (it.createPrimaryKey && c.name === 'id') return false;
+  if (it.createdAt && c.name === 'createdAt') return false;
+  if (it.updatedAt && c.name === 'updatedAt') return false;
+  return true;
+});
+columnsToProcess.forEach((field) => { -%>
+<%~ includeFile(`./model-col-${field.type}`, { field, entityName: it.name }) %>
 <% }); %>
 
     # Relationships

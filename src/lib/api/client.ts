@@ -19,7 +19,7 @@ import { globalConfig, credentials } from "../config";
 /**
  * Default request timeout in milliseconds
  */
-const DEFAULT_TIMEOUT = 30000;
+const DEFAULT_TIMEOUT = 30_000;
 
 /**
  * Maximum retry attempts for failed requests
@@ -91,14 +91,16 @@ export async function checkNetworkConnectivity(): Promise<boolean> {
  * Sleep for a given number of milliseconds
  */
 function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 /**
  * Calculate backoff delay with jitter
  */
 function getBackoffDelay(attempt: number): number {
-  const delay = BACKOFF_BASE_DELAY * Math.pow(2, attempt);
+  const delay = BACKOFF_BASE_DELAY * 2**attempt;
   const jitter = Math.random() * 0.3 * delay;
   return delay + jitter;
 }
@@ -171,7 +173,9 @@ async function refreshAccessToken(): Promise<boolean> {
 
 /**
  * Make an authenticated request to the platform API
+ * Note: Sequential retries are intentional for proper backoff behavior
  */
+/* eslint-disable no-await-in-loop */
 export async function apiRequest<T>(
   path: string,
   options: ApiRequestOptions = {}
@@ -219,7 +223,7 @@ export async function apiRequest<T>(
     // Re-read credentials after potential refresh
     const freshCreds = credentials.read();
     if (freshCreds) {
-      requestHeaders["Authorization"] = `Bearer ${freshCreds.tokens.accessToken}`;
+      requestHeaders.Authorization = `Bearer ${freshCreds.tokens.accessToken}`;
     }
   }
 
@@ -281,7 +285,7 @@ export async function apiRequest<T>(
       if (response.status === 429) {
         const retryAfter = response.headers.get("retry-after");
         const waitTime = retryAfter
-          ? parseInt(retryAfter, 10) * 1000
+          ? Number.parseInt(retryAfter, 10) * 1000
           : getBackoffDelay(attempt);
         await sleep(waitTime);
         continue;
@@ -326,6 +330,7 @@ export async function apiRequest<T>(
 
   throw lastError || new ApiClientError("Request failed after retries", 500);
 }
+/* eslint-enable no-await-in-loop */
 
 /**
  * Get CLI version for User-Agent header

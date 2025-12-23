@@ -5,14 +5,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models.<%= it.entityName.toLowerCase() %> import <%= it.entityName %>
-from app.schemas.<%= it.entityName.toLowerCase() %> import (
+from ..models.<%= it.entityName.toLowerCase() %> import <%= it.entityName -%>
+
+from ..schemas.<%= it.entityName.toLowerCase() %> import (
     <%= it.entityName %> as <%= it.entityName %>Schema,
     <%= it.entityName %>Create,
     <%= it.entityName %>Update,
     <%= it.entityName %>List,
 )
-from app.services.<%= it.entityName.toLowerCase() %> import <%= it.entityName %>Service
+from ..services.<%= it.entityName.toLowerCase() %> import <%= it.entityName %>Service
 
 router = APIRouter(
     prefix="/<%= it.pluralEntityName.toLowerCase() %>",
@@ -55,10 +56,10 @@ async def get_many(
 
     return <%= it.entityName %>List(
         data=items,
-        count=len(items),
         total=total,
         page=(skip // limit) + 1 if limit > 0 else 1,
-        page_count=(total + limit - 1) // limit if limit > 0 else 1,
+        pageSize=limit,
+        totalPages=(total + limit - 1) // limit if limit > 0 else 1,
     )
 
 

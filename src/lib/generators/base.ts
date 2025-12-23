@@ -135,6 +135,7 @@ export abstract class BaseGenerator implements LanguageGenerator {
 
   /**
    * Write generated files to disk
+   * Note: Sequential writes are intentional to avoid race conditions
    */
   protected async writeFiles(
     baseDir: string,
@@ -142,6 +143,7 @@ export abstract class BaseGenerator implements LanguageGenerator {
   ): Promise<void> {
     for (const file of files) {
       const fullPath = path.join(baseDir, file.path);
+      // eslint-disable-next-line no-await-in-loop
       await createFile(fullPath, file.content);
     }
   }
@@ -193,7 +195,7 @@ export abstract class BaseGenerator implements LanguageGenerator {
         types.add(field.type);
       }
     }
-    return Array.from(types);
+    return [...types];
   }
 
   /**

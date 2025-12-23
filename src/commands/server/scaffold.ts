@@ -39,6 +39,7 @@ export default class Scaffold extends BaseCommand {
     `$ apso server scaffold --language python`,
     `$ apso server scaffold --language go`,
   ];
+
   static flags = {
     help: Flags.help({ char: "h" }),
     "skip-format": Flags.boolean({
@@ -223,8 +224,7 @@ export default class Scaffold extends BaseCommand {
 
     // For TypeScript, use the existing code path (for backward compatibility)
     // For other languages, use the new generator system
-    if (language === "typescript") {
-      await this.scaffoldTypeScript({
+    await (language === "typescript" ? this.scaffoldTypeScript({
         autogenPath,
         rootPath,
         entities,
@@ -232,9 +232,7 @@ export default class Scaffold extends BaseCommand {
         apiType: lowerCaseApiType,
         auth,
         skipFormat,
-      });
-    } else {
-      await this.scaffoldWithGenerator({
+      }) : this.scaffoldWithGenerator({
         language,
         rootFolder,
         autogenPath,
@@ -243,8 +241,7 @@ export default class Scaffold extends BaseCommand {
         apiType: lowerCaseApiType,
         auth,
         skipFormat,
-      });
-    }
+      }));
 
     const totalBuildTime = performance.now() - totalBuildStart;
     console.log(
@@ -295,7 +292,9 @@ export default class Scaffold extends BaseCommand {
 
     await createIndexAppModule(autogenPath, entities, apiType);
 
-    if (!skipFormat) {
+    if (skipFormat) {
+      console.log("[apso] Skipping formatting (--skip-format flag set)");
+    } else {
       const formatStart = performance.now();
       console.log("[apso] Formatting files...");
       await this.runNpmCommand(
@@ -304,14 +303,14 @@ export default class Scaffold extends BaseCommand {
       );
       const formatTime = performance.now() - formatStart;
       console.log(`[apso] Finished formatting in ${formatTime.toFixed(2)} ms`);
-    } else {
-      console.log("[apso] Skipping formatting (--skip-format flag set)");
     }
   }
 
   /**
    * Scaffolds code using the new generator system (for Python, Go, and future languages)
+   * Note: Sequential file operations are intentional to provide progress feedback
    */
+  /* eslint-disable no-await-in-loop */
   private async scaffoldWithGenerator(options: {
     language: TargetLanguage;
     rootFolder: string;
@@ -445,4 +444,5 @@ export default class Scaffold extends BaseCommand {
       console.log(`[apso] Generated ${fullPath}`);
     }
   }
+  /* eslint-enable no-await-in-loop */
 }

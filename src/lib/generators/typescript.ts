@@ -15,7 +15,7 @@ import {
   AuthConfig,
   Field,
 } from "../types";
-import { createFile, withGeneratedMeta } from "../utils/file-system";
+// Utilities available for future use: createFile, withGeneratedMeta from "../utils/file-system"
 import { getFieldForTemplate, typeExistsInEntity, fieldToEnumType } from "../utils/field";
 import {
   getRelationshipForTemplate,

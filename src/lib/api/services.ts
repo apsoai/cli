@@ -261,6 +261,7 @@ export const buildApi = {
 
   /**
    * Poll for build completion
+   * Note: Sequential polling is intentional for proper status checking
    */
   async waitForCompletion(
     buildId: string,
@@ -270,10 +271,11 @@ export const buildApi = {
       onProgress?: (status: BuildStatus) => void;
     }
   ): Promise<BuildStatus> {
-    const maxWait = options?.maxWait ?? 300000; // 5 minutes default
+    const maxWait = options?.maxWait ?? 300_000; // 5 minutes default
     const pollInterval = options?.pollInterval ?? 3000; // 3 seconds
     const startTime = Date.now();
 
+    /* eslint-disable no-await-in-loop */
     while (Date.now() - startTime < maxWait) {
       const status = await this.getStatus(buildId);
 
@@ -285,8 +287,11 @@ export const buildApi = {
         return status;
       }
 
-      await new Promise((resolve) => setTimeout(resolve, pollInterval));
+      await new Promise((resolve) => {
+        setTimeout(resolve, pollInterval);
+      });
     }
+    /* eslint-enable no-await-in-loop */
 
     throw new Error("Build timed out");
   },

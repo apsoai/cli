@@ -89,14 +89,14 @@ export default class New extends BaseCommand {
     this.log(`Cloning ${language} service template...`);
 
     // Create directory if it doesn't exist
-    if (!fs.existsSync(projectPath)) {
+    if (fs.existsSync(projectPath)) {
+      this.error(`Directory already exists: ${projectPath}`);
+    } else {
       try {
         fs.mkdirSync(projectPath, { recursive: true });
-      } catch (err) {
-        this.error(`Failed to create directory: ${(err as Error).message}`);
+      } catch (error) {
+        this.error(`Failed to create directory: ${(error as Error).message}`);
       }
-    } else {
-      this.error(`Directory already exists: ${projectPath}`);
     }
 
     // Use quoted paths to prevent command injection
@@ -203,17 +203,27 @@ export default class New extends BaseCommand {
     await this.cloneTemplate(projectPath, language);
 
     // Language-specific setup
-    if (language === "typescript") {
-      if (!shell.which("npm")) {
-        this.log("Warning: npm not found. Skipping module installation.");
-      } else {
+    switch (language) {
+    case "typescript": {
+      if (shell.which("npm")) {
         await this.installModules(projectPath);
         await this.formatApp(projectPath);
+      } else {
+        this.log("Warning: npm not found. Skipping module installation.");
       }
-    } else if (language === "python") {
+      break;
+    }
+    case "python": {
       this.log("Python project created. Run 'pip install -e .[dev]' to install dependencies.");
-    } else if (language === "go") {
+    
+    break;
+    }
+    case "go": {
       this.log("Go project created. Run 'go mod tidy' to install dependencies.");
+    
+    break;
+    }
+    // No default
     }
 
     this.log(`\nProject created at ${projectPath}`);

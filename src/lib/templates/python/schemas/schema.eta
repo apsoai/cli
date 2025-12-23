@@ -6,88 +6,82 @@ from datetime import datetime, date
 from decimal import Decimal
 from uuid import UUID
 from pydantic import BaseModel, Field, ConfigDict
-<% if (it.importEnums) { %>
-from app.models import enums
-<% } %>
+<% if (it.importEnums) { -%>
+from ..models import enums
+<% } -%>
 
 
 class <%= it.entityName %>Base(BaseModel):
     """Base schema with common fields for <%= it.entityName %>"""
-<% it.columns.forEach((field) => { %>
-<%~ includeFile(`./schema-col-${field.type}`, { field }) %>
-<% }); %>
+<% it.columns.filter(c => !['id', 'createdAt', 'updatedAt', 'created_at', 'updated_at'].includes(c.name)).forEach((field) => { -%>
+<%~ includeFile(`./schema-col-${field.type}`, { field, entityName: it.entityName }) %>
+<% }); -%>
 
-<% /* Add foreign key fields for ManyToOne relationships */ %>
-<% it.associations.filter(a => a.type === 'ManyToOne').forEach((assoc) => { %>
+<% /* Add foreign key fields for ManyToOne relationships */ -%>
+<% it.associations.filter(a => a.type === 'ManyToOne').forEach((assoc) => { -%>
     <%= assoc.camelCasedId %>: Optional[<% if (assoc.referencedEntityPrimaryKeyType === 'uuid') { %>UUID<% } else { %>int<% } %>] = None
-<% }) %>
+<% }); -%>
 
 
 class <%= it.entityName %>Create(BaseModel):
     """Schema for creating a new <%= it.entityName %>"""
-<% it.columns.filter(c => !['id', 'createdAt', 'updatedAt', 'created_at', 'updated_at'].includes(c.name)).forEach((field) => { %>
-<%~ includeFile(`./schema-col-${field.type}`, { field, forCreate: true }) %>
-<% }); %>
-
-<% /* Add foreign key fields for ManyToOne relationships */ %>
-<% it.associations.filter(a => a.type === 'ManyToOne').forEach((assoc) => { %>
+<% it.columns.filter(c => !['id', 'createdAt', 'updatedAt', 'created_at', 'updated_at'].includes(c.name)).forEach((field) => { -%>
+<%~ includeFile(`./schema-col-${field.type}`, { field, entityName: it.entityName, forCreate: true }) %>
+<% }); -%>
+<% /* Add foreign key fields for ManyToOne relationships */ -%>
+<% it.associations.filter(a => a.type === 'ManyToOne').forEach((assoc) => { -%>
     <%= assoc.camelCasedId %>: <% if (assoc.nullable) { %>Optional[<% if (assoc.referencedEntityPrimaryKeyType === 'uuid') { %>UUID<% } else { %>int<% } %>] = None<% } else { %><% if (assoc.referencedEntityPrimaryKeyType === 'uuid') { %>UUID<% } else { %>int<% } %><% } %>
-<% }) %>
+<% }); -%>
 
 
 class <%= it.entityName %>Update(BaseModel):
     """Schema for updating an existing <%= it.entityName %>"""
-<% it.columns.filter(c => !['id', 'createdAt', 'updatedAt', 'created_at', 'updated_at'].includes(c.name)).forEach((field) => { %>
-<%~ includeFile(`./schema-col-${field.type}`, { field, forUpdate: true }) %>
-<% }); %>
-
-<% /* Add foreign key fields for ManyToOne relationships */ %>
-<% it.associations.filter(a => a.type === 'ManyToOne').forEach((assoc) => { %>
+<% it.columns.filter(c => !['id', 'createdAt', 'updatedAt', 'created_at', 'updated_at'].includes(c.name)).forEach((field) => { -%>
+<%~ includeFile(`./schema-col-${field.type}`, { field, entityName: it.entityName, forUpdate: true }) %>
+<% }); -%>
+<% /* Add foreign key fields for ManyToOne relationships */ -%>
+<% it.associations.filter(a => a.type === 'ManyToOne').forEach((assoc) => { -%>
     <%= assoc.camelCasedId %>: Optional[<% if (assoc.referencedEntityPrimaryKeyType === 'uuid') { %>UUID<% } else { %>int<% } %>] = None
-<% }) %>
+<% }); -%>
 
 
 class <%= it.entityName %>(BaseModel):
     """Full schema for <%= it.entityName %> including all fields"""
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
-<% if (it.addDefaultPKProperty) { %>
-<% if (it.primaryKeyType === 'uuid') { %>
+<% if (it.addDefaultPKProperty) { -%>
+<% if (it.primaryKeyType === 'uuid') { -%>
     id: UUID
-<% } else { %>
+<% } else { -%>
     id: int
-<% } %>
-<% } %>
-
-<% if (it.createdAt) { %>
-    created_at: datetime
-<% } %>
-<% if (it.updatedAt) { %>
-    updated_at: datetime
-<% } %>
-
-<% it.columns.forEach((field) => { %>
-<%~ includeFile(`./schema-col-${field.type}`, { field }) %>
-<% }); %>
-
-<% /* Add foreign key fields for ManyToOne relationships */ %>
-<% it.associations.filter(a => a.type === 'ManyToOne').forEach((assoc) => { %>
+<% } -%>
+<% } -%>
+<% if (it.createdAt) { -%>
+    createdAt: datetime = Field(alias="created_at")
+<% } -%>
+<% if (it.updatedAt) { -%>
+    updatedAt: datetime = Field(alias="updated_at")
+<% } -%>
+<% it.columns.filter(c => !['id', 'createdAt', 'updatedAt', 'created_at', 'updated_at'].includes(c.name)).forEach((field) => { -%>
+<%~ includeFile(`./schema-col-${field.type}`, { field, entityName: it.entityName }) %>
+<% }); -%>
+<% /* Add foreign key fields for ManyToOne relationships */ -%>
+<% it.associations.filter(a => a.type === 'ManyToOne').forEach((assoc) => { -%>
     <%= assoc.camelCasedId %>: Optional[<% if (assoc.referencedEntityPrimaryKeyType === 'uuid') { %>UUID<% } else { %>int<% } %>] = None
-<% }) %>
-
-<% /* Add relationship fields */ %>
-<% it.associations.filter(a => a.type === 'OneToMany' || a.type === 'ManyToMany').forEach((assoc) => { %>
+<% }); -%>
+<% /* Add relationship fields */ -%>
+<% it.associations.filter(a => a.type === 'OneToMany' || a.type === 'ManyToMany').forEach((assoc) => { -%>
     <%= assoc.pluralizedRelationshipName %>: Optional[List[Any]] = None
-<% }) %>
-<% it.associations.filter(a => a.type === 'ManyToOne' || a.type === 'OneToOne').forEach((assoc) => { %>
+<% }); -%>
+<% it.associations.filter(a => a.type === 'ManyToOne' || a.type === 'OneToOne').forEach((assoc) => { -%>
     <%= assoc.relationshipName %>: Optional[Any] = None
-<% }) %>
+<% }); -%>
 
 
 class <%= it.entityName %>List(BaseModel):
     """Paginated list response for <%= it.entityName %>"""
     data: List[<%= it.entityName %>]
-    count: int
     total: int
     page: int
-    page_count: int
+    pageSize: int
+    totalPages: int

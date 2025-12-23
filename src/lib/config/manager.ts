@@ -14,7 +14,6 @@ import {
   SyncQueueFile,
   SyncQueueItem,
   DEFAULT_GLOBAL_CONFIG,
-  CONFIG_ENV_VARS,
 } from "./types";
 import {
   getGlobalConfigPath,
@@ -45,7 +44,8 @@ function readJsonFile<T>(filePath: string): T | null {
     if (!fs.existsSync(filePath)) {
       return null;
     }
-    const content = fs.readFileSync(filePath, "utf-8");
+    // eslint-disable-next-line unicorn/prefer-json-parse-buffer
+    const content = fs.readFileSync(filePath, "utf8");
     return JSON.parse(content) as T;
   } catch {
     return null;
@@ -369,7 +369,7 @@ export function createBackup(
   const backupsDir = getProjectBackupsDir(projectDir);
   ensureDir(backupsDir);
 
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const timestamp = new Date().toISOString().replace(/[.:]/g, "-");
   const fileName = path.basename(filePath);
   const backupPath = path.join(backupsDir, `${fileName}-${timestamp}`);
 

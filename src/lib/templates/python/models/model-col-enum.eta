@@ -1,4 +1,16 @@
-    <%= it.field.name %>: Mapped[<% if (!it.field.required) { %>Optional[enums.<%= it.field.enumType || it.field.name.charAt(0).toUpperCase() + it.field.name.slice(1) %>]<% } else { %>enums.<%= it.field.enumType || it.field.name.charAt(0).toUpperCase() + it.field.name.slice(1) %><% } %>] = mapped_column(
-        SAEnum(enums.<%= it.field.enumType || it.field.name.charAt(0).toUpperCase() + it.field.name.slice(1) %>),
-        nullable=<%= !it.field.required %>
+<%
+// Generate the enum type name: EntityName + FieldNamePascal + Enum
+const fieldNamePascal = it.field.name.charAt(0).toUpperCase() + it.field.name.slice(1);
+const enumTypeName = it.field.enumType || `${it.entityName}${fieldNamePascal}Enum`;
+// Generate the PostgreSQL enum type name (snake_case version)
+const pgEnumName = (it.entityName + '_' + it.field.name + '_enum').toLowerCase().replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase();
+-%>
+    <%= it.field.name %>: Mapped[<% if (!it.field.required) { %>Optional[enums.<%= enumTypeName %>]<% } else { %>enums.<%= enumTypeName %><% } %>] = mapped_column(
+        SAEnum(
+            enums.<%= enumTypeName %>,
+            name="<%= pgEnumName %>",
+            values_callable=lambda x: [e.value for e in x],
+            create_type=False
+        ),
+        nullable=<%= it.field.required ? 'False' : 'True' %>
     )

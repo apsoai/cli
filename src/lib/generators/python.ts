@@ -34,6 +34,7 @@ export class PythonGenerator extends BaseGenerator {
     Eta.configure({
       views: this.templateBasePath,
       cache: false,
+      autoTrim: false,
     });
   }
 
