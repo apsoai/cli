@@ -56,11 +56,7 @@ export default class Link extends BaseCommand {
 
     const isNonInteractive = Boolean(flags.workspace || flags.service);
 
-    if (isNonInteractive) {
-      await this.handleNonInteractive(flags.workspace, flags.service, flags.env, api, existing);
-    } else {
-      await this.handleInteractive(flags.env, api, existing);
-    }
+    await (isNonInteractive ? this.handleNonInteractive(flags.workspace, flags.service, flags.env, api, existing) : this.handleInteractive(flags.env, api, existing));
   }
 
   private safeReadExistingLink(): ExistingLinkInfo | null {
@@ -118,7 +114,7 @@ export default class Link extends BaseCommand {
   ): Promise<void> {
     let workspaces = await api.listWorkspaces();
 
-    if (!workspaces.length) {
+    if (workspaces.length === 0) {
       this.log("");
       this.log("No workspaces found for your account.");
       const createWs = await ux.confirm(
@@ -149,7 +145,7 @@ export default class Link extends BaseCommand {
 
     const services = await api.listServices(String(workspace.id));
 
-    if (!services.length) {
+    if (services.length === 0) {
       this.error(
         `No services found for workspace "${workspace.name}". Please create a service in the Apso dashboard first.`
       );

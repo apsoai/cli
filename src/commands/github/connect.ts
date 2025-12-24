@@ -188,7 +188,7 @@ export default class GithubConnect extends BaseCommand {
       if (!flags["no-browser"]) {
         try {
           await openInBrowser(connectUrl);
-        } catch (err) {
+        } catch {
           this.warn(
             `Failed to open browser automatically. Please open this URL manually:\n${connectUrl}`
           );
@@ -261,10 +261,10 @@ export default class GithubConnect extends BaseCommand {
     // 6. List repositories for that connection and let user choose (or filter)
     this.log("");
     this.log("Fetching repositories from GitHub...");
-    let repos = await this.listGithubRepositories(api, connectionId);
+    const repos = await this.listGithubRepositories(api, connectionId);
     let selectedRepo: { fullName: string; htmlUrl: string; defaultBranch: string } | null = null;
 
-    if (!repos.length) {
+    if (repos.length === 0) {
       this.log("");
       this.warn("No repositories found for this GitHub connection.");
       this.log("");
@@ -325,13 +325,13 @@ export default class GithubConnect extends BaseCommand {
       selectedRepo.fullName
     );
 
-    if (!branches.length) {
+    if (branches.length === 0) {
       // If repository was just created, wait and retry
       this.log("No branches found yet. Waiting for repository to initialize...");
       const maxRetries = 5;
       const retryDelay = 2000; // 2 seconds
 
-      for (let attempt = 0; attempt < maxRetries && !branches.length; attempt++) {
+      for (let attempt = 0; attempt < maxRetries && branches.length === 0; attempt++) {
         if (attempt > 0) {
           this.log(`  Retrying... (attempt ${attempt + 1}/${maxRetries})`);
           await new Promise((resolve) => setTimeout(resolve, retryDelay));
@@ -339,7 +339,7 @@ export default class GithubConnect extends BaseCommand {
         branches = await this.listBranches(api, connectionId, selectedRepo.fullName);
       }
 
-      if (!branches.length) {
+      if (branches.length === 0) {
         // Default to 'main' branch for new repositories
         this.warn("No branches found. Using 'main' as default branch.");
         branches = [{ name: "main" }];
@@ -485,7 +485,7 @@ export default class GithubConnect extends BaseCommand {
       const resp = await api.rawRequest<ListGithubRepositoriesPayload>(path);
       
       if (process.env.DEBUG || process.env.APSO_DEBUG) {
-        this.log(`[DEBUG] Repository API response: ${JSON.stringify(resp, null, 2).substring(0, 500)}`);
+        this.log(`[DEBUG] Repository API response: ${JSON.stringify(resp, null, 2).slice(0, 500)}`);
       }
       
       // Backend returns { repositories: [...], totalCount: number, totalPages: number }

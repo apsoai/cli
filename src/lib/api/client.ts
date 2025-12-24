@@ -42,7 +42,7 @@ export class ApiClient {
 
     const id = Number(creds.user.id);
     if (Number.isNaN(id)) {
-      throw new Error(
+      throw new TypeError(
         "Authenticated user ID is not a number. Please contact support."
       );
     }
@@ -83,7 +83,7 @@ export class ApiClient {
     const url = `${this.apiBaseUrl}${path}`;
 
     const headers: HeadersInit = {
-      ...(init.headers || {}),
+      ...init.headers,
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     };
@@ -121,7 +121,7 @@ export class ApiClient {
     const json = await response.json();
     
     if (process.env.DEBUG || process.env.APSO_DEBUG) {
-      console.log(`[DEBUG] API Response:`, JSON.stringify(json, null, 2).substring(0, 500));
+      console.log(`[DEBUG] API Response:`, JSON.stringify(json, null, 2).slice(0, 500));
     }
 
     return json as T;
@@ -189,7 +189,7 @@ export class ApiClient {
 
     const headers: HeadersInit = {
       ...formHeaders,
-      ...(init.headers || {}),
+      ...init.headers,
       Authorization: `Bearer ${token}`,
     };
 
@@ -228,7 +228,7 @@ export class ApiClient {
     const json = await response.json();
 
     if (process.env.DEBUG || process.env.APSO_DEBUG) {
-      console.log(`[DEBUG] Upload Response:`, JSON.stringify(json, null, 2).substring(0, 500));
+      console.log(`[DEBUG] Upload Response:`, JSON.stringify(json, null, 2).slice(0, 500));
     }
 
     return json as T;
@@ -275,24 +275,42 @@ export class ApiClient {
   async listServices(workspaceId: string): Promise<ServiceSummary[]> {
     const numericId = Number(workspaceId);
     if (Number.isNaN(numericId)) {
-      throw new Error(`Invalid workspace ID: ${workspaceId}`);
+      throw new TypeError(`Invalid workspace ID: ${workspaceId}`);
     }
 
-    const url = `/WorkspaceServices?s=${encodeURIComponent(
-      JSON.stringify({ workspaceId: numericId })
-    )}&limit=100`;
+    const pageSize = 100;
+    let offset = 0;
+    let allServices: ServiceSummary[] = [];
+    let hasMore = true;
 
-    const response = await this.request<{
-      data: Array<{ id: number; name: string; slug: string }>;
-    }>(url);
+    while (hasMore) {
+      const url = `/WorkspaceServices?s=${encodeURIComponent(
+        JSON.stringify({ workspaceId: numericId })
+      )}&limit=${pageSize}&offset=${offset}`;
 
-    const items = Array.isArray(response.data) ? response.data : [];
+      const response = await this.request<{
+        data: Array<{ id: number; name: string; slug: string }>;
+        total?: number;
+      }>(url);
 
-    return items.map((svc) => ({
-      id: svc.id,
-      name: svc.name,
-      slug: svc.slug,
-    }));
+      const items = Array.isArray(response.data) ? response.data : [];
+      const services = items.map((svc) => ({
+        id: svc.id,
+        name: svc.name,
+        slug: svc.slug,
+      }));
+
+      allServices = [...allServices, ...services];
+
+      // Check if we've fetched all services
+      if (items.length < pageSize || (response.total !== undefined && allServices.length >= response.total)) {
+        hasMore = false;
+      } else {
+        offset += pageSize;
+      }
+    }
+
+    return allServices;
   }
 
   /**
@@ -329,7 +347,7 @@ export class ApiClient {
   async getLatestSchema(serviceId: string): Promise<any> {
     const serviceIdNum = Number.parseInt(serviceId, 10);
     if (Number.isNaN(serviceIdNum)) {
-      throw new Error(`Invalid service ID format: ${serviceId}`);
+      throw new TypeError(`Invalid service ID format: ${serviceId}`);
     }
 
     console.log(`[DEBUG] Verifying authentication by checking user info...`);
@@ -340,8 +358,8 @@ export class ApiClient {
           `[DEBUG] Authenticated as user ID: ${creds.user.id}, email: ${creds.user.email}`
         );
       }
-    } catch (err) {
-      console.log(`[DEBUG] Could not read credentials:`, err);
+    } catch (error) {
+      console.log(`[DEBUG] Could not read credentials:`, error);
     }
 
     // Fetch the base WorkspaceService once so we can re-use its apsorc field as a fallback
@@ -362,11 +380,11 @@ export class ApiClient {
       console.log(
         `[DEBUG] ✓ Can access service: ${workspaceService.name} (workspaceId: ${workspaceService.workspaceId})`
       );
-    } catch (serviceErr: any) {
-      console.error(`[DEBUG] ✗ Cannot access service: ${serviceErr.message}`);
+    } catch (error: any) {
+      console.error(`[DEBUG] ✗ Cannot access service: ${error.message}`);
       throw new Error(
         `Cannot access service ${serviceIdNum}. You may not have permission to view this service.\n` +
-          `Original error: ${serviceErr.message}`
+          `Original error: ${error.message}`
       );
     }
 
@@ -406,8 +424,8 @@ export class ApiClient {
             console.log(`[DEBUG] Query returned empty results`);
           }
         }
-      } catch (err: any) {
-        console.log(`[DEBUG] Query format failed: ${err.message}`);
+      } catch (error: any) {
+        console.log(`[DEBUG] Query format failed: ${error.message}`);
         continue;
       }
     }
@@ -415,7 +433,7 @@ export class ApiClient {
     console.log(`[DEBUG] Final result: Found ${allSchemas.length} schemas for service ${serviceIdNum}:`);
     if (allSchemas.length > 0) {
       allSchemas.forEach((s) => {
-        console.log(`  - Schema ${s.id}: status=${s.status}, active=${s.active}, version=${s.version}, hasApsorc=${!!s.apsorc}, workspaceServiceId=${s.workspaceServiceId}`);
+        console.log(`  - Schema ${s.id}: status=${s.status}, active=${s.active}, version=${s.version}, hasApsorc=${Boolean(s.apsorc)}, workspaceServiceId=${s.workspaceServiceId}`);
       });
     } else {
       console.log(`[DEBUG] No schemas found. Full response:`, JSON.stringify(debugResponse, null, 2));
@@ -567,9 +585,9 @@ export class ApiClient {
       if (typeof chatSchema.schema === "string") {
         try {
           return JSON.parse(chatSchema.schema);
-        } catch (err) {
+        } catch (error) {
           throw new Error(
-            `ServiceSchemaChat ${chatSchema.id} schema is not valid JSON: ${(err as Error).message}`
+            `ServiceSchemaChat ${chatSchema.id} schema is not valid JSON: ${(error as Error).message}`
           );
         }
       }
@@ -588,9 +606,9 @@ export class ApiClient {
     if (typeof schema.apsorc === "string") {
       try {
         return JSON.parse(schema.apsorc);
-      } catch (err) {
+      } catch (error) {
         throw new Error(
-          `ServiceSchema ${schema.id} apsorc is not valid JSON: ${(err as Error).message}`
+          `ServiceSchema ${schema.id} apsorc is not valid JSON: ${(error as Error).message}`
         );
       }
     }
@@ -602,7 +620,7 @@ export class ApiClient {
     return value
       .toLowerCase()
       .trim()
-      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/[^\da-z]+/g, "-")
       .replace(/^-+|-+$/g, "")
       .slice(0, 60);
   }
@@ -618,7 +636,7 @@ export class ApiClient {
   ): Promise<{ id?: number; version?: string; hash?: string }> {
     const serviceIdNum = Number.parseInt(serviceId, 10);
     if (Number.isNaN(serviceIdNum)) {
-      throw new Error(`Invalid service ID format: ${serviceId}`);
+      throw new TypeError(`Invalid service ID format: ${serviceId}`);
     }
 
     // First, find all active schemas for this service
@@ -776,11 +794,9 @@ export class ApiClient {
           }
         })
       );
-    } else {
-      if (process.env.DEBUG || process.env.APSO_DEBUG) {
+    } else if (process.env.DEBUG || process.env.APSO_DEBUG) {
         console.log(`[DEBUG] No other active schemas to deactivate`);
       }
-    }
 
     return {
       id: result.id,

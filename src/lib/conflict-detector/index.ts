@@ -1,7 +1,5 @@
 import { LocalApsorcSchema } from "../schema-converter/types";
 import {
-  calculateSchemaHash,
-  isHashDiverged,
   hashesMatch,
 } from "../schema-hash";
 
@@ -111,15 +109,15 @@ function analyzeDivergence(
   const remoteEntityNames = new Set(remoteSchema.entities.map((e) => e.name));
 
   // Find entities that exist in one but not the other
-  const onlyInLocal = Array.from(localEntityNames).filter(
+  const onlyInLocal = [...localEntityNames].filter(
     (name) => !remoteEntityNames.has(name)
   );
-  const onlyInRemote = Array.from(remoteEntityNames).filter(
+  const onlyInRemote = [...remoteEntityNames].filter(
     (name) => !localEntityNames.has(name)
   );
 
   // Find entities that exist in both but may have differences
-  const commonEntities = Array.from(localEntityNames).filter((name) =>
+  const commonEntities = [...localEntityNames].filter((name) =>
     remoteEntityNames.has(name)
   );
 
@@ -188,16 +186,27 @@ export function getConflictSummary(conflict: ConflictInfo): string {
 
   parts.push("");
   parts.push("Recommended actions:");
-  if (conflict.type === ConflictType.DIVERGED) {
+  switch (conflict.type) {
+  case ConflictType.DIVERGED: {
     parts.push("  • Run 'apso diff' to see detailed differences");
     parts.push("  • Run 'apso sync' to merge changes interactively");
     parts.push("  • Use '--force' flag to overwrite (with caution)");
-  } else if (conflict.type === ConflictType.LOCAL_CHANGED) {
+  
+  break;
+  }
+  case ConflictType.LOCAL_CHANGED: {
     parts.push("  • Review local changes before pushing");
     parts.push("  • Use 'apso push --force' to push local changes");
-  } else if (conflict.type === ConflictType.REMOTE_CHANGED) {
+  
+  break;
+  }
+  case ConflictType.REMOTE_CHANGED: {
     parts.push("  • Review remote changes before pulling");
     parts.push("  • Use 'apso pull --force' to overwrite local with remote");
+  
+  break;
+  }
+  // No default
   }
 
   return parts.join("\n");

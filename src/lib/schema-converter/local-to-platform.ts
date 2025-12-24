@@ -164,7 +164,7 @@ export class LocalToPlatformConverter {
     }
 
     // Validate entity name format (basic identifier check)
-    if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(entity.name)) {
+    if (!/^[A-Za-z]\w*$/.test(entity.name)) {
       return {
         message: `Entity name "${entity.name}" is invalid. Must start with a letter and contain only letters, numbers, and underscores.`,
         entity: entity.name,
@@ -221,7 +221,7 @@ export class LocalToPlatformConverter {
     }
 
     // Validate field name format
-    if (!/^[a-z][a-z0-9_]*$/.test(field.name)) {
+    if (!/^[a-z][\d_a-z]*$/.test(field.name)) {
       return {
         message: `Entity "${entityName}" has invalid field name "${field.name}". Must start with a lowercase letter and contain only lowercase letters, numbers, and underscores.`,
         entity: entityName,
@@ -265,15 +265,13 @@ export class LocalToPlatformConverter {
     }
 
     // Validate enum values if type is enum
-    if (field.type === "enum") {
-      if (!Array.isArray(field.values) || field.values.length === 0) {
+    if (field.type === "enum" && (!Array.isArray(field.values) || field.values.length === 0)) {
         return {
           message: `Entity "${entityName}" field "${field.name}" is of type "enum" but is missing a 'values' array with at least one value`,
           entity: entityName,
           field: field.name,
         };
       }
-    }
 
     return null;
   }

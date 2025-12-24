@@ -10,7 +10,7 @@ export function calculateSchemaHash(schema: LocalApsorcSchema): string {
   const normalized = normalizeSchemaForHashing(schema);
   const content = JSON.stringify(normalized);
   const hash = createHash("sha256").update(content).digest("hex");
-  return `sha256:${hash.substring(0, 16)}`;
+  return `sha256:${hash.slice(0, 16)}`;
 }
 
 /**

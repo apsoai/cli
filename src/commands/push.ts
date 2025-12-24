@@ -7,7 +7,7 @@ import {
   updateSchemaHashes,
 } from "../lib/project-link";
 import { createApiClient } from "../lib/api/client";
-import { parseApsorc, ApsorcType } from "../lib/apsorc-parser";
+import { parseApsorc } from "../lib/apsorc-parser";
 import { convertLocalToPlatform } from "../lib/schema-converter";
 import { calculateSchemaHash } from "../lib/schema-hash";
 import {
@@ -100,7 +100,7 @@ export default class Push extends BaseCommand {
     let localSchema: LocalApsorcSchema;
     try {
       const rawContent = fs.readFileSync(apsorcPath, "utf8");
-      let parsed = JSON.parse(rawContent);
+      const parsed = JSON.parse(rawContent);
       
       // Auto-fix incomplete .apsorc files by adding missing required fields
       let needsFix = false;
@@ -412,7 +412,7 @@ export default class Push extends BaseCommand {
       }
 
       this.log(`  ✓ Code uploaded to S3 successfully`);
-      if (uploadResp.size) {
+      if (uploadResp.size && uploadResp.size > 0) {
         this.log(`    Size: ${(uploadResp.size / 1024).toFixed(2)} KB`);
       }
 
@@ -568,8 +568,8 @@ export default class Push extends BaseCommand {
   private async pollBuildStatus(
     api: ReturnType<typeof createApiClient>,
     serviceId: number,
-    maxAttempts: number = 120, // 10 minutes max (5 second intervals)
-    intervalMs: number = 5000
+    maxAttempts = 120, // 10 minutes max (5 second intervals)
+    intervalMs = 5000
   ): Promise<void> {
     const statusMessages: Record<string, string> = {
       New: "Initializing...",
@@ -592,7 +592,7 @@ export default class Push extends BaseCommand {
       MigrationsCompleted: "Migrations completed",
     };
 
-    const errorStatuses = [
+    const errorStatuses = new Set([
       "ErrorProvisioningDatabase",
       "ErrorProvisioningCodebase",
       "ErrorInitializingService",
@@ -603,9 +603,9 @@ export default class Push extends BaseCommand {
       "ErrorRunningMigrations",
       "ErrorUpdatingStack",
       "ErrorCreatingStack",
-    ];
+    ]);
 
-    const successStatuses = ["Ready", "BuildDone", "MigrationsCompleted", "StackUpdated", "StackCreated"];
+    const successStatuses = new Set(["Ready", "BuildDone", "MigrationsCompleted", "StackUpdated", "StackCreated"]);
 
     let lastStatus: string | null = null;
     let attempts = 0;
@@ -630,7 +630,7 @@ export default class Push extends BaseCommand {
         }
 
         // Check for completion
-        if (successStatuses.includes(currentStatus)) {
+        if (successStatuses.has(currentStatus)) {
           this.log("");
           this.log("✓ Code generation completed successfully!");
           this.log(`  Final status: ${currentStatus}`);
@@ -638,7 +638,7 @@ export default class Push extends BaseCommand {
         }
 
         // Check for errors
-        if (errorStatuses.includes(currentStatus)) {
+        if (errorStatuses.has(currentStatus)) {
           this.log("");
           this.error(`Code generation failed with status: ${currentStatus}`);
           return;

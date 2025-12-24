@@ -219,10 +219,16 @@ export default class Pull extends BaseCommand {
             );
 
             const choice = action.toLowerCase().trim();
-            if (choice === "a" || choice === "abort") {
+            switch (choice) {
+            case "a": 
+            case "abort": {
               this.log("Pull cancelled. No changes made.");
               this.exit(0);
-            } else if (choice === "w" || choice === "write") {
+            
+            break;
+            }
+            case "w": 
+            case "write": {
               // Write to .apsorc.remote instead
               const remotePath = path.join(process.cwd(), ".apsorc.remote");
               writeApsorcFile(convertedSchema, remotePath);
@@ -233,15 +239,27 @@ export default class Pull extends BaseCommand {
               this.log("  • Manually merge changes");
               this.log("  • Or use 'apso pull --force' to overwrite");
               this.exit(0);
-            } else if (choice === "o" || choice === "overwrite") {
+            
+            break;
+            }
+            case "o": 
+            case "overwrite": {
               // Continue with overwrite
               this.log("Overwriting local .apsorc with remote schema...");
-            } else if (choice === "f" || choice === "force") {
+            
+            break;
+            }
+            case "f": 
+            case "force": {
               // Force overwrite
               this.log("Force overwriting local .apsorc...");
-            } else {
+            
+            break;
+            }
+            default: {
               this.log("Invalid choice. Pull cancelled.");
               this.exit(0);
+            }
             }
           }
         }

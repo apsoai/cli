@@ -28,21 +28,6 @@ export interface ExistingLinkInfo {
   path: string;
 }
 
-/**
- * Check if a directory is the CLI repository
- */
-function isCliRepository(dir: string): boolean {
-  const packageJsonPath = path.join(dir, "package.json");
-  if (!fs.existsSync(packageJsonPath)) {
-    return false;
-  }
-  try {
-    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
-    return packageJson.name === "@apso/cli";
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Find the project root by walking up the directory tree

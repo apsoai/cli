@@ -1,6 +1,4 @@
-import { ApsorcType, ApiType } from "../apsorc-parser";
-import { Entity } from "../types/entity";
-import { ApsorcRelationship } from "../types/relationship";
+import { ApsorcType } from "../apsorc-parser";
 
 /**
  * Platform ServiceSchema structure as returned from the API.

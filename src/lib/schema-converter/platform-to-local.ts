@@ -31,11 +31,11 @@ export class PlatformToLocalConverter {
       if (typeof apsorcData === "string") {
         try {
           apsorcData = JSON.parse(apsorcData);
-        } catch (err) {
+        } catch (error) {
           return {
             success: false,
             error: {
-              message: `Invalid JSON in platform schema: ${(err as Error).message}`,
+              message: `Invalid JSON in platform schema: ${(error as Error).message}`,
             },
           };
         }
@@ -73,13 +73,11 @@ export class PlatformToLocalConverter {
   private normalizeToV2(data: any): LocalApsorcSchema {
     // Ensure version 2
     const version = data.version || 2;
-    if (version !== 2 && version !== 1) {
-      if (this.options.warnUnsupported) {
+    if (version !== 2 && version !== 1 && this.options.warnUnsupported) {
         console.warn(
           `Warning: Platform schema version ${version} is not fully supported. Converting to V2 format.`
         );
       }
-    }
 
     // Normalize entities
     const entities = this.normalizeEntities(data.entities || []);
@@ -176,20 +174,16 @@ export class PlatformToLocalConverter {
 
     return relationships.map((rel) => {
       // Validate entity references
-      if (!entityNames.has(rel.from)) {
-        if (this.options.warnUnsupported) {
+      if (!entityNames.has(rel.from) && this.options.warnUnsupported) {
           console.warn(
             `Warning: Relationship references unknown entity "${rel.from}"`
           );
         }
-      }
-      if (!entityNames.has(rel.to)) {
-        if (this.options.warnUnsupported) {
+      if (!entityNames.has(rel.to) && this.options.warnUnsupported) {
           console.warn(
             `Warning: Relationship references unknown entity "${rel.to}"`
           );
         }
-      }
 
       const normalized: ApsorcRelationship = {
         from: rel.from,
