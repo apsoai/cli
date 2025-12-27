@@ -1,0 +1,44 @@
+<%~ includeFile('./header.eta', it) %>
+
+package enums
+
+<% it.enums.forEach((enumDef) => { %>
+// <%= enumDef.name %> represents the <%= enumDef.name %> enum type
+type <%= enumDef.name %> string
+
+const (
+<% enumDef.values.forEach((value, index) => { %>
+<% if (index === 0) { %>
+	<%= enumDef.name %><%= value.pascalCase %> <%= enumDef.name %> = "<%= value.value %>"
+<% } else { %>
+	<%= enumDef.name %><%= value.pascalCase %> <%= enumDef.name %> = "<%= value.value %>"
+<% } %>
+<% }) %>
+)
+
+// Valid<%= enumDef.name %>Values returns all valid values for <%= enumDef.name %>
+func Valid<%= enumDef.name %>Values() []<%= enumDef.name %> {
+	return []<%= enumDef.name %>{
+<% enumDef.values.forEach((value) => { %>
+		<%= enumDef.name %><%= value.pascalCase %>,
+<% }) %>
+	}
+}
+
+// IsValid checks if the value is a valid <%= enumDef.name %>
+func (e <%= enumDef.name %>) IsValid() bool {
+	switch e {
+<% enumDef.values.forEach((value) => { %>
+	case <%= enumDef.name %><%= value.pascalCase %>:
+		return true
+<% }) %>
+	}
+	return false
+}
+
+// String returns the string representation of <%= enumDef.name %>
+func (e <%= enumDef.name %>) String() string {
+	return string(e)
+}
+
+<% }) %>

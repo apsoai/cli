@@ -1,6 +1,20 @@
 <%~ includeFile('./header.eta') %>
 
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+    IsString,
+    IsNumber,
+    IsBoolean,
+    IsOptional,
+    IsNotEmpty,
+    IsUUID,
+    IsDate,
+    IsArray,
+    IsEnum,
+    IsObject,
+    ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
 
 <% if (it.importEnums) { %>
 import * as enums from '../../enums';
@@ -8,70 +22,170 @@ import * as enums from '../../enums';
 
 export class <%= it.entityName %>Create {
 <% if (it.addDefaultPKProperty && (it.primaryKeyType === 'uuid' || it.primaryKeyType === 'text')) { %>
+    @ApiPropertyOptional()
+    @IsOptional()
+    @IsUUID()
+    id?: string;
+
+<% } -%>
+<% it.columns.forEach((field) => { -%>
+<% if (!field.required) { -%>
+    @ApiPropertyOptional()
+    @IsOptional()
+<% } else { -%>
     @ApiProperty()
-    id: string;
-<% } %>
-<% it.columns.forEach((field) => { %>
-    @ApiProperty()
-  <%if (field.dataType.includes("Enum")) {%>
-    <%= field.name %>: enums.<%= field.dataType %>;
-  <%} else if (field.type === 'json' || field.type === 'json-plain') {%>
-    <%= field.name %>: JSON;
-  <%} else if (field.type === 'timestamp' || field.type === 'timestamptz') {%>
-    <%= field.name %>: Date;
-  <%} else if (field.type === 'geometry' || field.type === 'geography') {%>
-    <%= field.name %>: any;
-  <%} else if (field.type === 'point') {%>
-    <%= field.name %>: { x: number, y: number };
-  <%} else if (field.type === 'linestring' || field.type === 'multipoint') {%>
-    <%= field.name %>: { coordinates: Array<{ x: number, y: number }> };
-  <%} else if (field.type === 'polygon' || field.type === 'multilinestring') {%>
-    <%= field.name %>: { coordinates: Array<Array<{ x: number, y: number }>> };
-  <%} else if (field.type === 'multipolygon') {%>
-    <%= field.name %>: { coordinates: Array<Array<Array<{ x: number, y: number }>>> };
-  <%} else if (field.type === 'geometrycollection') {%>
-    <%= field.name %>: { geometries: Array<any> };
-  <%} else {%>
-    <%= field.name %>: <%= field.dataType %>;
-  <% } %>
-<% }) %>
-};
+    @IsNotEmpty()
+<% } -%>
+<% if (field.dataType.includes("Enum")) { -%>
+    @IsEnum(enums.<%= field.dataType %>)
+    <%= field.name %><%= field.required ? '' : '?' %>: enums.<%= field.dataType %>;
+
+<% } else if (field.type === 'json' || field.type === 'json-plain') { -%>
+    @IsObject()
+    <%= field.name %><%= field.required ? '' : '?' %>: Record<string, any>;
+
+<% } else if (field.type === 'timestamp' || field.type === 'timestamptz') { -%>
+    @IsDate()
+    @Type(() => Date)
+    <%= field.name %><%= field.required ? '' : '?' %>: Date;
+
+<% } else if (field.type === 'uuid') { -%>
+    @IsUUID()
+    <%= field.name %><%= field.required ? '' : '?' %>: string;
+
+<% } else if (field.type === 'geometry' || field.type === 'geography') { -%>
+    @IsObject()
+    <%= field.name %><%= field.required ? '' : '?' %>: any;
+
+<% } else if (field.type === 'point') { -%>
+    @IsObject()
+    <%= field.name %><%= field.required ? '' : '?' %>: { x: number; y: number };
+
+<% } else if (field.type === 'linestring' || field.type === 'multipoint') { -%>
+    @IsObject()
+    <%= field.name %><%= field.required ? '' : '?' %>: { coordinates: Array<{ x: number; y: number }> };
+
+<% } else if (field.type === 'polygon' || field.type === 'multilinestring') { -%>
+    @IsObject()
+    <%= field.name %><%= field.required ? '' : '?' %>: { coordinates: Array<Array<{ x: number; y: number }>> };
+
+<% } else if (field.type === 'multipolygon') { -%>
+    @IsObject()
+    <%= field.name %><%= field.required ? '' : '?' %>: { coordinates: Array<Array<Array<{ x: number; y: number }>>> };
+
+<% } else if (field.type === 'geometrycollection') { -%>
+    @IsObject()
+    <%= field.name %><%= field.required ? '' : '?' %>: { geometries: Array<any> };
+
+<% } else if (field.type === 'array') { -%>
+    @IsArray()
+    <%= field.name %><%= field.required ? '' : '?' %>: <%= field.dataType %>;
+
+<% } else if (field.type === 'boolean') { -%>
+    @IsBoolean()
+    <%= field.name %><%= field.required ? '' : '?' %>: boolean;
+
+<% } else if (field.type === 'integer' || field.type === 'float' || field.type === 'decimal' || field.type === 'numeric') { -%>
+    @IsNumber()
+    <%= field.name %><%= field.required ? '' : '?' %>: number;
+
+<% } else { -%>
+    @IsString()
+    <%= field.name %><%= field.required ? '' : '?' %>: <%= field.dataType %>;
+
+<% } -%>
+<% }) -%>
+}
+
+export class <%= it.entityName %>Update {
+<% it.columns.forEach((field) => { -%>
+    @ApiPropertyOptional()
+    @IsOptional()
+<% if (field.dataType.includes("Enum")) { -%>
+    @IsEnum(enums.<%= field.dataType %>)
+    <%= field.name %>?: enums.<%= field.dataType %>;
+
+<% } else if (field.type === 'json' || field.type === 'json-plain') { -%>
+    @IsObject()
+    <%= field.name %>?: Record<string, any>;
+
+<% } else if (field.type === 'timestamp' || field.type === 'timestamptz') { -%>
+    @IsDate()
+    @Type(() => Date)
+    <%= field.name %>?: Date;
+
+<% } else if (field.type === 'uuid') { -%>
+    @IsUUID()
+    <%= field.name %>?: string;
+
+<% } else if (field.type === 'geometry' || field.type === 'geography') { -%>
+    @IsObject()
+    <%= field.name %>?: any;
+
+<% } else if (field.type === 'point') { -%>
+    @IsObject()
+    <%= field.name %>?: { x: number; y: number };
+
+<% } else if (field.type === 'linestring' || field.type === 'multipoint') { -%>
+    @IsObject()
+    <%= field.name %>?: { coordinates: Array<{ x: number; y: number }> };
+
+<% } else if (field.type === 'polygon' || field.type === 'multilinestring') { -%>
+    @IsObject()
+    <%= field.name %>?: { coordinates: Array<Array<{ x: number; y: number }>> };
+
+<% } else if (field.type === 'multipolygon') { -%>
+    @IsObject()
+    <%= field.name %>?: { coordinates: Array<Array<Array<{ x: number; y: number }>>> };
+
+<% } else if (field.type === 'geometrycollection') { -%>
+    @IsObject()
+    <%= field.name %>?: { geometries: Array<any> };
+
+<% } else if (field.type === 'array') { -%>
+    @IsArray()
+    <%= field.name %>?: <%= field.dataType %>;
+
+<% } else if (field.type === 'boolean') { -%>
+    @IsBoolean()
+    <%= field.name %>?: boolean;
+
+<% } else if (field.type === 'integer' || field.type === 'float' || field.type === 'decimal' || field.type === 'numeric') { -%>
+    @IsNumber()
+    <%= field.name %>?: number;
+
+<% } else { -%>
+    @IsString()
+    <%= field.name %>?: <%= field.dataType %>;
+
+<% } -%>
+<% }) -%>
+}
 
 export class <%= it.entityName %> {
 <% if (it.addDefaultPKProperty) { %>
     @ApiProperty()
     id: <%= (it.primaryKeyType === 'uuid' || it.primaryKeyType === 'text') ? 'string' : 'number' %>;
-<% } %>
-<% it.columns.forEach((field) => { %>
+
+<% } -%>
+<% it.columns.forEach((field) => { -%>
+<% if (!field.required) { -%>
+    @ApiPropertyOptional()
+    <%= field.name %>?: <% if (field.dataType.includes("Enum")) { %>enums.<%= field.dataType %><% } else if (field.type === 'json' || field.type === 'json-plain') { %>Record<string, any><% } else if (field.type === 'timestamp' || field.type === 'timestamptz') { %>Date<% } else { %><%= field.dataType %><% } %>;
+
+<% } else { -%>
     @ApiProperty()
-  <%if (field.dataType.includes("Enum")) {%>
-    <%= field.name %>: enums.<%= field.dataType %>;
-  <%} else if (field.type === 'json' || field.type === 'json-plain') {%>
-    <%= field.name %>: JSON;
-  <%} else if (field.type === 'timestamp' || field.type === 'timestamptz') {%>
-    <%= field.name %>: Date;
-  <%} else if (field.type === 'geometry' || field.type === 'geography') {%>
-    <%= field.name %>: any;
-  <%} else if (field.type === 'point') {%>
-    <%= field.name %>: { x: number, y: number };
-  <%} else if (field.type === 'linestring' || field.type === 'multipoint') {%>
-    <%= field.name %>: { coordinates: Array<{ x: number, y: number }> };
-  <%} else if (field.type === 'polygon' || field.type === 'multilinestring') {%>
-    <%= field.name %>: { coordinates: Array<Array<{ x: number, y: number }>> };
-  <%} else if (field.type === 'multipolygon') {%>
-    <%= field.name %>: { coordinates: Array<Array<Array<{ x: number, y: number }>>> };
-  <%} else if (field.type === 'geometrycollection') {%>
-    <%= field.name %>: { geometries: Array<any> };
-  <%} else {%>
-    <%= field.name %>: <%= field.dataType %>;
-  <% } %>
-<% }) %>
-<% if (it.createdAt) { %>
+    <%= field.name %>: <% if (field.dataType.includes("Enum")) { %>enums.<%= field.dataType %><% } else if (field.type === 'json' || field.type === 'json-plain') { %>Record<string, any><% } else if (field.type === 'timestamp' || field.type === 'timestamptz') { %>Date<% } else { %><%= field.dataType %><% } %>;
+
+<% } -%>
+<% }) -%>
+<% if (it.createdAt) { -%>
     @ApiProperty()
-    created_at: Date;
-<% } %>
-<% if (it.updatedAt) { %>
+    createdAt: Date;
+
+<% } -%>
+<% if (it.updatedAt) { -%>
     @ApiProperty()
-    updated_at: Date;
-<% } %>
-};
+    updatedAt: Date;
+<% } -%>
+}

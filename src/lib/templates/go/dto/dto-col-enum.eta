@@ -1,0 +1,8 @@
+<% const enumTypeName = it.column.enumType || (it.column.pascalName + 'Enum'); %>
+<% if (it.mode === 'response') { %>
+	<%= it.column.pascalName %> <% if (!it.column.required) { %>*<% } %>enums.<%= enumTypeName %> `json:"<%= it.column.name %><% if (!it.column.required) { %>,omitempty<% } %>"`
+<% } else if (it.mode === 'create') { %>
+	<%= it.column.pascalName %> <% if (!it.column.required) { %>*<% } %>enums.<%= enumTypeName %> `json:"<%= it.column.name %><% if (!it.column.required) { %>,omitempty<% } %>"<% if (it.column.required) { %> validate:"required"<% } %>`
+<% } else { %>
+	<%= it.column.pascalName %> *enums.<%= enumTypeName %> `json:"<%= it.column.name %>,omitempty"`
+<% } %>

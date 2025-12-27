@@ -1,0 +1,1 @@
+	<%= it.column.pascalName %> <% if (!it.column.required) { %>*<% } %>map[string]interface{} `gorm:"type:json<% if (!it.column.required) { %>;default:null<% } %>;serializer:json" json:"<%= it.column.name %><% if (!it.column.required) { %>,omitempty<% } %>"`

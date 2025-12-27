@@ -1,0 +1,124 @@
+<%~ includeFile('../header.eta', it) %>
+
+from __future__ import annotations
+from typing import TYPE_CHECKING, Optional, List
+from datetime import datetime, date
+from decimal import Decimal
+from uuid import UUID
+
+from sqlalchemy import Column, Integer, String, Text, Boolean, Float, Numeric, Date, DateTime, JSON, Enum as SAEnum, ForeignKey, Index, UniqueConstraint, Table
+from sqlalchemy.dialects.postgresql import UUID as PGUUID, JSONB, ARRAY, BYTEA, INET, INTERVAL, TSVECTOR
+from sqlalchemy.orm import relationship, Mapped, mapped_column
+from sqlalchemy.sql import func
+
+from app.database import Base
+<% if (it.importEnums) { %>
+from . import enums
+<% } %>
+
+<% if (it.entitiesToImport && it.entitiesToImport.length > 0) { %>
+if TYPE_CHECKING:
+<% it.entitiesToImport.forEach((assocName) => { %>
+    from .<%= assocName.toLowerCase() %> import <%= assocName %>
+<% }) %>
+<% } %>
+
+<% /* Generate ManyToMany junction tables */ %>
+<% it.associations.filter(a => a.type === 'ManyToMany' && a.joinTable).forEach((assoc) => { %>
+<%= assoc.joinTableName || `${it.snakeCasedName}_${assoc.name.toLowerCase()}` %> = Table(
+    "<%= assoc.joinTableName || `${it.snakeCasedName}_${assoc.name.toLowerCase()}` %>",
+    Base.metadata,
+    Column("<%= assoc.joinColumnName || `${it.snakeCasedName}_id` %>", <% if (it.primaryKeyType === 'uuid') { %>PGUUID(as_uuid=True)<% } else { %>Integer<% } %>, ForeignKey("<%= it.snakeCasedName %>.id"), primary_key=True),
+    Column("<%= assoc.inverseJoinColumnName || `${assoc.name.toLowerCase()}_id` %>", <% if (assoc.referencedEntityPrimaryKeyType === 'uuid') { %>PGUUID(as_uuid=True)<% } else { %>Integer<% } %>, ForeignKey("<%= assoc.name.toLowerCase() %>.id"), primary_key=True),
+)
+<% }) %>
+
+class <%= it.name %>(Base):
+    """
+    SQLAlchemy model for <%= it.name %>
+    """
+    __tablename__ = "<%= it.snakeCasedName %>"
+
+<% /* Generate table arguments for indexes and unique constraints */ %>
+<% if ((it.indexes && it.indexes.length > 0) || (it.uniques && it.uniques.length > 0)) { %>
+    __table_args__ = (
+<% it.indexes.forEach((index) => { %>
+        Index("<%= index.name || `idx_${it.snakeCasedName}_${index.fields.join('_')}` %>", <%~ index.fields.map(f => `"${f}"`).join(', ') %><% if (index.unique) { %>, unique=True<% } %>),
+<% }) %>
+<% it.uniques.forEach((unique) => { %>
+        UniqueConstraint(<%~ unique.fields.map(f => `"${f}"`).join(', ') %><% if (unique.name) { %>, name="<%= unique.name %>"<% } %>),
+<% }) %>
+    )
+<% } %>
+
+    # Primary Key
+<% if (it.createPrimaryKey) { %>
+<% if (it.primaryKeyType === 'uuid') { %>
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+<% } else { %>
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+<% } %>
+<% } %>
+
+<% /* Timestamp columns */ %>
+<% if (it.createdAt) { %>
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+<% } %>
+<% if (it.updatedAt) { %>
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+<% } %>
+
+    # Columns
+<%
+// Filter out id (if createPrimaryKey), createdAt, and updatedAt since they're handled separately
+const columnsToProcess = it.columns.filter(c => {
+  if (it.createPrimaryKey && c.name === 'id') return false;
+  if (it.createdAt && c.name === 'createdAt') return false;
+  if (it.updatedAt && c.name === 'updatedAt') return false;
+  return true;
+});
+columnsToProcess.forEach((field) => { -%>
+<%~ includeFile(`./model-col-${field.type}`, { field, entityName: it.name }) %>
+<% }); %>
+
+    # Relationships
+<% it.associations.forEach((assoc) => { %>
+<% if (assoc.type === 'OneToMany') { %>
+    <%= assoc.pluralizedRelationshipName %>: Mapped[List["<%= assoc.name %>"]] = relationship(
+        "<%= assoc.name %>",
+        back_populates="<%= assoc.inverseSidePropertyName %>",
+        lazy="selectin"
+    )
+<% } else if (assoc.type === 'ManyToOne') { %>
+    # Foreign key for <%= assoc.name %>
+    <%= assoc.camelCasedId %>: Mapped[<% if (assoc.referencedEntityPrimaryKeyType === 'uuid') { %>Optional[UUID]<% } else { %>Optional[int]<% } %>] = mapped_column(
+        <% if (assoc.referencedEntityPrimaryKeyType === 'uuid') { %>PGUUID(as_uuid=True)<% } else { %>Integer<% } %>,
+        ForeignKey("<%= assoc.name.toLowerCase() %>.id"<% if (assoc.cascadeDelete) { %>, ondelete="CASCADE"<% } %>),
+        nullable=<%= assoc.nullable ? 'True' : 'False' %><% if (assoc.index) { %>,
+        index=True<% } %>
+    )
+    <%= assoc.relationshipName %>: Mapped[Optional["<%= assoc.name %>"]] = relationship(
+        "<%= assoc.name %>",
+        <% if (assoc.biDirectional) { %>back_populates="<%= assoc.inverseSidePropertyName %>",<% } %>
+        lazy="selectin"
+    )
+<% } else if (assoc.type === 'ManyToMany') { %>
+    <%= assoc.pluralizedRelationshipName %>: Mapped[List["<%= assoc.name %>"]] = relationship(
+        "<%= assoc.name %>",
+        secondary=<%= assoc.joinTableName || `${it.snakeCasedName}_${assoc.name.toLowerCase()}` %>,
+        <% if (assoc.biDirectional) { %>back_populates="<%= assoc.inverseSidePropertyName %>",<% } %>
+        lazy="selectin"
+    )
+<% } else if (assoc.type === 'OneToOne') { %>
+    <%= assoc.relationshipName %>: Mapped[Optional["<%= assoc.name %>"]] = relationship(
+        "<%= assoc.name %>",
+        <% if (assoc.biDirectional) { %>back_populates="<%= assoc.inverseSidePropertyName %>",<% } %>
+        uselist=False,
+        cascade="all, delete-orphan",
+        lazy="selectin"
+    )
+<% } %>
+<% }) %>
+
+    def __repr__(self) -> str:
+        return f"<<%= it.name %>(id={self.id})>"

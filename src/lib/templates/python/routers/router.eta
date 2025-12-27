@@ -1,0 +1,206 @@
+<%~ includeFile('../header.eta', it) %>
+
+from typing import List, Optional
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.database import get_db
+from ..models.<%= it.entityName.toLowerCase() %> import <%= it.entityName -%>
+
+from ..schemas.<%= it.entityName.toLowerCase() %> import (
+    <%= it.entityName %> as <%= it.entityName %>Schema,
+    <%= it.entityName %>Create,
+    <%= it.entityName %>Update,
+    <%= it.entityName %>List,
+)
+from ..services.<%= it.entityName.toLowerCase() %> import <%= it.entityName %>Service
+
+router = APIRouter(
+    prefix="/<%= it.pluralEntityName.toLowerCase() %>",
+    tags=["<%= it.pluralEntityName %>"],
+)
+
+
+@router.get(
+    "",
+    response_model=<%= it.entityName %>List,
+    summary="Retrieve multiple <%= it.pluralEntityName %>",
+)
+async def get_many(
+    db: AsyncSession = Depends(get_db),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(10, ge=1, le=100),
+    sort: Optional[str] = Query(None, description="Sort field (prefix with - for descending)"),
+<% /* Add filter parameters for common fields */ %>
+<% it.associations.filter(a => a.type === 'ManyToOne').forEach((assoc) => { %>
+    <%= assoc.camelCasedId %>: Optional[<% if (assoc.referencedEntityPrimaryKeyType === 'uuid') { %>str<% } else { %>int<% } %>] = Query(None),
+<% }) %>
+) -> <%= it.entityName %>List:
+    """
+    Retrieve a paginated list of <%= it.pluralEntityName %>.
+    """
+    service = <%= it.entityName %>Service(db)
+
+    filters = {}
+<% it.associations.filter(a => a.type === 'ManyToOne').forEach((assoc) => { %>
+    if <%= assoc.camelCasedId %> is not None:
+        filters["<%= assoc.camelCasedId %>"] = <%= assoc.camelCasedId %>
+<% }) %>
+
+    items, total = await service.get_many(
+        skip=skip,
+        limit=limit,
+        sort=sort,
+        filters=filters,
+    )
+
+    return <%= it.entityName %>List(
+        data=items,
+        total=total,
+        page=(skip // limit) + 1 if limit > 0 else 1,
+        pageSize=limit,
+        totalPages=(total + limit - 1) // limit if limit > 0 else 1,
+    )
+
+
+@router.get(
+    "/{id}",
+    response_model=<%= it.entityName %>Schema,
+    summary="Retrieve a single <%= it.entityName %>",
+)
+async def get_one(
+    id: <% if (it.primaryKeyType === 'uuid') { %>str<% } else { %>int<% } %>,
+    db: AsyncSession = Depends(get_db),
+<% /* Add join parameters */ %>
+<% it.associations.forEach((assoc) => { %>
+<% if (assoc.type === 'OneToMany' || assoc.type === 'ManyToMany') { %>
+    join_<%= assoc.pluralizedRelationshipName %>: bool = Query(False, alias="join[<%= assoc.pluralizedRelationshipName %>]"),
+<% } else { %>
+    join_<%= assoc.relationshipName %>: bool = Query(False, alias="join[<%= assoc.relationshipName %>]"),
+<% } %>
+<% }) %>
+) -> <%= it.entityName %>Schema:
+    """
+    Retrieve a single <%= it.entityName %> by ID.
+    """
+    service = <%= it.entityName %>Service(db)
+
+    joins = []
+<% it.associations.forEach((assoc) => { %>
+<% if (assoc.type === 'OneToMany' || assoc.type === 'ManyToMany') { %>
+    if join_<%= assoc.pluralizedRelationshipName %>:
+        joins.append("<%= assoc.pluralizedRelationshipName %>")
+<% } else { %>
+    if join_<%= assoc.relationshipName %>:
+        joins.append("<%= assoc.relationshipName %>")
+<% } %>
+<% }) %>
+
+    item = await service.get_one(id, joins=joins)
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"<%= it.entityName %> with id {id} not found",
+        )
+    return item
+
+
+@router.post(
+    "",
+    response_model=<%= it.entityName %>Schema,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a single <%= it.entityName %>",
+)
+async def create_one(
+    data: <%= it.entityName %>Create,
+    db: AsyncSession = Depends(get_db),
+) -> <%= it.entityName %>Schema:
+    """
+    Create a new <%= it.entityName %>.
+    """
+    service = <%= it.entityName %>Service(db)
+    return await service.create_one(data)
+
+
+@router.post(
+    "/bulk",
+    response_model=List[<%= it.entityName %>Schema],
+    status_code=status.HTTP_201_CREATED,
+    summary="Create multiple <%= it.pluralEntityName %>",
+)
+async def create_many(
+    data: List[<%= it.entityName %>Create],
+    db: AsyncSession = Depends(get_db),
+) -> List[<%= it.entityName %>Schema]:
+    """
+    Create multiple <%= it.pluralEntityName %>.
+    """
+    service = <%= it.entityName %>Service(db)
+    return await service.create_many(data)
+
+
+@router.patch(
+    "/{id}",
+    response_model=<%= it.entityName %>Schema,
+    summary="Update a single <%= it.entityName %>",
+)
+async def update_one(
+    id: <% if (it.primaryKeyType === 'uuid') { %>str<% } else { %>int<% } %>,
+    data: <%= it.entityName %>Update,
+    db: AsyncSession = Depends(get_db),
+) -> <%= it.entityName %>Schema:
+    """
+    Update an existing <%= it.entityName %>.
+    """
+    service = <%= it.entityName %>Service(db)
+    item = await service.update_one(id, data)
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"<%= it.entityName %> with id {id} not found",
+        )
+    return item
+
+
+@router.put(
+    "/{id}",
+    response_model=<%= it.entityName %>Schema,
+    summary="Replace a single <%= it.entityName %>",
+)
+async def replace_one(
+    id: <% if (it.primaryKeyType === 'uuid') { %>str<% } else { %>int<% } %>,
+    data: <%= it.entityName %>Create,
+    db: AsyncSession = Depends(get_db),
+) -> <%= it.entityName %>Schema:
+    """
+    Replace an existing <%= it.entityName %>.
+    """
+    service = <%= it.entityName %>Service(db)
+    item = await service.replace_one(id, data)
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"<%= it.entityName %> with id {id} not found",
+        )
+    return item
+
+
+@router.delete(
+    "/{id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a single <%= it.entityName %>",
+)
+async def delete_one(
+    id: <% if (it.primaryKeyType === 'uuid') { %>str<% } else { %>int<% } %>,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """
+    Delete a <%= it.entityName %> by ID.
+    """
+    service = <%= it.entityName %>Service(db)
+    deleted = await service.delete_one(id)
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"<%= it.entityName %> with id {id} not found",
+        )

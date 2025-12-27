@@ -1,9 +1,9 @@
 <%~ includeFile('./header.eta') %>
 
-import { Controller } from "@nestjs/common";
+import { Controller, Body } from "@nestjs/common";
 import { Crud, CrudController, Override, ParsedRequest, CrudRequest, ParsedBody, CreateManyDto } from '@nestjsx/crud';
 import { ApiTags, ApiResponse, ApiOperation, ApiBody } from '@nestjs/swagger';
-import {<%= it.entityName %>, <%= it.entityName %>Create} from './dtos/<%= it.entityName%>.dto'
+import {<%= it.entityName %>, <%= it.entityName %>Create, <%= it.entityName %>Update} from './dtos/<%= it.entityName%>.dto'
 import {<%= it.svcName %>} from './<%= it.entityName %>.service';
   
 @Crud({
@@ -12,9 +12,10 @@ import {<%= it.svcName %>} from './<%= it.entityName %>.service';
     },
     dto: {
         create: <%= it.entityName %>Create,
-        update: <%= it.entityName %>,
-        replace: <%= it.entityName %>,
+        update: <%= it.entityName %>Update,
+        replace: <%= it.entityName %>Update,
     },
+    validation: false,
     params: {
         id: {
             field: 'id',
@@ -134,36 +135,36 @@ export class <%= it.ctrlName %> implements CrudController<<%= it.entityName %>>{
     })
     create(
         @ParsedRequest() req: CrudRequest,
-        @ParsedBody() dto: <%= it.entityName %>,
+        @Body() dto: <%= it.entityName %>Create,
     ) {
-        return this.base.createOneBase(req, dto);
+        return this.base.createOneBase(req, dto as unknown as <%= it.entityName %>);
     }
 
     @Override('createManyBase')
     @ApiOperation({ summary: 'Create multiple<%= it.pluralEntityName %>' })
     createMany(
         @ParsedRequest() req: CrudRequest,
-        @ParsedBody() dto: CreateManyDto<<%= it.entityName %>>
+        @Body() dto: CreateManyDto<<%= it.entityName %>Create>
     ) {
-        return this.base.createManyBase(req, dto);
+        return this.base.createManyBase(req, dto as unknown as CreateManyDto<<%= it.entityName %>>);
     }
 
     @Override('updateOneBase')
     @ApiOperation({ summary: 'Update a single <%= it.entityName %>' })
     update(
         @ParsedRequest() req: CrudRequest,
-        @ParsedBody() dto: <%= it.entityName %>,
+        @Body() dto: <%= it.entityName %>Update,
     ) {
-        return this.base.updateOneBase(req, dto);
+        return this.base.updateOneBase(req, dto as unknown as <%= it.entityName %>);
     }
 
     @Override('replaceOneBase')
     @ApiOperation({ summary: 'Replace a single <%= it.entityName %>' })
     replace(
         @ParsedRequest() req: CrudRequest,
-        @ParsedBody() dto: <%= it.entityName %>,
+        @Body() dto: <%= it.entityName %>Update,
     ) {
-        return this.base.replaceOneBase(req, dto);
+        return this.base.replaceOneBase(req, dto as unknown as <%= it.entityName %>);
     }
 
     @Override('deleteOneBase')

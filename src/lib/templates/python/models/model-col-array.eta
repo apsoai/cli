@@ -1,0 +1,4 @@
+    <%= it.field.name %>: Mapped[<% if (!it.field.required) { %>Optional[list]<% } else { %>list<% } %>] = mapped_column(
+        ARRAY(<%= it.field.arrayType === 'integer' ? 'Integer' : 'String' %>),
+        nullable=<%= it.field.required ? 'False' : 'True' %>
+    )

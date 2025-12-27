@@ -1,0 +1,53 @@
+<%~ includeFile('../../header.eta', it) %>
+
+package models
+
+import (
+	"time"
+<% if (it.importEnums) { %>
+	"app/models/enums"
+<% } %>
+	"gorm.io/gorm"
+)
+
+// <%= it.name %> represents the <%= it.snakeCasedName %> table
+type <%= it.name %> struct {
+<% if (it.createPrimaryKey) { %>
+<% if (it.primaryKeyType === 'uuid') { %>
+	ID        string         `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
+<% } else { %>
+	ID        uint           `gorm:"primaryKey;autoIncrement" json:"id"`
+<% } %>
+<% } %>
+<% it.columns.forEach((column) => { %>
+<%~ includeFile('./model-col-' + column.type + '.eta', { column }) %>
+<% }) %>
+<% if (it.createdAt) { %>
+	CreatedAt time.Time      `gorm:"autoCreateTime" json:"createdAt"`
+<% } %>
+<% if (it.updatedAt) { %>
+	UpdatedAt time.Time      `gorm:"autoUpdateTime" json:"updatedAt"`
+<% } %>
+<% it.associations.forEach((assoc) => { %>
+<% if (assoc.type === 'OneToMany') { %>
+	<%= assoc.pluralName %> []<%= assoc.name %> `gorm:"foreignKey:<%= assoc.inverseName %>ID" json:"<%= assoc.camelPluralName %>,omitempty"`
+<% } else if (assoc.type === 'ManyToOne') { %>
+	<%= assoc.referenceName || assoc.name %>ID <%= assoc.primaryKeyGoType || 'uint' %> `gorm:"index" json:"<%= assoc.camelReferenceName || assoc.camelName %>Id"`
+	<%= assoc.referenceName || assoc.name %> *<%= assoc.name %> `gorm:"foreignKey:<%= assoc.referenceName || assoc.name %>ID" json:"<%= assoc.camelReferenceName || assoc.camelName %>,omitempty"`
+<% } else if (assoc.type === 'OneToOne') { %>
+<% if (assoc.isOwner) { %>
+	<%= assoc.referenceName || assoc.name %>ID <%= assoc.primaryKeyGoType || 'uint' %> `gorm:"uniqueIndex" json:"<%= assoc.camelReferenceName || assoc.camelName %>Id"`
+	<%= assoc.referenceName || assoc.name %> *<%= assoc.name %> `gorm:"foreignKey:<%= assoc.referenceName || assoc.name %>ID" json:"<%= assoc.camelReferenceName || assoc.camelName %>,omitempty"`
+<% } else { %>
+	<%= assoc.referenceName || assoc.name %> *<%= assoc.name %> `json:"<%= assoc.camelReferenceName || assoc.camelName %>,omitempty"`
+<% } %>
+<% } else if (assoc.type === 'ManyToMany') { %>
+	<%= assoc.pluralName %> []<%= assoc.name %> `gorm:"many2many:<%= assoc.joinTable %>;" json:"<%= assoc.camelPluralName %>,omitempty"`
+<% } %>
+<% }) %>
+}
+
+// TableName overrides the table name
+func (<%= it.name %>) TableName() string {
+	return "<%= it.snakeCasedName %>"
+}

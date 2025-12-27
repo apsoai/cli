@@ -1,0 +1,78 @@
+<%~ includeFile('../../header.eta', it) %>
+
+package dto
+
+import (
+	"time"
+<% if (it.importEnums) { %>
+	"app/models/enums"
+<% } %>
+)
+
+// <%= it.entityName %>Response represents the response DTO for <%= it.entityName %>
+type <%= it.entityName %>Response struct {
+<% if (it.addDefaultPKProperty) { %>
+<% if (it.primaryKeyType === 'uuid') { %>
+	ID        string    `json:"id"`
+<% } else { %>
+	ID        uint      `json:"id"`
+<% } %>
+<% } %>
+<% it.columns.forEach((column) => { %>
+<%~ includeFile('./dto-col-' + column.type + '.eta', { column, mode: 'response' }) %>
+<% }) %>
+<% if (it.createdAt) { %>
+	CreatedAt time.Time `json:"createdAt"`
+<% } %>
+<% if (it.updatedAt) { %>
+	UpdatedAt time.Time `json:"updatedAt"`
+<% } %>
+<% it.associations.forEach((assoc) => { %>
+<% if (assoc.type === 'OneToMany') { %>
+	<%= assoc.pluralName %> []<%= assoc.name %>Response `json:"<%= assoc.camelPluralName %>,omitempty"`
+<% } else if (assoc.type === 'ManyToOne') { %>
+	<%= assoc.referenceName || assoc.name %>ID <%= assoc.primaryKeyGoType || 'uint' %> `json:"<%= assoc.camelReferenceName || assoc.camelName %>Id"`
+	<%= assoc.referenceName || assoc.name %> *<%= assoc.name %>Response `json:"<%= assoc.camelReferenceName || assoc.camelName %>,omitempty"`
+<% } else if (assoc.type === 'OneToOne') { %>
+<% if (assoc.isOwner) { %>
+	<%= assoc.referenceName || assoc.name %>ID <%= assoc.primaryKeyGoType || 'uint' %> `json:"<%= assoc.camelReferenceName || assoc.camelName %>Id"`
+<% } %>
+	<%= assoc.referenceName || assoc.name %> *<%= assoc.name %>Response `json:"<%= assoc.camelReferenceName || assoc.camelName %>,omitempty"`
+<% } else if (assoc.type === 'ManyToMany') { %>
+	<%= assoc.pluralName %> []<%= assoc.name %>Response `json:"<%= assoc.camelPluralName %>,omitempty"`
+<% } %>
+<% }) %>
+}
+
+// <%= it.entityName %>Create represents the create DTO for <%= it.entityName %>
+type <%= it.entityName %>Create struct {
+<% it.columns.forEach((column) => { %>
+<%~ includeFile('./dto-col-' + column.type + '.eta', { column, mode: 'create' }) %>
+<% }) %>
+<% it.associations.forEach((assoc) => { %>
+<% if (assoc.type === 'ManyToOne' || (assoc.type === 'OneToOne' && assoc.isOwner)) { %>
+	<%= assoc.referenceName || assoc.name %>ID <%= assoc.primaryKeyGoType || 'uint' %> `json:"<%= assoc.camelReferenceName || assoc.camelName %>Id" validate:"required"`
+<% } %>
+<% }) %>
+}
+
+// <%= it.entityName %>Update represents the update DTO for <%= it.entityName %>
+type <%= it.entityName %>Update struct {
+<% it.columns.forEach((column) => { %>
+<%~ includeFile('./dto-col-' + column.type + '.eta', { column, mode: 'update' }) %>
+<% }) %>
+<% it.associations.forEach((assoc) => { %>
+<% if (assoc.type === 'ManyToOne' || (assoc.type === 'OneToOne' && assoc.isOwner)) { %>
+	<%= assoc.referenceName || assoc.name %>ID *<%= assoc.primaryKeyGoType || 'uint' %> `json:"<%= assoc.camelReferenceName || assoc.camelName %>Id,omitempty"`
+<% } %>
+<% }) %>
+}
+
+// PaginatedResponse wraps paginated results for <%= it.entityName %>
+type <%= it.entityName %>PaginatedResponse struct {
+	Data       []<%= it.entityName %>Response `json:"data"`
+	Total      int64                 `json:"total"`
+	Page       int                   `json:"page"`
+	PageSize   int                   `json:"pageSize"`
+	TotalPages int                   `json:"totalPages"`
+}
