@@ -3,12 +3,16 @@
     "declaration": true,
     "importHelpers": true,
     "module": "commonjs",
+    "moduleResolution": "node",
     "outDir": "dist",
     "rootDir": "src",
     "strict": true,
     "target": "es2019",
     "resolveJsonModule": true,
-    "esModuleInterop": true
+    "esModuleInterop": true,
+    "jsx": "react",
+    "lib": ["es2019", "dom"],
+    "skipLibCheck": true
   },
   "include": [
     "src/**/*"
