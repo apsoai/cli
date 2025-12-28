@@ -4,7 +4,7 @@
   "description": "Apso CLI",
   "author": "Apso by Mavric - @mavric",
   "bin": {
-    "apso": "./bin/run"
+    "apso": "bin/run"
   },
   "homepage": "https://github.com/apsoai/cli",
   "license": "MIT",
