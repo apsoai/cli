@@ -5,8 +5,12 @@ module.exports = {
   testMatch: [
     "**/src/**/*.spec.ts",
     "**/src/**/*.test.ts",
+    "**/src/**/*.spec.tsx",
+    "**/src/**/*.test.tsx",
     "**/test/**/*.spec.ts",
-    "**/test/**/*.test.ts"
+    "**/test/**/*.test.ts",
+    "**/test/**/*.spec.tsx",
+    "**/test/**/*.test.tsx"
   ],
   transform: {
     '^.+\\.tsx?$': 'ts-jest',

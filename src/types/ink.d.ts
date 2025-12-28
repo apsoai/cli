@@ -246,3 +246,19 @@ declare module "ink-select-input" {
   function SelectInput<V = string>(props: SelectInputProps<V>): ReactNode;
   export default SelectInput;
 }
+
+declare module "ink-testing-library" {
+  import { ReactElement } from "react";
+
+  export interface RenderResult {
+    lastFrame: () => string | undefined;
+    frames: string[];
+    rerender: (tree: ReactElement) => void;
+    unmount: () => void;
+    stdin: {
+      write: (data: string) => void;
+    };
+  }
+
+  export function render(tree: ReactElement): RenderResult;
+}
