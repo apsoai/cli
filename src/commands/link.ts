@@ -56,7 +56,15 @@ export default class Link extends BaseCommand {
 
     const isNonInteractive = Boolean(flags.workspace || flags.service);
 
-    await (isNonInteractive ? this.handleNonInteractive(flags.workspace, flags.service, flags.env, api, existing) : this.handleInteractive(flags.env, api, existing));
+    await (isNonInteractive
+      ? this.handleNonInteractive(
+          flags.workspace,
+          flags.service,
+          flags.env,
+          api,
+          existing
+        )
+      : this.handleInteractive(flags.env, api, existing));
   }
 
   private safeReadExistingLink(): ExistingLinkInfo | null {
@@ -127,9 +135,12 @@ export default class Link extends BaseCommand {
         );
       }
 
-      const workspaceName = await ux.prompt("Enter a name for the new workspace", {
-        required: true,
-      });
+      const workspaceName = await ux.prompt(
+        "Enter a name for the new workspace",
+        {
+          required: true,
+        }
+      );
 
       const created = await api.createWorkspace(workspaceName);
 
@@ -169,15 +180,12 @@ export default class Link extends BaseCommand {
     this.log("Available workspaces:");
 
     workspaces.forEach((w, idx) => {
-      this.log(
-        `  [${idx + 1}] ${w.name} (id=${w.id}, slug=${w.slug})`
-      );
+      this.log(`  [${idx + 1}] ${w.name} (id=${w.id}, slug=${w.slug})`);
     });
 
-    const answer = await ux.prompt(
-      "Select a workspace by number",
-      { required: true }
-    );
+    const answer = await ux.prompt("Select a workspace by number", {
+      required: true,
+    });
 
     const index = Number.parseInt(answer, 10);
 
@@ -223,7 +231,9 @@ export default class Link extends BaseCommand {
 
     envs.forEach((e, idx) => {
       this.log(
-        `  [${idx + 1}] ${e.name} (id=${e.id}${e.slug ? `, slug=${e.slug}` : ""})`
+        `  [${idx + 1}] ${e.name} (id=${e.id}${
+          e.slug ? `, slug=${e.slug}` : ""
+        })`
       );
     });
 
@@ -335,5 +345,3 @@ export default class Link extends BaseCommand {
     this.log("  • Run 'apso status' to check sync state");
   }
 }
-
-

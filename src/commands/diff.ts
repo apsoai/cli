@@ -1,6 +1,9 @@
 import { Flags } from "@oclif/core";
 import BaseCommand from "../lib/base-command";
-import { readProjectLink, getAuthoritativeApsorcPath, getRootApsorcPath } from "../lib/project-link";
+import {
+  readProjectLink,
+  getAuthoritativeApsorcPath,
+} from "../lib/project-link";
 import { createApiClient } from "../lib/api/client";
 import { parseApsorc } from "../lib/apsorc-parser";
 import { convertPlatformToLocal } from "../lib/schema-converter";
@@ -8,25 +11,9 @@ import { calculateSchemaHash } from "../lib/schema-hash";
 import { detectConflict, ConflictType } from "../lib/conflict-detector";
 import { LocalApsorcSchema } from "../lib/schema-converter/types";
 import { Entity } from "../lib/types/entity";
+import { Field } from "../lib/types/field";
 import * as fs from "fs";
-
-/**
- * Field type for comparison
- */
-interface FieldType {
-  name: string;
-  type: string;
-  nullable?: boolean;
-}
-
-/**
- * Format entity for display
- */
-function formatEntity(entity: Entity): string {
-  const fields = entity.fields || [];
-  const fieldList = fields.map((f) => `    ${f.name}: ${f.type}${f.nullable ? "?" : ""}`).join("\n");
-  return `${entity.name}:\n${fieldList}`;
-}
+import { getNetworkStatus, NetworkStatus } from "../lib/network";
 
 /**
  * Compare two entities and return differences
@@ -45,17 +32,27 @@ function compareEntities(
   const reset = useColor ? "\u001B[0m" : "";
 
   // Compare fields
-  const localFields = new Map<string, FieldType>(
-    (localEntity.fields || []).map((f) => [f.name, { name: f.name, type: f.type, nullable: f.nullable }])
+  const localFields = new Map<string, Field>(
+    (localEntity.fields || []).map((f) => [
+      f.name,
+      { name: f.name, type: f.type, nullable: f.nullable },
+    ])
   );
-  const remoteFields = new Map<string, FieldType>(
-    (remoteEntity.fields || []).map((f) => [f.name, { name: f.name, type: f.type, nullable: f.nullable }])
+  const remoteFields = new Map<string, Field>(
+    (remoteEntity.fields || []).map((f) => [
+      f.name,
+      { name: f.name, type: f.type, nullable: f.nullable },
+    ])
   );
 
   // Find added fields
   for (const [fieldName, field] of localFields) {
     if (!remoteFields.has(fieldName)) {
-      diff.push(`    ${green}+ ${fieldName}: ${field.type}${field.nullable ? "?" : ""}${reset}`);
+      diff.push(
+        `    ${green}+ ${fieldName}: ${field.type}${
+          field.nullable ? "?" : ""
+        }${reset}`
+      );
       hasChanges = true;
     }
   }
@@ -63,7 +60,11 @@ function compareEntities(
   // Find removed fields
   for (const [fieldName, field] of remoteFields) {
     if (!localFields.has(fieldName)) {
-      diff.push(`    ${red}- ${fieldName}: ${field.type}${field.nullable ? "?" : ""}${reset}`);
+      diff.push(
+        `    ${red}- ${fieldName}: ${field.type}${
+          field.nullable ? "?" : ""
+        }${reset}`
+      );
       hasChanges = true;
     }
   }
@@ -77,7 +78,9 @@ function compareEntities(
         changes.push(`type: ${remoteField.type} → ${localField.type}`);
       }
       if (localField.nullable !== remoteField.nullable) {
-        changes.push(`nullable: ${remoteField.nullable} → ${localField.nullable}`);
+        changes.push(
+          `nullable: ${remoteField.nullable} → ${localField.nullable}`
+        );
       }
       if (changes.length > 0) {
         diff.push(`    ${yellow}~ ${fieldName}: ${changes.join(", ")}${reset}`);
@@ -108,7 +111,7 @@ function generateDetailedDiff(
 
   // Find added entities
   const addedEntities: string[] = [];
-  for (const [entityName, entity] of localEntities) {
+  for (const [entityName] of localEntities) {
     if (!remoteEntities.has(entityName)) {
       addedEntities.push(entityName);
     }
@@ -116,7 +119,7 @@ function generateDetailedDiff(
 
   // Find removed entities
   const removedEntities: string[] = [];
-  for (const [entityName, entity] of remoteEntities) {
+  for (const [entityName] of remoteEntities) {
     if (!localEntities.has(entityName)) {
       removedEntities.push(entityName);
     }
@@ -127,7 +130,11 @@ function generateDetailedDiff(
   for (const [entityName, localEntity] of localEntities) {
     const remoteEntity = remoteEntities.get(entityName);
     if (remoteEntity) {
-      const { hasChanges, diff } = compareEntities(localEntity, remoteEntity, useColor);
+      const { hasChanges, diff } = compareEntities(
+        localEntity,
+        remoteEntity,
+        useColor
+      );
       if (hasChanges) {
         changedEntities.push({ name: entityName, diff });
       }
@@ -139,11 +146,15 @@ function generateDetailedDiff(
     output.push("");
     output.push(`${green}Added Entities:${reset}`);
     for (const entityName of addedEntities) {
-      const entity = localEntities.get(entityName)!;
       output.push(`  ${green}+ ${entityName}${reset}`);
-      const fields = entity.fields || [];
+      const _entity = localEntities.get(entityName)!;
+      const fields = _entity.fields || [];
       for (const field of fields) {
-        output.push(`    ${green}+ ${field.name}: ${field.type}${field.nullable ? "?" : ""}${reset}`);
+        output.push(
+          `    ${green}+ ${field.name}: ${field.type}${
+            field.nullable ? "?" : ""
+          }${reset}`
+        );
       }
     }
   }
@@ -153,11 +164,15 @@ function generateDetailedDiff(
     output.push("");
     output.push(`${red}Removed Entities:${reset}`);
     for (const entityName of removedEntities) {
-      const entity = remoteEntities.get(entityName)!;
       output.push(`  ${red}- ${entityName}${reset}`);
-      const fields = entity.fields || [];
+      const _entity = remoteEntities.get(entityName)!;
+      const fields = _entity.fields || [];
       for (const field of fields) {
-        output.push(`    ${red}- ${field.name}: ${field.type}${field.nullable ? "?" : ""}${reset}`);
+        output.push(
+          `    ${red}- ${field.name}: ${field.type}${
+            field.nullable ? "?" : ""
+          }${reset}`
+        );
       }
     }
   }
@@ -205,8 +220,7 @@ function generateDetailedDiff(
 }
 
 export default class Diff extends BaseCommand {
-  static description =
-    "Show differences between local and remote schemas";
+  static description = "Show differences between local and remote schemas";
 
   static examples = [
     `$ apso diff                    # Compare local vs last-known remote`,
@@ -217,7 +231,8 @@ export default class Diff extends BaseCommand {
   static flags = {
     live: Flags.boolean({
       char: "l",
-      description: "Fetch current live remote schema instead of using cached hash",
+      description:
+        "Fetch current live remote schema instead of using cached hash",
       default: false,
     }),
     "no-color": Flags.boolean({
@@ -246,7 +261,9 @@ export default class Diff extends BaseCommand {
     }
 
     const { link } = linkInfo;
-    this.log(`Comparing schemas for service: ${link.serviceSlug} (${link.serviceId})`);
+    this.log(
+      `Comparing schemas for service: ${link.serviceSlug} (${link.serviceId})`
+    );
     this.log(`Workspace: ${link.workspaceSlug} (${link.workspaceId})`);
     this.log("");
 
@@ -262,7 +279,8 @@ export default class Diff extends BaseCommand {
     let localSchema: LocalApsorcSchema;
     try {
       parseApsorc(); // Validate schema
-      const rawContent = fs.readFileSync(apsorcPath, "utf8");
+      // eslint-disable-next-line unicorn/prefer-json-parse-buffer
+      const rawContent = fs.readFileSync(apsorcPath, { encoding: "utf8" });
       localSchema = JSON.parse(rawContent) as LocalApsorcSchema;
     } catch (error) {
       const err = error as Error;
@@ -275,9 +293,28 @@ export default class Diff extends BaseCommand {
     let remoteSchema: LocalApsorcSchema | undefined;
     let remoteHash: string | null = link.remoteSchemaHash || null;
 
-    this.log(flags.live ? "Fetching current live remote schema..." : "Using cached remote schema hash...");
+    this.log(
+      flags.live
+        ? "Fetching current live remote schema..."
+        : "Using cached remote schema hash..."
+    );
 
     if (flags.live || !remoteHash) {
+      // Check network status if we need to fetch live schema
+      if (flags.live) {
+        const networkStatus = getNetworkStatus();
+        if (networkStatus === NetworkStatus.OFFLINE) {
+          this.warn("Network is offline. Cannot fetch live remote schema.");
+          this.log("");
+          this.log("Falling back to cached remote schema hash for comparison.");
+          this.log(
+            "Use 'apso diff' (without --live) to compare using cached hash."
+          );
+          this.log("");
+          // Continue with cached hash comparison
+        }
+      }
+
       // Always fetch live if --live flag is set, or if we don't have a cached hash
       try {
         const api = createApiClient();
@@ -310,6 +347,18 @@ export default class Diff extends BaseCommand {
     } else {
       // Use cached hash but we still need schema data for detailed diff
       // Try to fetch it anyway for detailed comparison
+      // Check network status first
+      const networkStatus = getNetworkStatus();
+      if (networkStatus === NetworkStatus.OFFLINE) {
+        this.warn(
+          "Network is offline. Cannot fetch remote schema for detailed comparison."
+        );
+        this.log("");
+        this.log("Showing hash comparison only (using cached remote hash).");
+        this.log("Use 'apso diff --live' when online for detailed comparison.");
+        this.log("");
+      }
+
       try {
         const api = createApiClient();
         const remotePlatformSchema = await api.getLatestSchema(link.serviceId);
@@ -323,7 +372,9 @@ export default class Diff extends BaseCommand {
         }
       } catch {
         // If we can't fetch, we can still show hash comparison
-        this.warn("Could not fetch remote schema for detailed comparison. Showing hash comparison only.");
+        this.warn(
+          "Could not fetch remote schema for detailed comparison. Showing hash comparison only."
+        );
       }
     }
 
@@ -354,7 +405,11 @@ export default class Diff extends BaseCommand {
 
     // Show detailed diff if we have both schemas
     if (localSchema && remoteSchema) {
-      const diffLines = generateDetailedDiff(localSchema, remoteSchema, useColor);
+      const diffLines = generateDetailedDiff(
+        localSchema,
+        remoteSchema,
+        useColor
+      );
       if (diffLines.length > 0) {
         this.log("=== Detailed Differences ===");
         // Print each line separately for proper formatting
@@ -362,7 +417,9 @@ export default class Diff extends BaseCommand {
           this.log(line);
         }
       } else {
-        this.log("No detailed differences found (schemas may differ in ordering or metadata).");
+        this.log(
+          "No detailed differences found (schemas may differ in ordering or metadata)."
+        );
       }
     } else {
       this.log("Cannot show detailed diff: missing schema data.");
@@ -372,30 +429,31 @@ export default class Diff extends BaseCommand {
     this.log("");
     this.log("=== Recommended Actions ===");
     switch (conflict.type) {
-    case ConflictType.DIVERGED: {
-      this.log("  • Run 'apso sync' to merge changes interactively");
-      this.log("  • Run 'apso pull' to update local with remote");
-      this.log("  • Run 'apso push --force' to overwrite remote with local (with caution)");
-    
-    break;
-    }
-    case ConflictType.LOCAL_CHANGED: {
-      this.log("  • Review local changes before pushing");
-      this.log("  • Run 'apso push' to update remote with local changes");
-    
-    break;
-    }
-    case ConflictType.REMOTE_CHANGED: {
-      this.log("  • Review remote changes before pulling");
-      this.log("  • Run 'apso pull' to update local with remote changes");
-    
-    break;
-    }
-    // No default
+      case ConflictType.DIVERGED: {
+        this.log("  • Run 'apso sync' to merge changes interactively");
+        this.log("  • Run 'apso pull' to update local with remote");
+        this.log(
+          "  • Run 'apso push --force' to overwrite remote with local (with caution)"
+        );
+
+        break;
+      }
+      case ConflictType.LOCAL_CHANGED: {
+        this.log("  • Review local changes before pushing");
+        this.log("  • Run 'apso push' to update remote with local changes");
+
+        break;
+      }
+      case ConflictType.REMOTE_CHANGED: {
+        this.log("  • Review remote changes before pulling");
+        this.log("  • Run 'apso pull' to update local with remote changes");
+
+        break;
+      }
+      // No default
     }
 
     // Exit with non-zero code since we have conflicts (NO_CONFLICT case already exited above)
     this.exit(1);
   }
 }
-

@@ -1,14 +1,33 @@
 import { Flags, ux } from "@oclif/core";
 import BaseCommand from "../lib/base-command";
-import { readProjectLink, writeProjectLink, updateSchemaHashes, getAuthoritativeApsorcPath, getProjectRoot } from "../lib/project-link";
+import {
+  readProjectLink,
+  writeProjectLink,
+  updateSchemaHashes,
+  getAuthoritativeApsorcPath,
+  getProjectRoot,
+} from "../lib/project-link";
 import { createApiClient } from "../lib/api/client";
 import { parseApsorc } from "../lib/apsorc-parser";
-import { convertPlatformToLocal, convertLocalToPlatform } from "../lib/schema-converter";
+import {
+  convertPlatformToLocal,
+  convertLocalToPlatform,
+} from "../lib/schema-converter";
 import { calculateSchemaHash } from "../lib/schema-hash";
-import { detectConflict, getConflictSummary, ConflictType } from "../lib/conflict-detector";
+import {
+  detectConflict,
+  getConflictSummary,
+  ConflictType,
+} from "../lib/conflict-detector";
 import { resolveConflictsInteractively } from "../lib/conflict-resolver";
 import { LocalApsorcSchema } from "../lib/schema-converter/types";
 import * as fs from "fs";
+import { NetworkStatus, getNetworkStatus } from "../lib/network";
+import {
+  enqueueOperation,
+  QueueOperationType,
+  isQueueFull,
+} from "../lib/queue";
 
 type SyncStrategy = "local-wins" | "remote-wins" | "interactive";
 
@@ -52,7 +71,9 @@ export default class Sync extends BaseCommand {
     }
 
     const { link } = linkInfo;
-    this.log(`Syncing schemas for service: ${link.serviceSlug} (${link.serviceId})`);
+    this.log(
+      `Syncing schemas for service: ${link.serviceSlug} (${link.serviceId})`
+    );
     this.log(`Workspace: ${link.workspaceSlug} (${link.workspaceId})`);
     this.log("");
 
@@ -68,8 +89,9 @@ export default class Sync extends BaseCommand {
     let localSchema: LocalApsorcSchema;
     try {
       parseApsorc(); // Validate schema
-      const rawContent = fs.readFileSync(apsorcPath, "utf8");
-      localSchema = JSON.parse(rawContent) as LocalApsorcSchema;
+      const rawContent = fs.readFileSync(apsorcPath);
+      // eslint-disable-next-line unicorn/prefer-json-parse-buffer
+      localSchema = JSON.parse(rawContent.toString("utf8")) as LocalApsorcSchema;
     } catch (error) {
       const err = error as Error;
       this.error(`Failed to read or parse local .apsorc: ${err.message}`);
@@ -79,6 +101,36 @@ export default class Sync extends BaseCommand {
 
     // Fetch remote schema
     this.log("Fetching remote schema...");
+
+    // Check network status before attempting sync
+    const networkStatus = getNetworkStatus();
+    if (networkStatus === NetworkStatus.OFFLINE) {
+      // Queue the operation for later
+      if (isQueueFull()) {
+        this.error(
+          "Network is offline and queue is full. Please flush the queue or wait for network to be restored."
+        );
+      }
+
+      const strategy = (flags.strategy || "interactive") as SyncStrategy;
+      enqueueOperation({
+        type: QueueOperationType.SYNC,
+        payload: {
+          serviceId: link.serviceId,
+          workspaceId: link.workspaceId,
+          strategy: strategy === "interactive" ? "local-wins" : strategy, // Interactive not supported in queue
+        },
+      });
+
+      this.log("");
+      this.warn("⚠ Network is offline. Operation has been queued.");
+      this.log("");
+      this.log("When network is restored, run:");
+      this.log("  apso queue flush");
+      this.log("");
+      this.exit(0);
+    }
+
     const api = createApiClient();
     let remoteSchema: LocalApsorcSchema | undefined;
     let remoteHash: string | null = link.remoteSchemaHash || null;
@@ -100,6 +152,35 @@ export default class Sync extends BaseCommand {
       remoteHash = calculateSchemaHash(remoteSchema);
     } catch (error) {
       const err = error as Error;
+
+      // Check if error is due to network being offline
+      if (err.message.includes("offline") || err.message.includes("Network")) {
+        // Queue the operation for later
+        if (isQueueFull()) {
+          this.error(
+            "Network is offline and queue is full. Please flush the queue or wait for network to be restored."
+          );
+        } else {
+          const strategy = (flags.strategy || "interactive") as SyncStrategy;
+          enqueueOperation({
+            type: QueueOperationType.SYNC,
+            payload: {
+              serviceId: link.serviceId,
+              workspaceId: link.workspaceId,
+              strategy: strategy === "interactive" ? "local-wins" : strategy,
+            },
+          });
+
+          this.log("");
+          this.warn("⚠ Network is offline. Operation has been queued.");
+          this.log("");
+          this.log("When network is restored, run:");
+          this.log("  apso queue flush");
+          this.log("");
+          this.exit(0);
+        }
+      }
+
       this.error(
         `Failed to fetch remote schema: ${err.message}\n\n` +
           `Troubleshooting:\n` +
@@ -126,8 +207,8 @@ export default class Sync extends BaseCommand {
 
     // If no conflict, we're already in sync
     if (conflict.type === ConflictType.NO_CONFLICT) {
-      this.log("✓ Local and remote schemas are already in sync.");
-      this.log("No action needed.");
+      this.log("✓ Schemas are in sync - no conflicts detected");
+      this.log("");
       this.exit(0);
     }
 
@@ -150,7 +231,9 @@ export default class Sync extends BaseCommand {
     } else if (strategy === "remote-wins") {
       this.log("Strategy: remote-wins");
       this.log("  → Remote schema will overwrite local schema");
-      this.log("  → This will pull remote changes and update your local .apsorc");
+      this.log(
+        "  → This will pull remote changes and update your local .apsorc"
+      );
     } else {
       this.log("Strategy: interactive");
       this.log("  → You will be prompted to choose for each conflict");
@@ -174,7 +257,13 @@ export default class Sync extends BaseCommand {
       await this.syncRemoteWins(link, remoteSchema!, remoteHash!);
     } else {
       // Interactive strategy - full per-entity/field resolution (CLI-014)
-      await this.syncInteractive(api, link, localSchema, remoteSchema!, localHash);
+      await this.syncInteractive(
+        api,
+        link,
+        localSchema,
+        remoteSchema!,
+        localHash
+      );
     }
 
     this.log("");
@@ -188,7 +277,9 @@ export default class Sync extends BaseCommand {
     localHash: string
   ): Promise<void> {
     this.log("");
-    this.log("Applying local-wins strategy: pushing local schema to platform...");
+    this.log(
+      "Applying local-wins strategy: pushing local schema to platform..."
+    );
 
     // Convert local to platform format
     const conversionResult = convertLocalToPlatform(localSchema);
@@ -237,7 +328,9 @@ export default class Sync extends BaseCommand {
     remoteHash: string
   ): Promise<void> {
     this.log("");
-    this.log("Applying remote-wins strategy: pulling remote schema to local...");
+    this.log(
+      "Applying remote-wins strategy: pulling remote schema to local..."
+    );
 
     // Git pre-flight check
     const projectRoot = getProjectRoot();
@@ -301,7 +394,9 @@ export default class Sync extends BaseCommand {
     this.log("");
     this.log("=== Resolution Summary ===");
     this.log("");
-    this.log(`Resolved ${resolution.entityResolutions.length} entity conflict(s)`);
+    this.log(
+      `Resolved ${resolution.entityResolutions.length} entity conflict(s)`
+    );
     this.log("");
 
     // Confirm final resolution
@@ -318,7 +413,11 @@ export default class Sync extends BaseCommand {
     try {
       // Write to a temp file to validate
       const tempPath = getAuthoritativeApsorcPath() + ".tmp";
-      fs.writeFileSync(tempPath, JSON.stringify(resolution.resolvedSchema, null, 2), "utf8");
+      fs.writeFileSync(
+        tempPath,
+        JSON.stringify(resolution.resolvedSchema, null, 2),
+        "utf8"
+      );
 
       // Change to project root temporarily to validate
       const originalCwd = process.cwd();
@@ -371,7 +470,9 @@ export default class Sync extends BaseCommand {
         this.log("");
         this.log("Pushing resolved schema to platform...");
 
-        const conversionResult = convertLocalToPlatform(resolution.resolvedSchema);
+        const conversionResult = convertLocalToPlatform(
+          resolution.resolvedSchema
+        );
         if (!conversionResult.success) {
           this.error(
             `Failed to convert resolved schema: ${conversionResult.error.message}`
@@ -449,7 +550,9 @@ export default class Sync extends BaseCommand {
         this.log(`  Updated: ${apsorcPath}`);
         this.log("");
         this.log("Note: Remote schema has not been updated.");
-        this.log("Run 'apso push' to push the resolved schema to the platform.");
+        this.log(
+          "Run 'apso push' to push the resolved schema to the platform."
+        );
       } else {
         this.error("Invalid choice. Sync cancelled.");
       }
@@ -464,4 +567,3 @@ export default class Sync extends BaseCommand {
     }
   }
 }
-

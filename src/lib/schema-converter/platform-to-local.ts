@@ -1,4 +1,8 @@
-import { LocalApsorcSchema, ConversionResult, ConversionOptions } from "./types";
+import {
+  LocalApsorcSchema,
+  ConversionResult,
+  ConversionOptions,
+} from "./types";
 import { Entity } from "../types/entity";
 import { ApsorcRelationship } from "../types/relationship";
 
@@ -35,7 +39,9 @@ export class PlatformToLocalConverter {
           return {
             success: false,
             error: {
-              message: `Invalid JSON in platform schema: ${(error as Error).message}`,
+              message: `Invalid JSON in platform schema: ${
+                (error as Error).message
+              }`,
             },
           };
         }
@@ -74,10 +80,10 @@ export class PlatformToLocalConverter {
     // Ensure version 2
     const version = data.version || 2;
     if (version !== 2 && version !== 1 && this.options.warnUnsupported) {
-        console.warn(
-          `Warning: Platform schema version ${version} is not fully supported. Converting to V2 format.`
-        );
-      }
+      console.warn(
+        `Warning: Platform schema version ${version} is not fully supported. Converting to V2 format.`
+      );
+    }
 
     // Normalize entities
     const entities = this.normalizeEntities(data.entities || []);
@@ -105,7 +111,9 @@ export class PlatformToLocalConverter {
     return entities.map((entity) => {
       const normalized: Entity = {
         name: entity.name,
+        // eslint-disable-next-line camelcase
         created_at: entity.created_at ?? false,
+        // eslint-disable-next-line camelcase
         updated_at: entity.updated_at ?? false,
       };
 
@@ -125,6 +133,7 @@ export class PlatformToLocalConverter {
           ...(field.length !== undefined && { length: field.length }),
           ...(field.precision !== undefined && { precision: field.precision }),
           ...(field.scale !== undefined && { scale: field.scale }),
+          // eslint-disable-next-line camelcase
           ...(field.is_email !== undefined && { is_email: field.is_email }),
           ...(field.primary !== undefined && { primary: field.primary }),
           ...(field.unique !== undefined && { unique: field.unique }),
@@ -175,15 +184,15 @@ export class PlatformToLocalConverter {
     return relationships.map((rel) => {
       // Validate entity references
       if (!entityNames.has(rel.from) && this.options.warnUnsupported) {
-          console.warn(
-            `Warning: Relationship references unknown entity "${rel.from}"`
-          );
-        }
+        console.warn(
+          `Warning: Relationship references unknown entity "${rel.from}"`
+        );
+      }
       if (!entityNames.has(rel.to) && this.options.warnUnsupported) {
-          console.warn(
-            `Warning: Relationship references unknown entity "${rel.to}"`
-          );
-        }
+        console.warn(
+          `Warning: Relationship references unknown entity "${rel.to}"`
+        );
+      }
 
       const normalized: ApsorcRelationship = {
         from: rel.from,
@@ -193,12 +202,14 @@ export class PlatformToLocalConverter {
 
       // Add optional fields
       if (rel.to_name !== undefined) {
+        // eslint-disable-next-line camelcase
         normalized.to_name = rel.to_name;
       }
       if (rel.nullable !== undefined) {
         normalized.nullable = rel.nullable;
       }
       if (rel.bi_directional !== undefined) {
+        // eslint-disable-next-line camelcase
         normalized.bi_directional = rel.bi_directional;
       }
       if (rel.cascadeDelete !== undefined) {
@@ -305,9 +316,7 @@ export class PlatformToLocalConverter {
   /**
    * Sort schema components for deterministic output
    */
-  private sortForDeterminism(
-    schema: LocalApsorcSchema
-  ): LocalApsorcSchema {
+  private sortForDeterminism(schema: LocalApsorcSchema): LocalApsorcSchema {
     // Sort entities by name
     const sortedEntities = [...schema.entities].sort((a, b) =>
       a.name.localeCompare(b.name)
@@ -351,4 +360,3 @@ export class PlatformToLocalConverter {
     };
   }
 }
-

@@ -1,6 +1,9 @@
 import { Flags } from "@oclif/core";
 import BaseCommand from "../lib/base-command";
-import { readProjectLink, getAuthoritativeApsorcPath } from "../lib/project-link";
+import {
+  readProjectLink,
+  getAuthoritativeApsorcPath,
+} from "../lib/project-link";
 import { createApiClient } from "../lib/api/client";
 import { parseApsorc } from "../lib/apsorc-parser";
 import { convertPlatformToLocal } from "../lib/schema-converter";
@@ -25,16 +28,20 @@ function formatRelativeTime(timestamp: string | null): string {
     const diffDays = Math.floor(diffHours / 24);
 
     if (diffSecs < 60) {
-      return diffSecs === 0 ? "Just now" : diffSecs + " second" + (diffSecs === 1 ? "" : "s") + " ago";
-    } if (diffMins < 60) {
+      return diffSecs === 0
+        ? "Just now"
+        : diffSecs + " second" + (diffSecs === 1 ? "" : "s") + " ago";
+    }
+    if (diffMins < 60) {
       return diffMins + " minute" + (diffMins === 1 ? "" : "s") + " ago";
-    } if (diffHours < 24) {
+    }
+    if (diffHours < 24) {
       return diffHours + " hour" + (diffHours === 1 ? "" : "s") + " ago";
-    } if (diffDays < 7) {
+    }
+    if (diffDays < 7) {
       return diffDays + " day" + (diffDays === 1 ? "" : "s") + " ago";
-    } 
-      return date.toLocaleDateString();
-    
+    }
+    return date.toLocaleDateString();
   } catch {
     return timestamp;
   }
@@ -71,7 +78,8 @@ function getSyncStatusDescription(conflictType: ConflictType): {
       return {
         status: "Diverged",
         icon: "⚠",
-        description: "Local and remote schemas have diverged (both have changes)",
+        description:
+          "Local and remote schemas have diverged (both have changes)",
       };
     default:
       return {
@@ -90,9 +98,15 @@ function getSuggestedActions(conflictType: ConflictType): string[] {
     case ConflictType.NO_CONFLICT:
       return ["No action needed - schemas are in sync"];
     case ConflictType.LOCAL_CHANGED:
-      return ["Run 'apso push' to push local changes to the platform", "Run 'apso sync' to sync changes"];
+      return [
+        "Run 'apso push' to push local changes to the platform",
+        "Run 'apso sync' to sync changes",
+      ];
     case ConflictType.REMOTE_CHANGED:
-      return ["Run 'apso pull' to pull remote changes locally", "Run 'apso sync' to sync changes"];
+      return [
+        "Run 'apso pull' to pull remote changes locally",
+        "Run 'apso sync' to sync changes",
+      ];
     case ConflictType.DIVERGED:
       return [
         "Run 'apso diff' to see detailed differences",
@@ -127,7 +141,8 @@ export default class Status extends BaseCommand {
     }),
     live: Flags.boolean({
       char: "l",
-      description: "Fetch current live remote schema instead of using cached hash",
+      description:
+        "Fetch current live remote schema instead of using cached hash",
       default: false,
     }),
   };
@@ -167,13 +182,17 @@ export default class Status extends BaseCommand {
     if (fs.existsSync(apsorcPath)) {
       try {
         parseApsorc(); // Validate schema
-        const rawContent = fs.readFileSync(apsorcPath, "utf8");
-        localSchema = JSON.parse(rawContent) as LocalApsorcSchema;
+        const rawContent = fs.readFileSync(apsorcPath);
+        // eslint-disable-next-line unicorn/prefer-json-parse-buffer
+        localSchema = JSON.parse(rawContent.toString("utf8")) as LocalApsorcSchema;
         localHash = calculateSchemaHash(localSchema);
       } catch (error) {
         // Schema exists but can't be parsed - that's okay, we'll show what we can
         if (!flags.json) {
-          this.warn("Local .apsorc file exists but could not be parsed: " + (error as Error).message);
+          this.warn(
+            "Local .apsorc file exists but could not be parsed: " +
+              (error as Error).message
+          );
         }
       }
     }
@@ -186,7 +205,9 @@ export default class Status extends BaseCommand {
     if (flags.live || !remoteHash) {
       try {
         await this.ensureAuthenticated({
-          nonInteractive: process.env.APSO_NON_INTERACTIVE === "1" || process.env.APSO_NON_INTERACTIVE === "true",
+          nonInteractive:
+            process.env.APSO_NON_INTERACTIVE === "1" ||
+            process.env.APSO_NON_INTERACTIVE === "true",
         });
 
         const api = createApiClient();
@@ -204,13 +225,20 @@ export default class Status extends BaseCommand {
       } catch (error) {
         // Can't fetch remote - that's okay, we'll use cached hash
         if (!flags.json) {
-          this.warn("Could not fetch remote schema: " + (error as Error).message);
+          this.warn(
+            "Could not fetch remote schema: " + (error as Error).message
+          );
         }
       }
     }
 
     // Detect conflict
-    const conflict = detectConflict(localHash, remoteHash, localSchema, remoteSchema);
+    const conflict = detectConflict(
+      localHash,
+      remoteHash,
+      localSchema,
+      remoteSchema
+    );
     const syncStatus = getSyncStatusDescription(conflict.type);
     const suggestedActions = getSuggestedActions(conflict.type);
 
@@ -257,8 +285,12 @@ export default class Status extends BaseCommand {
       this.log("=== Project Status ===");
       this.log("");
       this.log("Linked to:");
-      this.log("  Workspace: " + link.workspaceSlug + " (" + link.workspaceId + ")");
-      this.log("  Service:   " + link.serviceSlug + " (" + link.serviceId + ")");
+      this.log(
+        "  Workspace: " + link.workspaceSlug + " (" + link.workspaceId + ")"
+      );
+      this.log(
+        "  Service:   " + link.serviceSlug + " (" + link.serviceId + ")"
+      );
 
       if (link.githubRepo) {
         this.log("");
@@ -283,7 +315,11 @@ export default class Status extends BaseCommand {
       }
 
       if (remoteHash) {
-        this.log("Remote hash: " + remoteHash + (remoteHashFetched ? " (live)" : " (cached)"));
+        this.log(
+          "Remote hash: " +
+            remoteHash +
+            (remoteHashFetched ? " (live)" : " (cached)")
+        );
       } else {
         this.log("Remote hash: (unknown)");
       }
@@ -317,4 +353,3 @@ export default class Status extends BaseCommand {
     }
   }
 }
-

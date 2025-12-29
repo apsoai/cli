@@ -5,6 +5,7 @@ import {
 } from "../config/index";
 import { refreshAccessToken } from "../auth/oauth";
 import { Readable } from "stream";
+import { isOnline } from "../network";
 
 export interface WorkspaceSummary {
   id: number;
@@ -79,6 +80,15 @@ export class ApiClient {
   }
 
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+    // Check network connectivity before making request
+    const online = await isOnline({ timeout: 5000 });
+    if (!online) {
+      throw new Error(
+        "Network is offline. Please check your internet connection.\n" +
+          "You can use cached data with appropriate flags, or queue operations for later."
+      );
+    }
+
     const token = await this.getAccessToken();
     const url = `${this.apiBaseUrl}${path}`;
 
@@ -114,14 +124,19 @@ export class ApiClient {
       }
 
       throw new Error(
-        `API request failed (${response.status}): ${text || response.statusText}`
+        `API request failed (${response.status}): ${
+          text || response.statusText
+        }`
       );
     }
 
     const json = await response.json();
-    
+
     if (process.env.DEBUG || process.env.APSO_DEBUG) {
-      console.log(`[DEBUG] API Response:`, JSON.stringify(json, null, 2).slice(0, 500));
+      console.log(
+        `[DEBUG] API Response:`,
+        JSON.stringify(json, null, 2).slice(0, 500)
+      );
     }
 
     return json as T;
@@ -145,6 +160,15 @@ export class ApiClient {
     formData: any,
     init: RequestInit = {}
   ): Promise<T> {
+    // Check network connectivity before making request
+    const online = await isOnline({ timeout: 5000 });
+    if (!online) {
+      throw new Error(
+        "Network is offline. Please check your internet connection.\n" +
+          "You can queue this operation for later when online."
+      );
+    }
+
     const token = await this.getAccessToken();
     const url = `${this.apiBaseUrl}${path}`;
 
@@ -155,34 +179,34 @@ export class ApiClient {
     // form-data is a Readable stream, we need to consume it
     const body = await new Promise<Buffer>((resolve, reject) => {
       const chunks: Buffer[] = [];
-      
+
       // Ensure form-data is treated as a readable stream
       const stream = formData as Readable;
-      
-      stream.on('data', (chunk: Buffer | string) => {
+
+      stream.on("data", (chunk: Buffer | string) => {
         // form-data emits both strings (boundaries) and Buffers
         // We only want Buffer chunks
         if (Buffer.isBuffer(chunk)) {
           chunks.push(chunk);
-        } else if (typeof chunk === 'string') {
+        } else if (typeof chunk === "string") {
           // Convert string to Buffer (boundary markers, etc.)
-          chunks.push(Buffer.from(chunk, 'utf8'));
+          chunks.push(Buffer.from(chunk, "utf8"));
         }
       });
-      
-      stream.on('end', () => {
+
+      stream.on("end", () => {
         if (chunks.length === 0) {
-          reject(new Error('FormData stream ended with no data'));
+          reject(new Error("FormData stream ended with no data"));
           return;
         }
         const result = Buffer.concat(chunks as unknown as Uint8Array[]);
         resolve(result);
       });
-      
-      stream.on('error', (err: Error) => {
+
+      stream.on("error", (err: Error) => {
         reject(err);
       });
-      
+
       // Start reading the stream
       stream.resume();
     });
@@ -204,7 +228,10 @@ export class ApiClient {
       const text = await response.text();
 
       if (process.env.DEBUG || process.env.APSO_DEBUG) {
-        console.log(`[DEBUG] Upload Error Response (${response.status}):`, text);
+        console.log(
+          `[DEBUG] Upload Error Response (${response.status}):`,
+          text
+        );
       }
 
       if (response.status === 401) {
@@ -221,14 +248,19 @@ export class ApiClient {
       }
 
       throw new Error(
-        `API request failed (${response.status}): ${text || response.statusText}`
+        `API request failed (${response.status}): ${
+          text || response.statusText
+        }`
       );
     }
 
     const json = await response.json();
 
     if (process.env.DEBUG || process.env.APSO_DEBUG) {
-      console.log(`[DEBUG] Upload Response:`, JSON.stringify(json, null, 2).slice(0, 500));
+      console.log(
+        `[DEBUG] Upload Response:`,
+        JSON.stringify(json, null, 2).slice(0, 500)
+      );
     }
 
     return json as T;
@@ -244,8 +276,7 @@ export class ApiClient {
     const url =
       `/WorkspaceUsers?filter=userId||$eq||${encodeURIComponent(
         String(userId)
-      )}` +
-      `&filter=status||$eq||Active&join=workspace&limit=100`;
+      )}&filter=status||$eq||Active&join=workspace&limit=100`;
 
     const response = await this.request<{
       data: Array<{
@@ -288,6 +319,7 @@ export class ApiClient {
         JSON.stringify({ workspaceId: numericId })
       )}&limit=${pageSize}&offset=${offset}`;
 
+      // eslint-disable-next-line no-await-in-loop
       const response = await this.request<{
         data: Array<{ id: number; name: string; slug: string }>;
         total?: number;
@@ -303,7 +335,10 @@ export class ApiClient {
       allServices = [...allServices, ...services];
 
       // Check if we've fetched all services
-      if (items.length < pageSize || (response.total !== undefined && allServices.length >= response.total)) {
+      if (
+        items.length < pageSize ||
+        (response.total !== undefined && allServices.length >= response.total)
+      ) {
         hasMore = false;
       } else {
         offset += pageSize;
@@ -343,7 +378,6 @@ export class ApiClient {
     };
   }
 
-  
   async getLatestSchema(serviceId: string): Promise<any> {
     const serviceIdNum = Number.parseInt(serviceId, 10);
     if (Number.isNaN(serviceIdNum)) {
@@ -390,35 +424,44 @@ export class ApiClient {
 
     let debugResponse: any = null;
     let allSchemas: any[] = [];
-    
+
     const queryFormats = [
       `/WorkspaceServices/${serviceIdNum}?join=serviceSchemas&limit=100`,
       `/ServiceSchemas?filter=workspaceServiceId||$eq||${serviceIdNum}&join=workspaceService&limit=10`,
       `/ServiceSchemas?filter=workspaceServiceId||$eq||${serviceIdNum}&limit=10`,
-      `/ServiceSchemas?s=${encodeURIComponent(JSON.stringify({ workspaceServiceId: serviceIdNum }))}&limit=10`,
+      `/ServiceSchemas?s=${encodeURIComponent(
+        JSON.stringify({ workspaceServiceId: serviceIdNum })
+      )}&limit=10`,
     ];
 
     for (const query of queryFormats) {
       try {
         console.log(`[DEBUG] Trying query format: ${query}`);
+        // eslint-disable-next-line no-await-in-loop
         const response = await this.request<any>(query);
-        
-        if (query.includes('/WorkspaceServices/')) {
+
+        if (query.includes("/WorkspaceServices/")) {
           const service = response;
           if (service.serviceSchemas && Array.isArray(service.serviceSchemas)) {
             allSchemas = service.serviceSchemas;
             debugResponse = { data: allSchemas };
-            console.log(`[DEBUG] ✓ Found schemas via WorkspaceService relationship: ${allSchemas.length} schemas`);
+            console.log(
+              `[DEBUG] ✓ Found schemas via WorkspaceService relationship: ${allSchemas.length} schemas`
+            );
             break;
           } else {
-            console.log(`[DEBUG] WorkspaceService response doesn't have serviceSchemas array`);
+            console.log(
+              `[DEBUG] WorkspaceService response doesn't have serviceSchemas array`
+            );
             console.log(`[DEBUG] Response keys:`, Object.keys(service || {}));
           }
         } else {
           debugResponse = response;
           allSchemas = response.data || [];
           if (allSchemas.length > 0) {
-            console.log(`[DEBUG] ✓ Query format worked! Found ${allSchemas.length} schemas`);
+            console.log(
+              `[DEBUG] ✓ Query format worked! Found ${allSchemas.length} schemas`
+            );
             break;
           } else {
             console.log(`[DEBUG] Query returned empty results`);
@@ -430,13 +473,24 @@ export class ApiClient {
       }
     }
 
-    console.log(`[DEBUG] Final result: Found ${allSchemas.length} schemas for service ${serviceIdNum}:`);
+    console.log(
+      `[DEBUG] Final result: Found ${allSchemas.length} schemas for service ${serviceIdNum}:`
+    );
     if (allSchemas.length > 0) {
       allSchemas.forEach((s) => {
-        console.log(`  - Schema ${s.id}: status=${s.status}, active=${s.active}, version=${s.version}, hasApsorc=${Boolean(s.apsorc)}, workspaceServiceId=${s.workspaceServiceId}`);
+        console.log(
+          `  - Schema ${s.id}: status=${s.status}, active=${
+            s.active
+          }, version=${s.version}, hasApsorc=${Boolean(
+            s.apsorc
+          )}, workspaceServiceId=${s.workspaceServiceId}`
+        );
       });
     } else {
-      console.log(`[DEBUG] No schemas found. Full response:`, JSON.stringify(debugResponse, null, 2));
+      console.log(
+        `[DEBUG] No schemas found. Full response:`,
+        JSON.stringify(debugResponse, null, 2)
+      );
     }
 
     let response = await this.request<{
@@ -446,6 +500,7 @@ export class ApiClient {
         status: string;
         active: boolean;
         version: string;
+        // eslint-disable-next-line camelcase
         created_at: string;
       }>;
       count: number;
@@ -462,6 +517,7 @@ export class ApiClient {
           status: string;
           active: boolean;
           version: string;
+          // eslint-disable-next-line camelcase
           created_at: string;
         }>;
         count: number;
@@ -479,6 +535,7 @@ export class ApiClient {
           status: string;
           active: boolean;
           version: string;
+          // eslint-disable-next-line camelcase
           created_at: string;
         }>;
         count: number;
@@ -496,6 +553,7 @@ export class ApiClient {
           status: string;
           active: boolean;
           version: string;
+          // eslint-disable-next-line camelcase
           created_at: string;
         }>;
         count: number;
@@ -513,6 +571,7 @@ export class ApiClient {
           status: string;
           active: boolean;
           version: string;
+          // eslint-disable-next-line camelcase
           created_at: string;
         }>;
         count: number;
@@ -531,6 +590,7 @@ export class ApiClient {
         data: Array<{
           id: number;
           schema: any;
+          // eslint-disable-next-line camelcase
           created_at: string;
           workspaceServiceId: number;
         }>;
@@ -543,7 +603,11 @@ export class ApiClient {
       const chatSchemas = chatResponse.data || [];
 
       if (chatSchemas.length === 0) {
-        if (debugResponse && debugResponse.data && debugResponse.data.length > 0) {
+        if (
+          debugResponse &&
+          debugResponse.data &&
+          debugResponse.data.length > 0
+        ) {
           const statuses = debugResponse.data
             .map(
               (s: {
@@ -581,13 +645,14 @@ export class ApiClient {
         `[DEBUG] Using schema from ServiceSchemaChat ${chatSchema.id} as fallback.`
       );
 
-
       if (typeof chatSchema.schema === "string") {
         try {
           return JSON.parse(chatSchema.schema);
         } catch (error) {
           throw new Error(
-            `ServiceSchemaChat ${chatSchema.id} schema is not valid JSON: ${(error as Error).message}`
+            `ServiceSchemaChat ${chatSchema.id} schema is not valid JSON: ${
+              (error as Error).message
+            }`
           );
         }
       }
@@ -608,7 +673,9 @@ export class ApiClient {
         return JSON.parse(schema.apsorc);
       } catch (error) {
         throw new Error(
-          `ServiceSchema ${schema.id} apsorc is not valid JSON: ${(error as Error).message}`
+          `ServiceSchema ${schema.id} apsorc is not valid JSON: ${
+            (error as Error).message
+          }`
         );
       }
     }
@@ -668,14 +735,15 @@ export class ApiClient {
     }
 
     // Find the most recent active schema (if any) to update, otherwise create new
-    const existingSchema = existingActiveSchemas.length > 0
-      ? existingActiveSchemas.sort((a, b) => {
-          // Sort by created_at descending to get the most recent
-          const aDate = new Date(a.created_at || 0).getTime();
-          const bDate = new Date(b.created_at || 0).getTime();
-          return bDate - aDate;
-        })[0]
-      : null;
+    const existingSchema =
+      existingActiveSchemas.length > 0
+        ? existingActiveSchemas.sort((a, b) => {
+            // Sort by created_at descending to get the most recent
+            const aDate = new Date(a.created_at || 0).getTime();
+            const bDate = new Date(b.created_at || 0).getTime();
+            return bDate - aDate;
+          })[0]
+        : null;
 
     // Prepare schema payload
     const schemaPayload = {
@@ -754,7 +822,9 @@ export class ApiClient {
       // If query fails, log but continue
       const err = error as Error;
       if (process.env.DEBUG || process.env.APSO_DEBUG) {
-        console.log(`[DEBUG] Could not fetch all active schemas for deactivation: ${err.message}`);
+        console.log(
+          `[DEBUG] Could not fetch all active schemas for deactivation: ${err.message}`
+        );
       }
     }
 
@@ -795,8 +865,8 @@ export class ApiClient {
         })
       );
     } else if (process.env.DEBUG || process.env.APSO_DEBUG) {
-        console.log(`[DEBUG] No other active schemas to deactivate`);
-      }
+      console.log(`[DEBUG] No other active schemas to deactivate`);
+    }
 
     return {
       id: result.id,
@@ -810,5 +880,3 @@ export class ApiClient {
 export function createApiClient(): ApiClient {
   return new ApiClient();
 }
-
-

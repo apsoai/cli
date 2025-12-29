@@ -34,15 +34,23 @@ function startCallbackServer(): Promise<string> {
         return;
       }
 
-      const fullUrl = new URL(req.url, `http://localhost:${OAUTH_CALLBACK_PORT}`);
-      
+      const fullUrl = new URL(
+        req.url,
+        `http://localhost:${OAUTH_CALLBACK_PORT}`
+      );
+
       if (process.env.DEBUG || process.env.APSO_DEBUG) {
         console.log(`Callback server received request: ${req.url}`);
-        console.log(`Pathname: ${fullUrl.pathname}, Expected: ${OAUTH_CALLBACK_PATH}`);
+        console.log(
+          `Pathname: ${fullUrl.pathname}, Expected: ${OAUTH_CALLBACK_PATH}`
+        );
       }
-      
+
       // Handle both /callback and /oauth/callback for compatibility
-      if (fullUrl.pathname === OAUTH_CALLBACK_PATH || fullUrl.pathname === "/oauth/callback") {
+      if (
+        fullUrl.pathname === OAUTH_CALLBACK_PATH ||
+        fullUrl.pathname === "/oauth/callback"
+      ) {
         const code = fullUrl.searchParams.get("code") as string | null;
         const error = fullUrl.searchParams.get("error") as string | null;
 
@@ -82,7 +90,9 @@ function startCallbackServer(): Promise<string> {
     server.listen(OAUTH_CALLBACK_PORT, "localhost", () => {
       // Server started successfully
       if (process.env.DEBUG || process.env.APSO_DEBUG) {
-        console.log(`OAuth callback server listening on http://localhost:${OAUTH_CALLBACK_PORT}${OAUTH_CALLBACK_PATH}`);
+        console.log(
+          `OAuth callback server listening on http://localhost:${OAUTH_CALLBACK_PORT}${OAUTH_CALLBACK_PATH}`
+        );
       }
     });
 
@@ -131,9 +141,7 @@ async function openBrowser(oauthUrl: string): Promise<void> {
 /**
  * Exchange authorization code for tokens
  */
-async function exchangeCodeForTokens(
-  code: string
-): Promise<OAuthResult> {
+async function exchangeCodeForTokens(code: string): Promise<OAuthResult> {
   const apiBaseUrl = getApiBaseUrl();
   const callbackUrl = `http://localhost:${OAUTH_CALLBACK_PORT}${OAUTH_CALLBACK_PATH}`;
   const tokenExchangeUrl = `${apiBaseUrl}/auth/cli/callback`;
@@ -159,29 +167,36 @@ async function exchangeCodeForTokens(
     if (!response.ok) {
       const errorText = await response.text();
       let errorMessage = `Token exchange failed (${response.status}): ${errorText}`;
-      
+
       if (response.status === 404) {
-        errorMessage = `Backend endpoint not found: ${tokenExchangeUrl}\n` +
+        errorMessage =
+          `Backend endpoint not found: ${tokenExchangeUrl}\n` +
           `The backend API needs to implement POST /auth/cli/callback endpoint.\n` +
           `Current API URL: ${apiBaseUrl}\n` +
           `Set APSO_API_URL environment variable if using a different API server.\n` +
           `Example: $env:APSO_API_URL='http://localhost:3001'`;
       } else if (response.status >= 500) {
-        errorMessage = `Backend server error (${response.status}): ${errorText}\n` +
+        errorMessage =
+          `Backend server error (${response.status}): ${errorText}\n` +
           `API URL: ${tokenExchangeUrl}`;
       }
-      
+
       throw new Error(errorMessage);
     }
 
     const data = await response.json();
-    
+
     // Validate response structure
-    if (!data.accessToken || !data.refreshToken || !data.expiresAt || !data.user) {
+    if (
+      !data.accessToken ||
+      !data.refreshToken ||
+      !data.expiresAt ||
+      !data.user
+    ) {
       throw new Error(
         `Invalid token response from backend. Missing required fields.\n` +
-        `Expected: { accessToken, refreshToken, expiresAt, user }\n` +
-        `Received: ${JSON.stringify(data)}`
+          `Expected: { accessToken, refreshToken, expiresAt, user }\n` +
+          `Received: ${JSON.stringify(data)}`
       );
     }
 
@@ -193,20 +208,23 @@ async function exchangeCodeForTokens(
     };
   } catch (error) {
     const err = error as Error;
-    
+
     // Handle network errors
-    if (err.message.includes("fetch failed") || err.message.includes("ECONNREFUSED")) {
+    if (
+      err.message.includes("fetch failed") ||
+      err.message.includes("ECONNREFUSED")
+    ) {
       throw new Error(
         `Cannot connect to backend API at ${tokenExchangeUrl}\n` +
-        `Please verify:\n` +
-        `  1. The backend server is running\n` +
-        `  2. The API URL is correct (current: ${apiBaseUrl})\n` +
-        `  3. If using local development, set: $env:APSO_API_URL='http://localhost:3001'\n` +
-        `  4. The endpoint /auth/cli/callback is implemented\n` +
-        `\nOriginal error: ${err.message}`
+          `Please verify:\n` +
+          `  1. The backend server is running\n` +
+          `  2. The API URL is correct (current: ${apiBaseUrl})\n` +
+          `  3. If using local development, set: $env:APSO_API_URL='http://localhost:3001'\n` +
+          `  4. The endpoint /auth/cli/callback is implemented\n` +
+          `\nOriginal error: ${err.message}`
       );
     }
-    
+
     throw error;
   }
 }
@@ -214,10 +232,12 @@ async function exchangeCodeForTokens(
 /**
  * Perform OAuth flow: start server, open browser, exchange code for tokens
  */
-export async function performOAuthFlow(webBaseUrl?: string): Promise<OAuthResult> {
-  const baseUrl = webBaseUrl || await getWebBaseUrl();
+export async function performOAuthFlow(
+  webBaseUrl?: string
+): Promise<OAuthResult> {
+  const baseUrl = webBaseUrl || (await getWebBaseUrl());
   const callbackUrl = `http://localhost:${OAUTH_CALLBACK_PORT}${OAUTH_CALLBACK_PATH}`;
-  
+
   // Build OAuth URL with standard OAuth 2.0 parameters
   const oauthParams = new URLSearchParams();
   oauthParams.set("client_id", OAUTH_CLIENT_ID);

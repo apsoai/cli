@@ -258,20 +258,27 @@ export class LocalToPlatformConverter {
     ];
     if (!validTypes.includes(field.type)) {
       return {
-        message: `Entity "${entityName}" field "${field.name}" has invalid type "${field.type}". Valid types are: ${validTypes.join(", ")}`,
+        message: `Entity "${entityName}" field "${
+          field.name
+        }" has invalid type "${field.type}". Valid types are: ${validTypes.join(
+          ", "
+        )}`,
         entity: entityName,
         field: field.name,
       };
     }
 
     // Validate enum values if type is enum
-    if (field.type === "enum" && (!Array.isArray(field.values) || field.values.length === 0)) {
-        return {
-          message: `Entity "${entityName}" field "${field.name}" is of type "enum" but is missing a 'values' array with at least one value`,
-          entity: entityName,
-          field: field.name,
-        };
-      }
+    if (
+      field.type === "enum" &&
+      (!Array.isArray(field.values) || field.values.length === 0)
+    ) {
+      return {
+        message: `Entity "${entityName}" field "${field.name}" is of type "enum" but is missing a 'values' array with at least one value`,
+        entity: entityName,
+        field: field.name,
+      };
+    }
 
     return null;
   }
@@ -326,7 +333,11 @@ export class LocalToPlatformConverter {
     const validTypes = ["OneToMany", "ManyToOne", "ManyToMany", "OneToOne"];
     if (!validTypes.includes(rel.type)) {
       return {
-        message: `Relationship from "${rel.from}" to "${rel.to}" has invalid type "${rel.type}". Valid types are: ${validTypes.join(", ")}`,
+        message: `Relationship from "${rel.from}" to "${
+          rel.to
+        }" has invalid type "${rel.type}". Valid types are: ${validTypes.join(
+          ", "
+        )}`,
         relationship: `${rel.from} -> ${rel.to}`,
       };
     }
@@ -350,4 +361,3 @@ export class LocalToPlatformConverter {
     };
   }
 }
-

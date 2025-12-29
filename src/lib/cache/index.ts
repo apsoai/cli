@@ -53,8 +53,9 @@ export function readCache<T>(key: string): T | null {
       return null;
     }
 
-    const content = fs.readFileSync(cachePath, "utf8");
-    const entry: CacheEntry<T> = JSON.parse(content);
+    const content = fs.readFileSync(cachePath);
+    // eslint-disable-next-line unicorn/prefer-json-parse-buffer
+    const entry: CacheEntry<T> = JSON.parse(content.toString("utf8"));
 
     // Check if cache is expired
     const now = Date.now();
@@ -115,8 +116,9 @@ export function hasCache(key: string): boolean {
       return false;
     }
 
-    const content = fs.readFileSync(cachePath, "utf8");
-    const entry: CacheEntry<any> = JSON.parse(content);
+    const content = fs.readFileSync(cachePath);
+    // eslint-disable-next-line unicorn/prefer-json-parse-buffer
+    const entry: CacheEntry<any> = JSON.parse(content.toString("utf8"));
 
     const now = Date.now();
     const age = now - entry.timestamp;
@@ -136,8 +138,9 @@ export function getCacheAge(key: string): number | null {
       return null;
     }
 
-    const content = fs.readFileSync(cachePath, "utf8");
-    const entry: CacheEntry<any> = JSON.parse(content);
+    const content = fs.readFileSync(cachePath);
+    // eslint-disable-next-line unicorn/prefer-json-parse-buffer
+    const entry: CacheEntry<any> = JSON.parse(content.toString("utf8"));
 
     const now = Date.now();
     return now - entry.timestamp;
@@ -193,14 +196,20 @@ export function getCacheStats(): {
     }
 
     const files = fs.readdirSync(cacheDir).filter((f) => f.endsWith(".json"));
-    const entries: Array<{ key: string; age: number; ttl: number; expired: boolean }> = [];
+    const entries: Array<{
+      key: string;
+      age: number;
+      ttl: number;
+      expired: boolean;
+    }> = [];
     const now = Date.now();
 
     for (const file of files) {
       try {
         const cachePath = path.join(cacheDir, file);
-        const content = fs.readFileSync(cachePath, "utf8");
-        const entry: CacheEntry<any> = JSON.parse(content);
+        const content = fs.readFileSync(cachePath);
+        // eslint-disable-next-line unicorn/prefer-json-parse-buffer
+        const entry: CacheEntry<any> = JSON.parse(content.toString("utf8"));
         const age = now - entry.timestamp;
         const expired = age > entry.ttl;
 
@@ -223,4 +232,3 @@ export function getCacheStats(): {
     return { totalEntries: 0, entries: [] };
   }
 }
-

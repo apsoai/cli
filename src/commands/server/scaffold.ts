@@ -16,7 +16,12 @@ import {
   createGuards,
 } from "../../lib";
 import BaseCommand from "../../lib/base-command";
-import { ApiType, ApsorcType, parseApsorcV1, parseApsorcV2 } from "../../lib/apsorc-parser";
+import {
+  ApiType,
+  ApsorcType,
+  parseApsorcV1,
+  parseApsorcV2,
+} from "../../lib/apsorc-parser";
 import { performance } from "perf_hooks";
 import * as Eta from "eta";
 
@@ -165,13 +170,16 @@ export default class Scaffold extends BaseCommand {
     const localApsorcPath = path.join(process.cwd(), ".apsorc");
 
     if (fs.existsSync(localApsorcPath)) {
-      const raw = fs.readFileSync(localApsorcPath, "utf8");
+      const raw = fs.readFileSync(localApsorcPath);
       let parsedFile: any;
       try {
-        parsedFile = JSON.parse(raw);
+        // eslint-disable-next-line unicorn/prefer-json-parse-buffer
+        parsedFile = JSON.parse(raw.toString("utf8"));
       } catch (error) {
         const err = error as Error;
-        this.error(`Failed to parse .apsorc in current directory: ${err.message}`);
+        this.error(
+          `Failed to parse .apsorc in current directory: ${err.message}`
+        );
       }
 
       const version = parsedFile.version ?? 2;

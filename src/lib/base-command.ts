@@ -83,7 +83,6 @@ export default abstract class BaseCommand extends Command {
 
     // Quick check: not a Git repo
     try {
-      // eslint-disable-next-line node/no-sync
       const fs = await import("fs");
       if (!fs.existsSync(projectRoot) || !fs.existsSync(gitDir)) {
         return { stashed: false };
@@ -130,7 +129,9 @@ export default abstract class BaseCommand extends Command {
     this.log("");
     this.log("Options:");
     this.log("  [1] Abort");
-    this.log("  [2] Continue without stashing (may overwrite/merge with local changes)");
+    this.log(
+      "  [2] Continue without stashing (may overwrite/merge with local changes)"
+    );
     this.log("  [3] Stash changes before operation and auto-pop afterwards");
     this.log("");
 
@@ -149,11 +150,17 @@ export default abstract class BaseCommand extends Command {
 
     // Option 3: stash changes
     this.log("Stashing uncommitted changes before operation...");
-    const stashMessage = `apso-cli-sync ${options.operationName} ${new Date().toISOString()}`;
-    const stashResult = spawnSync("git", ["stash", "push", "-u", "-m", stashMessage], {
-      cwd: projectRoot,
-      stdio: "inherit",
-    });
+    const stashMessage = `apso-cli-sync ${
+      options.operationName
+    } ${new Date().toISOString()}`;
+    const stashResult = spawnSync(
+      "git",
+      ["stash", "push", "-u", "-m", stashMessage],
+      {
+        cwd: projectRoot,
+        stdio: "inherit",
+      }
+    );
 
     if (stashResult.status !== 0) {
       this.warn("Failed to stash changes. Continuing without stashing.");
@@ -168,7 +175,10 @@ export default abstract class BaseCommand extends Command {
    * After an operation that modified files, attempt to pop the stash created
    * by gitPreflight() if stashed=true.
    */
-  async gitPostflight(projectRoot: string, preflight: GitPreflightResult): Promise<void> {
+  async gitPostflight(
+    projectRoot: string,
+    preflight: GitPreflightResult
+  ): Promise<void> {
     if (!preflight.stashed) {
       return;
     }

@@ -75,4 +75,3 @@ describe("Conflict Resolver - Schema Building", () => {
     expect(conflicts[0].entityName).toBe("User");
   });
 });
-

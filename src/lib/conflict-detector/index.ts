@@ -1,7 +1,5 @@
 import { LocalApsorcSchema } from "../schema-converter/types";
-import {
-  hashesMatch,
-} from "../schema-hash";
+import { hashesMatch } from "../schema-hash";
 
 /**
  * Types of conflicts that can occur
@@ -40,7 +38,8 @@ export function detectConflict(
       type: ConflictType.NO_CONFLICT,
       localHash: null,
       remoteHash: null,
-      message: "No previous sync information available. This appears to be a fresh sync.",
+      message:
+        "No previous sync information available. This appears to be a fresh sync.",
       severity: "none",
     };
   }
@@ -82,7 +81,12 @@ export function detectConflict(
   // Hashes don't match - determine conflict type
   // If we have schema data, we can analyze what changed
   if (localSchema && remoteSchema) {
-    return analyzeDivergence(localHash!, remoteHash!, localSchema, remoteSchema);
+    return analyzeDivergence(
+      localHash!,
+      remoteHash!,
+      localSchema,
+      remoteSchema
+    );
   }
 
   // Without schema data, we can only report divergence
@@ -139,15 +143,23 @@ function analyzeDivergence(
   const changes: string[] = [];
   if (onlyInLocal.length > 0) {
     changes.push(
-      `Local has ${onlyInLocal.length} additional entity/entities: ${onlyInLocal.join(", ")}`
+      `Local has ${
+        onlyInLocal.length
+      } additional entity/entities: ${onlyInLocal.join(", ")}`
     );
   }
   if (onlyInRemote.length > 0) {
     changes.push(
-      `Remote has ${onlyInRemote.length} additional entity/entities: ${onlyInRemote.join(", ")}`
+      `Remote has ${
+        onlyInRemote.length
+      } additional entity/entities: ${onlyInRemote.join(", ")}`
     );
   }
-  if (commonEntities.length > 0 && onlyInLocal.length === 0 && onlyInRemote.length === 0) {
+  if (
+    commonEntities.length > 0 &&
+    onlyInLocal.length === 0 &&
+    onlyInRemote.length === 0
+  ) {
     changes.push(
       `${commonEntities.length} common entity/entities have field-level differences`
     );
@@ -164,7 +176,8 @@ function analyzeDivergence(
     remoteHash,
     message,
     severity,
-    affectedEntities: affectedEntities.length > 0 ? affectedEntities : undefined,
+    affectedEntities:
+      affectedEntities.length > 0 ? affectedEntities : undefined,
   };
 }
 
@@ -187,28 +200,27 @@ export function getConflictSummary(conflict: ConflictInfo): string {
   parts.push("");
   parts.push("Recommended actions:");
   switch (conflict.type) {
-  case ConflictType.DIVERGED: {
-    parts.push("  • Run 'apso diff' to see detailed differences");
-    parts.push("  • Run 'apso sync' to merge changes interactively");
-    parts.push("  • Use '--force' flag to overwrite (with caution)");
-  
-  break;
-  }
-  case ConflictType.LOCAL_CHANGED: {
-    parts.push("  • Review local changes before pushing");
-    parts.push("  • Use 'apso push --force' to push local changes");
-  
-  break;
-  }
-  case ConflictType.REMOTE_CHANGED: {
-    parts.push("  • Review remote changes before pulling");
-    parts.push("  • Use 'apso pull --force' to overwrite local with remote");
-  
-  break;
-  }
-  // No default
+    case ConflictType.DIVERGED: {
+      parts.push("  • Run 'apso diff' to see detailed differences");
+      parts.push("  • Run 'apso sync' to merge changes interactively");
+      parts.push("  • Use '--force' flag to overwrite (with caution)");
+
+      break;
+    }
+    case ConflictType.LOCAL_CHANGED: {
+      parts.push("  • Review local changes before pushing");
+      parts.push("  • Use 'apso push --force' to push local changes");
+
+      break;
+    }
+    case ConflictType.REMOTE_CHANGED: {
+      parts.push("  • Review remote changes before pulling");
+      parts.push("  • Use 'apso pull --force' to overwrite local with remote");
+
+      break;
+    }
+    // No default
   }
 
   return parts.join("\n");
 }
-

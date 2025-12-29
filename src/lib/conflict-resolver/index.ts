@@ -97,7 +97,10 @@ export function detectAllConflicts(
     const remoteEntity = remoteEntities.get(entityName);
     if (remoteEntity) {
       const fieldConflicts = detectFieldConflicts(localEntity, remoteEntity);
-      if (fieldConflicts.length > 0 || hasEntityLevelDifferences(localEntity, remoteEntity)) {
+      if (
+        fieldConflicts.length > 0 ||
+        hasEntityLevelDifferences(localEntity, remoteEntity)
+      ) {
         conflicts.push({
           entityName,
           type: "changed",
@@ -120,8 +123,12 @@ function detectFieldConflicts(
   remoteEntity: Entity
 ): FieldConflict[] {
   const conflicts: FieldConflict[] = [];
-  const localFields = new Map((localEntity.fields || []).map((f) => [f.name, f]));
-  const remoteFields = new Map((remoteEntity.fields || []).map((f) => [f.name, f]));
+  const localFields = new Map(
+    (localEntity.fields || []).map((f) => [f.name, f])
+  );
+  const remoteFields = new Map(
+    (remoteEntity.fields || []).map((f) => [f.name, f])
+  );
 
   // Find fields only in local
   for (const [fieldName, field] of localFields) {
@@ -201,7 +208,10 @@ function detectFieldChanges(localField: Field, remoteField: Field): string[] {
 /**
  * Check if entities have differences beyond fields (e.g., indexes, uniques, etc.)
  */
-function hasEntityLevelDifferences(localEntity: Entity, remoteEntity: Entity): boolean {
+function hasEntityLevelDifferences(
+  localEntity: Entity,
+  remoteEntity: Entity
+): boolean {
   // Compare indexes
   const localIndexes = JSON.stringify(localEntity.indexes || []);
   const remoteIndexes = JSON.stringify(remoteEntity.indexes || []);
@@ -216,7 +226,10 @@ function hasEntityLevelDifferences(localEntity: Entity, remoteEntity: Entity): b
   if (localEntity.primaryKeyType !== remoteEntity.primaryKeyType) return true;
   if (localEntity.created_at !== remoteEntity.created_at) return true;
   if (localEntity.updated_at !== remoteEntity.updated_at) return true;
-  if (JSON.stringify(localEntity.scopeBy) !== JSON.stringify(remoteEntity.scopeBy)) return true;
+  if (
+    JSON.stringify(localEntity.scopeBy) !== JSON.stringify(remoteEntity.scopeBy)
+  )
+    return true;
 
   return false;
 }
@@ -236,7 +249,9 @@ function formatEntity(entity: Entity): string {
       const nullable = field.nullable ? "?" : "";
       const primary = field.primary ? " [PRIMARY]" : "";
       const unique = field.unique ? " [UNIQUE]" : "";
-      parts.push(`    - ${field.name}: ${field.type}${nullable}${primary}${unique}`);
+      parts.push(
+        `    - ${field.name}: ${field.type}${nullable}${primary}${unique}`
+      );
     }
   }
   if (entity.indexes && entity.indexes.length > 0) {
@@ -301,7 +316,15 @@ export async function resolveConflictsInteractively(
   // Resolve each conflict
   for (let i = 0; i < conflicts.length; i++) {
     const conflict = conflicts[i];
-    log("\n=== Conflict " + (i + 1) + "/" + conflicts.length + ": Entity \"" + conflict.entityName + "\" ===");
+    log(
+      "\n=== Conflict " +
+        (i + 1) +
+        "/" +
+        conflicts.length +
+        ': Entity "' +
+        conflict.entityName +
+        '" ==='
+    );
     log("");
 
     if (conflict.type === "added") {
@@ -331,7 +354,8 @@ export async function resolveConflictsInteractively(
       entityResolutions.push({
         entityName: conflict.entityName,
         choice: resolutionChoice,
-        resolvedEntity: resolutionChoice === "local" ? conflict.localEntity : undefined,
+        resolvedEntity:
+          resolutionChoice === "local" ? conflict.localEntity : undefined,
       });
     } else if (conflict.type === "removed") {
       // Entity only in remote
@@ -360,7 +384,8 @@ export async function resolveConflictsInteractively(
       entityResolutions.push({
         entityName: conflict.entityName,
         choice: resolutionChoice,
-        resolvedEntity: resolutionChoice === "remote" ? conflict.remoteEntity : undefined,
+        resolvedEntity:
+          resolutionChoice === "remote" ? conflict.remoteEntity : undefined,
       });
     } else {
       // Entity exists in both but has differences
@@ -373,7 +398,11 @@ export async function resolveConflictsInteractively(
 
       // Show field conflicts if any
       if (conflict.fieldConflicts && conflict.fieldConflicts.length > 0) {
-        log("This entity has " + conflict.fieldConflicts.length + " field conflict(s).");
+        log(
+          "This entity has " +
+            conflict.fieldConflicts.length +
+            " field conflict(s)."
+        );
         log("");
 
         const fieldResolutionsForEntity: FieldResolution[] = [];
@@ -394,11 +423,19 @@ export async function resolveConflictsInteractively(
             );
 
             const choiceChar = choice.toLowerCase().trim()[0];
-            const resolutionChoice: ResolutionChoice = choiceChar === "l" ? "local" : choiceChar === "r" ? "remote" : "skip";
+            const resolutionChoice: ResolutionChoice =
+              choiceChar === "l"
+                ? "local"
+                : choiceChar === "r"
+                ? "remote"
+                : "skip";
             fieldResolutionsForEntity.push({
               fieldName: fieldConflict.fieldName,
               choice: resolutionChoice,
-              resolvedField: resolutionChoice === "local" ? fieldConflict.localField : undefined,
+              resolvedField:
+                resolutionChoice === "local"
+                  ? fieldConflict.localField
+                  : undefined,
             });
           } else if (fieldConflict.type === "removed") {
             log("This field exists only in REMOTE:");
@@ -414,11 +451,19 @@ export async function resolveConflictsInteractively(
             );
 
             const choiceChar = choice.toLowerCase().trim()[0];
-            const resolutionChoice: ResolutionChoice = choiceChar === "l" ? "local" : choiceChar === "r" ? "remote" : "skip";
+            const resolutionChoice: ResolutionChoice =
+              choiceChar === "l"
+                ? "local"
+                : choiceChar === "r"
+                ? "remote"
+                : "skip";
             fieldResolutionsForEntity.push({
               fieldName: fieldConflict.fieldName,
               choice: resolutionChoice,
-              resolvedField: resolutionChoice === "remote" ? fieldConflict.remoteField : undefined,
+              resolvedField:
+                resolutionChoice === "remote"
+                  ? fieldConflict.remoteField
+                  : undefined,
             });
           } else {
             // Field changed
@@ -442,11 +487,21 @@ export async function resolveConflictsInteractively(
             );
 
             const choiceChar = choice.toLowerCase().trim()[0];
-            const resolutionChoice: ResolutionChoice = choiceChar === "l" ? "local" : choiceChar === "r" ? "remote" : "skip";
+            const resolutionChoice: ResolutionChoice =
+              choiceChar === "l"
+                ? "local"
+                : choiceChar === "r"
+                ? "remote"
+                : "skip";
             fieldResolutionsForEntity.push({
               fieldName: fieldConflict.fieldName,
               choice: resolutionChoice,
-              resolvedField: resolutionChoice === "local" ? fieldConflict.localField : resolutionChoice === "remote" ? fieldConflict.remoteField : undefined,
+              resolvedField:
+                resolutionChoice === "local"
+                  ? fieldConflict.localField
+                  : resolutionChoice === "remote"
+                  ? fieldConflict.remoteField
+                  : undefined,
             });
           }
         }
@@ -471,27 +526,37 @@ export async function resolveConflictsInteractively(
       let resolvedEntity: Entity | undefined;
 
       switch (choiceChar) {
-      case "l": {
-        resolutionChoice = "local";
-        resolvedEntity = applyFieldResolutions(conflict.localEntity!, fieldResolutions.get(conflict.entityName) || []);
-      
-      break;
-      }
-      case "r": {
-        resolutionChoice = "remote";
-        resolvedEntity = applyFieldResolutions(conflict.remoteEntity!, fieldResolutions.get(conflict.entityName) || []);
-      
-      break;
-      }
-      case "m": {
-        resolutionChoice = "merge";
-        resolvedEntity = mergeEntities(conflict.localEntity!, conflict.remoteEntity!, fieldResolutions.get(conflict.entityName) || []);
-      
-      break;
-      }
-      default: {
-        resolutionChoice = "skip";
-      }
+        case "l": {
+          resolutionChoice = "local";
+          resolvedEntity = applyFieldResolutions(
+            conflict.localEntity!,
+            fieldResolutions.get(conflict.entityName) || []
+          );
+
+          break;
+        }
+        case "r": {
+          resolutionChoice = "remote";
+          resolvedEntity = applyFieldResolutions(
+            conflict.remoteEntity!,
+            fieldResolutions.get(conflict.entityName) || []
+          );
+
+          break;
+        }
+        case "m": {
+          resolutionChoice = "merge";
+          resolvedEntity = mergeEntities(
+            conflict.localEntity!,
+            conflict.remoteEntity!,
+            fieldResolutions.get(conflict.entityName) || []
+          );
+
+          break;
+        }
+        default: {
+          resolutionChoice = "skip";
+        }
       }
 
       entityResolutions.push({
@@ -503,7 +568,12 @@ export async function resolveConflictsInteractively(
   }
 
   // Build resolved schema
-  const resolvedSchema = buildResolvedSchema(localSchema, remoteSchema, entityResolutions, fieldResolutions);
+  const resolvedSchema = buildResolvedSchema(
+    localSchema,
+    remoteSchema,
+    entityResolutions,
+    fieldResolutions
+  );
 
   return {
     resolvedSchema,
@@ -515,9 +585,14 @@ export async function resolveConflictsInteractively(
 /**
  * Apply field resolutions to an entity
  */
-function applyFieldResolutions(entity: Entity, fieldResolutions: FieldResolution[]): Entity {
+function applyFieldResolutions(
+  entity: Entity,
+  fieldResolutions: FieldResolution[]
+): Entity {
   const resolvedFields: Field[] = [];
-  const fieldResolutionsMap = new Map(fieldResolutions.map((r) => [r.fieldName, r]));
+  const fieldResolutionsMap = new Map(
+    fieldResolutions.map((r) => [r.fieldName, r])
+  );
 
   // Process existing fields
   for (const field of entity.fields || []) {
@@ -535,10 +610,13 @@ function applyFieldResolutions(entity: Entity, fieldResolutions: FieldResolution
 
   // Add fields from remote that were chosen
   for (const resolution of fieldResolutions) {
-    if (resolution.choice === "remote" && resolution.resolvedField && // Check if we already have this field
-      !resolvedFields.some((f) => f.name === resolution.fieldName)) {
-        resolvedFields.push(resolution.resolvedField);
-      }
+    if (
+      resolution.choice === "remote" &&
+      resolution.resolvedField && // Check if we already have this field
+      !resolvedFields.some((f) => f.name === resolution.fieldName)
+    ) {
+      resolvedFields.push(resolution.resolvedField);
+    }
   }
 
   return {
@@ -556,7 +634,9 @@ function mergeEntities(
   fieldResolutions: FieldResolution[]
 ): Entity {
   const mergedFields: Field[] = [];
-  const fieldResolutionsMap = new Map(fieldResolutions.map((r) => [r.fieldName, r]));
+  const fieldResolutionsMap = new Map(
+    fieldResolutions.map((r) => [r.fieldName, r])
+  );
   const processedFields = new Set<string>();
 
   // Start with local fields
@@ -648,7 +728,9 @@ function buildResolvedSchema(
 
   // Merge relationships (prefer local, add missing from remote)
   const localRelSet = new Set(
-    (localSchema.relationships || []).map((r) => r.from + "->" + r.to + ":" + r.type)
+    (localSchema.relationships || []).map(
+      (r) => r.from + "->" + r.to + ":" + r.type
+    )
   );
   const resolvedRelationships = [...(localSchema.relationships || [])];
   for (const rel of remoteSchema.relationships || []) {
@@ -674,4 +756,3 @@ function buildResolvedSchema(
 
   return resolvedSchema;
 }
-

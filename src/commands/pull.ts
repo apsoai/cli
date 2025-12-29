@@ -9,12 +9,22 @@ import { createApiClient } from "../lib/api/client";
 import { parseApsorc } from "../lib/apsorc-parser";
 import { convertPlatformToLocal } from "../lib/schema-converter";
 import { calculateSchemaHash } from "../lib/schema-hash";
-import { detectConflict, getConflictSummary, ConflictType } from "../lib/conflict-detector";
+import {
+  detectConflict,
+  getConflictSummary,
+  ConflictType,
+} from "../lib/conflict-detector";
 import { LocalApsorcSchema } from "../lib/schema-converter/types";
-import { getServiceCodeDir, syncApsorcToRoot, syncApsorcToCodeBundle, getProjectRoot } from "../lib/project-link";
+import {
+  getServiceCodeDir,
+  syncApsorcToRoot,
+  syncApsorcToCodeBundle,
+  getProjectRoot,
+} from "../lib/project-link";
 import * as fs from "fs";
 import * as path from "path";
 import * as AdmZip from "adm-zip";
+import { getNetworkStatus, NetworkStatus } from "../lib/network";
 
 /**
  * Sort entities by name for deterministic output
@@ -90,12 +100,14 @@ export default class Pull extends BaseCommand {
   static flags = {
     force: Flags.boolean({
       char: "f",
-      description: "Overwrite existing .apsorc without confirmation and skip conflict checks",
+      description:
+        "Overwrite existing .apsorc without confirmation and skip conflict checks",
       default: false,
     }),
     output: Flags.string({
       char: "o",
-      description: "Write to alternative file instead of .apsorc (e.g., .apsorc.remote)",
+      description:
+        "Write to alternative file instead of .apsorc (e.g., .apsorc.remote)",
     }),
     "schema-only": Flags.boolean({
       char: "s",
@@ -131,8 +143,21 @@ export default class Pull extends BaseCommand {
     const gitContext = await this.gitPreflight(projectRoot, {
       operationName: "pull",
     });
-    this.log(`Pulling schema for service: ${link.serviceSlug} (${link.serviceId})`);
+    this.log(
+      `Pulling schema for service: ${link.serviceSlug} (${link.serviceId})`
+    );
     this.log(`Workspace: ${link.workspaceSlug} (${link.workspaceId})`);
+
+    // Check network status before attempting pull
+    const networkStatus = getNetworkStatus();
+    if (networkStatus === NetworkStatus.OFFLINE) {
+      this.error(
+        "Network is offline. Cannot pull schema from platform.\n\n" +
+          "Pull requires network connectivity to fetch the latest schema.\n" +
+          "Please check your internet connection and try again.\n\n" +
+          "Note: If you have a local .apsorc file, you can view it directly."
+      );
+    }
 
     // Fetch latest schema from platform
     const api = createApiClient();
@@ -142,6 +167,16 @@ export default class Pull extends BaseCommand {
       platformSchema = await api.getLatestSchema(link.serviceId);
     } catch (error) {
       const err = error as Error;
+
+      // Check if error is due to network being offline
+      if (err.message.includes("offline") || err.message.includes("Network")) {
+        this.error(
+          "Network is offline. Cannot pull schema from platform.\n\n" +
+            "Pull requires network connectivity to fetch the latest schema.\n" +
+            "Please check your internet connection and try again."
+        );
+      }
+
       // Show full error details
       this.error(
         `Failed to fetch schema: ${err.message}\n\n` +
@@ -188,8 +223,9 @@ export default class Pull extends BaseCommand {
     if (apsorcExists && !flags.force && !flags.output) {
       try {
         // Read existing local schema
-        const existingContent = fs.readFileSync(apsorcPath, "utf8");
-        const existingSchema = JSON.parse(existingContent) as LocalApsorcSchema;
+        const existingContent = fs.readFileSync(apsorcPath);
+        // eslint-disable-next-line unicorn/prefer-json-parse-buffer
+        const existingSchema = JSON.parse(existingContent.toString("utf8")) as LocalApsorcSchema;
         const localHash = calculateSchemaHash(existingSchema);
 
         // Detect conflicts
@@ -220,46 +256,46 @@ export default class Pull extends BaseCommand {
 
             const choice = action.toLowerCase().trim();
             switch (choice) {
-            case "a": 
-            case "abort": {
-              this.log("Pull cancelled. No changes made.");
-              this.exit(0);
-            
-            break;
-            }
-            case "w": 
-            case "write": {
-              // Write to .apsorc.remote instead
-              const remotePath = path.join(process.cwd(), ".apsorc.remote");
-              writeApsorcFile(convertedSchema, remotePath);
-              this.log(`✓ Remote schema written to .apsorc.remote`);
-              this.log("");
-              this.log("You can now:");
-              this.log("  • Compare the files: diff .apsorc .apsorc.remote");
-              this.log("  • Manually merge changes");
-              this.log("  • Or use 'apso pull --force' to overwrite");
-              this.exit(0);
-            
-            break;
-            }
-            case "o": 
-            case "overwrite": {
-              // Continue with overwrite
-              this.log("Overwriting local .apsorc with remote schema...");
-            
-            break;
-            }
-            case "f": 
-            case "force": {
-              // Force overwrite
-              this.log("Force overwriting local .apsorc...");
-            
-            break;
-            }
-            default: {
-              this.log("Invalid choice. Pull cancelled.");
-              this.exit(0);
-            }
+              case "a":
+              case "abort": {
+                this.log("Pull cancelled. No changes made.");
+                this.exit(0);
+
+                break;
+              }
+              case "w":
+              case "write": {
+                // Write to .apsorc.remote instead
+                const remotePath = path.join(process.cwd(), ".apsorc.remote");
+                writeApsorcFile(convertedSchema, remotePath);
+                this.log(`✓ Remote schema written to .apsorc.remote`);
+                this.log("");
+                this.log("You can now:");
+                this.log("  • Compare the files: diff .apsorc .apsorc.remote");
+                this.log("  • Manually merge changes");
+                this.log("  • Or use 'apso pull --force' to overwrite");
+                this.exit(0);
+
+                break;
+              }
+              case "o":
+              case "overwrite": {
+                // Continue with overwrite
+                this.log("Overwriting local .apsorc with remote schema...");
+
+                break;
+              }
+              case "f":
+              case "force": {
+                // Force overwrite
+                this.log("Force overwriting local .apsorc...");
+
+                break;
+              }
+              default: {
+                this.log("Invalid choice. Pull cancelled.");
+                this.exit(0);
+              }
             }
           }
         }
@@ -270,9 +306,7 @@ export default class Pull extends BaseCommand {
           `Could not read existing .apsorc for conflict detection: ${err.message}`
         );
         if (!flags.force) {
-          const shouldContinue = await ux.confirm(
-            "Continue with pull? (y/n)"
-          );
+          const shouldContinue = await ux.confirm("Continue with pull? (y/n)");
           if (!shouldContinue) {
             this.log("Pull cancelled.");
             this.exit(0);
@@ -283,7 +317,9 @@ export default class Pull extends BaseCommand {
       // Writing to alternative file, no conflict check needed
       this.log(`Writing remote schema to ${flags.output}...`);
     } else if (apsorcExists && flags.force) {
-      this.log("Force flag set. Skipping conflict checks and overwriting .apsorc...");
+      this.log(
+        "Force flag set. Skipping conflict checks and overwriting .apsorc..."
+      );
     }
 
     // Backup existing .apsorc if it exists
@@ -330,7 +366,7 @@ export default class Pull extends BaseCommand {
           lastSyncDirection: "pull" as const,
         },
         remoteHash, // Local hash = remote hash after pull
-        remoteHash  // Remote hash
+        remoteHash // Remote hash
       );
 
       writeProjectLink(updatedLink);
@@ -348,14 +384,16 @@ export default class Pull extends BaseCommand {
       } else {
         // Download code (which includes .apsorc in the bundle)
         await this.downloadServiceCode(api, link);
-        
+
         // After downloading code, sync .apsorc from code bundle to root
         // Code bundle .apsorc is authoritative (matches the generated code)
         const syncedPath = syncApsorcToRoot();
         if (syncedPath) {
           this.log("");
           this.log(`✓ Synced .apsorc from code bundle to root`);
-          this.log(`  Code bundle .apsorc is the authoritative version (matches generated code)`);
+          this.log(
+            `  Code bundle .apsorc is the authoritative version (matches generated code)`
+          );
         }
       }
 
@@ -364,9 +402,13 @@ export default class Pull extends BaseCommand {
       this.log("  • Review the updated .apsorc file");
       if (!flags["schema-only"]) {
         this.log("  • Review the downloaded code in .apso/service-code/");
-        this.log("  • Note: .apso/service-code/.apsorc is the authoritative version");
+        this.log(
+          "  • Note: .apso/service-code/.apsorc is the authoritative version"
+        );
       }
-      this.log("  • Run 'apso server scaffold' to regenerate code from the schema");
+      this.log(
+        "  • Run 'apso server scaffold' to regenerate code from the schema"
+      );
     } catch (error) {
       // Restore backup on write failure
       if (backupPath && fs.existsSync(backupPath)) {
@@ -401,21 +443,28 @@ export default class Pull extends BaseCommand {
       const existsResp = await api.rawRequest<{ exists: boolean }>(existsPath);
 
       if (!existsResp.exists) {
-        this.warn("No code found in S3 for this service. Skipping code download.");
+        this.warn(
+          "No code found in S3 for this service. Skipping code download."
+        );
         return;
       }
 
       // Get download URL
       const downloadUrlPath = `/WorkspaceServices/${workspaceId}/${serviceId}/code/download-url`;
-      const downloadResp = await api.rawRequest<{ url: string }>(downloadUrlPath);
+      const downloadResp = await api.rawRequest<{ url: string }>(
+        downloadUrlPath
+      );
 
       // Download zip
       const zipResponse = await fetch(downloadResp.url);
       if (!zipResponse.ok) {
-        throw new Error(`Failed to download code: ${zipResponse.status} ${zipResponse.statusText}`);
+        throw new Error(
+          `Failed to download code: ${zipResponse.status} ${zipResponse.statusText}`
+        );
       }
 
       const zipBuffer = Buffer.from(await zipResponse.arrayBuffer());
+      // eslint-disable-next-line new-cap
       const zip = new AdmZip.default(zipBuffer);
 
       // Extract to .apso/service-code/
@@ -440,4 +489,3 @@ export default class Pull extends BaseCommand {
     }
   }
 }
-

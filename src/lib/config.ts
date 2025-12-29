@@ -1,6 +1,6 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
+import * as fs from "fs";
+import * as path from "path";
+import * as os from "os";
 
 export interface CliConfig {
   token?: string;
@@ -29,8 +29,11 @@ export class ConfigManager {
   constructor() {
     // Determine config directory based on OS
     const homeDir = os.homedir();
-    this.configDir = process.platform === 'win32' ? path.join(process.env.APPDATA || homeDir, '.apso') : path.join(homeDir, '.apso');
-    this.configPath = path.join(this.configDir, 'config.json');
+    this.configDir =
+      process.platform === "win32"
+        ? path.join(process.env.APPDATA || homeDir, ".apso")
+        : path.join(homeDir, ".apso");
+    this.configPath = path.join(this.configDir, "config.json");
   }
 
   /**
@@ -66,7 +69,7 @@ export class ConfigManager {
       }
 
       const data = fs.readFileSync(this.configPath);
-      return JSON.parse(data.toString('utf8')) as CliConfig;
+      return JSON.parse(data.toString("utf8")) as CliConfig;
     } catch {
       // If file is corrupted or unreadable, return null
       return null;

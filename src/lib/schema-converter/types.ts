@@ -11,7 +11,9 @@ export interface PlatformServiceSchema {
   active?: boolean;
   version?: string;
   workspaceServiceId?: number;
+  // eslint-disable-next-line camelcase
   created_at?: Date | string;
+  // eslint-disable-next-line camelcase
   updated_at?: Date | string;
 }
 
@@ -52,4 +54,3 @@ export interface ConversionOptions {
    */
   warnUnsupported?: boolean;
 }
-

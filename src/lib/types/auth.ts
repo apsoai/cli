@@ -163,10 +163,7 @@ export interface ApiKeyAuthConfig extends BaseAuthConfig {
 /**
  * Union type of all auth configurations
  */
-export type AuthConfig =
-  | DbSessionAuthConfig
-  | JwtAuthConfig
-  | ApiKeyAuthConfig;
+export type AuthConfig = DbSessionAuthConfig | JwtAuthConfig | ApiKeyAuthConfig;
 
 /**
  * The normalized AuthContext that all providers produce.
@@ -231,9 +228,8 @@ export const DB_SESSION_AUTH_DEFAULTS: Required<
 /**
  * Default values for JWT auth configuration
  */
-export const JWT_AUTH_DEFAULTS: Required<
-  Pick<JwtAuthConfig, "claims">
-> & Partial<JwtConfig> = {
+export const JWT_AUTH_DEFAULTS: Required<Pick<JwtAuthConfig, "claims">> &
+  Partial<JwtConfig> = {
   claims: {
     userId: "sub",
     email: "email",
@@ -256,10 +252,10 @@ export const API_KEY_AUTH_DEFAULTS: Required<
  * @param {AuthConfig} auth - The auth configuration to check
  * @returns {boolean} True if the auth config is DB session based
  */
-export function isDbSessionAuth(
-  auth: AuthConfig
-): auth is DbSessionAuthConfig {
-  return auth.provider === "better-auth" || auth.provider === "custom-db-session";
+export function isDbSessionAuth(auth: AuthConfig): auth is DbSessionAuthConfig {
+  return (
+    auth.provider === "better-auth" || auth.provider === "custom-db-session"
+  );
 }
 
 /**

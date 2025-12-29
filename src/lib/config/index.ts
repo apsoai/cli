@@ -126,11 +126,9 @@ export function readCredentials(): Credentials | null {
  */
 export function writeCredentials(credentials: Credentials): void {
   ensureConfigDir();
-  fs.writeFileSync(
-    CREDENTIALS_FILE,
-    JSON.stringify(credentials, null, 2),
-    { mode: 0o600 }
-  );
+  fs.writeFileSync(CREDENTIALS_FILE, JSON.stringify(credentials, null, 2), {
+    mode: 0o600,
+  });
   // On Windows, explicitly set permissions after write
   try {
     fs.chmodSync(CREDENTIALS_FILE, 0o600);
@@ -161,7 +159,6 @@ export function isAuthenticated(): boolean {
   return expiresAt > new Date();
 }
 
-
 /**
  * Get API base URL from config, environment, or default
  */
@@ -170,13 +167,13 @@ export function getApiBaseUrl(): string {
   if (process.env.APSO_API_URL) {
     return process.env.APSO_API_URL;
   }
-  
+
   // 2. Check config file
   const config = readConfig();
   if (config.apiUrl) {
     return config.apiUrl;
   }
-  
+
   // 3. Default to production
   return "https://api.apso.cloud";
 }
@@ -189,13 +186,13 @@ export async function getWebBaseUrl(): Promise<string> {
   if (process.env.APSO_WEB_URL) {
     return process.env.APSO_WEB_URL;
   }
-  
+
   // 2. Check config file
   const config = readConfig();
   if (config.webUrl) {
     return config.webUrl;
   }
-  
+
   // 3. Default to production
   return "https://app.apso.cloud";
 }
@@ -209,13 +206,13 @@ export function getWebBaseUrlSync(): string {
   if (process.env.APSO_WEB_URL) {
     return process.env.APSO_WEB_URL;
   }
-  
+
   // 2. Check config file
   const config = readConfig();
   if (config.webUrl) {
     return config.webUrl;
   }
-  
+
   // 3. Default to production
   return "https://app.apso.cloud";
 }

@@ -79,10 +79,10 @@ export default class Config extends BaseCommand {
       }
       this.exit(1);
     } else if (json) {
-        this.log(JSON.stringify({ key, value }));
-      } else {
-        this.log(value);
-      }
+      this.log(JSON.stringify({ key, value }));
+    } else {
+      this.log(value);
+    }
   }
 
   private async handleSet(key: string, value: string): Promise<void> {
@@ -100,38 +100,37 @@ export default class Config extends BaseCommand {
       "webUrl",
       "apiUrl",
     ];
-    
+
     if (!validKeys.includes(key)) {
       this.error(
-        `Invalid config key: ${key}\n` +
-        `Valid keys: ${validKeys.join(", ")}`
+        `Invalid config key: ${key}\nValid keys: ${validKeys.join(", ")}`
       );
     }
 
     // Parse value based on key type
     let parsedValue: any = value;
     switch (key) {
-    case "jsonOutput": 
-    case "telemetry": {
-      parsedValue = value.toLowerCase() === "true";
-    
-    break;
-    }
-    case "colorScheme": {
-      if (!["auto", "light", "dark"].includes(value)) {
-        this.error(`Invalid colorScheme. Must be: auto, light, or dark`);
+      case "jsonOutput":
+      case "telemetry": {
+        parsedValue = value.toLowerCase() === "true";
+
+        break;
       }
-    
-    break;
-    }
-    case "logLevel": {
-      if (!["debug", "info", "warn", "error"].includes(value)) {
-        this.error(`Invalid logLevel. Must be: debug, info, warn, or error`);
+      case "colorScheme": {
+        if (!["auto", "light", "dark"].includes(value)) {
+          this.error(`Invalid colorScheme. Must be: auto, light, or dark`);
+        }
+
+        break;
       }
-    
-    break;
-    }
-    // No default
+      case "logLevel": {
+        if (!["debug", "info", "warn", "error"].includes(value)) {
+          this.error(`Invalid logLevel. Must be: debug, info, warn, or error`);
+        }
+
+        break;
+      }
+      // No default
     }
 
     updateConfig({ [key]: parsedValue });
@@ -140,7 +139,7 @@ export default class Config extends BaseCommand {
 
   private async handleList(json: boolean): Promise<void> {
     const config = readConfig();
-    
+
     if (json) {
       this.log(JSON.stringify(config, null, 2));
       return;
@@ -166,4 +165,3 @@ export default class Config extends BaseCommand {
     this.log("✓ Configuration reset to defaults");
   }
 }
-

@@ -1,8 +1,5 @@
 import { describe, test, expect } from "@jest/globals";
-import {
-  detectConflict,
-  ConflictType,
-} from "../../src/lib/conflict-detector";
+import { detectConflict, ConflictType } from "../../src/lib/conflict-detector";
 import { detectAllConflicts } from "../../src/lib/conflict-resolver";
 import { calculateSchemaHash } from "../../src/lib/schema-hash";
 import { LocalApsorcSchema } from "../../src/lib/schema-converter/types";
@@ -126,7 +123,12 @@ describe("CLI-006: Schema Hashing & Conflict Detection", () => {
 
     const localHash = calculateSchemaHash(localSchema);
     const remoteHash = calculateSchemaHash(remoteSchema);
-    const conflict = detectConflict(localHash, remoteHash, localSchema, remoteSchema);
+    const conflict = detectConflict(
+      localHash,
+      remoteHash,
+      localSchema,
+      remoteSchema
+    );
 
     expect(conflict.type).toBe(ConflictType.DIVERGED);
     expect(conflict.affectedEntities).toContain("Post");
@@ -173,8 +175,12 @@ describe("CLI-014: Conflict Resolution", () => {
     const conflicts = detectAllConflicts(localSchema, remoteSchema);
 
     expect(conflicts.length).toBe(2);
-    expect(conflicts.find((c: any) => c.entityName === "Post")?.type).toBe("added");
-    expect(conflicts.find((c: any) => c.entityName === "Comment")?.type).toBe("removed");
+    expect(conflicts.find((c: any) => c.entityName === "Post")?.type).toBe(
+      "added"
+    );
+    expect(conflicts.find((c: any) => c.entityName === "Comment")?.type).toBe(
+      "removed"
+    );
   });
 
   test("should detect field conflicts within entities", () => {
@@ -291,4 +297,3 @@ describe("CLI-004/005: Schema Conversion", () => {
     expect(originalSchema.entities[0].fields?.length).toBe(3);
   });
 });
-

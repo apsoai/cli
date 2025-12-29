@@ -13,6 +13,7 @@ import { promisify } from "util";
 type GithubConnectionStatus = {
   connectionId: number;
   connected: boolean;
+  // eslint-disable-next-line camelcase
   github_username?: string;
 };
 
@@ -24,12 +25,15 @@ type WorkspaceGithubConnectionStatusDto = {
 type ListGithubRepositoriesPayload = {
   repositories: Array<{
     fullName?: string;
+    // eslint-disable-next-line camelcase
     full_name?: string;
     name?: string;
     owner?: string;
     htmlUrl?: string;
+    // eslint-disable-next-line camelcase
     html_url?: string;
     defaultBranch?: string;
+    // eslint-disable-next-line camelcase
     default_branch?: string;
   }>;
   totalCount?: number;
@@ -46,8 +50,11 @@ type CreateGithubRepositoryInput = {
   connectionId: number;
   serviceName: string;
   private?: boolean;
+  // eslint-disable-next-line camelcase
   auto_init?: boolean;
+  // eslint-disable-next-line camelcase
   gitignore_template?: string;
+  // eslint-disable-next-line camelcase
   license_template?: string;
 };
 
@@ -56,11 +63,13 @@ type CreateRepositoryPayload = {
   message?: string;
   repository: {
     fullName?: string;
+    // eslint-disable-next-line camelcase
     full_name?: string;
     name: string;
     owner?: {
       login?: string;
     };
+    // eslint-disable-next-line camelcase
     default_branch?: string;
     defaultBranch?: string;
   };
@@ -137,7 +146,8 @@ export default class GithubConnect extends BaseCommand {
     // 3. Check if service is already connected to GitHub
     const serviceDetails = await this.getServiceDetails(api, serviceId);
     const infraDetails = (serviceDetails.infrastructure_details as any) || {};
-    const existingRepoName = infraDetails.repoName || infraDetails.githubRepoName;
+    const existingRepoName =
+      infraDetails.repoName || infraDetails.githubRepoName;
     const existingBranchName = infraDetails.branchName;
     const existingConnectionId = infraDetails.githubConnectionId;
 
@@ -164,12 +174,17 @@ export default class GithubConnect extends BaseCommand {
       this.log("");
       this.log("✓ Local link file updated with GitHub connection info");
       this.log("");
-      this.log("To change the GitHub connection, use the web app or disconnect first.");
+      this.log(
+        "To change the GitHub connection, use the web app or disconnect first."
+      );
       return;
     }
 
     // 4. Ensure there is at least one GitHub connection for this workspace
-    const connections = await this.getWorkspaceGithubConnections(api, workspaceId);
+    const connections = await this.getWorkspaceGithubConnections(
+      api,
+      workspaceId
+    );
     let connectionId: number;
 
     if (connections.length === 0) {
@@ -185,7 +200,11 @@ export default class GithubConnect extends BaseCommand {
       this.log(connectUrl);
       this.log("");
 
-      if (!flags["no-browser"]) {
+      if (flags["no-browser"]) {
+        this.log(
+          "Browser auto-open disabled. Please open the URL above to complete GitHub authorization."
+        );
+      } else {
         try {
           await openInBrowser(connectUrl);
         } catch {
@@ -193,10 +212,6 @@ export default class GithubConnect extends BaseCommand {
             `Failed to open browser automatically. Please open this URL manually:\n${connectUrl}`
           );
         }
-      } else {
-        this.log(
-          "Browser auto-open disabled. Please open the URL above to complete GitHub authorization."
-        );
       }
 
       this.log(
@@ -209,7 +224,13 @@ export default class GithubConnect extends BaseCommand {
       let latestConnections: GithubConnectionStatus[] = [];
 
       while (Date.now() - start < timeoutMs) {
-        await new Promise((r) => setTimeout(r, 3000));
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise<void>((r) => {
+          setTimeout(() => {
+            r();
+          }, 3000);
+        });
+        // eslint-disable-next-line no-await-in-loop
         latestConnections = await this.getWorkspaceGithubConnections(
           api,
           workspaceId
@@ -262,13 +283,17 @@ export default class GithubConnect extends BaseCommand {
     this.log("");
     this.log("Fetching repositories from GitHub...");
     const repos = await this.listGithubRepositories(api, connectionId);
-    let selectedRepo: { fullName: string; htmlUrl: string; defaultBranch: string } | null = null;
+    let selectedRepo: {
+      fullName: string;
+      htmlUrl: string;
+      defaultBranch: string;
+    } | null = null;
 
     if (repos.length === 0) {
       this.log("");
       this.warn("No repositories found for this GitHub connection.");
       this.log("");
-      
+
       const shouldCreate = await ux.confirm(
         "Would you like to create a new repository? (y/n)"
       );
@@ -278,20 +303,28 @@ export default class GithubConnect extends BaseCommand {
         this.log("Possible reasons for no repositories:");
         this.log("  • The GitHub account has no repositories");
         this.log("  • The OAuth token doesn't have access to repositories");
-        this.log("  • The repositories are private and the token lacks permissions");
+        this.log(
+          "  • The repositories are private and the token lacks permissions"
+        );
         this.log("");
         this.log("Troubleshooting:");
         this.log("  • Check your GitHub account has repositories");
         this.log("  • Verify the OAuth app has 'repo' scope permissions");
         this.log("  • Try disconnecting and reconnecting GitHub");
-        this.log("  • Run with DEBUG=1 for more details: $env:APSO_DEBUG='1'; apso github:connect");
+        this.log(
+          "  • Run with DEBUG=1 for more details: $env:APSO_DEBUG='1'; apso github:connect"
+        );
         this.error(
           "No repositories found. Please create a repository in GitHub or run this command again to create one."
         );
       }
 
       // Create a new repository
-      selectedRepo = await this.createNewRepository(api, connectionId, link.serviceSlug);
+      selectedRepo = await this.createNewRepository(
+        api,
+        connectionId,
+        link.serviceSlug
+      );
     } else {
       // User selects from existing repositories
       this.log("");
@@ -317,7 +350,7 @@ export default class GithubConnect extends BaseCommand {
     // 7. List branches for the selected repository
     this.log("");
     this.log(`Fetching branches for ${selectedRepo.fullName}...`);
-    
+
     // For newly created repositories, wait a moment and retry if no branches found
     let branches = await this.listBranches(
       api,
@@ -327,16 +360,32 @@ export default class GithubConnect extends BaseCommand {
 
     if (branches.length === 0) {
       // If repository was just created, wait and retry
-      this.log("No branches found yet. Waiting for repository to initialize...");
+      this.log(
+        "No branches found yet. Waiting for repository to initialize..."
+      );
       const maxRetries = 5;
       const retryDelay = 2000; // 2 seconds
 
-      for (let attempt = 0; attempt < maxRetries && branches.length === 0; attempt++) {
+      for (
+        let attempt = 0;
+        attempt < maxRetries && branches.length === 0;
+        attempt++
+      ) {
         if (attempt > 0) {
           this.log(`  Retrying... (attempt ${attempt + 1}/${maxRetries})`);
-          await new Promise((resolve) => setTimeout(resolve, retryDelay));
+          // eslint-disable-next-line no-await-in-loop
+          await new Promise<void>((resolve) => {
+            setTimeout(() => {
+              resolve();
+            }, retryDelay);
+          });
         }
-        branches = await this.listBranches(api, connectionId, selectedRepo.fullName);
+        // eslint-disable-next-line no-await-in-loop
+        branches = await this.listBranches(
+          api,
+          connectionId,
+          selectedRepo.fullName
+        );
       }
 
       if (branches.length === 0) {
@@ -359,7 +408,8 @@ export default class GithubConnect extends BaseCommand {
     this.log("");
 
     const defaultBranch =
-      selectedRepo!.defaultBranch && branches.some((b) => b.name === selectedRepo!.defaultBranch)
+      selectedRepo!.defaultBranch &&
+      branches.some((b) => b.name === selectedRepo!.defaultBranch)
         ? selectedRepo!.defaultBranch
         : branches[0]?.name || "main";
 
@@ -369,14 +419,14 @@ export default class GithubConnect extends BaseCommand {
     );
 
     let branchName: string;
-    if (!answer.trim()) {
-      branchName = defaultBranch;
-    } else {
+    if (answer.trim()) {
       const index = Number.parseInt(answer, 10);
       if (Number.isNaN(index) || index < 1 || index > branches.length) {
         this.error("Invalid branch selection.");
       }
       branchName = branches[index - 1].name;
+    } else {
+      branchName = defaultBranch;
     }
 
     // 8. Call backend to connect repository to service
@@ -427,6 +477,7 @@ export default class GithubConnect extends BaseCommand {
   private async getServiceDetails(
     api: ReturnType<typeof createApiClient>,
     serviceId: string
+  // eslint-disable-next-line camelcase
   ): Promise<{ infrastructure_details?: any }> {
     const numericId = Number(serviceId);
     if (Number.isNaN(numericId)) {
@@ -434,7 +485,8 @@ export default class GithubConnect extends BaseCommand {
     }
 
     const path = `/WorkspaceServices/${numericId}`;
-    return await api.rawRequest<{ infrastructure_details?: any }>(path);
+    // eslint-disable-next-line camelcase
+    return api.rawRequest<{ infrastructure_details?: any }>(path);
   }
 
   private async getWorkspaceGithubConnections(
@@ -464,14 +516,18 @@ export default class GithubConnect extends BaseCommand {
     // Backend GithubConnectionController exposes GET /github-connections/connect/:workspaceId
     // It returns JSON with a 'url' field containing the GitHub OAuth URL
     const path = `/github-connections/connect/${numericId}`;
-    const response = await api.rawRequest<{ url: string; message?: string }>(path);
-    
+    const response = await api.rawRequest<{ url: string; message?: string }>(
+      path
+    );
+
     if (!response.url) {
       this.error(
-        `Backend did not return a GitHub OAuth URL. Response: ${JSON.stringify(response)}`
+        `Backend did not return a GitHub OAuth URL. Response: ${JSON.stringify(
+          response
+        )}`
       );
     }
-    
+
     return response.url;
   }
 
@@ -480,23 +536,36 @@ export default class GithubConnect extends BaseCommand {
     connectionId: number
   ): Promise<{ fullName: string; htmlUrl: string; defaultBranch: string }[]> {
     const path = `/github-connections/list-github-repos/${connectionId}`;
-    
+
     try {
       const resp = await api.rawRequest<ListGithubRepositoriesPayload>(path);
-      
+
       if (process.env.DEBUG || process.env.APSO_DEBUG) {
-        this.log(`[DEBUG] Repository API response: ${JSON.stringify(resp, null, 2).slice(0, 500)}`);
+        this.log(
+          `[DEBUG] Repository API response: ${JSON.stringify(
+            resp,
+            null,
+            2
+          ).slice(0, 500)}`
+        );
       }
-      
+
       // Backend returns { repositories: [...], totalCount: number, totalPages: number }
       const items = resp.repositories || [];
-      
+
       if (process.env.DEBUG || process.env.APSO_DEBUG) {
-        this.log(`[DEBUG] Found ${items.length} repositories from API (totalCount: ${resp.totalCount || 'unknown'})`);
+        this.log(
+          `[DEBUG] Found ${items.length} repositories from API (totalCount: ${
+            resp.totalCount || "unknown"
+          })`
+        );
       }
-      
+
       return items.map((r: any) => ({
-        fullName: r.fullName || r.full_name || `${r.owner?.login || r.owner || 'unknown'}/${r.name || 'unknown'}`,
+        fullName:
+          r.fullName ||
+          r.full_name ||
+          `${r.owner?.login || r.owner || "unknown"}/${r.name || "unknown"}`,
         htmlUrl: r.htmlUrl || r.html_url || r.html_url,
         defaultBranch: r.defaultBranch || r.default_branch || "main",
       }));
@@ -578,9 +647,7 @@ export default class GithubConnect extends BaseCommand {
     });
 
     // Prompt for repository visibility
-    const isPrivate = await ux.confirm(
-      "Make this repository private? (y/n)"
-    );
+    const isPrivate = await ux.confirm("Make this repository private? (y/n)");
 
     // Prompt for auto-initialize (creates README, .gitignore, license)
     const autoInit = await ux.confirm(
@@ -593,16 +660,12 @@ export default class GithubConnect extends BaseCommand {
     if (autoInit) {
       // For now, we'll use common templates. In the future, could prompt for specific ones.
       // GitHub API accepts templates like "Node", "Python", etc.
-      const useGitignore = await ux.confirm(
-        "Add a .gitignore template? (y/n)"
-      );
+      const useGitignore = await ux.confirm("Add a .gitignore template? (y/n)");
       if (useGitignore) {
         gitignoreTemplate = "Node"; // Default to Node.js template
       }
 
-      const useLicense = await ux.confirm(
-        "Add a license? (y/n)"
-      );
+      const useLicense = await ux.confirm("Add a license? (y/n)");
       if (useLicense) {
         licenseTemplate = "mit"; // Default to MIT license
       }
@@ -616,8 +679,11 @@ export default class GithubConnect extends BaseCommand {
         connectionId,
         serviceName: repoName,
         private: isPrivate,
+        // eslint-disable-next-line camelcase
         auto_init: autoInit,
+        // eslint-disable-next-line camelcase
         gitignore_template: gitignoreTemplate,
+        // eslint-disable-next-line camelcase
         license_template: licenseTemplate,
       };
 
@@ -658,5 +724,3 @@ export default class GithubConnect extends BaseCommand {
     }
   }
 }
-
-

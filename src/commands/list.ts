@@ -1,6 +1,10 @@
 import { Flags } from "@oclif/core";
 import BaseCommand from "../lib/base-command";
-import { createApiClient, WorkspaceSummary, ServiceSummary } from "../lib/api/client";
+import {
+  createApiClient,
+  WorkspaceSummary,
+  ServiceSummary,
+} from "../lib/api/client";
 import { readProjectLink } from "../lib/project-link";
 import {
   readCache,
@@ -8,6 +12,7 @@ import {
   getCacheAge,
   clearAllCache,
 } from "../lib/cache";
+import { getNetworkStatus, NetworkStatus } from "../lib/network";
 
 /**
  * Format cache age for display
@@ -19,16 +24,15 @@ function formatCacheAge(ageMs: number): string {
 
   if (ageSecs < 60) {
     return ageSecs + " second" + (ageSecs === 1 ? "" : "s") + " ago";
-  } if (ageMins < 60) {
+  }
+  if (ageMins < 60) {
     return ageMins + " minute" + (ageMins === 1 ? "" : "s") + " ago";
-  } 
-    return ageHours + " hour" + (ageHours === 1 ? "" : "s") + " ago";
-  
+  }
+  return ageHours + " hour" + (ageHours === 1 ? "" : "s") + " ago";
 }
 
 export default class List extends BaseCommand {
-  static description =
-    "List workspaces and services with optional caching";
+  static description = "List workspaces and services with optional caching";
 
   static examples = [
     "$ apso list                    # List workspaces and services",
@@ -44,7 +48,8 @@ export default class List extends BaseCommand {
   static flags = {
     workspace: Flags.string({
       char: "w",
-      description: "Workspace ID to filter services (required if project is not linked)",
+      description:
+        "Workspace ID to filter services (required if project is not linked)",
     }),
     "no-cache": Flags.boolean({
       description: "Bypass cache and fetch fresh data from API",
@@ -98,7 +103,13 @@ export default class List extends BaseCommand {
       await this.listAllServices(api, useCache, flags.json);
     } else if (listType === "services") {
       // When listing "services" specifically, use linked workspace or --workspace flag
-      await this.listServices(api, flags.workspace, useCache, flags.json, listType);
+      await this.listServices(
+        api,
+        flags.workspace,
+        useCache,
+        flags.json,
+        listType
+      );
     }
   }
 
@@ -123,6 +134,12 @@ export default class List extends BaseCommand {
     // Fetch from API if not in cache
     if (!workspaces) {
       try {
+        // Check network status
+        const networkStatus = getNetworkStatus();
+        if (networkStatus === NetworkStatus.OFFLINE) {
+          throw new Error("Network is offline");
+        }
+
         if (!jsonOutput && !fromCache) {
           this.log("Fetching workspaces from platform...");
         }
@@ -136,9 +153,12 @@ export default class List extends BaseCommand {
         if (useCache) {
           const cached = readCache<WorkspaceSummary[]>(cacheKey);
           if (cached) {
-            this.warn(
-              "API request failed. Using cached data: " + (error as Error).message
-            );
+            const errorMsg = (error as Error).message;
+            if (errorMsg.includes("offline") || errorMsg.includes("Network")) {
+              this.warn("⚠ Network is offline. Using cached data.");
+            } else {
+              this.warn("API request failed. Using cached data: " + errorMsg);
+            }
             workspaces = cached;
             fromCache = true;
           } else {
@@ -227,6 +247,12 @@ export default class List extends BaseCommand {
     // Fetch from API if not in cache
     if (!services) {
       try {
+        // Check network status
+        const networkStatus = getNetworkStatus();
+        if (networkStatus === NetworkStatus.OFFLINE) {
+          throw new Error("Network is offline");
+        }
+
         if (!jsonOutput && !fromCache) {
           this.log("Fetching services from platform...");
         }
@@ -240,9 +266,12 @@ export default class List extends BaseCommand {
         if (useCache) {
           const cached = readCache<ServiceSummary[]>(cacheKey);
           if (cached) {
-            this.warn(
-              "API request failed. Using cached data: " + (error as Error).message
-            );
+            const errorMsg = (error as Error).message;
+            if (errorMsg.includes("offline") || errorMsg.includes("Network")) {
+              this.warn("⚠ Network is offline. Using cached data.");
+            } else {
+              this.warn("API request failed. Using cached data: " + errorMsg);
+            }
             services = cached;
             fromCache = true;
           } else {
@@ -287,7 +316,11 @@ export default class List extends BaseCommand {
           this.log(`  ${svc.name} (${svc.slug})`);
           this.log(`    ID: ${svc.id}`);
           if (svc.environments && svc.environments.length > 0) {
-            this.log(`    Environments: ${svc.environments.map((e) => e.name).join(", ")}`);
+            this.log(
+              `    Environments: ${svc.environments
+                .map((e) => e.name)
+                .join(", ")}`
+            );
           }
           this.log("");
         }
@@ -332,6 +365,12 @@ export default class List extends BaseCommand {
 
         if (!services) {
           try {
+            // Check network status before API call
+            const networkStatus = getNetworkStatus();
+            if (networkStatus === NetworkStatus.OFFLINE) {
+              throw new Error("Network is offline");
+            }
+
             // eslint-disable-next-line no-await-in-loop
             services = await api.listServices(ws.id.toString());
             if (useCache) {
@@ -341,6 +380,7 @@ export default class List extends BaseCommand {
             if (useCache) {
               const cached = readCache<ServiceSummary[]>(cacheKey);
               services = cached ? cached : [];
+              // Silently use cache when offline (no error message needed in JSON mode)
             } else {
               services = [];
             }
@@ -374,6 +414,12 @@ export default class List extends BaseCommand {
 
         if (!services) {
           try {
+            // Check network status before API call
+            const networkStatus = getNetworkStatus();
+            if (networkStatus === NetworkStatus.OFFLINE) {
+              throw new Error("Network is offline");
+            }
+
             this.log(`Fetching services for ${ws.name}...`);
             // eslint-disable-next-line no-await-in-loop
             services = await api.listServices(ws.id.toString());
@@ -384,9 +430,19 @@ export default class List extends BaseCommand {
             if (useCache) {
               const cached = readCache<ServiceSummary[]>(cacheKey);
               if (cached) {
-                this.warn(
-                  `Failed to fetch services for ${ws.name}. Using cached data: ${(error as Error).message}`
-                );
+                const errorMsg = (error as Error).message;
+                if (
+                  errorMsg.includes("offline") ||
+                  errorMsg.includes("Network")
+                ) {
+                  this.warn(
+                    `⚠ Network is offline. Using cached data for ${ws.name}.`
+                  );
+                } else {
+                  this.warn(
+                    `Failed to fetch services for ${ws.name}. Using cached data: ${errorMsg}`
+                  );
+                }
                 services = cached;
                 fromCache = true;
               } else {
@@ -415,7 +471,11 @@ export default class List extends BaseCommand {
             this.log(`  ${svc.name} (${svc.slug})`);
             this.log(`    ID: ${svc.id}`);
             if (svc.environments && svc.environments.length > 0) {
-              this.log(`    Environments: ${svc.environments.map((e) => e.name).join(", ")}`);
+              this.log(
+                `    Environments: ${svc.environments
+                  .map((e) => e.name)
+                  .join(", ")}`
+              );
             }
           }
         }
@@ -424,4 +484,3 @@ export default class List extends BaseCommand {
     }
   }
 }
-

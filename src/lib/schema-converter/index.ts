@@ -26,4 +26,3 @@ export function convertLocalToPlatform(
   const converter = new LocalToPlatformConverter();
   return converter.convert(localSchema);
 }
-

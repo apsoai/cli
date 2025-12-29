@@ -29,12 +29,17 @@ export default class Whoami extends BaseCommand {
               authenticated: true,
               userId: creds.user.id,
               email: creds.user.email,
-              fullName: `${creds.user.firstName ?? ""} ${creds.user.lastName ?? ""}`.trim() || null,
+              fullName:
+                `${creds.user.firstName ?? ""} ${
+                  creds.user.lastName ?? ""
+                }`.trim() || null,
             })
           );
         } else {
           this.log(`Logged in as ${creds.user.email}`);
-          const fullName = `${creds.user.firstName ?? ""} ${creds.user.lastName ?? ""}`.trim();
+          const fullName = `${creds.user.firstName ?? ""} ${
+            creds.user.lastName ?? ""
+          }`.trim();
           if (fullName) {
             this.log(`Name: ${fullName}`);
           }

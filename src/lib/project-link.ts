@@ -1,7 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
 
-
 export interface ProjectLink {
   workspaceId: string;
   workspaceSlug: string;
@@ -27,7 +26,6 @@ export interface ExistingLinkInfo {
   link: ProjectLink;
   path: string;
 }
-
 
 /**
  * Find the project root by walking up the directory tree
@@ -97,29 +95,37 @@ export function getProjectRoot(cwd: string = process.cwd()): string {
 
 /**
  * Get the authoritative .apsorc file path.
- * 
+ *
  * Architecture: Code bundle .apsorc is the single source of truth
  * - .apso/service-code/.apsorc = authoritative (matches generated code in bundle)
  * - .apsorc (root) = convenience copy for editing
- * 
+ *
  * Priority: 1) Code bundle (.apso/service-code/.apsorc), 2) Root (.apsorc)
  * The code bundle version is authoritative because it matches the generated code.
- * 
+ *
  * Sync flow:
  * - After `pull`: code bundle .apsorc → root .apsorc (code bundle is authoritative)
  * - Before `push`: root .apsorc → code bundle .apsorc (ensure bundle has latest edits)
  */
-export function getAuthoritativeApsorcPath(cwd: string = process.cwd()): string {
+export function getAuthoritativeApsorcPath(
+  cwd: string = process.cwd()
+): string {
   const projectRoot = findProjectRoot(cwd);
-  const codeBundleApsorc = path.join(projectRoot, ".apso", "service-code", ".apsorc");
+  const codeBundleApsorc = path.join(
+    projectRoot,
+    ".apso",
+    "service-code",
+    ".apsorc"
+  );
   const rootApsorc = path.join(projectRoot, ".apsorc");
 
   // Prefer code bundle .apsorc if it exists and is valid
   if (fs.existsSync(codeBundleApsorc)) {
     // Validate code bundle .apsorc has required fields
     try {
-      const content = fs.readFileSync(codeBundleApsorc, "utf8");
-      const parsed = JSON.parse(content);
+      const content = fs.readFileSync(codeBundleApsorc);
+      // eslint-disable-next-line unicorn/prefer-json-parse-buffer
+      const parsed = JSON.parse(content.toString());
       if (parsed.version && parsed.rootFolder && parsed.apiType) {
         return codeBundleApsorc;
       }
@@ -147,7 +153,12 @@ export function getRootApsorcPath(cwd: string = process.cwd()): string {
  */
 export function syncApsorcToRoot(cwd: string = process.cwd()): string | null {
   const projectRoot = findProjectRoot(cwd);
-  const codeBundleApsorc = path.join(projectRoot, ".apso", "service-code", ".apsorc");
+  const codeBundleApsorc = path.join(
+    projectRoot,
+    ".apso",
+    "service-code",
+    ".apsorc"
+  );
   const rootApsorc = path.join(projectRoot, ".apsorc");
 
   if (!fs.existsSync(codeBundleApsorc)) {
@@ -163,9 +174,16 @@ export function syncApsorcToRoot(cwd: string = process.cwd()): string | null {
  * Sync .apsorc from root to code bundle (before code upload)
  * Ensures code bundle has the latest schema before pushing
  */
-export function syncApsorcToCodeBundle(cwd: string = process.cwd()): string | null {
+export function syncApsorcToCodeBundle(
+  cwd: string = process.cwd()
+): string | null {
   const projectRoot = findProjectRoot(cwd);
-  const codeBundleApsorc = path.join(projectRoot, ".apso", "service-code", ".apsorc");
+  const codeBundleApsorc = path.join(
+    projectRoot,
+    ".apso",
+    "service-code",
+    ".apsorc"
+  );
   const rootApsorc = path.join(projectRoot, ".apsorc");
 
   if (!fs.existsSync(rootApsorc)) {
@@ -174,8 +192,9 @@ export function syncApsorcToCodeBundle(cwd: string = process.cwd()): string | nu
 
   // Validate root .apsorc has required fields before syncing
   try {
-    const rootContent = fs.readFileSync(rootApsorc, "utf8");
-    const rootParsed = JSON.parse(rootContent);
+    const rootContent = fs.readFileSync(rootApsorc);
+    // eslint-disable-next-line unicorn/prefer-json-parse-buffer
+    const rootParsed = JSON.parse(rootContent.toString());
     if (!rootParsed.version || !rootParsed.rootFolder || !rootParsed.apiType) {
       // Root .apsorc is incomplete, don't sync
       return null;
@@ -196,7 +215,6 @@ export function syncApsorcToCodeBundle(cwd: string = process.cwd()): string | nu
   return codeBundleApsorc;
 }
 
-
 export function readProjectLink(
   cwd: string = process.cwd()
 ): ExistingLinkInfo | null {
@@ -207,8 +225,9 @@ export function readProjectLink(
   }
 
   try {
-    const raw = fs.readFileSync(linkPath, "utf8");
-    const data = JSON.parse(raw) as Partial<ProjectLink>;
+    const raw = fs.readFileSync(linkPath);
+    // eslint-disable-next-line unicorn/prefer-json-parse-buffer
+    const data = JSON.parse(raw.toString()) as Partial<ProjectLink>;
 
     validateProjectLink(data);
 
@@ -335,5 +354,3 @@ export function updateRemoteSchemaHash(
     remoteSchemaHash: remoteHash,
   };
 }
-
-

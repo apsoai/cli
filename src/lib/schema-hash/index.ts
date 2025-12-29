@@ -17,9 +17,7 @@ export function calculateSchemaHash(schema: LocalApsorcSchema): string {
  * Normalize schema for hashing by sorting all arrays deterministically
  * This ensures the same schema always produces the same hash regardless of order
  */
-export function normalizeSchemaForHashing(
-  schema: LocalApsorcSchema
-): any {
+export function normalizeSchemaForHashing(schema: LocalApsorcSchema): any {
   // Sort entities alphabetically by name
   const sortedEntities = [...(schema.entities || [])].sort((a, b) =>
     a.name.localeCompare(b.name)
@@ -29,7 +27,9 @@ export function normalizeSchemaForHashing(
   const entitiesWithSortedFields = sortedEntities.map((entity) => {
     const normalizedEntity: any = {
       name: entity.name,
+      // eslint-disable-next-line camelcase
       created_at: entity.created_at ?? false,
+      // eslint-disable-next-line camelcase
       updated_at: entity.updated_at ?? false,
     };
 
@@ -105,7 +105,10 @@ export function normalizeSchemaForHashing(
 /**
  * Check if two hashes match
  */
-export function hashesMatch(hash1: string | null, hash2: string | null): boolean {
+export function hashesMatch(
+  hash1: string | null,
+  hash2: string | null
+): boolean {
   if (!hash1 || !hash2) {
     return false;
   }
@@ -124,4 +127,3 @@ export function isHashDiverged(
   }
   return localHash !== remoteHash;
 }
-
