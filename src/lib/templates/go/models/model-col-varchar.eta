@@ -1,0 +1,1 @@
+	<%= it.column.pascalName %> <% if (!it.column.required) { %>*<% } %>string `gorm:"type:varchar(<%= it.column.length || 255 %>)<% if (!it.column.required) { %>;default:null<% } %>" json:"<%= it.column.name %><% if (!it.column.required) { %>,omitempty<% } %>"`

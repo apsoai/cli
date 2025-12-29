@@ -1,0 +1,1 @@
+	<%= it.column.pascalName %> <% if (!it.column.required) { %>*<% } %>string <% if (it.column.primary) { %>`gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"<%= it.column.name %>"`<% } else { %>`gorm:"type:uuid<% if (!it.column.required) { %>;default:null<% } %>" json:"<%= it.column.name %><% if (!it.column.required) { %>,omitempty<% } %>"`<% } %>

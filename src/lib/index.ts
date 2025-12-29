@@ -9,3 +9,22 @@ export { createDto } from "./dto";
 export { createEnums } from "./enums";
 export { createGqlDTO } from "./gql-dto";
 export { createGuards, hasScopedEntities, getScopedEntities } from "./guards";
+
+// Generator exports
+export {
+  BaseGenerator,
+  TypeScriptGenerator,
+  createGenerator,
+  isLanguageSupported,
+  getSupportedLanguages,
+  getImplementedLanguages,
+} from "./generators";
+
+// Generator type exports
+export type {
+  TargetLanguage,
+  GeneratedFile,
+  ValidationResult,
+  GeneratorConfig,
+  LanguageGenerator,
+} from "./types";

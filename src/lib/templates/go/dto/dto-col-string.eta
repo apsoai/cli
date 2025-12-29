@@ -1,0 +1,7 @@
+<% if (it.mode === 'response') { %>
+	<%= it.column.pascalName %> <% if (!it.column.required) { %>*<% } %>string `json:"<%= it.column.name %><% if (!it.column.required) { %>,omitempty<% } %>"`
+<% } else if (it.mode === 'create') { %>
+	<%= it.column.pascalName %> <% if (!it.column.required) { %>*<% } %>string `json:"<%= it.column.name %><% if (!it.column.required) { %>,omitempty<% } %>"<% if (it.column.required) { %> validate:"required<% if (it.column.length) { %>,max=<%= it.column.length %><% } %>"<% } %>`
+<% } else { %>
+	<%= it.column.pascalName %> *string `json:"<%= it.column.name %>,omitempty"<% if (it.column.length) { %> validate:"omitempty,max=<%= it.column.length %>"<% } %>`
+<% } %>

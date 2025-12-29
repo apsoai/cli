@@ -1,0 +1,5 @@
+    <%= it.field.name %>: Mapped[<% if (!it.field.required) { %>Optional[bool]<% } else { %>bool<% } %>] = mapped_column(
+        Boolean,
+        nullable=<%= it.field.required ? 'False' : 'True' %><% if (it.field.default !== undefined) { %>,
+        default=<%= it.field.default === true ? 'True' : (it.field.default === false ? 'False' : it.field.default) %><% } %>
+    )

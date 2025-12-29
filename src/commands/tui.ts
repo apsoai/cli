@@ -558,7 +558,7 @@ Network Status: ${
 
     // Global keyboard shortcuts (work from anywhere)
     // Only handle these when sidebar is NOT focused to avoid conflicts
-    this.screen.key(["r", "R"], async (_ch, _key) => {
+    this.screen.key(["r", "R"], async (_ch: any, _key: any) => {
       // Don't intercept if sidebar is handling it
       if ((this.sidebar as any).focused) {
         return;
@@ -598,7 +598,7 @@ Network Status: ${
     });
 
     // Handle arrow key navigation to skip non-selectable items (headers, empty lines)
-    this.sidebar.on("keypress", (ch, key) => {
+    this.sidebar.on("keypress", (ch: any, key: any) => {
       if (key.name === "up" || key.name === "down") {
         const items = (this.sidebar as any).items || [];
         const currentIndex = (this.sidebar as any).selected || 0;

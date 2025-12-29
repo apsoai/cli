@@ -1,0 +1,163 @@
+<%~ includeFile('../header.eta', it) %>
+
+from typing import List, Optional, Tuple, Any, Dict
+from sqlalchemy import select, func, desc, asc
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from ..models.<%= it.entityName.toLowerCase() %> import <%= it.entityName %>
+from ..schemas.<%= it.entityName.toLowerCase() %> import <%= it.entityName %>Create, <%= it.entityName %>Update
+
+
+class <%= it.entityName %>Service:
+    """
+    Service layer for <%= it.entityName %> CRUD operations.
+    """
+
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def get_many(
+        self,
+        skip: int = 0,
+        limit: int = 10,
+        sort: Optional[str] = None,
+        filters: Optional[Dict[str, Any]] = None,
+        joins: Optional[List[str]] = None,
+    ) -> Tuple[List[<%= it.entityName %>], int]:
+        """
+        Retrieve a paginated list of <%= it.pluralEntityName %>.
+        """
+        # Build base query
+        query = select(<%= it.entityName %>)
+
+        # Apply filters
+        if filters:
+            for field, value in filters.items():
+                if hasattr(<%= it.entityName %>, field) and value is not None:
+                    query = query.where(getattr(<%= it.entityName %>, field) == value)
+
+        # Apply sorting
+        if sort:
+            if sort.startswith("-"):
+                query = query.order_by(desc(getattr(<%= it.entityName %>, sort[1:])))
+            else:
+                query = query.order_by(asc(getattr(<%= it.entityName %>, sort)))
+        else:
+            query = query.order_by(<%= it.entityName %>.id)
+
+        # Apply joins
+        if joins:
+            for join in joins:
+                if hasattr(<%= it.entityName %>, join):
+                    query = query.options(selectinload(getattr(<%= it.entityName %>, join)))
+
+        # Get total count
+        count_query = select(func.count()).select_from(<%= it.entityName %>)
+        if filters:
+            for field, value in filters.items():
+                if hasattr(<%= it.entityName %>, field) and value is not None:
+                    count_query = count_query.where(getattr(<%= it.entityName %>, field) == value)
+        total_result = await self.db.execute(count_query)
+        total = total_result.scalar() or 0
+
+        # Apply pagination
+        query = query.offset(skip).limit(limit)
+
+        # Execute query
+        result = await self.db.execute(query)
+        items = list(result.scalars().all())
+
+        return items, total
+
+    async def get_one(
+        self,
+        id: Any,
+        joins: Optional[List[str]] = None,
+    ) -> Optional[<%= it.entityName %>]:
+        """
+        Retrieve a single <%= it.entityName %> by ID.
+        """
+        query = select(<%= it.entityName %>).where(<%= it.entityName %>.id == id)
+
+        # Apply joins
+        if joins:
+            for join in joins:
+                if hasattr(<%= it.entityName %>, join):
+                    query = query.options(selectinload(getattr(<%= it.entityName %>, join)))
+
+        result = await self.db.execute(query)
+        return result.scalar_one_or_none()
+
+    async def create_one(self, data: <%= it.entityName %>Create) -> <%= it.entityName %>:
+        """
+        Create a new <%= it.entityName %>.
+        """
+        item = <%= it.entityName %>(**data.model_dump(exclude_unset=True))
+        self.db.add(item)
+        await self.db.commit()
+        await self.db.refresh(item)
+        return item
+
+    async def create_many(self, data: List[<%= it.entityName %>Create]) -> List[<%= it.entityName %>]:
+        """
+        Create multiple <%= it.pluralEntityName %>.
+        """
+        items = [<%= it.entityName %>(**item.model_dump(exclude_unset=True)) for item in data]
+        self.db.add_all(items)
+        await self.db.commit()
+        for item in items:
+            await self.db.refresh(item)
+        return items
+
+    async def update_one(
+        self,
+        id: Any,
+        data: <%= it.entityName %>Update,
+    ) -> Optional[<%= it.entityName %>]:
+        """
+        Update an existing <%= it.entityName %>.
+        """
+        item = await self.get_one(id)
+        if not item:
+            return None
+
+        update_data = data.model_dump(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(item, field, value)
+
+        await self.db.commit()
+        await self.db.refresh(item)
+        return item
+
+    async def replace_one(
+        self,
+        id: Any,
+        data: <%= it.entityName %>Create,
+    ) -> Optional[<%= it.entityName %>]:
+        """
+        Replace an existing <%= it.entityName %>.
+        """
+        item = await self.get_one(id)
+        if not item:
+            return None
+
+        replace_data = data.model_dump()
+        for field, value in replace_data.items():
+            setattr(item, field, value)
+
+        await self.db.commit()
+        await self.db.refresh(item)
+        return item
+
+    async def delete_one(self, id: Any) -> bool:
+        """
+        Delete a <%= it.entityName %> by ID.
+        """
+        item = await self.get_one(id)
+        if not item:
+            return False
+
+        await self.db.delete(item)
+        await self.db.commit()
+        return True

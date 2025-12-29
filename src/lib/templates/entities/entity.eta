@@ -1,14 +1,19 @@
 <%~ includeFile('./header.eta') %>
 /* eslint @typescript-eslint/no-unused-vars: "off" */
 
+<%
+// Check if any columns are named createdAt or updatedAt
+const hasCreatedAt = it.createdAt || it.columns.some(c => c.name === 'createdAt');
+const hasUpdatedAt = it.updatedAt || it.columns.some(c => c.name === 'updatedAt');
+%>
 import {
     Column,
     Entity,
 <%~ it.associations.map((assoc) => `${assoc.type},`).filter((v, i, s) => s.indexOf(v) === i).join("\r\n") %>
-<% if (it.createdAt) { %>
+<% if (hasCreatedAt) { %>
     CreateDateColumn,
 <% } %>
-<% if (it.updatedAt) { %>
+<% if (hasUpdatedAt) { %>
     UpdateDateColumn,
 <% } %>
     PrimaryGeneratedColumn,
@@ -68,15 +73,23 @@ export class <%= it.name %> {
 
 <% if (it.createdAt) { %>
     @CreateDateColumn()
-    created_at: Date;
+    createdAt: Date;
 <% } %>
 
 <% if (it.updatedAt) { %>
     @UpdateDateColumn()
-    updated_at: Date;
+    updatedAt: Date;
 <% } %>
 
-<% it.columns.forEach((field) => { %>
+<%
+// Filter out id (if createPrimaryKey), createdAt, and updatedAt since they're handled separately
+const columnsToProcess = it.columns.filter(c => {
+  if (it.createPrimaryKey && c.name === 'id') return false;
+  if (it.createdAt && c.name === 'createdAt') return false;
+  if (it.updatedAt && c.name === 'updatedAt') return false;
+  return true;
+});
+columnsToProcess.forEach((field) => { %>
 
 <%~ includeFile(`./entities/entity-col-${field.type}`, { field }) %>
 

@@ -1,0 +1,6 @@
+<%
+// Generate the enum type name: EntityName + FieldNamePascal + Enum
+const fieldNamePascal = it.field.name.charAt(0).toUpperCase() + it.field.name.slice(1);
+const enumTypeName = it.field.enumType || `${it.entityName}${fieldNamePascal}Enum`;
+-%>
+    <%= it.field.name %>: <% if (!it.field.required || it.forUpdate) { %>Optional[enums.<%= enumTypeName %>] = None<% } else { %>enums.<%= enumTypeName %><% } %>

@@ -1,0 +1,5 @@
+    <%= it.field.name %>: Mapped[<% if (!it.field.required) { %>Optional[UUID]<% } else { %>UUID<% } %>] = mapped_column(
+        PGUUID(as_uuid=True),
+        nullable=<%= it.field.required ? 'False' : 'True' %><% if (it.field.unique) { %>,
+        unique=True<% } %>
+    )
