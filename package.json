@@ -1,10 +1,10 @@
 {
   "name": "@apso/cli",
-  "version": "0.7.3",
+  "version": "0.8.2",
   "description": "Apso CLI",
   "author": "Apso by Mavric - @mavric",
   "bin": {
-    "apso": "./bin/run"
+    "apso": "bin/run"
   },
   "homepage": "https://github.com/apsoai/cli",
   "license": "MIT",
@@ -28,8 +28,9 @@
     "@oclif/plugin-plugins": "^3",
     "adm-zip": "^0.5.10",
     "debug": "^4.3.4",
-    "form-data": "^4.0.0",
     "eta": "^2.0.0",
+    "form-data": "^4.0.0",
+    "inquirer": "^8.2.7",
     "pluralize": "^8.0.0",
     "rc": "^1.2.8",
     "shelljs": "^0.8.5"
@@ -37,10 +38,11 @@
   "devDependencies": {
     "@jest/globals": "^29.5.0",
     "@oclif/test": "^2.4.7",
-    "@types/chai": "^4",
-    "@types/mocha": "^10",
     "@types/adm-zip": "^0.5.0",
+    "@types/chai": "^4",
     "@types/form-data": "^2.5.0",
+    "@types/inquirer": "^8.2.12",
+    "@types/mocha": "^10",
     "@types/node": "^20",
     "@types/pluralize": "^0.0.29",
     "@types/rc": "^1.2.1",

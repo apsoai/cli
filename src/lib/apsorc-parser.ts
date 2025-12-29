@@ -4,6 +4,7 @@ import rc from "rc";
 import { Entity } from "./types/entity";
 import { ApsorcRelationship, RelationshipMap } from "./types/relationship";
 import { AuthConfig } from "./types/auth";
+import { TargetLanguage } from "./types/generator";
 import {
   parseRelationships,
   parseV1Relationships,
@@ -22,6 +23,7 @@ export type ApsorcType = {
   apiType: ApiType;
   relationships: ApsorcRelationship[];
   auth?: AuthConfig;
+  language?: TargetLanguage;
 };
 
 type ParsedApsorcData = {
@@ -34,6 +36,7 @@ type ParsedApsorc = {
   entities: Entity[];
   relationshipMap: RelationshipMap;
   auth?: AuthConfig;
+  language?: TargetLanguage;
 };
 
 export const parseApsorcV1 = (apsorc: ApsorcType): ParsedApsorcData => {
@@ -59,6 +62,7 @@ const parseRc = (): ApsorcType => {
   const entities = apsoConfig.entities || [];
   const relationships = apsoConfig.relationships || [];
   const auth = apsoConfig.auth as AuthConfig | undefined;
+  const language = apsoConfig.language as TargetLanguage | undefined;
 
   return {
     rootFolder,
@@ -67,6 +71,7 @@ const parseRc = (): ApsorcType => {
     entities,
     relationships,
     auth,
+    language,
   };
 };
 
@@ -89,6 +94,7 @@ export const parseApsorc = (): ParsedApsorc => {
           rootFolder: apsoConfig.rootFolder,
           apiType: apsoConfig.apiType,
           auth: apsoConfig.auth,
+          language: apsoConfig.language,
           ...parseApsorcV1(apsoConfig),
         };
         if (debug) {
@@ -112,6 +118,7 @@ export const parseApsorc = (): ParsedApsorc => {
           rootFolder: apsoConfig.rootFolder,
           apiType: apsoConfig.apiType,
           auth: apsoConfig.auth,
+          language: apsoConfig.language,
           ...(() => {
             const relStart = performance.now();
             const parsed = parseApsorcV2(apsoConfig);

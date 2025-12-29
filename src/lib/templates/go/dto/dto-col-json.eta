@@ -1,0 +1,7 @@
+<% if (it.mode === 'response') { %>
+	<%= it.column.pascalName %> map[string]interface{} `json:"<%= it.column.name %><% if (!it.column.required) { %>,omitempty<% } %>"`
+<% } else if (it.mode === 'create') { %>
+	<%= it.column.pascalName %> map[string]interface{} `json:"<%= it.column.name %><% if (!it.column.required) { %>,omitempty<% } %>"`
+<% } else { %>
+	<%= it.column.pascalName %> map[string]interface{} `json:"<%= it.column.name %>,omitempty"`
+<% } %>

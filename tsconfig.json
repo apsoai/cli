@@ -12,5 +12,11 @@
   },
   "include": [
     "src/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "src/autogen",
+    "src/lib/api/services.ts"
   ]
 }

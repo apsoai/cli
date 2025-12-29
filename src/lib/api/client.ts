@@ -810,5 +810,3 @@ export class ApiClient {
 export function createApiClient(): ApiClient {
   return new ApiClient();
 }
-
-
