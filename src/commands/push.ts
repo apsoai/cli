@@ -28,7 +28,7 @@ import * as path from "path";
 import * as AdmZip from "adm-zip";
 import * as FormData from "form-data";
 import { spawn } from "child_process";
-import { NetworkStatus, getNetworkStatus } from "../lib/network";
+import { NetworkStatus, getNetworkStatus, isOnline } from "../lib/network";
 import {
   enqueueOperation,
   QueueOperationType,
@@ -291,8 +291,13 @@ export default class Push extends BaseCommand {
 
     // Push to platform
     try {
-      // Check network status before attempting push
-      const networkStatus = getNetworkStatus();
+
+      let networkStatus = getNetworkStatus();
+      if (networkStatus === NetworkStatus.UNKNOWN) {
+        const online = await isOnline({ timeout: 5000 });
+        networkStatus = online ? NetworkStatus.ONLINE : NetworkStatus.OFFLINE;
+      }
+
       if (networkStatus === NetworkStatus.OFFLINE) {
         // Queue the operation for later
         if (isQueueFull()) {

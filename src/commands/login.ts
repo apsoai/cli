@@ -44,7 +44,21 @@ export default class Login extends BaseCommand {
 
     // Get web URL from flag, environment variable, config, or auto-detect
     const { getWebBaseUrl } = await import("../lib/config/index");
-    const webBaseUrl = flags["web-url"] || (await getWebBaseUrl());
+    
+  
+    const webBaseUrl =
+      process.env.APSO_WEB_URL ||
+      flags["web-url"] ||
+      (await getWebBaseUrl());
+    
+    // Debug: Log what we're getting
+    if (process.env.APSO_DEBUG || process.env.DEBUG) {
+      this.log(`[DEBUG] flags["web-url"]: ${flags["web-url"]}`);
+      this.log(`[DEBUG] process.env.APSO_WEB_URL: ${process.env.APSO_WEB_URL}`);
+      const configValue = await getWebBaseUrl();
+      this.log(`[DEBUG] getWebBaseUrl(): ${configValue}`);
+      this.log(`[DEBUG] Final webBaseUrl: ${webBaseUrl}`);
+    }
 
     // Show helpful messages based on detected URL
     if (webBaseUrl.includes("localhost")) {
