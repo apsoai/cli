@@ -10,7 +10,6 @@ export interface Config {
   jsonOutput?: boolean;
   telemetry?: boolean;
   logLevel?: "debug" | "info" | "warn" | "error";
-  webUrl?: string; // Preferred web app URL (e.g., http://localhost:3000 or https://app.apso.cloud)
   apiUrl?: string; // Preferred API URL (e.g., http://localhost:3001 or https://api.apso.cloud)
 }
 
@@ -179,7 +178,49 @@ export function getApiBaseUrl(): string {
 }
 
 /**
- * Get web app base URL from config, environment, or default to production
+ * Auto-detect web URL from API URL (without checking environment variables)
+ * Internal helper function
+ */
+function autoDetectWebUrlFromApiUrl(): string {
+  const apiUrl = getApiBaseUrl();
+  try {
+    const apiUrlObj = new URL(apiUrl);
+    
+    // If API is localhost, assume web is on port 3000 (API is typically 3001)
+    if (apiUrlObj.hostname === "localhost" || apiUrlObj.hostname === "127.0.0.1") {
+      return `http://${apiUrlObj.hostname}:3000`;
+    }
+    
+    // If API hostname contains "api.", replace with "app." to get web URL
+    // Examples:
+    //   api.staging.apso.dev -> app.staging.apso.dev
+    //   api.apso.cloud -> app.apso.cloud
+    //   api.apso.ai -> app.apso.ai
+    if (apiUrlObj.hostname.includes("api.")) {
+      const webHostname = apiUrlObj.hostname.replace("api.", "app.");
+      return `${apiUrlObj.protocol}//${webHostname}`;
+    }
+    
+    // If API hostname contains "staging", try to infer staging web URL
+    if (apiUrlObj.hostname.includes("staging")) {
+      // Try common patterns: api.staging.* -> app.staging.*
+      const webHostname = apiUrlObj.hostname.replace(/^api\./, "app.");
+      return `${apiUrlObj.protocol}//${webHostname}`;
+    }
+  } catch {
+    // If URL parsing fails, continue to default
+  }
+
+  // Default to production
+  return "https://app.apso.cloud";
+}
+
+/**
+ * Get web app base URL - auto-detected from API URL or environment variable
+ * If API is localhost:3001, web is localhost:3000
+ * If API is api.staging.apso.dev, web is app.staging.apso.dev
+ * If API is api.apso.cloud, web is app.apso.cloud
+ * Otherwise defaults to production
  */
 export async function getWebBaseUrl(): Promise<string> {
   // 1. Check environment variable (highest priority)
@@ -187,19 +228,21 @@ export async function getWebBaseUrl(): Promise<string> {
     return process.env.APSO_WEB_URL;
   }
 
-  // 2. Check config file
-  const config = readConfig();
-  if (config.webUrl) {
-    return config.webUrl;
-  }
+  // 2. Auto-detect from API URL
+  return autoDetectWebUrlFromApiUrl();
+}
 
-  // 3. Default to production
-  return "https://app.apso.cloud";
+/**
+ * Get auto-detected web URL without checking environment variables
+ * Useful when you need to compare with env var to detect mismatches
+ */
+export function getAutoDetectedWebUrl(): string {
+  return autoDetectWebUrlFromApiUrl();
 }
 
 /**
  * Synchronous version (for cases where we can't use async)
- * Uses config file or environment variable only
+ * Auto-detects from API URL or uses environment variable
  */
 export function getWebBaseUrlSync(): string {
   // 1. Check environment variable (highest priority)
@@ -207,12 +250,6 @@ export function getWebBaseUrlSync(): string {
     return process.env.APSO_WEB_URL;
   }
 
-  // 2. Check config file
-  const config = readConfig();
-  if (config.webUrl) {
-    return config.webUrl;
-  }
-
-  // 3. Default to production
-  return "https://app.apso.cloud";
+  // 2. Auto-detect from API URL
+  return autoDetectWebUrlFromApiUrl();
 }

@@ -6,8 +6,8 @@ export default class Config extends BaseCommand {
   static description = "Manage CLI configuration";
 
   static examples = [
-    `$ apso config set webUrl http://localhost:3000`,
-    `$ apso config get webUrl`,
+    `$ apso config set defaultWorkspace acme-corp`,
+    `$ apso config get defaultWorkspace`,
     `$ apso config list`,
   ];
 
@@ -97,7 +97,6 @@ export default class Config extends BaseCommand {
       "jsonOutput",
       "telemetry",
       "logLevel",
-      "webUrl",
       "apiUrl",
     ];
 
