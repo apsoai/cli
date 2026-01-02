@@ -12,6 +12,14 @@
     "unicorn/no-useless-switch-case": ["off"],
     "unicorn/no-array-for-each": ["off"],
     "unicorn/consistent-destructuring": ["off"],
-    "padding-line-between-statements": ["off"]
+    "padding-line-between-statements": ["off"],
+    "complexity": ["off"],
+    "valid-jsdoc": ["off"],
+    "max-depth": ["off"],
+    "max-params": ["off"],
+    "max-statements": ["off"],
+    "max-statements-per-line": ["off"],
+    "max-nested-callbacks": ["off"]
+
   }
 }
