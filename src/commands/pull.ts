@@ -131,8 +131,10 @@ export default class Pull extends BaseCommand {
     const gitContext = await this.gitPreflight(projectRoot, {
       operationName: "pull",
     });
-    this.log(`Pulling schema for service: ${link.serviceSlug} (${link.serviceId})`);
-    this.log(`Workspace: ${link.workspaceSlug} (${link.workspaceId})`);
+    this.log(
+      `Pulling schema for service: ${link.serviceSlug}`
+    );
+    this.log(`Workspace: ${link.workspaceSlug}`);
 
     // Fetch latest schema from platform
     const api = createApiClient();
@@ -147,7 +149,7 @@ export default class Pull extends BaseCommand {
         `Failed to fetch schema: ${err.message}\n\n` +
           `Troubleshooting:\n` +
           `  - Check if the service has schemas on the platform\n` +
-          `  - Verify service ID: ${link.serviceId}\n` +
+          `  - Verify service: ${link.serviceSlug}\n` +
           `  - Run with DEBUG=1 for more details: $env:APSO_DEBUG='1'; apso pull`
       );
     }
@@ -335,27 +337,20 @@ export default class Pull extends BaseCommand {
 
       writeProjectLink(updatedLink);
 
-      // If schema-only, also sync to code bundle if it exists (for consistency)
-      if (flags["schema-only"]) {
-        const codeBundleDir = getServiceCodeDir();
-        if (fs.existsSync(codeBundleDir)) {
-          const syncedPath = syncApsorcToCodeBundle();
-          if (syncedPath) {
-            this.log("");
-            this.log(`✓ Synced .apsorc to code bundle (${syncedPath})`);
-          }
-        }
-      } else {
+      // If schema-only, skip code download
+      if (!flags["schema-only"]) {
         // Download code (which includes .apsorc in the bundle)
         await this.downloadServiceCode(api, link);
-        
-        // After downloading code, sync .apsorc from code bundle to root
-        // Code bundle .apsorc is authoritative (matches the generated code)
+
+        // After downloading code, sync .apsorc from code directory to root
+        // Code directory .apsorc is authoritative (matches the generated code)
         const syncedPath = syncApsorcToRoot();
         if (syncedPath) {
           this.log("");
-          this.log(`✓ Synced .apsorc from code bundle to root`);
-          this.log(`  Code bundle .apsorc is the authoritative version (matches generated code)`);
+          this.log(`✓ Synced .apsorc from code directory to root`);
+          this.log(
+            `  Code directory .apsorc is the authoritative version (matches generated code)`
+          );
         }
       }
 
@@ -363,8 +358,8 @@ export default class Pull extends BaseCommand {
       this.log("Next steps:");
       this.log("  • Review the updated .apsorc file");
       if (!flags["schema-only"]) {
-        this.log("  • Review the downloaded code in .apso/service-code/");
-        this.log("  • Note: .apso/service-code/.apsorc is the authoritative version");
+        const codeDir = getServiceCodeDir();
+        this.log(`  • Review the downloaded code in ${path.basename(codeDir)}/`);
       }
       this.log("  • Run 'apso server scaffold' to regenerate code from the schema");
     } catch (error) {
@@ -383,12 +378,9 @@ export default class Pull extends BaseCommand {
 
   private async downloadServiceCode(
     api: ReturnType<typeof createApiClient>,
-    link: { workspaceId: string; serviceId: string }
+    link: { workspaceId: string; serviceId: string; serviceSlug: string }
   ): Promise<void> {
     try {
-      this.log("");
-      this.log("Downloading service code from S3...");
-
       const workspaceId = Number(link.workspaceId);
       const serviceId = Number(link.serviceId);
 
@@ -401,9 +393,15 @@ export default class Pull extends BaseCommand {
       const existsResp = await api.rawRequest<{ exists: boolean }>(existsPath);
 
       if (!existsResp.exists) {
-        this.warn("No code found in S3 for this service. Skipping code download.");
+        // Auto-download: if code doesn't exist, just say we're downloading (don't ask)
+        this.log("");
+        this.log("Downloading service code...");
+        this.log("  (Code will be available after first push)");
         return;
       }
+
+      this.log("");
+      this.log("Downloading service code...");
 
       // Get download URL
       const downloadUrlPath = `/WorkspaceServices/${workspaceId}/${serviceId}/code/download-url`;
@@ -418,7 +416,7 @@ export default class Pull extends BaseCommand {
       const zipBuffer = Buffer.from(await zipResponse.arrayBuffer());
       const zip = new AdmZip.default(zipBuffer);
 
-      // Extract to .apso/service-code/
+      // Extract to current directory with service name as folder name
       const codeDir = getServiceCodeDir();
       if (fs.existsSync(codeDir)) {
         // Remove existing code directory
@@ -432,7 +430,7 @@ export default class Pull extends BaseCommand {
       const fileCount = entries.filter((e) => !e.isDirectory).length;
 
       this.log(`✓ Code downloaded successfully (${fileCount} files)`);
-      this.log(`  Location: ${codeDir}`);
+      this.log(`  Location: ${path.basename(codeDir)}/`);
     } catch (error) {
       const err = error as Error;
       this.warn(`Failed to download service code: ${err.message}`);

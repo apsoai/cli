@@ -20,16 +20,16 @@ export default class Link extends BaseCommand {
 
   static examples = [
     "$ apso link",
-    "$ apso link --workspace ws_abc123 --service svc_def456",
-    "$ apso link --workspace ws_abc123 --service svc_def456 --env prod",
+    "$ apso link --workspace acme-corp --service api-v1",
+    "$ apso link --workspace acme-corp --service api-v1 --env prod",
   ];
 
   static flags = {
     workspace: Flags.string({
-      description: "Workspace ID to link to",
+      description: "Workspace slug or ID to link to",
     }),
     service: Flags.string({
-      description: "Service ID to link to",
+      description: "Service slug or ID to link to",
     }),
     env: Flags.string({
       description: "Environment or variant identifier (optional)",
@@ -63,9 +63,9 @@ export default class Link extends BaseCommand {
     try {
       const existing = readProjectLink();
       if (existing) {
-        this.log(
-          `Current link: workspaceId=${existing.link.workspaceId}, serviceId=${existing.link.serviceId}`
-        );
+      this.log(
+        `Current link: ${existing.link.workspaceSlug}/${existing.link.serviceSlug}`
+      );
       }
       return existing;
     } catch (error) {
@@ -89,19 +89,37 @@ export default class Link extends BaseCommand {
     }
 
     const workspaces = await api.listWorkspaces();
+    
+    // Try to find workspace by ID (if numeric) or by slug
     const workspaceIdNum = Number(workspaceId);
-    const workspace = workspaces.find((w) => w.id === workspaceIdNum);
+    const isNumericId = !Number.isNaN(workspaceIdNum) && workspaceId === String(workspaceIdNum);
+    
+    const workspace = isNumericId
+      ? workspaces.find((w) => w.id === workspaceIdNum)
+      : workspaces.find((w) => w.slug === workspaceId);
 
     if (!workspace) {
-      this.error(`Workspace ID is invalid: ${workspaceId}`);
+      this.error(
+        `Workspace not found: ${workspaceId}\n` +
+        `Available workspaces: ${workspaces.map((w) => w.slug).join(", ")}`
+      );
     }
 
     const services = await api.listServices(String(workspace.id));
+    
+    // Try to find service by ID (if numeric) or by slug
     const serviceIdNum = Number(serviceId);
-    const service = services.find((s) => s.id === serviceIdNum);
+    const isServiceNumericId = !Number.isNaN(serviceIdNum) && serviceId === String(serviceIdNum);
+    
+    const service = isServiceNumericId
+      ? services.find((s) => s.id === serviceIdNum)
+      : services.find((s) => s.slug === serviceId);
 
     if (!service) {
-      this.error(`Service ID is invalid: ${serviceId}`);
+      this.error(
+        `Service not found: ${serviceId}\n` +
+        `Available services: ${services.map((s) => s.slug).join(", ")}`
+      );
     }
 
     await this.persistLink(workspace, service, env, existing, false);
@@ -134,7 +152,7 @@ export default class Link extends BaseCommand {
       const created = await api.createWorkspace(workspaceName);
 
       this.log(
-        `✓ Created workspace "${created.name}" (id=${created.id}, slug=${created.slug}).`
+        `✓ Created workspace "${created.name}" (${created.slug})`
       );
 
       // Refresh workspace list so the new one appears
@@ -169,9 +187,7 @@ export default class Link extends BaseCommand {
     this.log("Available workspaces:");
 
     workspaces.forEach((w, idx) => {
-      this.log(
-        `  [${idx + 1}] ${w.name} (id=${w.id}, slug=${w.slug})`
-      );
+      this.log(`  [${idx + 1}] ${w.name} (${w.slug})`);
     });
 
     const answer = await ux.prompt(
@@ -195,7 +211,7 @@ export default class Link extends BaseCommand {
     this.log("Available services:");
 
     services.forEach((s, idx) => {
-      this.log(`  [${idx + 1}] ${s.name} (id=${s.id}, slug=${s.slug})`);
+      this.log(`  [${idx + 1}] ${s.name} (${s.slug})`);
     });
 
     const answer = await ux.prompt("Select a service by number", {
@@ -223,7 +239,7 @@ export default class Link extends BaseCommand {
 
     envs.forEach((e, idx) => {
       this.log(
-        `  [${idx + 1}] ${e.name} (id=${e.id}${e.slug ? `, slug=${e.slug}` : ""})`
+        `  [${idx + 1}] ${e.name}${e.slug ? ` (${e.slug})` : ""}`
       );
     });
 
@@ -255,8 +271,8 @@ export default class Link extends BaseCommand {
   ): Promise<void> {
     this.log("");
     this.log("Link summary:");
-    this.log(`  Workspace: ${workspace.name} (id=${workspace.id})`);
-    this.log(`  Service:   ${service.name} (id=${service.id})`);
+    this.log(`  Workspace: ${workspace.name} (${workspace.slug})`);
+    this.log(`  Service:   ${service.name} (${service.slug})`);
     if (env) {
       this.log(`  Env:       ${env}`);
     }
@@ -327,7 +343,6 @@ export default class Link extends BaseCommand {
     if (env) {
       this.log(`  Environment: ${env}`);
     }
-    this.log(`  Link file:   ${linkPath}`);
 
     this.log("");
     this.log("Next steps:");

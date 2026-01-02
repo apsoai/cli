@@ -52,8 +52,10 @@ export default class Sync extends BaseCommand {
     }
 
     const { link } = linkInfo;
-    this.log(`Syncing schemas for service: ${link.serviceSlug} (${link.serviceId})`);
-    this.log(`Workspace: ${link.workspaceSlug} (${link.workspaceId})`);
+    this.log(
+      `Syncing schemas for service: ${link.serviceSlug}`
+    );
+    this.log(`Workspace: ${link.workspaceSlug}`);
     this.log("");
 
     // Read local schema
@@ -104,7 +106,7 @@ export default class Sync extends BaseCommand {
         `Failed to fetch remote schema: ${err.message}\n\n` +
           `Troubleshooting:\n` +
           `  - Check your authentication: run 'apso login'\n` +
-          `  - Verify service ID: ${link.serviceId}\n` +
+              `  - Verify service: ${link.serviceSlug}\n` +
           `  - Run with DEBUG=1 for more details: $env:APSO_DEBUG='1'; apso sync`
       );
     }

@@ -179,7 +179,6 @@ export default class List extends BaseCommand {
       } else {
         for (const ws of workspaces) {
           this.log(`  ${ws.name} (${ws.slug})`);
-          this.log(`    ID: ${ws.id}`);
           this.log("");
         }
       }
@@ -271,7 +270,6 @@ export default class List extends BaseCommand {
         this.log("");
       }
 
-      this.log(`Workspace ID: ${workspaceId}`);
       if (fromCache) {
         const age = getCacheAge(cacheKey);
         if (age !== null) {
@@ -285,7 +283,6 @@ export default class List extends BaseCommand {
       } else {
         for (const svc of services) {
           this.log(`  ${svc.name} (${svc.slug})`);
-          this.log(`    ID: ${svc.id}`);
           if (svc.environments && svc.environments.length > 0) {
             this.log(`    Environments: ${svc.environments.map((e) => e.name).join(", ")}`);
           }
@@ -399,7 +396,6 @@ export default class List extends BaseCommand {
         }
 
         this.log(`Workspace: ${ws.name} (${ws.slug})`);
-        this.log(`  ID: ${ws.id}`);
         if (fromCache) {
           const age = getCacheAge(cacheKey);
           if (age !== null) {
@@ -413,7 +409,6 @@ export default class List extends BaseCommand {
         } else {
           for (const svc of services) {
             this.log(`  ${svc.name} (${svc.slug})`);
-            this.log(`    ID: ${svc.id}`);
             if (svc.environments && svc.environments.length > 0) {
               this.log(`    Environments: ${svc.environments.map((e) => e.name).join(", ")}`);
             }

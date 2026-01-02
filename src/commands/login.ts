@@ -85,8 +85,17 @@ export default class Login extends BaseCommand {
       this.log("");
       this.log(`✓ Successfully logged in as ${result.user.email}`);
       this.log(`  Token expires: in ${daysUntilExpiry} days`);
-      this.log("");
-      this.log("Tip: Run 'apso whoami' to check your login status");
+      
+      // Auto-close terminal after successful login (Windows)
+      if (process.platform === "win32") {
+        // Small delay to ensure message is displayed
+        setTimeout(() => {
+          process.exit(0);
+        }, 500);
+      } else {
+        this.log("");
+        this.log("Tip: Run 'apso whoami' to check your login status");
+      }
     } catch (error) {
       const err = error as Error;
       if (err.message.includes("timeout")) {

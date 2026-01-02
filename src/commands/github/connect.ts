@@ -131,7 +131,7 @@ export default class GithubConnect extends BaseCommand {
     const api = createApiClient();
 
     this.log(
-      `Connecting service "${link.serviceSlug}" (${serviceId}) in workspace "${link.workspaceSlug}" (${workspaceId}) to GitHub...`
+      `Connecting service "${link.serviceSlug}" in workspace "${link.workspaceSlug}" to GitHub...`
     );
 
     // 3. Check if service is already connected to GitHub
@@ -146,7 +146,6 @@ export default class GithubConnect extends BaseCommand {
       this.log("✓ Service is already connected to GitHub:");
       this.log(`  Repository: ${existingRepoName}`);
       this.log(`  Branch:     ${existingBranchName}`);
-      this.log(`  Connection ID: ${existingConnectionId}`);
 
       // Extract owner from repoName (format: "owner/repo")
       const repoFullName = existingRepoName.includes("/")
@@ -238,9 +237,7 @@ export default class GithubConnect extends BaseCommand {
       this.log("");
       this.log("Multiple GitHub connections found. Please select one:");
       connections.forEach((c, idx) => {
-        const label = `${
-          c.github_username || "account " + c.connectionId
-        } (id=${c.connectionId})`;
+        const label = c.github_username || `account ${c.connectionId}`;
         this.log(`  [${idx + 1}] ${label}`);
       });
       this.log("");

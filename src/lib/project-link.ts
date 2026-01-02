@@ -82,7 +82,11 @@ function getLinkFilePath(cwd: string = process.cwd()): string {
 
 export function getServiceCodeDir(cwd: string = process.cwd()): string {
   const projectRoot = findProjectRoot(cwd);
-  return path.join(projectRoot, ".apso", "service-code");
+  // Try to get service slug from link.json, fallback to "service-code"
+  const linkInfo = readProjectLink(cwd);
+  const serviceSlug = linkInfo?.link.serviceSlug || "service-code";
+  // Use service slug as directory name in current location
+  return path.join(projectRoot, serviceSlug);
 }
 
 /**
@@ -142,30 +146,32 @@ export function getRootApsorcPath(cwd: string = process.cwd()): string {
 }
 
 /**
- * Sync .apsorc from code bundle to root (for convenience editing)
+ * Sync .apsorc from code directory to root (for convenience editing)
  * Returns the path that was written to
  */
 export function syncApsorcToRoot(cwd: string = process.cwd()): string | null {
   const projectRoot = findProjectRoot(cwd);
-  const codeBundleApsorc = path.join(projectRoot, ".apso", "service-code", ".apsorc");
+  const codeDir = getServiceCodeDir(cwd);
+  const codeApsorc = path.join(codeDir, ".apsorc");
   const rootApsorc = path.join(projectRoot, ".apsorc");
 
-  if (!fs.existsSync(codeBundleApsorc)) {
+  if (!fs.existsSync(codeApsorc)) {
     return null;
   }
 
-  // Copy code bundle .apsorc to root
-  fs.copyFileSync(codeBundleApsorc, rootApsorc);
+  // Copy code directory .apsorc to root
+  fs.copyFileSync(codeApsorc, rootApsorc);
   return rootApsorc;
 }
 
 /**
- * Sync .apsorc from root to code bundle (before code upload)
- * Ensures code bundle has the latest schema before pushing
+ * Sync .apsorc from root to code directory (before code upload)
+ * Ensures code directory has the latest schema before pushing
  */
 export function syncApsorcToCodeBundle(cwd: string = process.cwd()): string | null {
   const projectRoot = findProjectRoot(cwd);
-  const codeBundleApsorc = path.join(projectRoot, ".apso", "service-code", ".apsorc");
+  const codeDir = getServiceCodeDir(cwd);
+  const codeApsorc = path.join(codeDir, ".apsorc");
   const rootApsorc = path.join(projectRoot, ".apsorc");
 
   if (!fs.existsSync(rootApsorc)) {
@@ -185,15 +191,14 @@ export function syncApsorcToCodeBundle(cwd: string = process.cwd()): string | nu
     return null;
   }
 
-  // Ensure code bundle directory exists
-  const codeBundleDir = path.dirname(codeBundleApsorc);
-  if (!fs.existsSync(codeBundleDir)) {
-    fs.mkdirSync(codeBundleDir, { recursive: true });
+  // Ensure code directory exists
+  if (!fs.existsSync(codeDir)) {
+    fs.mkdirSync(codeDir, { recursive: true });
   }
 
-  // Copy root .apsorc to code bundle
-  fs.copyFileSync(rootApsorc, codeBundleApsorc);
-  return codeBundleApsorc;
+  // Copy root .apsorc to code directory
+  fs.copyFileSync(rootApsorc, codeApsorc);
+  return codeApsorc;
 }
 
 

@@ -77,8 +77,10 @@ export default class Push extends BaseCommand {
     }
 
     const { link } = linkInfo;
-    this.log(`Pushing schema for service: ${link.serviceSlug} (${link.serviceId})`);
-    this.log(`Workspace: ${link.workspaceSlug} (${link.workspaceId})`);
+    this.log(
+      `Pushing schema for service: ${link.serviceSlug}`
+    );
+    this.log(`Workspace: ${link.workspaceSlug}`);
 
     // Get project root path (not process.cwd() which might be a subdirectory)
     const rootApsorc = getRootApsorcPath();
@@ -367,7 +369,7 @@ export default class Push extends BaseCommand {
         return;
       }
 
-      // Create zip from .apso/service-code/
+      // Create zip from service code directory
       this.log("  Creating zip archive...");
       const zip = new AdmZip.default();
       zip.addLocalFolder(codeDir, "", (filename: string) => {

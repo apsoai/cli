@@ -257,8 +257,12 @@ export default class Status extends BaseCommand {
       this.log("=== Project Status ===");
       this.log("");
       this.log("Linked to:");
-      this.log("  Workspace: " + link.workspaceSlug + " (" + link.workspaceId + ")");
-      this.log("  Service:   " + link.serviceSlug + " (" + link.serviceId + ")");
+      this.log(
+        "  Workspace: " + link.workspaceSlug
+      );
+      this.log(
+        "  Service:   " + link.serviceSlug
+      );
 
       if (link.githubRepo) {
         this.log("");
