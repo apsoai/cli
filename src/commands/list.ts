@@ -21,9 +21,9 @@ function formatCacheAge(ageMs: number): string {
     return ageSecs + " second" + (ageSecs === 1 ? "" : "s") + " ago";
   } if (ageMins < 60) {
     return ageMins + " minute" + (ageMins === 1 ? "" : "s") + " ago";
-  } 
-    return ageHours + " hour" + (ageHours === 1 ? "" : "s") + " ago";
-  
+  }
+  return ageHours + " hour" + (ageHours === 1 ? "" : "s") + " ago";
+
 }
 
 export default class List extends BaseCommand {
@@ -178,7 +178,7 @@ export default class List extends BaseCommand {
         this.log("No workspaces found.");
       } else {
         for (const ws of workspaces) {
-          this.log(`  ${ws.name} (${ws.slug})`);
+          this.log(`  ${ws.name}`);
           this.log("");
         }
       }
@@ -206,8 +206,8 @@ export default class List extends BaseCommand {
     if (!workspaceId) {
       this.error(
         "Workspace ID is required. Either:\n" +
-          "  • Link your project: apso link\n" +
-          "  • Specify workspace: apso list services --workspace <id>"
+        "  • Link your project: apso link\n" +
+        "  • Specify workspace: apso list services --workspace <id>"
       );
     }
 
@@ -395,7 +395,7 @@ export default class List extends BaseCommand {
           }
         }
 
-        this.log(`Workspace: ${ws.name} (${ws.slug})`);
+        this.log(`Workspace: ${ws.name}`);
         if (fromCache) {
           const age = getCacheAge(cacheKey);
           if (age !== null) {
@@ -408,7 +408,7 @@ export default class List extends BaseCommand {
           this.log("  No services found.");
         } else {
           for (const svc of services) {
-            this.log(`  ${svc.name} (${svc.slug})`);
+            this.log(`  ${svc.name}`);
             if (svc.environments && svc.environments.length > 0) {
               this.log(`    Environments: ${svc.environments.map((e) => e.name).join(", ")}`);
             }

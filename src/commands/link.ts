@@ -63,9 +63,9 @@ export default class Link extends BaseCommand {
     try {
       const existing = readProjectLink();
       if (existing) {
-      this.log(
-        `Current link: ${existing.link.workspaceSlug}/${existing.link.serviceSlug}`
-      );
+        this.log(
+          `Current link: ${existing.link.workspaceSlug}/${existing.link.serviceSlug}`
+        );
       }
       return existing;
     } catch (error) {
@@ -89,11 +89,11 @@ export default class Link extends BaseCommand {
     }
 
     const workspaces = await api.listWorkspaces();
-    
+
     // Try to find workspace by ID (if numeric) or by slug
     const workspaceIdNum = Number(workspaceId);
     const isNumericId = !Number.isNaN(workspaceIdNum) && workspaceId === String(workspaceIdNum);
-    
+
     const workspace = isNumericId
       ? workspaces.find((w) => w.id === workspaceIdNum)
       : workspaces.find((w) => w.slug === workspaceId);
@@ -106,11 +106,11 @@ export default class Link extends BaseCommand {
     }
 
     const services = await api.listServices(String(workspace.id));
-    
+
     // Try to find service by ID (if numeric) or by slug
     const serviceIdNum = Number(serviceId);
     const isServiceNumericId = !Number.isNaN(serviceIdNum) && serviceId === String(serviceIdNum);
-    
+
     const service = isServiceNumericId
       ? services.find((s) => s.id === serviceIdNum)
       : services.find((s) => s.slug === serviceId);
@@ -187,7 +187,7 @@ export default class Link extends BaseCommand {
     this.log("Available workspaces:");
 
     workspaces.forEach((w, idx) => {
-      this.log(`  [${idx + 1}] ${w.name} (${w.slug})`);
+      this.log(`  [${idx + 1}] ${w.name}`);
     });
 
     const answer = await ux.prompt(
@@ -211,7 +211,7 @@ export default class Link extends BaseCommand {
     this.log("Available services:");
 
     services.forEach((s, idx) => {
-      this.log(`  [${idx + 1}] ${s.name} (${s.slug})`);
+      this.log(`  [${idx + 1}] ${s.name}`);
     });
 
     const answer = await ux.prompt("Select a service by number", {
@@ -271,8 +271,8 @@ export default class Link extends BaseCommand {
   ): Promise<void> {
     this.log("");
     this.log("Link summary:");
-    this.log(`  Workspace: ${workspace.name} (${workspace.slug})`);
-    this.log(`  Service:   ${service.name} (${service.slug})`);
+    this.log(`  Workspace: ${workspace.name}`);
+    this.log(`  Service:   ${service.name}`);
     if (env) {
       this.log(`  Env:       ${env}`);
     }
@@ -280,7 +280,7 @@ export default class Link extends BaseCommand {
     if (existing) {
       this.log("");
       this.log(
-        "Warning: this project is already linked. Linking again will update '.apso/link.json'."
+        "Warning: this project is already linked."
       );
     }
 
@@ -329,7 +329,7 @@ export default class Link extends BaseCommand {
       this.exit(0);
     }
 
-    const linkPath = writeProjectLink(newLink, {
+    writeProjectLink(newLink, {
       cliVersion: this.config.version,
     });
 
