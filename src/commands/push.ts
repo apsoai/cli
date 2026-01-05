@@ -19,7 +19,7 @@ import { LocalApsorcSchema } from "../lib/schema-converter/types";
 import { getServiceCodeDir, getAuthoritativeApsorcPath, syncApsorcToCodeBundle, getRootApsorcPath, getProjectRoot } from "../lib/project-link";
 import * as fs from "fs";
 import * as path from "path";
-import * as AdmZip from "adm-zip";
+import AdmZip from "adm-zip";
 import * as FormData from "form-data";
 import { spawn } from "child_process";
 
@@ -371,7 +371,7 @@ export default class Push extends BaseCommand {
 
       // Create zip from service code directory
       this.log("  Creating zip archive...");
-      const zip = new AdmZip.default();
+      const zip = new AdmZip();
       zip.addLocalFolder(codeDir, "", (filename: string) => {
         // Exclude common files/folders
         return !(

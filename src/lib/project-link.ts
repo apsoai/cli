@@ -21,6 +21,12 @@ export interface ProjectLink {
   createdBy: string; // User email if available
 
   cliVersion?: string;
+  serviceName: string;
+  workspaceName: string;
+  githubRepoUrl?: string;
+  connectionId?: number;
+  githubOwner?: string;
+  repoName?: string;
 }
 
 export interface ExistingLinkInfo {
@@ -84,9 +90,9 @@ export function getServiceCodeDir(cwd: string = process.cwd()): string {
   const projectRoot = findProjectRoot(cwd);
   // Try to get service slug from link.json, fallback to "service-code"
   const linkInfo = readProjectLink(cwd);
-  const serviceSlug = linkInfo?.link.serviceSlug || "service-code";
-  // Use service slug as directory name in current location
-  return path.join(projectRoot, serviceSlug);
+  const serviceName = linkInfo?.link.serviceName || "service-code";
+  // Use service name as directory name in current location
+  return path.join(projectRoot, serviceName);
 }
 
 /**
@@ -122,8 +128,8 @@ export function getAuthoritativeApsorcPath(cwd: string = process.cwd()): string 
   if (fs.existsSync(codeBundleApsorc)) {
     // Validate code bundle .apsorc has required fields
     try {
-      const content = fs.readFileSync(codeBundleApsorc, "utf8");
-      const parsed = JSON.parse(content);
+      const content = fs.readFileSync(codeBundleApsorc);
+      const parsed = JSON.parse(content.toString("utf8"));
       if (parsed.version && parsed.rootFolder && parsed.apiType) {
         return codeBundleApsorc;
       }
@@ -180,8 +186,8 @@ export function syncApsorcToCodeBundle(cwd: string = process.cwd()): string | nu
 
   // Validate root .apsorc has required fields before syncing
   try {
-    const rootContent = fs.readFileSync(rootApsorc, "utf8");
-    const rootParsed = JSON.parse(rootContent);
+    const rootContent = fs.readFileSync(rootApsorc);
+    const rootParsed = JSON.parse(rootContent.toString("utf8"));
     if (!rootParsed.version || !rootParsed.rootFolder || !rootParsed.apiType) {
       // Root .apsorc is incomplete, don't sync
       return null;
@@ -212,8 +218,8 @@ export function readProjectLink(
   }
 
   try {
-    const raw = fs.readFileSync(linkPath, "utf8");
-    const data = JSON.parse(raw) as Partial<ProjectLink>;
+    const raw = fs.readFileSync(linkPath);
+    const data = JSON.parse(raw.toString("utf8")) as Partial<ProjectLink>;
 
     validateProjectLink(data);
 
@@ -225,7 +231,7 @@ export function readProjectLink(
     const err = error as Error;
     throw new Error(
       `Failed to read or validate ".apso/link.json": ${err.message}\n` +
-        `You can fix or remove the file and re-run "apso link".`
+      `You can fix or remove the file and re-run "apso link".`
     );
   }
 }

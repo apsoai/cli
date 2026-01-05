@@ -11,10 +11,10 @@ import { convertPlatformToLocal } from "../lib/schema-converter";
 import { calculateSchemaHash } from "../lib/schema-hash";
 import { detectConflict, getConflictSummary, ConflictType } from "../lib/conflict-detector";
 import { LocalApsorcSchema } from "../lib/schema-converter/types";
-import { getServiceCodeDir, syncApsorcToRoot, syncApsorcToCodeBundle, getProjectRoot } from "../lib/project-link";
+import { getServiceCodeDir, syncApsorcToRoot, getProjectRoot } from "../lib/project-link";
 import * as fs from "fs";
 import * as path from "path";
-import * as AdmZip from "adm-zip";
+import AdmZip from "adm-zip";
 
 /**
  * Sort entities by name for deterministic output
@@ -119,7 +119,7 @@ export default class Pull extends BaseCommand {
     if (!linkInfo) {
       this.error(
         "Project is not linked to a service.\n" +
-          "Run 'apso link' first to associate this project with a platform service."
+        "Run 'apso link' first to associate this project with a platform service."
       );
     }
 
@@ -132,9 +132,9 @@ export default class Pull extends BaseCommand {
       operationName: "pull",
     });
     this.log(
-      `Pulling schema for service: ${link.serviceSlug}`
+      `Pulling schema for service: ${link.serviceName}`
     );
-    this.log(`Workspace: ${link.workspaceSlug}`);
+    this.log(`Workspace: ${link.workspaceName}`);
 
     // Fetch latest schema from platform
     const api = createApiClient();
@@ -147,10 +147,10 @@ export default class Pull extends BaseCommand {
       // Show full error details
       this.error(
         `Failed to fetch schema: ${err.message}\n\n` +
-          `Troubleshooting:\n` +
-          `  - Check if the service has schemas on the platform\n` +
-          `  - Verify service: ${link.serviceSlug}\n` +
-          `  - Run with DEBUG=1 for more details: $env:APSO_DEBUG='1'; apso pull`
+        `Troubleshooting:\n` +
+        `  - Check if the service has schemas on the platform\n` +
+        `  - Verify service: ${link.serviceSlug}\n` +
+        `  - Run with DEBUG=1 for more details: $env:APSO_DEBUG='1'; apso pull`
       );
     }
 
@@ -163,15 +163,15 @@ export default class Pull extends BaseCommand {
     if (!conversionResult.success) {
       this.error(
         `Failed to convert platform schema: ${conversionResult.error.message}\n` +
-          (conversionResult.error.entity
-            ? `Entity: ${conversionResult.error.entity}\n`
-            : "") +
-          (conversionResult.error.field
-            ? `Field: ${conversionResult.error.field}\n`
-            : "") +
-          (conversionResult.error.relationship
-            ? `Relationship: ${conversionResult.error.relationship}\n`
-            : "")
+        (conversionResult.error.entity
+          ? `Entity: ${conversionResult.error.entity}\n`
+          : "") +
+        (conversionResult.error.field
+          ? `Field: ${conversionResult.error.field}\n`
+          : "") +
+        (conversionResult.error.relationship
+          ? `Relationship: ${conversionResult.error.relationship}\n`
+          : "")
       );
     }
 
@@ -190,8 +190,8 @@ export default class Pull extends BaseCommand {
     if (apsorcExists && !flags.force && !flags.output) {
       try {
         // Read existing local schema
-        const existingContent = fs.readFileSync(apsorcPath, "utf8");
-        const existingSchema = JSON.parse(existingContent) as LocalApsorcSchema;
+        const existingContent = fs.readFileSync(apsorcPath);
+        const existingSchema = JSON.parse(existingContent.toString("utf8")) as LocalApsorcSchema;
         const localHash = calculateSchemaHash(existingSchema);
 
         // Detect conflicts
@@ -213,55 +213,55 @@ export default class Pull extends BaseCommand {
           if (!flags.force) {
             const action = await ux.prompt(
               "How would you like to proceed?\n" +
-                "  [a]bort - Cancel the pull\n" +
-                "  [w]rite to .apsorc.remote - Save remote schema to separate file\n" +
-                "  [o]verwrite - Overwrite local .apsorc with remote schema\n" +
-                "  [f]orce - Overwrite without further prompts\n",
+              "  [a]bort - Cancel the pull\n" +
+              "  [w]rite to .apsorc.remote - Save remote schema to separate file\n" +
+              "  [o]verwrite - Overwrite local .apsorc with remote schema\n" +
+              "  [f]orce - Overwrite without further prompts\n",
               { default: "a" }
             );
 
             const choice = action.toLowerCase().trim();
             switch (choice) {
-            case "a": 
-            case "abort": {
-              this.log("Pull cancelled. No changes made.");
-              this.exit(0);
-            
-            break;
-            }
-            case "w": 
-            case "write": {
-              // Write to .apsorc.remote instead
-              const remotePath = path.join(process.cwd(), ".apsorc.remote");
-              writeApsorcFile(convertedSchema, remotePath);
-              this.log(`✓ Remote schema written to .apsorc.remote`);
-              this.log("");
-              this.log("You can now:");
-              this.log("  • Compare the files: diff .apsorc .apsorc.remote");
-              this.log("  • Manually merge changes");
-              this.log("  • Or use 'apso pull --force' to overwrite");
-              this.exit(0);
-            
-            break;
-            }
-            case "o": 
-            case "overwrite": {
-              // Continue with overwrite
-              this.log("Overwriting local .apsorc with remote schema...");
-            
-            break;
-            }
-            case "f": 
-            case "force": {
-              // Force overwrite
-              this.log("Force overwriting local .apsorc...");
-            
-            break;
-            }
-            default: {
-              this.log("Invalid choice. Pull cancelled.");
-              this.exit(0);
-            }
+              case "a":
+              case "abort": {
+                this.log("Pull cancelled. No changes made.");
+                this.exit(0);
+
+                break;
+              }
+              case "w":
+              case "write": {
+                // Write to .apsorc.remote instead
+                const remotePath = path.join(process.cwd(), ".apsorc.remote");
+                writeApsorcFile(convertedSchema, remotePath);
+                this.log(`✓ Remote schema written to .apsorc.remote`);
+                this.log("");
+                this.log("You can now:");
+                this.log("  • Compare the files: diff .apsorc .apsorc.remote");
+                this.log("  • Manually merge changes");
+                this.log("  • Or use 'apso pull --force' to overwrite");
+                this.exit(0);
+
+                break;
+              }
+              case "o":
+              case "overwrite": {
+                // Continue with overwrite
+                this.log("Overwriting local .apsorc with remote schema...");
+
+                break;
+              }
+              case "f":
+              case "force": {
+                // Force overwrite
+                this.log("Force overwriting local .apsorc...");
+
+                break;
+              }
+              default: {
+                this.log("Invalid choice. Pull cancelled.");
+                this.exit(0);
+              }
             }
           }
         }
@@ -318,8 +318,8 @@ export default class Pull extends BaseCommand {
         const err = parseError as Error;
         this.error(
           `Schema validation failed: ${err.message}\n` +
-            `The schema from the platform may be invalid or incompatible.\n` +
-            (apsorcExists ? "Original .apsorc has been restored." : "")
+          `The schema from the platform may be invalid or incompatible.\n` +
+          (apsorcExists ? "Original .apsorc has been restored." : "")
         );
       }
 
@@ -414,7 +414,7 @@ export default class Pull extends BaseCommand {
       }
 
       const zipBuffer = Buffer.from(await zipResponse.arrayBuffer());
-      const zip = new AdmZip.default(zipBuffer);
+      const zip = new AdmZip(zipBuffer);
 
       // Extract to current directory with service name as folder name
       const codeDir = getServiceCodeDir();

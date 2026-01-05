@@ -121,7 +121,6 @@ export default class Link extends BaseCommand {
         `Available services: ${services.map((s) => s.slug).join(", ")}`
       );
     }
-
     await this.persistLink(workspace, service, env, existing, false);
   }
 
@@ -170,7 +169,6 @@ export default class Link extends BaseCommand {
     }
 
     const service = await this.promptForService(services);
-
     // If env flag not provided and service has environments, ask interactively.
     let finalEnv = env;
     if (!finalEnv && service.environments && service.environments.length > 0) {
@@ -306,6 +304,11 @@ export default class Link extends BaseCommand {
 
     const now = new Date().toISOString();
 
+    // eslint-disable-next-line camelcase
+    const { infrastructure_details } = service
+    // eslint-disable-next-line camelcase
+    const { githubRepoUrl, githubConnectionId, githubOwner, repoName } = infrastructure_details || {}
+
     const newLink: ProjectLink = {
       workspaceId: String(workspace.id),
       workspaceSlug: workspace.slug,
@@ -320,6 +323,12 @@ export default class Link extends BaseCommand {
       remoteSchemaHash: existing?.link.remoteSchemaHash ?? null,
       createdBy: existing?.link.createdBy ?? email,
       cliVersion: this.config.version,
+      serviceName: service.name,
+      workspaceName: workspace.name,
+      githubRepoUrl,
+      connectionId: githubConnectionId,
+      githubOwner,
+      repoName
     };
 
     if (isSameLink(existing?.link, newLink)) {
@@ -346,7 +355,7 @@ export default class Link extends BaseCommand {
 
     this.log("");
     this.log("Next steps:");
-    this.log("  • Run 'apso pull' to download the schema");
+    this.log("  • Run 'apso clone' to download the code");
     this.log("  • Run 'apso status' to check sync state");
   }
 }

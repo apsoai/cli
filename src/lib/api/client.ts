@@ -1,3 +1,4 @@
+/* eslint-disable camelcase */
 import {
   getApiBaseUrl,
   readCredentials,
@@ -18,11 +19,20 @@ export interface ServiceEnvironment {
   name: string;
 }
 
+export interface ServiceInfrastructureDetails {
+  repoName?: string;
+  branchName?: string;
+  githubOwner?: string;
+  githubRepoUrl?: string;
+  githubConnectionId?: number;
+}
 export interface ServiceSummary {
   id: number;
   slug: string;
   name: string;
   environments?: ServiceEnvironment[];
+  // eslint-disable-next-line camelcase
+  infrastructure_details?: ServiceInfrastructureDetails
 }
 
 export class ApiClient {
@@ -109,7 +119,7 @@ export class ApiClient {
       if (response.status === 404) {
         throw new Error(
           `API endpoint not found (404): ${url}\n` +
-            `Please verify that the backend API is running and the endpoint exists.`
+          `Please verify that the backend API is running and the endpoint exists.`
         );
       }
 
@@ -119,7 +129,7 @@ export class ApiClient {
     }
 
     const json = await response.json();
-    
+
     if (process.env.DEBUG || process.env.APSO_DEBUG) {
       console.log(`[DEBUG] API Response:`, JSON.stringify(json, null, 2).slice(0, 500));
     }
@@ -155,10 +165,10 @@ export class ApiClient {
     // form-data is a Readable stream, we need to consume it
     const body = await new Promise<Buffer>((resolve, reject) => {
       const chunks: Buffer[] = [];
-      
+
       // Ensure form-data is treated as a readable stream
       const stream = formData as Readable;
-      
+
       stream.on('data', (chunk: Buffer | string) => {
         // form-data emits both strings (boundaries) and Buffers
         // We only want Buffer chunks
@@ -169,7 +179,7 @@ export class ApiClient {
           chunks.push(Buffer.from(chunk, 'utf8'));
         }
       });
-      
+
       stream.on('end', () => {
         if (chunks.length === 0) {
           reject(new Error('FormData stream ended with no data'));
@@ -178,11 +188,11 @@ export class ApiClient {
         const result = Buffer.concat(chunks as unknown as Uint8Array[]);
         resolve(result);
       });
-      
+
       stream.on('error', (err: Error) => {
         reject(err);
       });
-      
+
       // Start reading the stream
       stream.resume();
     });
@@ -216,7 +226,7 @@ export class ApiClient {
       if (response.status === 404) {
         throw new Error(
           `API endpoint not found (404): ${url}\n` +
-            `Please verify that the backend API is running and the endpoint exists.`
+          `Please verify that the backend API is running and the endpoint exists.`
         );
       }
 
@@ -289,7 +299,7 @@ export class ApiClient {
       )}&limit=${pageSize}&offset=${offset}`;
 
       const response = await this.request<{
-        data: Array<{ id: number; name: string; slug: string }>;
+        data: Array<{ id: number; name: string; slug: string, infrastructure_details?: ServiceInfrastructureDetails }>;
         total?: number;
       }>(url);
 
@@ -298,6 +308,7 @@ export class ApiClient {
         id: svc.id,
         name: svc.name,
         slug: svc.slug,
+        infrastructure_details: svc.infrastructure_details,
       }));
 
       allServices = [...allServices, ...services];
@@ -343,7 +354,7 @@ export class ApiClient {
     };
   }
 
-  
+
   async getLatestSchema(serviceId: string): Promise<any> {
     const serviceIdNum = Number.parseInt(serviceId, 10);
     if (Number.isNaN(serviceIdNum)) {
@@ -384,13 +395,13 @@ export class ApiClient {
       console.error(`[DEBUG] ✗ Cannot access service: ${error.message}`);
       throw new Error(
         `Cannot access service ${serviceIdNum}. You may not have permission to view this service.\n` +
-          `Original error: ${error.message}`
+        `Original error: ${error.message}`
       );
     }
 
     let debugResponse: any = null;
     let allSchemas: any[] = [];
-    
+
     const queryFormats = [
       `/WorkspaceServices/${serviceIdNum}?join=serviceSchemas&limit=100`,
       `/ServiceSchemas?filter=workspaceServiceId||$eq||${serviceIdNum}&join=workspaceService&limit=10`,
@@ -402,7 +413,7 @@ export class ApiClient {
       try {
         console.log(`[DEBUG] Trying query format: ${query}`);
         const response = await this.request<any>(query);
-        
+
         if (query.includes('/WorkspaceServices/')) {
           const service = response;
           if (service.serviceSchemas && Array.isArray(service.serviceSchemas)) {
@@ -557,15 +568,15 @@ export class ApiClient {
             .join("; ");
           throw new Error(
             `No schema found matching criteria for service ${serviceId}.\n` +
-              `Found ${debugResponse.data.length} ServiceSchema record(s) with: ${statuses}\n` +
-              `And no ServiceSchemaChat records were found either.\n` +
-              `Please ensure a schema is created on the platform.`
+            `Found ${debugResponse.data.length} ServiceSchema record(s) with: ${statuses}\n` +
+            `And no ServiceSchemaChat records were found either.\n` +
+            `Please ensure a schema is created on the platform.`
           );
         }
 
         throw new Error(
           `No schema found for service ${serviceId}.\n` +
-            `Please create a schema on the platform first.`
+          `Please create a schema on the platform first.`
         );
       }
 
@@ -573,7 +584,7 @@ export class ApiClient {
       if (!chatSchema.schema) {
         throw new Error(
           `ServiceSchemaChat ${chatSchema.id} has no schema data.\n` +
-            `This chat history may be incomplete.`
+          `This chat history may be incomplete.`
         );
       }
 
@@ -599,7 +610,7 @@ export class ApiClient {
     if (!schema.apsorc) {
       throw new Error(
         `ServiceSchema ${schema.id} has no apsorc data.\n` +
-          `This schema may be incomplete.`
+        `This schema may be incomplete.`
       );
     }
 
@@ -670,11 +681,11 @@ export class ApiClient {
     // Find the most recent active schema (if any) to update, otherwise create new
     const existingSchema = existingActiveSchemas.length > 0
       ? existingActiveSchemas.sort((a, b) => {
-          // Sort by created_at descending to get the most recent
-          const aDate = new Date(a.created_at || 0).getTime();
-          const bDate = new Date(b.created_at || 0).getTime();
-          return bDate - aDate;
-        })[0]
+        // Sort by created_at descending to get the most recent
+        const aDate = new Date(a.created_at || 0).getTime();
+        const bDate = new Date(b.created_at || 0).getTime();
+        return bDate - aDate;
+      })[0]
       : null;
 
     // Prepare schema payload
@@ -708,7 +719,7 @@ export class ApiClient {
         const err = error as Error;
         throw new Error(
           `Failed to update schema on platform: ${err.message}\n` +
-            `Schema ID: ${existingSchema.id}`
+          `Schema ID: ${existingSchema.id}`
         );
       }
     } else {
@@ -728,7 +739,7 @@ export class ApiClient {
         const err = error as Error;
         throw new Error(
           `Failed to create schema on platform: ${err.message}\n` +
-            `Service ID: ${serviceIdNum}`
+          `Service ID: ${serviceIdNum}`
         );
       }
     }
@@ -795,8 +806,8 @@ export class ApiClient {
         })
       );
     } else if (process.env.DEBUG || process.env.APSO_DEBUG) {
-        console.log(`[DEBUG] No other active schemas to deactivate`);
-      }
+      console.log(`[DEBUG] No other active schemas to deactivate`);
+    }
 
     return {
       id: result.id,
