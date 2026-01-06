@@ -1,27 +1,22 @@
-import { Flags, ux } from "@oclif/core";
+import { Flags } from "@oclif/core";
 import BaseCommand from "../lib/base-command";
 import { getWebBaseUrlSync } from "../lib/config/index";
 import {
   readProjectLink,
-  writeProjectLink,
-  updateSchemaHashes,
 } from "../lib/project-link";
 import { createApiClient } from "../lib/api/client";
-import { parseApsorc } from "../lib/apsorc-parser";
-import { convertLocalToPlatform } from "../lib/schema-converter";
-import { calculateSchemaHash } from "../lib/schema-hash";
-import {
-  detectConflict,
-  getConflictSummary,
-  ConflictType,
-} from "../lib/conflict-detector";
-import { LocalApsorcSchema } from "../lib/schema-converter/types";
-import { getServiceCodeDir, getAuthoritativeApsorcPath, syncApsorcToCodeBundle, getRootApsorcPath, getProjectRoot } from "../lib/project-link";
+
+import { getServiceCodeDir, getAuthoritativeApsorcPath, syncApsorcToCodeBundle, getProjectRoot } from "../lib/project-link";
 import * as fs from "fs";
 import * as path from "path";
+import shell from "shelljs";
+import {
+  createDecipheriv,
+  CipherKey,
+  BinaryLike,
+} from "crypto";
 import AdmZip from "adm-zip";
-import * as FormData from "form-data";
-import { spawn } from "child_process";
+import FormData from "form-data";
 
 export default class Push extends BaseCommand {
   static description =
@@ -72,273 +67,80 @@ export default class Push extends BaseCommand {
     if (!linkInfo) {
       this.error(
         "Project is not linked to a service.\n" +
-          "Run 'apso link' first to associate this project with a platform service."
+        "Run 'apso link' first to associate this project with a platform service."
       );
     }
 
     const { link } = linkInfo;
     this.log(
-      `Pushing schema for service: ${link.serviceSlug}`
+      `Pushing schema for service: ${link.serviceName}`
     );
-    this.log(`Workspace: ${link.workspaceSlug}`);
-
-    // Get project root path (not process.cwd() which might be a subdirectory)
-    const rootApsorc = getRootApsorcPath();
+    this.log(`Workspace: ${link.workspaceName}`);
 
     // Get authoritative .apsorc path.
-    // IMPORTANT: This now prefers the code bundle .apsorc if it exists and is valid.
-    // That means:
-    // - After a pull, edits to `.apso/service-code/.apsorc` are treated as the source of truth.
-    // - Root `.apsorc` is a convenience mirror that we keep in sync from the authoritative file.
     const apsorcPath = getAuthoritativeApsorcPath();
     if (!fs.existsSync(apsorcPath)) {
       this.error(
         ".apsorc file not found.\n" +
-          "Please create a .apsorc file first or run 'apso pull' to fetch the schema from the platform."
+        "Please create a .apsorc file first or run 'apso pull' to fetch the schema from the platform."
       );
     }
-
-    // Read and fix .apsorc if it's missing required fields
-    let localSchema: LocalApsorcSchema;
-    try {
-      const rawContent = fs.readFileSync(apsorcPath, "utf8");
-      const parsed = JSON.parse(rawContent);
-      
-      // Auto-fix incomplete .apsorc files by adding missing required fields
-      let needsFix = false;
-      if (!parsed.version) {
-        parsed.version = 2; // Default to version 2
-        needsFix = true;
-      }
-      if (!parsed.rootFolder) {
-        parsed.rootFolder = "src"; // Default root folder
-        needsFix = true;
-      }
-      if (!parsed.apiType) {
-        parsed.apiType = "Rest"; // Default API type
-        needsFix = true;
-      }
-      
-      // If we fixed it, write it back to the authoritative path
-      if (needsFix) {
-        const fixedContent = JSON.stringify(parsed, null, 2);
-        fs.writeFileSync(apsorcPath, fixedContent, "utf8");
-        this.log(`✓ Fixed incomplete .apsorc file (added missing required fields: version, rootFolder, apiType)`);
-      }
-
-      // ALWAYS ensure root .apsorc exists and is complete
-      // This is critical because parseApsorc() uses rc("apso") which searches from cwd upward
-      // We need the project root .apsorc to exist so rc() finds it BEFORE parent directories
-      const rootDir = path.dirname(rootApsorc);
-      if (!fs.existsSync(rootDir)) {
-        fs.mkdirSync(rootDir, { recursive: true });
-      }
-      
-      // Copy authoritative .apsorc to root (whether we fixed it or not)
-      // This ensures rc() finds the correct, complete .apsorc in project root
-      fs.copyFileSync(apsorcPath, rootApsorc);
-      if (!needsFix) {
-        this.log(`✓ Synced authoritative .apsorc to root for validation`);
-      }
-      
-      // Also sync to code bundle if we fixed it (to keep them in sync)
-      if (needsFix && apsorcPath !== path.join(getServiceCodeDir(), ".apsorc")) {
-        syncApsorcToCodeBundle();
-      }
-      
-      // Now validate using parser (it reads from current directory via rc)
-      // rc() will find the root .apsorc we just synced/fixed
-      parseApsorc();
-
-      // Then use the parsed content for conversion
-      localSchema = parsed as LocalApsorcSchema;
-    } catch (error) {
-      const err = error as Error;
-      this.error(
-        `Failed to read or parse .apsorc file: ${err.message}\n` +
-          "Please ensure the .apsorc file is valid JSON and follows the schema format."
-      );
-    }
-
-    // Convert local schema to platform format
-    this.log("Validating and converting local schema...");
-    const conversionResult = convertLocalToPlatform(localSchema);
-
-    if (!conversionResult.success) {
-      const error = conversionResult.error;
-      this.error(
-        `Schema validation failed: ${error.message}\n` +
-          (error.entity ? `Entity: ${error.entity}\n` : "") +
-          (error.field ? `Field: ${error.field}\n` : "") +
-          (error.relationship ? `Relationship: ${error.relationship}\n` : "") +
-          "\nPlease fix the errors in your .apsorc file and try again."
-      );
-    }
-
-    const platformSchema = conversionResult.data;
-
-    // Calculate local schema hash
-    const localHash = calculateSchemaHash(localSchema);
-
-    // Fetch remote schema for conflict detection (unless dry-run or force)
-    let remoteSchema: LocalApsorcSchema | undefined;
-    let remoteHash: string | null = link.remoteSchemaHash || null;
-
-    if (!flags["dry-run"] && !flags.force) {
-      try {
-        this.log("Checking for conflicts with remote schema...");
-        const api = createApiClient();
-        const remotePlatformSchema = await api.getLatestSchema(link.serviceId);
-
-        // Convert remote platform schema to local format for comparison
-        const { convertPlatformToLocal } = await import(
-          "../lib/schema-converter"
-        );
-        const remoteToLocal = convertPlatformToLocal(remotePlatformSchema);
-        if (remoteToLocal.success) {
-          remoteSchema = remoteToLocal.data;
-          remoteHash = calculateSchemaHash(remoteSchema);
-        } else {
-          this.warn(
-            `Could not convert remote schema for comparison: ${remoteToLocal.error.message}`
-          );
-        }
-      } catch (error) {
-        // If we can't fetch remote schema, warn but continue
-        const err = error as Error;
-        this.warn(
-          `Could not fetch remote schema for conflict detection: ${err.message}`
-        );
-        this.warn("Proceeding with push, but conflicts may occur.");
-      }
-    }
-
-    // Detect conflicts
-    if (!flags["dry-run"] && !flags.force) {
-      const conflict = detectConflict(
-        localHash,
-        remoteHash,
-        localSchema,
-        remoteSchema
-      );
-
-      if (conflict.type !== ConflictType.NO_CONFLICT) {
-        this.log("");
-        this.warn("⚠️  Schema conflict detected!");
-        this.log("");
-        this.log(getConflictSummary(conflict));
-        this.log("");
-
-        const shouldContinue = await ux.confirm(
-          "Do you want to proceed with push anyway? (y/n)"
-        );
-        if (!shouldContinue) {
-          this.log("Push cancelled.");
-          this.log("");
-          this.log("Recommended actions:");
-          this.log("  • Run 'apso diff' to see detailed differences");
-          this.log("  • Run 'apso pull' to update local schema first");
-          this.log("  • Use 'apso push --force' to force push (with caution)");
-          this.exit(0);
-        }
-      }
-    }
-
-    // Show dry-run summary
-    if (flags["dry-run"]) {
-      this.log("");
-      this.log("=== DRY RUN MODE ===");
-      this.log("");
-      this.log("Schema validation: ✓ Passed");
-      this.log(`Local schema hash: ${localHash}`);
-      if (remoteHash) {
-        this.log(`Remote schema hash: ${remoteHash}`);
-        if (localHash !== remoteHash) {
-          this.warn("⚠️  Hashes differ - conflicts may occur");
-        } else {
-          this.log("✓ Hashes match - no conflicts");
-        }
-      }
-      this.log("");
-      this.log("Summary of changes that would be pushed:");
-      this.log(`  • Entities: ${localSchema.entities.length}`);
-      this.log(
-        `  • Relationships: ${localSchema.relationships?.length || 0}`
-      );
-      this.log(`  • Root folder: ${localSchema.rootFolder}`);
-      this.log(`  • API type: ${localSchema.apiType}`);
-      this.log("");
-      this.log("No changes were made to the platform.");
-      this.exit(0);
-    }
-
     // Push to platform
     try {
       this.log("Pushing schema to platform...");
       const api = createApiClient();
-      const result = await api.pushSchema(link.serviceId, platformSchema);
-
-      // Calculate new remote hash (should match local after push)
-      const newRemoteHash = localHash;
-
-      // Update link.json with sync info
-      const updatedLink = updateSchemaHashes(
-        {
-          ...link,
-          lastSyncedAt: new Date().toISOString(),
-          lastSyncDirection: "push" as const,
-        },
-        localHash, // Local hash stays the same
-        newRemoteHash // Remote hash now matches local
-      );
-
-      writeProjectLink(updatedLink);
-
-      this.log("");
-      this.log("✓ Schema pushed successfully to platform");
-      if (result.id) {
-        this.log(`  Schema ID: ${result.id}`);
-      }
-      if (result.version) {
-        this.log(`  Version: ${result.version}`);
-      }
 
       // Push code if it exists
+      await this.zipServiceCode(getServiceCodeDir(), link.workspaceId, link.serviceId, api);
       await this.pushServiceCode(api, link, flags);
-
-      // Trigger code generation if requested
-      if (flags["generate-code"]) {
-        await this.triggerAndPollCodeGeneration(api, link);
-      }
 
       this.log("");
       this.log("Next steps:");
       this.log("  • Review the schema on the platform");
-      if (!flags["generate-code"]) {
-        this.log("  • Run 'apso push --generate-code' to trigger code generation");
-      }
       this.log("  • Run 'apso server scaffold' to regenerate code locally if needed");
     } catch (error) {
       const err = error as Error;
       this.error(
         `Failed to push schema: ${err.message}\n` +
-          "\nTroubleshooting:" +
-          "\n  • Check your authentication: run 'apso login'" +
-          "\n  • Verify the service ID is correct" +
-          "\n  • Check if you have permission to update schemas" +
-          "\n  • Run with DEBUG=1 for more details: $env:APSO_DEBUG='1'; apso push"
+        "\nTroubleshooting:" +
+        "\n  • Check your authentication: run 'apso login'" +
+        "\n  • Verify the service ID is correct" +
+        "\n  • Check if you have permission to update schemas" +
+        "\n  • Run with DEBUG=1 for more details: $env:APSO_DEBUG='1'; apso push"
       );
     }
   }
 
   private async pushServiceCode(
     api: ReturnType<typeof createApiClient>,
-    link: { workspaceId: string; serviceId: string; githubRepo?: string | null; githubBranch?: string | null },
-    flags: { [name: string]: any }
+    link: { workspaceId: string; serviceId: string; connectionId?: number; githubOwner?: string; repoName?: string; githubRepo?: string | null; githubBranch?: string | null },
+    _flags: { [name: string]: any }
   ): Promise<void> {
-    const codeDir = getServiceCodeDir();
-    if (!fs.existsSync(codeDir)) {
-      // Code directory doesn't exist, skip code push
+    const projectRoot = getProjectRoot();
+    const expectedCodeDir = getServiceCodeDir();
+    const resolvedExpectedDir = path.resolve(expectedCodeDir);
+    const currentDir = process.cwd();
+    const resolvedCurrentDir = path.resolve(currentDir);
+
+    // Determine the actual code directory (same logic as pull)
+    let resolvedCodeDir: string;
+
+    const currentDirGit = path.join(resolvedCurrentDir, ".git");
+    const expectedDirGit = path.join(resolvedExpectedDir, ".git");
+
+    if (resolvedCurrentDir === resolvedExpectedDir && fs.existsSync(currentDirGit)) {
+      resolvedCodeDir = resolvedCurrentDir;
+    } else if (fs.existsSync(resolvedExpectedDir) && fs.existsSync(expectedDirGit)) {
+      resolvedCodeDir = resolvedExpectedDir;
+    } else if (resolvedCurrentDir === projectRoot && fs.existsSync(currentDirGit)) {
+      resolvedCodeDir = resolvedCurrentDir;
+    } else {
+      // Code directory not found
+      this.log("");
+      this.warn("Code repository not found locally. Skipping code push.");
+      this.log("");
+      this.log("Please clone your repository first:");
+      this.log(`  Run: apso clone`);
       return;
     }
 
@@ -352,157 +154,238 @@ export default class Push extends BaseCommand {
 
     try {
       this.log("");
-      this.log("Pushing service code to S3 and GitHub...");
+      this.log("Pushing service code to GitHub...");
 
-      const workspaceId = Number(link.workspaceId);
-      const serviceId = Number(link.serviceId);
-
-      if (Number.isNaN(workspaceId) || Number.isNaN(serviceId)) {
-        this.warn("Invalid workspace or service ID. Skipping code push.");
-        return;
-      }
-
-      // Check if GitHub is connected
-      if (!link.githubRepo || !link.githubBranch) {
-        this.warn("Service is not connected to GitHub. Skipping code push.");
+      // Check if GitHub connection is available
+      if (!link.connectionId) {
+        this.warn("GitHub connection not found. Skipping code push.");
         this.warn("Run 'apso github:connect' first to connect the service to a GitHub repository.");
         return;
       }
 
-      // Create zip from service code directory
-      this.log("  Creating zip archive...");
-      const zip = new AdmZip();
-      zip.addLocalFolder(codeDir, "", (filename: string) => {
-        // Exclude common files/folders
-        return !(
-          filename.includes(".git") ||
-          filename.includes("node_modules") ||
-          filename.includes(".DS_Store") ||
-          filename.includes(".idea") ||
-          filename.includes(".vscode") ||
-          filename.includes(".zip")
-        );
-      });
-
-      const zipBuffer = zip.toBuffer();
-
-      // Upload to S3
-      this.log("  Uploading to S3...");
-      
-      // Use form-data package for Node.js compatibility
-      const FormDataClass = FormData.default || FormData;
-      const formData = new FormDataClass();
-      
-      // Append file with proper options
-      formData.append("file", zipBuffer, {
-        filename: "code.zip",
-        contentType: "application/zip",
-        knownLength: zipBuffer.length, // Help form-data calculate content-length
-      });
-
-      const uploadPath = `/WorkspaceServices/${workspaceId}/${serviceId}/code/upload`;
-      const uploadResp = await api.uploadFile<{ 
-        success: boolean; 
-        version?: string; 
-        size?: number;
-        bucket?: string;
-        key?: string;
-      }>(uploadPath, formData);
-
-      if (!uploadResp.success) {
-        throw new Error("S3 upload returned success=false");
-      }
-
-      this.log(`  ✓ Code uploaded to S3 successfully`);
-      if (uploadResp.size && uploadResp.size > 0) {
-        this.log(`    Size: ${(uploadResp.size / 1024).toFixed(2)} KB`);
-      }
-
-      // Push from S3 to GitHub
-      this.log("  Pushing to GitHub repository...");
-      const pushPath = `/github-connections/push-repository/${serviceId}`;
-      const pushBody = {
-        workspaceId: workspaceId,
-        branch: link.githubBranch,
-        message: "apso commit",
-      };
-
-      await api.rawRequest(pushPath, {
-        method: "POST",
-        body: JSON.stringify(pushBody),
-      });
-
-      this.log("");
-      this.log("✓ Code pushed successfully to GitHub");
-      this.log(`  Repository: ${link.githubRepo}`);
-      this.log(`  Branch:     ${link.githubBranch}`);
-
-      // After a successful code push to GitHub, optionally run `git pull` locally
-      // to bring the user's working copy up to date with the remote.
-      const projectRoot = getProjectRoot();
-      const gitDir = path.join(projectRoot, ".git");
-
-      if (!fs.existsSync(projectRoot) || !fs.existsSync(gitDir)) {
-        this.log("");
-        this.log("Git pull skipped: project root is not a Git repository.");
-        this.log(`  Project root: ${projectRoot}`);
+      // Check if repository info is available
+      if (!link.githubOwner || !link.repoName) {
+        this.warn("GitHub repository information not found. Skipping code push.");
+        this.warn("Run 'apso github:connect' first to connect the service to a GitHub repository.");
         return;
       }
 
-      let shouldRunGitPull = false;
+      // Fetch GitHub connection details
+      this.log("  Fetching GitHub connection details...");
+      /* eslint-disable camelcase */
+      interface GithubConnection {
+        id: number;
+        accessToken: string;
+        github_username: string;
+      }
+      /* eslint-enable camelcase */
 
-      if (flags["git-pull"]) {
-        // Non-interactive opt-in via flag
-        shouldRunGitPull = true;
-      } else {
-        // Interactive prompt (only if not in non-interactive mode)
-        const nonInteractive =
-          process.env.APSO_NON_INTERACTIVE === "1" ||
-          process.env.APSO_NON_INTERACTIVE === "true";
-
-        if (!nonInteractive) {
-          this.log("");
-          const answer = await ux.confirm(
-            "Do you want to run 'git pull' in the project root to fetch latest remote changes? (y/n)"
-          );
-          shouldRunGitPull = answer;
-        }
+      let githubConnection: GithubConnection;
+      try {
+        githubConnection = await api.rawRequest<GithubConnection>(
+          `/GithubConnections/${link.connectionId}`
+        );
+      } catch (error) {
+        const err = error as Error;
+        this.warn(`Failed to fetch GitHub connection: ${err.message}`);
+        this.warn("Skipping code push.");
+        return;
       }
 
-      if (shouldRunGitPull) {
-        this.log("");
-        this.log(`Running 'git pull' in project root: ${projectRoot}`);
+      // Determine branch
+      const branch = link.githubBranch || "main";
 
-        await new Promise<void>((resolve) => {
-          const isWindows = process.platform === "win32";
-          const gitCmd = isWindows ? "git.exe" : "git";
+      // Decrypt token for authentication
+      const decryptedToken = this.decrypt(githubConnection.accessToken);
+      const authenticatedRepoUrl = `https://x-access-token:${decryptedToken}@github.com/${link.githubOwner}/${link.repoName}.git`;
 
-          const child = spawn(gitCmd, ["pull"], {
-            cwd: projectRoot,
-            stdio: "inherit",
-            shell: isWindows,
-          });
+      this.log(`  Repository: ${link.githubOwner}/${link.repoName}`);
+      this.log(`  Branch: ${branch}`);
 
-          child.on("close", (code) => {
-            if (code !== 0) {
-              this.warn(`git pull exited with code ${code}. Please resolve any issues manually.`);
-            } else {
-              this.log("✓ git pull completed successfully.");
+      // Set environment variable to prevent git from prompting for credentials
+      const env = {
+        ...process.env,
+        GIT_TERMINAL_PROMPT: "0",
+      };
+
+      // Change to code directory and push
+      const originalCwd = process.cwd();
+      try {
+        process.chdir(resolvedCodeDir);
+
+        // Update remote URL with authenticated URL to ensure authentication works
+        const remoteUpdateResult = shell.exec(
+          `git remote set-url origin "${authenticatedRepoUrl}"`,
+          { silent: true, env }
+        );
+
+        if (remoteUpdateResult.code !== 0) {
+          this.warn("Failed to update git remote URL. Continuing with existing remote...");
+        }
+
+        // Check if there are changes to commit
+        const statusResult = shell.exec(
+          `git status --porcelain`,
+          { silent: true, env }
+        );
+
+        const hasChanges = statusResult.stdout.trim().length > 0;
+
+        if (hasChanges) {
+          // Stage all changes
+          this.log("  Staging changes...");
+          const addResult = shell.exec(
+            `git add -A`,
+            { silent: true, env }
+          );
+
+          if (addResult.code !== 0) {
+            const errorOutput = addResult.stderr || addResult.stdout || "Unknown error";
+            this.error(
+              `Failed to stage changes.\n` +
+              `Error: ${errorOutput}`
+            );
+            return;
+          }
+
+          // Commit changes
+          this.log("  Committing changes...");
+          const commitResult = shell.exec(
+            `git commit -m "local cli commit"`,
+            { silent: true, env }
+          );
+
+          if (commitResult.code !== 0) {
+            const errorOutput = commitResult.stderr || commitResult.stdout || "Unknown error";
+            // If commit fails because there's nothing to commit, that's okay
+            if (!errorOutput.includes("nothing to commit")) {
+              this.error(
+                `Failed to commit changes.\n` +
+                `Error: ${errorOutput}`
+              );
+              return;
             }
-            resolve();
-          });
+          }
+        }
 
-          child.on("error", (err) => {
-            this.warn(`Failed to run 'git pull': ${(err as Error).message}`);
-            resolve();
-          });
-        });
+        // Push to GitHub
+        this.log("  Pushing to GitHub...");
+        const pushResult = shell.exec(
+          `git push origin ${branch}`,
+          { silent: false, env } // Set to false to show git output
+        );
+
+        if (pushResult.code !== 0) {
+          const errorOutput = pushResult.stderr || pushResult.stdout || "Unknown error";
+          this.error(
+            `Failed to push code to GitHub.\n` +
+            `Error: ${errorOutput}\n\n` +
+            `Troubleshooting:\n` +
+            `  - Check your network connection\n` +
+            `  - Verify you have push access to the repository\n` +
+            `  - Check if there are conflicts that need to be resolved\n` +
+            `  - Verify the branch exists: ${branch}`
+          );
+          return;
+        }
+
+        this.log("");
+        this.log("✓ Code pushed successfully to GitHub");
+        this.log(`  Repository: ${link.githubOwner}/${link.repoName}`);
+        this.log(`  Branch: ${branch}`);
+      } finally {
+        process.chdir(originalCwd);
       }
     } catch (error) {
       const err = error as Error;
       this.warn(`Failed to push service code: ${err.message}`);
       this.warn("Schema push succeeded, but code push failed.");
     }
+  }
+
+  /**
+   * Decrypt GitHub access token
+   * TODO: Move this to a shared utility
+   */
+  private decrypt(token: string): string {
+    const aesKeyB64 =
+      process.env.AES_KEY_B64 ||
+      "7N0eyS0YaZXKlXBK+tSY+3i/tKrKWqjrwaK++XtJSn8=";
+    const key = Buffer.from(aesKeyB64, "base64");
+    const [ivB64, dataB64, tagB64] = token.split(".");
+    if (!ivB64 || !dataB64 || !tagB64) throw new Error("Invalid token format");
+
+    const iv = Buffer.from(ivB64, "base64url");
+    const encrypted = Buffer.from(dataB64, "base64url");
+    const tag = Buffer.from(tagB64, "base64url");
+
+    const decipher = createDecipheriv(
+      "aes-256-gcm",
+      key as CipherKey,
+      iv as BinaryLike,
+      {
+        authTagLength: 16,
+      }
+    );
+
+    decipher.setAuthTag(tag as NodeJS.ArrayBufferView);
+
+    const decrypted = Buffer.concat([
+      decipher.update(encrypted as any),
+      decipher.final(),
+    ] as any);
+    return decrypted.toString("utf8");
+  }
+
+  private async zipServiceCode(codeDir: string, workspaceId: string, serviceId: string, api: ReturnType<typeof createApiClient>): Promise<void> {
+    // Create zip from service code directory
+    this.log("  Creating zip archive...");
+    const zip = new AdmZip();
+    zip.addLocalFolder(codeDir, "", (filename: string) => {
+      // Exclude common files/folders
+      return !(
+        filename.includes(".git") ||
+        filename.includes("node_modules") ||
+        filename.includes(".DS_Store") ||
+        filename.includes(".idea") ||
+        filename.includes(".vscode") ||
+        filename.includes(".zip")
+      );
+    });
+
+    const zipBuffer = zip.toBuffer();
+
+    // Upload to S3
+    this.log("  Uploading to S3...");
+
+    // Use form-data package for Node.js compatibility
+    const formData = new FormData();
+
+    // Append file with proper options
+    formData.append("file", zipBuffer, {
+      filename: "code.zip",
+      contentType: "application/zip",
+      knownLength: zipBuffer.length, // Help form-data calculate content-length
+    });
+
+    const uploadPath = `/WorkspaceServices/${workspaceId}/${serviceId}/code/upload`;
+    const uploadResp = await api.uploadFile<{
+      success: boolean;
+      version?: string;
+      size?: number;
+      bucket?: string;
+      key?: string;
+    }>(uploadPath, formData);
+
+    if (!uploadResp.success) {
+      throw new Error("S3 upload returned success=false");
+    }
+
+    this.log(`  ✓ Code uploaded to S3 successfully`);
+    if (uploadResp?.size && uploadResp?.size > 0) {
+      this.log(`    Size: ${(uploadResp.size / 1024).toFixed(2)} KB`);
+    }
+
   }
 
   private async triggerAndPollCodeGeneration(
@@ -523,11 +406,11 @@ export default class Push extends BaseCommand {
       // Note: This calls the Next.js API route which triggers AWS Step Functions
       // The endpoint is on the frontend, so we need to use the web base URL
       let triggerResponse: { success?: boolean; executionArn?: string } | null = null;
-      
+
       try {
         const webBaseUrl = getWebBaseUrlSync();
         const token = await (api as any).getAccessToken();
-        
+
         const response = await fetch(`${webBaseUrl}/api/triggerServiceDeploy/${serviceId}`, {
           method: "POST",
           headers: {
@@ -615,6 +498,7 @@ export default class Push extends BaseCommand {
     while (attempts < maxAttempts) {
       try {
         // Fetch service to get build_status
+        // eslint-disable-next-line no-await-in-loop, camelcase
         const service = await api.rawRequest<{ build_status?: string }>(
           `/WorkspaceServices/${serviceId}`
         );
@@ -622,6 +506,7 @@ export default class Push extends BaseCommand {
         const currentStatus = service.build_status || "Unknown";
 
         // Show status change
+        // eslint-disable-next-line no-negated-condition
         if (currentStatus !== lastStatus) {
           const statusMessage = statusMessages[currentStatus] || currentStatus;
           this.log(`  ${statusMessage} (${currentStatus})`);
@@ -647,6 +532,7 @@ export default class Push extends BaseCommand {
         }
 
         attempts++;
+        // eslint-disable-next-line no-await-in-loop, no-promise-executor-return
         await new Promise((resolve) => setTimeout(resolve, intervalMs));
       } catch (error) {
         const err = error as Error;
@@ -658,6 +544,7 @@ export default class Push extends BaseCommand {
         }
         // For other errors, continue polling
         attempts++;
+        // eslint-disable-next-line no-await-in-loop, no-promise-executor-return
         await new Promise((resolve) => setTimeout(resolve, intervalMs));
       }
     }
