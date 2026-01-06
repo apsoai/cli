@@ -101,14 +101,15 @@ export default class Clone extends BaseCommand {
       );
     }
 
-    // Determine repository URL
-    const repoUrl = `https://${this.decrypt(githubConnection.accessToken)}@github.com/${link.githubOwner}/${link.repoName}.git`
-    console.log("repoUrl", repoUrl);
-    if (!link.githubRepoUrl) {
+    // Determine repository path
+    if (!link.githubOwner || !link.repoName) {
       this.error(
-        "Could not determine repository URL. Please ensure the service is connected to GitHub."
+        "GitHub repository information is not available in the project link.\n" +
+        "Run 'apso github:connect' to set up the GitHub connection."
       );
     }
+
+    const repoPath = `${link.githubOwner}/${link.repoName}`;
 
     // Determine branch
     const branch = flags.branch || link.githubBranch || "main";
@@ -127,29 +128,34 @@ export default class Clone extends BaseCommand {
       );
     }
 
+    // Construct authenticated repository URL with x-access-token prefix
+    const decryptedToken = this.decrypt(githubConnection.accessToken);
+    const repoUrl = `https://x-access-token:${decryptedToken}@github.com/${repoPath}.git`;
+    const maskedRepoUrl = `https://x-access-token:***@github.com/${repoPath}.git`;
+
     this.log("");
     this.log("Cloning repository...");
-    this.log(`  Repository: ${link.githubRepoUrl}`);
+    this.log(`  Repository: ${maskedRepoUrl}`);
     this.log(`  Branch: ${branch}`);
     this.log(`  Target: ${targetDir}`);
 
-    // If it's SSH format, use as-is (relies on SSH keys)
-    // Otherwise, try HTTPS with token
+    // Set environment variable to prevent git from prompting for credentials
+    const env = { ...process.env, GIT_TERMINAL_PROMPT: "0" };
 
     const cloneResult = shell.exec(
       `git clone --depth=1 --branch="${branch}" "${repoUrl}" "${targetDir}"`,
-      { silent: true }
+      { silent: true, env }
     );
 
     if (cloneResult.code !== 0) {
-      // If authenticated HTTPS failed, try without authentication (user may have SSH set up or public repo)
+      const errorOutput = cloneResult.stderr || cloneResult.stdout || "Unknown error";
       this.error(
         `Failed to clone repository.\n` +
+        `Git Error: ${errorOutput}\n\n` +
         `Troubleshooting:\n` +
         `  - Check your network connection\n` +
-        `  - Verify the repository exists: ${link.githubRepoUrl}\n` +
+        `  - Verify the repository exists: ${maskedRepoUrl}\n` +
         `  - Ensure you have access to the repository\n` +
-        `  - Try setting up SSH keys for GitHub authentication\n` +
         `  - Verify the branch exists: ${branch}`
       );
     }

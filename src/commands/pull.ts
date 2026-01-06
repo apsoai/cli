@@ -1,113 +1,35 @@
-import { Flags, ux } from "@oclif/core";
 import BaseCommand from "../lib/base-command";
-import {
-  readProjectLink,
-  writeProjectLink,
-  updateSchemaHashes,
-} from "../lib/project-link";
+import { readProjectLink, getServiceCodeDir, getProjectRoot } from "../lib/project-link";
 import { createApiClient } from "../lib/api/client";
-import { parseApsorc } from "../lib/apsorc-parser";
-import { convertPlatformToLocal } from "../lib/schema-converter";
-import { calculateSchemaHash } from "../lib/schema-hash";
-import { detectConflict, getConflictSummary, ConflictType } from "../lib/conflict-detector";
-import { LocalApsorcSchema } from "../lib/schema-converter/types";
-import { getServiceCodeDir, syncApsorcToRoot, getProjectRoot } from "../lib/project-link";
 import * as fs from "fs";
 import * as path from "path";
-import AdmZip from "adm-zip";
-
-/**
- * Sort entities by name for deterministic output
- */
-function sortEntities(entities: any[]): any[] {
-  return [...entities].sort((a, b) => a.name.localeCompare(b.name));
-}
-
-/**
- * Sort relationships for deterministic output:
- * 1. By 'from' entity name
- * 2. Then by 'to' entity name
- */
-function sortRelationships(relationships: any[]): any[] {
-  return [...relationships].sort((a, b) => {
-    const fromCompare = (a.from || "").localeCompare(b.from || "");
-    if (fromCompare !== 0) return fromCompare;
-    return (a.to || "").localeCompare(b.to || "");
-  });
-}
-
-/**
- * Sort fields within entities by name for deterministic output
- */
-function sortFields(fields: any[] | undefined): any[] | undefined {
-  if (!fields) return undefined;
-  return [...fields].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-}
-
-/**
- * Ensure deterministic ordering of .apsorc structure
- */
-function normalizeApsorc(apsorc: any): any {
-  const normalized = {
-    ...apsorc,
-  };
-
-  // Sort entities and their fields
-  if (normalized.entities) {
-    normalized.entities = sortEntities(normalized.entities).map((entity) => ({
-      ...entity,
-      fields: sortFields(entity.fields),
-    }));
-  }
-
-  // Sort relationships
-  if (normalized.relationships) {
-    normalized.relationships = sortRelationships(normalized.relationships);
-  }
-
-  return normalized;
-}
-
-/**
- * Write .apsorc file with proper formatting
- */
-function writeApsorcFile(apsorc: any, targetPath: string): void {
-  const normalized = normalizeApsorc(apsorc);
-  const json = JSON.stringify(normalized, null, 2);
-  fs.writeFileSync(targetPath, json, "utf8");
-}
+import shell from "shelljs";
+import {
+  createDecipheriv,
+  CipherKey,
+  BinaryLike,
+} from "crypto";
 
 export default class Pull extends BaseCommand {
   static description =
-    "Pull the latest schema from the platform and update local .apsorc";
+    "Pull the latest code from GitHub repository (like git pull)";
 
   static examples = [
-    `$ apso pull  # Pull both schema and code`,
-    `$ apso pull --force  # Overwrite existing .apsorc without prompt`,
-    `$ apso pull --schema-only  # Only pull schema, skip code`,
+    `$ apso pull  # Pull latest code from GitHub`,
+    `$ apso pull --rebase  # Pull with rebase`,
+    `$ apso pull --ff-only  # Fast-forward only`,
   ];
 
-  static flags = {
-    force: Flags.boolean({
-      char: "f",
-      description: "Overwrite existing .apsorc without confirmation and skip conflict checks",
-      default: false,
-    }),
-    output: Flags.string({
-      char: "o",
-      description: "Write to alternative file instead of .apsorc (e.g., .apsorc.remote)",
-    }),
-    "schema-only": Flags.boolean({
-      char: "s",
-      description: "Only pull schema, skip code download",
-      default: false,
-    }),
-  };
+  // Allow unknown flags to pass through to git pull
+  static strict = false;
 
   async run(): Promise<void> {
-    const { flags } = await this.parse(Pull);
+    // Get all raw arguments after the command name
+    // This captures all flags and arguments that git pull accepts
+    const pullIndex = process.argv.findIndex(arg => arg === "pull" || arg.endsWith("/pull"));
+    const rawArgs = pullIndex >= 0 ? process.argv.slice(pullIndex + 1) : [];
 
-    // Ensure authentication (supports non-interactive mode via APSO_NON_INTERACTIVE).
+    // Ensure authentication
     await this.ensureAuthenticated({
       nonInteractive:
         process.env.APSO_NON_INTERACTIVE === "1" ||
@@ -125,317 +47,282 @@ export default class Pull extends BaseCommand {
 
     const { link } = linkInfo;
 
-    // Git pre-flight: detect uncommitted changes before modifying files
-    // (applies to pull since it can overwrite .apsorc and code).
-    const projectRoot = getProjectRoot();
-    const gitContext = await this.gitPreflight(projectRoot, {
-      operationName: "pull",
-    });
-    this.log(
-      `Pulling schema for service: ${link.serviceName}`
-    );
-    this.log(`Workspace: ${link.workspaceName}`);
+    // Build git pull arguments
+    // Start with "pull origin <branch>" and add any user-provided flags/args
+    const branch = link.githubBranch || "main";
+    const gitArgs: string[] = ["pull", "origin", branch];
 
-    // Fetch latest schema from platform
+    // Add any additional arguments/flags passed by user (e.g., --rebase, --ff-only, etc.)
+    if (rawArgs.length > 0) {
+      gitArgs.push(...rawArgs);
+    }
+
+    // Pull code from GitHub
     const api = createApiClient();
-    let platformSchema: any;
-    try {
-      this.log("Fetching latest schema from platform...");
-      platformSchema = await api.getLatestSchema(link.serviceId);
-    } catch (error) {
-      const err = error as Error;
-      // Show full error details
-      this.error(
-        `Failed to fetch schema: ${err.message}\n\n` +
-        `Troubleshooting:\n` +
-        `  - Check if the service has schemas on the platform\n` +
-        `  - Verify service: ${link.serviceSlug}\n` +
-        `  - Run with DEBUG=1 for more details: $env:APSO_DEBUG='1'; apso pull`
-      );
-    }
-
-    // Convert platform schema to local format
-    const conversionResult = convertPlatformToLocal(platformSchema, {
-      preserveUnsupported: true,
-      warnUnsupported: false, // Don't log warnings during conversion
-    });
-
-    if (!conversionResult.success) {
-      this.error(
-        `Failed to convert platform schema: ${conversionResult.error.message}\n` +
-        (conversionResult.error.entity
-          ? `Entity: ${conversionResult.error.entity}\n`
-          : "") +
-        (conversionResult.error.field
-          ? `Field: ${conversionResult.error.field}\n`
-          : "") +
-        (conversionResult.error.relationship
-          ? `Relationship: ${conversionResult.error.relationship}\n`
-          : "")
-      );
-    }
-
-    const convertedSchema = conversionResult.data;
-
-    // Determine output path
-    const apsorcPath = flags.output
-      ? path.resolve(flags.output)
-      : path.join(process.cwd(), ".apsorc");
-    const apsorcExists = fs.existsSync(apsorcPath);
-
-    // Calculate remote schema hash
-    const remoteHash = calculateSchemaHash(convertedSchema);
-
-    // Check for conflicts if .apsorc exists and we're not forcing
-    if (apsorcExists && !flags.force && !flags.output) {
-      try {
-        // Read existing local schema
-        const existingContent = fs.readFileSync(apsorcPath);
-        const existingSchema = JSON.parse(existingContent.toString("utf8")) as LocalApsorcSchema;
-        const localHash = calculateSchemaHash(existingSchema);
-
-        // Detect conflicts
-        const conflict = detectConflict(
-          localHash,
-          link.remoteSchemaHash || null,
-          existingSchema,
-          convertedSchema
-        );
-
-        // If there's a conflict, warn the user
-        if (conflict.type !== ConflictType.NO_CONFLICT) {
-          this.log("");
-          this.warn("⚠️  Schema conflict detected!");
-          this.log("");
-          this.log(getConflictSummary(conflict));
-          this.log("");
-
-          if (!flags.force) {
-            const action = await ux.prompt(
-              "How would you like to proceed?\n" +
-              "  [a]bort - Cancel the pull\n" +
-              "  [w]rite to .apsorc.remote - Save remote schema to separate file\n" +
-              "  [o]verwrite - Overwrite local .apsorc with remote schema\n" +
-              "  [f]orce - Overwrite without further prompts\n",
-              { default: "a" }
-            );
-
-            const choice = action.toLowerCase().trim();
-            switch (choice) {
-              case "a":
-              case "abort": {
-                this.log("Pull cancelled. No changes made.");
-                this.exit(0);
-
-                break;
-              }
-              case "w":
-              case "write": {
-                // Write to .apsorc.remote instead
-                const remotePath = path.join(process.cwd(), ".apsorc.remote");
-                writeApsorcFile(convertedSchema, remotePath);
-                this.log(`✓ Remote schema written to .apsorc.remote`);
-                this.log("");
-                this.log("You can now:");
-                this.log("  • Compare the files: diff .apsorc .apsorc.remote");
-                this.log("  • Manually merge changes");
-                this.log("  • Or use 'apso pull --force' to overwrite");
-                this.exit(0);
-
-                break;
-              }
-              case "o":
-              case "overwrite": {
-                // Continue with overwrite
-                this.log("Overwriting local .apsorc with remote schema...");
-
-                break;
-              }
-              case "f":
-              case "force": {
-                // Force overwrite
-                this.log("Force overwriting local .apsorc...");
-
-                break;
-              }
-              default: {
-                this.log("Invalid choice. Pull cancelled.");
-                this.exit(0);
-              }
-            }
-          }
-        }
-      } catch (error) {
-        // If we can't read/parse existing .apsorc, warn but continue
-        const err = error as Error;
-        this.warn(
-          `Could not read existing .apsorc for conflict detection: ${err.message}`
-        );
-        if (!flags.force) {
-          const shouldContinue = await ux.confirm(
-            "Continue with pull? (y/n)"
-          );
-          if (!shouldContinue) {
-            this.log("Pull cancelled.");
-            this.exit(0);
-          }
-        }
-      }
-    } else if (apsorcExists && !flags.force && flags.output) {
-      // Writing to alternative file, no conflict check needed
-      this.log(`Writing remote schema to ${flags.output}...`);
-    } else if (apsorcExists && flags.force) {
-      this.log("Force flag set. Skipping conflict checks and overwriting .apsorc...");
-    }
-
-    // Backup existing .apsorc if it exists
-    let backupPath: string | null = null;
-    if (apsorcExists) {
-      backupPath = `${apsorcPath}.backup.${Date.now()}`;
-      fs.copyFileSync(apsorcPath, backupPath);
-    }
-
-    // Write converted .apsorc
-    try {
-      writeApsorcFile(convertedSchema, apsorcPath);
-
-      // Validate the written file using the parser
-      try {
-        parseApsorc();
-        // If we get here, validation succeeded
-        this.log(`✓ Schema pulled successfully and written to .apsorc`);
-
-        // Clean up backup on success
-        if (backupPath && fs.existsSync(backupPath)) {
-          fs.unlinkSync(backupPath);
-        }
-      } catch (parseError) {
-        // Restore backup on validation failure
-        if (backupPath && fs.existsSync(backupPath)) {
-          fs.copyFileSync(backupPath, apsorcPath);
-          fs.unlinkSync(backupPath);
-        }
-        const err = parseError as Error;
-        this.error(
-          `Schema validation failed: ${err.message}\n` +
-          `The schema from the platform may be invalid or incompatible.\n` +
-          (apsorcExists ? "Original .apsorc has been restored." : "")
-        );
-      }
-
-      // Update link.json with sync info and hashes
-      // After pull, local and remote should match
-      const updatedLink = updateSchemaHashes(
-        {
-          ...link,
-          lastSyncedAt: new Date().toISOString(),
-          lastSyncDirection: "pull" as const,
-        },
-        remoteHash, // Local hash = remote hash after pull
-        remoteHash  // Remote hash
-      );
-
-      writeProjectLink(updatedLink);
-
-      // If schema-only, skip code download
-      if (!flags["schema-only"]) {
-        // Download code (which includes .apsorc in the bundle)
-        await this.downloadServiceCode(api, link);
-
-        // After downloading code, sync .apsorc from code directory to root
-        // Code directory .apsorc is authoritative (matches the generated code)
-        const syncedPath = syncApsorcToRoot();
-        if (syncedPath) {
-          this.log("");
-          this.log(`✓ Synced .apsorc from code directory to root`);
-          this.log(
-            `  Code directory .apsorc is the authoritative version (matches generated code)`
-          );
-        }
-      }
-
-      this.log("");
-      this.log("Next steps:");
-      this.log("  • Review the updated .apsorc file");
-      if (!flags["schema-only"]) {
-        const codeDir = getServiceCodeDir();
-        this.log(`  • Review the downloaded code in ${path.basename(codeDir)}/`);
-      }
-      this.log("  • Run 'apso server scaffold' to regenerate code from the schema");
-    } catch (error) {
-      // Restore backup on write failure
-      if (backupPath && fs.existsSync(backupPath)) {
-        fs.copyFileSync(backupPath, apsorcPath);
-        fs.unlinkSync(backupPath);
-      }
-      const err = error as Error;
-      this.error(`Failed to write .apsorc: ${err.message}`);
-    } finally {
-      // After modifying files, restore any stashed changes (if applicable)
-      await this.gitPostflight(projectRoot, gitContext);
-    }
+    await this.pullServiceCode(api, link, gitArgs);
   }
 
-  private async downloadServiceCode(
+  private async pullServiceCode(
     api: ReturnType<typeof createApiClient>,
-    link: { workspaceId: string; serviceId: string; serviceSlug: string }
+    link: { workspaceId: string; serviceId: string; serviceSlug: string; connectionId?: number; githubOwner?: string; repoName?: string; githubBranch?: string | null },
+    gitArgs: string[]
   ): Promise<void> {
     try {
-      const workspaceId = Number(link.workspaceId);
-      const serviceId = Number(link.serviceId);
+      const projectRoot = getProjectRoot();
+      const expectedCodeDir = getServiceCodeDir();
+      const resolvedExpectedDir = path.resolve(expectedCodeDir);
+      const currentDir = process.cwd();
+      const resolvedCurrentDir = path.resolve(currentDir);
 
-      if (Number.isNaN(workspaceId) || Number.isNaN(serviceId)) {
-        this.error("Invalid workspace or service ID");
+      // Debug: show what directory we're checking
+      if (process.env.DEBUG || process.env.APSO_DEBUG) {
+        this.log(`[DEBUG] Project root: ${projectRoot}`);
+        this.log(`[DEBUG] Expected code directory: ${resolvedExpectedDir}`);
+        this.log(`[DEBUG] Current working directory: ${resolvedCurrentDir}`);
       }
 
-      // Check if code exists
-      const existsPath = `/WorkspaceServices/${workspaceId}/${serviceId}/code/exists`;
-      const existsResp = await api.rawRequest<{ exists: boolean }>(existsPath);
+      // Determine the actual code directory
+      // Case 1: Current directory is the project root and has .git (repo cloned into project root)
+      // Case 2: Expected serviceName subdirectory exists
+      // Case 3: Current directory is the expected directory (user is in the code directory)
+      let resolvedCodeDir: string;
 
-      if (!existsResp.exists) {
-        // Auto-download: if code doesn't exist, just say we're downloading (don't ask)
+      const currentDirGit = path.join(resolvedCurrentDir, ".git");
+      const expectedDirGit = path.join(resolvedExpectedDir, ".git");
+
+      // Debug: check what exists
+      if (process.env.DEBUG || process.env.APSO_DEBUG) {
+        this.log(`[DEBUG] Checking current dir .git: ${fs.existsSync(currentDirGit)}`);
+        this.log(`[DEBUG] Checking expected dir exists: ${fs.existsSync(resolvedExpectedDir)}`);
+        this.log(`[DEBUG] Checking expected dir .git: ${fs.existsSync(expectedDirGit)}`);
+        this.log(`[DEBUG] Current dir === project root: ${resolvedCurrentDir === projectRoot}`);
+        this.log(`[DEBUG] Current dir === expected dir: ${resolvedCurrentDir === resolvedExpectedDir}`);
+      }
+
+      // Check in order of preference:
+      // 1. Current directory matches expected and has .git
+      // 2. Expected directory exists and has .git
+      // 3. Current directory is project root and has .git
+
+      if (resolvedCurrentDir === resolvedExpectedDir && fs.existsSync(currentDirGit)) {
+        // User is in the expected code directory and it has .git
+        resolvedCodeDir = resolvedCurrentDir;
+        if (process.env.DEBUG || process.env.APSO_DEBUG) {
+          this.log(`[DEBUG] Using current directory as code directory (matches expected, has .git)`);
+        }
+      } else if (fs.existsSync(resolvedExpectedDir) && fs.existsSync(expectedDirGit)) {
+        // Code repository is in the expected serviceName subdirectory
+        resolvedCodeDir = resolvedExpectedDir;
+        if (process.env.DEBUG || process.env.APSO_DEBUG) {
+          this.log(`[DEBUG] Using expected service directory as code directory`);
+        }
+      } else if (resolvedCurrentDir === projectRoot && fs.existsSync(currentDirGit)) {
+        // Code repository is in the project root itself
+        resolvedCodeDir = resolvedCurrentDir;
+        if (process.env.DEBUG || process.env.APSO_DEBUG) {
+          this.log(`[DEBUG] Using project root as code directory (has .git)`);
+        }
+      } else {
+        // Code directory not found or not a git repository
         this.log("");
-        this.log("Downloading service code...");
-        this.log("  (Code will be available after first push)");
+        this.warn("Code repository not found locally.");
+        this.log("");
+        this.log(`Checked locations:`);
+        this.log(`  1. Project root: ${projectRoot} ${fs.existsSync(currentDirGit) ? "(has .git)" : "(no .git)"}`);
+        if (resolvedExpectedDir !== projectRoot) {
+          const expectedExists = fs.existsSync(resolvedExpectedDir);
+          const expectedHasGit = fs.existsSync(expectedDirGit);
+          this.log(`  2. Service directory: ${resolvedExpectedDir}`);
+          this.log(`     - Directory exists: ${expectedExists ? "Yes" : "No"}`);
+          this.log(`     - Has .git folder: ${expectedHasGit ? "Yes" : "No"}`);
+
+          // If directory exists but no .git, provide specific guidance
+          if (expectedExists && !expectedHasGit) {
+            this.log("");
+            this.warn("Directory exists but is not a git repository.");
+            this.log("This might mean the clone didn't complete successfully.");
+            this.log("");
+            this.log("Try one of the following:");
+            this.log(`  1. Remove the directory and clone again: rm -rf "${resolvedExpectedDir}" && apso clone`);
+            this.log(`  2. Or manually initialize git: cd "${resolvedExpectedDir}" && git init && git remote add origin <repo-url>`);
+            return;
+          }
+        }
+        this.log("");
+        this.log("Please clone your repository first:");
+        this.log(`  Run: apso clone`);
+        this.log("");
+        this.log("This will clone the code repository to your local machine.");
         return;
       }
 
+      // Check if it's a git repository (should already be checked above, but double-check)
+      const gitDir = path.join(resolvedCodeDir, ".git");
+      if (!fs.existsSync(gitDir)) {
+        this.log("");
+        this.log("");
+        this.log("Please clone your repository first:");
+        this.log(`  Run: apso clone`);
+        this.log("");
+        this.log("Or remove the existing directory and clone again.");
+        return;
+      }
+
+      // Check if GitHub connection is available
+      if (!link.connectionId) {
+        this.log("");
+        this.warn("GitHub connection not found.");
+        this.log("");
+        this.log("Please connect your service to GitHub first:");
+        this.log(`  Run: apso github:connect`);
+        return;
+      }
+
+      // Check if repository info is available
+      if (!link.githubOwner || !link.repoName) {
+        this.log("");
+        this.warn("GitHub repository information not found.");
+        this.log("");
+        this.log("Please connect your service to GitHub first:");
+        this.log(`  Run: apso github:connect`);
+        return;
+      }
+
+      // Fetch GitHub connection details
       this.log("");
-      this.log("Downloading service code...");
+      this.log("Fetching GitHub connection details...");
+      /* eslint-disable camelcase */
+      interface GithubConnection {
+        id: number;
+        accessToken: string;
+        github_username: string;
+      }
+      /* eslint-enable camelcase */
 
-      // Get download URL
-      const downloadUrlPath = `/WorkspaceServices/${workspaceId}/${serviceId}/code/download-url`;
-      const downloadResp = await api.rawRequest<{ url: string }>(downloadUrlPath);
-
-      // Download zip
-      const zipResponse = await fetch(downloadResp.url);
-      if (!zipResponse.ok) {
-        throw new Error(`Failed to download code: ${zipResponse.status} ${zipResponse.statusText}`);
+      let githubConnection: GithubConnection;
+      try {
+        githubConnection = await api.rawRequest<GithubConnection>(
+          `/GithubConnections/${link.connectionId}`
+        );
+      } catch (error) {
+        const err = error as Error;
+        this.warn(`Failed to fetch GitHub connection: ${err.message}`);
+        this.warn("You can still use 'apso push' to push schema changes.");
+        return;
       }
 
-      const zipBuffer = Buffer.from(await zipResponse.arrayBuffer());
-      const zip = new AdmZip(zipBuffer);
+      // Determine branch
+      const branch = link.githubBranch || "main";
 
-      // Extract to current directory with service name as folder name
-      const codeDir = getServiceCodeDir();
-      if (fs.existsSync(codeDir)) {
-        // Remove existing code directory
-        fs.rmSync(codeDir, { recursive: true, force: true });
+      // Decrypt token for authentication
+      const decryptedToken = this.decrypt(githubConnection.accessToken);
+      const authenticatedRepoUrl = `https://x-access-token:${decryptedToken}@github.com/${link.githubOwner}/${link.repoName}.git`;
+
+      this.log("");
+      this.log("Pulling latest code from GitHub...");
+      this.log(`  Repository: ${link.githubOwner}/${link.repoName}`);
+      this.log(`  Branch: ${branch}`);
+
+      // Set environment variable to prevent git from prompting for credentials
+      const env = {
+        ...process.env,
+        GIT_TERMINAL_PROMPT: "0",
+      };
+
+      // Change to code directory and pull
+      const originalCwd = process.cwd();
+      try {
+        process.chdir(resolvedCodeDir);
+
+        // Update remote URL with authenticated URL to ensure authentication works
+        const remoteUpdateResult = shell.exec(
+          `git remote set-url origin "${authenticatedRepoUrl}"`,
+          { silent: true, env }
+        );
+
+        if (remoteUpdateResult.code !== 0) {
+          this.warn("Failed to update git remote URL. Continuing with existing remote...");
+        }
+
+        // Fetch latest changes first
+        const fetchResult = shell.exec(
+          `git fetch origin ${branch}`,
+          { silent: true, env }
+        );
+
+        if (fetchResult.code !== 0) {
+          const errorOutput = fetchResult.stderr || fetchResult.stdout || "Unknown error";
+          this.warn(`Failed to fetch from GitHub: ${errorOutput}`);
+          this.warn("You can still use 'apso push' to push schema changes.");
+          return;
+        }
+
+        // Execute git pull with the provided arguments
+        // gitArgs already includes "pull origin <branch>" and any flags
+        const pullCommand = `git ${gitArgs.join(" ")}`;
+        const pullResult = shell.exec(
+          pullCommand,
+          { silent: false, env } // Set to false to show git output
+        );
+
+        if (pullResult.code !== 0) {
+          const errorOutput = pullResult.stderr || pullResult.stdout || "Unknown error";
+          this.error(
+            `Failed to pull code from GitHub.\n` +
+            `Error: ${errorOutput}\n\n` +
+            `Troubleshooting:\n` +
+            `  - Check your network connection\n` +
+            `  - Verify you have access to the repository\n` +
+            `  - Check if there are local changes that need to be committed or stashed\n` +
+            `  - Verify the branch exists: ${branch}`
+          );
+          return;
+        }
+
+        this.log(`✓ Code pulled successfully from GitHub`);
+        this.log(`  Location: ${path.basename(resolvedCodeDir)}/`);
+      } finally {
+        process.chdir(originalCwd);
       }
-      fs.mkdirSync(codeDir, { recursive: true });
-
-      zip.extractAllTo(codeDir, true);
-
-      const entries = zip.getEntries();
-      const fileCount = entries.filter((e) => !e.isDirectory).length;
-
-      this.log(`✓ Code downloaded successfully (${fileCount} files)`);
-      this.log(`  Location: ${path.basename(codeDir)}/`);
     } catch (error) {
       const err = error as Error;
-      this.warn(`Failed to download service code: ${err.message}`);
+      this.warn(`Failed to pull service code: ${err.message}`);
       this.warn("You can still use 'apso push' to push schema changes.");
     }
+  }
+
+  /**
+   * Decrypt GitHub access token
+   * TODO: Move this to a shared utility
+   */
+  private decrypt(token: string): string {
+    const aesKeyB64 =
+      process.env.AES_KEY_B64 ||
+      "7N0eyS0YaZXKlXBK+tSY+3i/tKrKWqjrwaK++XtJSn8=";
+    const key = Buffer.from(aesKeyB64, "base64");
+    const [ivB64, dataB64, tagB64] = token.split(".");
+    if (!ivB64 || !dataB64 || !tagB64) throw new Error("Invalid token format");
+
+    const iv = Buffer.from(ivB64, "base64url");
+    const encrypted = Buffer.from(dataB64, "base64url");
+    const tag = Buffer.from(tagB64, "base64url");
+
+    const decipher = createDecipheriv(
+      "aes-256-gcm",
+      key as CipherKey,
+      iv as BinaryLike,
+      {
+        authTagLength: 16,
+      }
+    );
+
+    decipher.setAuthTag(tag as NodeJS.ArrayBufferView);
+
+    const decrypted = Buffer.concat([
+      decipher.update(encrypted as any),
+      decipher.final(),
+    ] as any);
+    return decrypted.toString("utf8");
   }
 }
 
