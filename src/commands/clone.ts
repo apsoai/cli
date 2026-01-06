@@ -1,4 +1,3 @@
-/* eslint-disable camelcase */
 import { Flags } from "@oclif/core";
 import BaseCommand from "../lib/base-command";
 import { readProjectLink, getProjectRoot } from "../lib/project-link";
@@ -6,24 +5,8 @@ import { createApiClient } from "../lib/api/client";
 import * as fs from "fs";
 import * as path from "path";
 import shell from "shelljs";
-import {
-  createDecipheriv,
-  CipherKey,
-  BinaryLike,
-} from 'crypto';
-
-interface GithubConnection {
-  id: number;
-  created_at: string;
-  updated_at: string;
-  accessToken: string;
-  refreshToken: string | null;
-  expiresAt: string | null;
-  github_user_id: string;
-  github_username: string;
-  refresh_token_expires_in: number | null;
-  workspaceId: number;
-}
+import { GithubConnection } from "../lib/api";
+import { decrypt } from "../lib/utils/git";
 
 export default class Clone extends BaseCommand {
   static description =
@@ -129,7 +112,7 @@ export default class Clone extends BaseCommand {
     }
 
     // Construct authenticated repository URL with x-access-token prefix
-    const decryptedToken = this.decrypt(githubConnection.accessToken);
+    const decryptedToken = decrypt(githubConnection.accessToken);
     const repoUrl = `https://x-access-token:${decryptedToken}@github.com/${repoPath}.git`;
     const maskedRepoUrl = `https://x-access-token:***@github.com/${repoPath}.git`;
 
@@ -185,38 +168,6 @@ export default class Clone extends BaseCommand {
     }
     // Default: assume HTTPS and add token
     return `https://${accessToken}@${repoUrl.replace(/^https?:\/\//, "")}`;
-  }
-
-  // eslint-disable-next-line no-warning-comments
-  // TODO Need to remove this methode and shift it to a seperate/central place
-  decrypt(token: string): string {
-    const aesKeyB64 =
-      process.env.AES_KEY_B64 ||
-      '7N0eyS0YaZXKlXBK+tSY+3i/tKrKWqjrwaK++XtJSn8=';
-    const key = Buffer.from(aesKeyB64, 'base64');
-    const [ivB64, dataB64, tagB64] = token.split('.');
-    if (!ivB64 || !dataB64 || !tagB64) throw new Error('Invalid token format');
-
-    const iv = Buffer.from(ivB64, 'base64url');
-    const encrypted = Buffer.from(dataB64, 'base64url');
-    const tag = Buffer.from(tagB64, 'base64url');
-
-    const decipher = createDecipheriv(
-      'aes-256-gcm',
-      key as CipherKey,
-      iv as BinaryLike,
-      {
-        authTagLength: 16,
-      },
-    );
-
-    decipher.setAuthTag(tag as NodeJS.ArrayBufferView);
-
-    const decrypted = Buffer.concat([
-      decipher.update(encrypted as any),
-      decipher.final(),
-    ] as any);
-    return decrypted.toString('utf8');
   }
 }
 

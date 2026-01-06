@@ -31,7 +31,6 @@ export interface ServiceSummary {
   slug: string;
   name: string;
   environments?: ServiceEnvironment[];
-  // eslint-disable-next-line camelcase
   infrastructure_details?: ServiceInfrastructureDetails
 }
 
@@ -298,6 +297,7 @@ export class ApiClient {
         JSON.stringify({ workspaceId: numericId })
       )}&limit=${pageSize}&offset=${offset}`;
 
+      // eslint-disable-next-line no-await-in-loop
       const response = await this.request<{
         data: Array<{ id: number; name: string; slug: string, infrastructure_details?: ServiceInfrastructureDetails }>;
         total?: number;
@@ -412,6 +412,7 @@ export class ApiClient {
     for (const query of queryFormats) {
       try {
         console.log(`[DEBUG] Trying query format: ${query}`);
+        // eslint-disable-next-line no-await-in-loop
         const response = await this.request<any>(query);
 
         if (query.includes('/WorkspaceServices/')) {

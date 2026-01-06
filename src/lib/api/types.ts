@@ -1,3 +1,4 @@
+/* eslint-disable camelcase */
 /**
  * Platform API Types
  *
@@ -230,4 +231,17 @@ export interface ApiRequestOptions {
    * Skip authentication (for public endpoints)
    */
   skipAuth?: boolean;
+}
+
+export interface GithubConnection {
+  id: number;
+  created_at: string;
+  updated_at: string;
+  accessToken: string;
+  refreshToken: string | null;
+  expiresAt: string | null;
+  github_user_id: string;
+  github_username: string;
+  refresh_token_expires_in: number | null;
+  workspaceId: number;
 }
