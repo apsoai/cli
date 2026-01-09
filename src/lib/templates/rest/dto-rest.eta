@@ -181,11 +181,11 @@ export class <%= it.entityName %> {
 <% }) -%>
 <% if (it.createdAt) { -%>
     @ApiProperty()
-    createdAt: Date;
+    created_at: Date;
 
 <% } -%>
 <% if (it.updatedAt) { -%>
     @ApiProperty()
-    updatedAt: Date;
+    updated_at: Date;
 <% } -%>
 }
