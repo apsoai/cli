@@ -120,11 +120,6 @@ export interface GlobalConfigFile {
   apiUrl: string;
 
   /**
-   * Platform web app URL (for OAuth)
-   */
-  webUrl: string;
-
-  /**
    * Enable verbose logging
    */
   verbose: boolean;
@@ -260,7 +255,6 @@ export interface SyncQueueFile {
  */
 export const DEFAULT_GLOBAL_CONFIG: GlobalConfigFile = {
   apiUrl: "https://api.apso.ai",
-  webUrl: "https://app.apso.ai",
   verbose: false,
   noColor: false,
   telemetryDisabled: false,
@@ -271,7 +265,7 @@ export const DEFAULT_GLOBAL_CONFIG: GlobalConfigFile = {
  */
 export const CONFIG_ENV_VARS = {
   APSO_API_URL: "apiUrl",
-  APSO_WEB_URL: "webUrl",
+  APSO_WEB_URL: "webUrl", // Note: webUrl is auto-detected, but can be overridden via env var
   APSO_DEBUG: "verbose",
   APSO_NO_COLOR: "noColor",
   APSO_PROFILE: "profile",

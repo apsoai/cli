@@ -101,9 +101,8 @@ export const globalConfig = {
     if (process.env.APSO_API_URL) {
       config.apiUrl = process.env.APSO_API_URL;
     }
-    if (process.env.APSO_WEB_URL) {
-      config.webUrl = process.env.APSO_WEB_URL;
-    }
+    // Note: webUrl is no longer stored in config - it's auto-detected from API URL
+    // But can still be overridden via APSO_WEB_URL environment variable
     if (process.env.APSO_DEBUG === "true" || process.env.APSO_DEBUG === "1") {
       config.verbose = true;
     }
