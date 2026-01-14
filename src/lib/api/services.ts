@@ -2,9 +2,34 @@
  * Platform API Services
  *
  * Typed API methods for interacting with platform resources.
+ * 
+ * NOTE: This file uses the 'api' object from the incoming branch which doesn't exist in HEAD.
+ * This file is temporarily disabled until it can be adapted to use the ApiClient class.
  */
 
-import { api } from "./client";
+// // import { api } from "./client";
+// NOTE: This file uses the 'api' object from the incoming branch which doesn't exist in HEAD.
+// This file is temporarily disabled until it can be adapted to use the ApiClient class.
+
+// Temporary placeholder API object with proper typing to prevent compilation errors
+const api = {
+  get: <T>(_path: string, _options?: any): Promise<T> => {
+    throw new Error("api.get is not yet implemented with ApiClient");
+  },
+  post: <T>(_path: string, _body?: any, _options?: any): Promise<T> => {
+    throw new Error("api.post is not yet implemented with ApiClient");
+  },
+  put: <T>(_path: string, _body?: any, _options?: any): Promise<T> => {
+    throw new Error("api.put is not yet implemented with ApiClient");
+  },
+  patch: <T>(_path: string, _body?: any, _options?: any): Promise<T> => {
+    throw new Error("api.patch is not yet implemented with ApiClient");
+  },
+  delete: <T>(_path: string, _options?: any): Promise<T> => {
+    throw new Error("api.delete is not yet implemented with ApiClient");
+  },
+};
+
 import {
   UserProfile,
   Workspace,

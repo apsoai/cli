@@ -1,5 +1,15 @@
 #!/usr/bin/env node
 
+// Load .env file before anything else
+const dotenv = require('dotenv');
+const path = require('path');
+const fs = require('fs');
+
+const envPath = path.join(process.cwd(), '.env');
+if (fs.existsSync(envPath)) {
+  dotenv.config({ path: envPath, override: true });
+}
+
 const oclif = require('@oclif/core')
 
 oclif.run().then(require('@oclif/core/flush')).catch(require('@oclif/core/handle'))

@@ -1,5 +1,6 @@
 import { Flags } from "@oclif/core";
 import * as path from "path";
+import * as fs from "fs";
 import inquirer from "inquirer";
 import {
   Entity,
@@ -20,7 +21,7 @@ import {
 } from "../../lib";
 import { TargetLanguage, GeneratorConfig } from "../../lib/types";
 import BaseCommand from "../../lib/base-command";
-import { ApiType } from "../../lib/apsorc-parser";
+import { ApiType, ApsorcType, parseApsorcV1, parseApsorcV2 } from "../../lib/apsorc-parser";
 import { performance } from "perf_hooks";
 import * as Eta from "eta";
 import { createFile } from "../../lib/utils/file-system";
@@ -176,33 +177,92 @@ export default class Scaffold extends BaseCommand {
     const skipFormat = flags["skip-format"];
 
     const totalBuildStart = performance.now();
-    const { rootFolder, entities, relationshipMap, apiType, auth, language: configLanguage } = parseApsorc();
+
+    // Prefer a local .apsorc in the current working directory (e.g. code bundle)
+    // so that `apso server scaffold` uses the schema next to the code by default.
+    // Fall back to the global rc("apso") loader if no local file exists.
+    let rootFolder: string;
+    let entities: Entity[];
+    let relationshipMap: RelationshipMap;
+    let apiType: string;
+    let auth: any;
+
+    const localApsorcPath = path.join(process.cwd(), ".apsorc");
+
+    if (fs.existsSync(localApsorcPath)) {
+      const raw = fs.readFileSync(localApsorcPath, "utf8");
+      let parsedFile: any;
+      try {
+        parsedFile = JSON.parse(raw);
+      } catch (error) {
+        const err = error as Error;
+        this.error(`Failed to parse .apsorc in current directory: ${err.message}`);
+      }
+
+      const version = parsedFile.version ?? 2;
+      const apiTypeValue = (parsedFile.apiType || "Rest") as string;
+      const apiTypeEnum =
+        apiTypeValue.toLowerCase() === ApiType.Graphql.toLowerCase()
+          ? ApiType.Graphql
+          : ApiType.Rest;
+
+      const apsorcInput: ApsorcType = {
+        version,
+        rootFolder: parsedFile.rootFolder || "src",
+        apiType: apiTypeEnum,
+        entities: parsedFile.entities || [],
+        relationships: parsedFile.relationships || [],
+        auth: parsedFile.auth,
+      };
+
+      const parsed =
+        version === 1 ? parseApsorcV1(apsorcInput) : parseApsorcV2(apsorcInput);
+
+      rootFolder = apsorcInput.rootFolder;
+      entities = parsed.entities;
+      relationshipMap = parsed.relationshipMap;
+      apiType = apiTypeEnum.toLowerCase();
+      auth = apsorcInput.auth;
+    } else {
+      // Fallback: use rc("apso")-based loader (original behaviour)
+      const parsed = parseApsorc();
+      rootFolder = parsed.rootFolder;
+      entities = parsed.entities;
+      relationshipMap = parsed.relationshipMap;
+      apiType = parsed.apiType;
+      auth = parsed.auth;
+    }
 
     // Resolve language: flag > .apsorc > prompt
     let language: TargetLanguage;
     if (flags.language) {
       language = flags.language as TargetLanguage;
-    } else if (configLanguage && isLanguageSupported(configLanguage)) {
-      language = configLanguage;
-      console.log(`[apso] Using language from .apsorc: ${language}`);
     } else {
-      // Prompt the user
-      const implementedLanguages = getImplementedLanguages();
-      const { selectedLanguage } = await inquirer.prompt<{ selectedLanguage: TargetLanguage }>([
-        {
-          type: "list",
-          name: "selectedLanguage",
-          message: "Select target language for code generation:",
-          choices: implementedLanguages.map((lang) => ({
-            name: lang === "typescript" ? "TypeScript (NestJS + TypeORM)" :
-                  lang === "python" ? "Python (FastAPI + SQLAlchemy)" :
-                  "Go (Gin + GORM)",
-            value: lang,
-          })),
-          default: "typescript",
-        },
-      ]);
-      language = selectedLanguage;
+      // Try to get language from .apsorc if available (may not be present in all versions)
+      const parsedFile = parseApsorc() as any;
+      const configLanguage = parsedFile.language;
+      if (configLanguage && isLanguageSupported(configLanguage)) {
+        language = configLanguage;
+        console.log(`[apso] Using language from .apsorc: ${language}`);
+      } else {
+        // Prompt the user
+        const implementedLanguages = getImplementedLanguages();
+        const { selectedLanguage } = await inquirer.prompt<{ selectedLanguage: TargetLanguage }>([
+          {
+            type: "list",
+            name: "selectedLanguage",
+            message: "Select target language for code generation:",
+            choices: implementedLanguages.map((lang) => ({
+              name: lang === "typescript" ? "TypeScript (NestJS + TypeORM)" :
+                    lang === "python" ? "Python (FastAPI + SQLAlchemy)" :
+                    "Go (Gin + GORM)",
+              value: lang,
+            })),
+            default: "typescript",
+          },
+        ]);
+        language = selectedLanguage;
+      }
     }
 
     // Validate language support
