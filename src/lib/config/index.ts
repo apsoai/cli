@@ -195,7 +195,7 @@ export async function getWebBaseUrl(): Promise<string> {
   if (config.webUrl) {
     return config.webUrl;
   }
-  console.log(process.env.APSO_WEB_URL, "no env found")
+
   // 3. Default to production
   return "http://localhost:3000";
 }
