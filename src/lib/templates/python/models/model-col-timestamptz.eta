@@ -2,9 +2,9 @@
 const isCreatedAt = ['createdAt', 'created_at'].includes(it.field.name);
 const isUpdatedAt = ['updatedAt', 'updated_at'].includes(it.field.name);
 -%>
-    <%= it.field.name %>: Mapped[<% if (!it.field.required) { %>Optional[datetime]<% } else { %>datetime<% } %>] = mapped_column(
+    <%= it.field.name %>: Mapped[<% if (it.field.nullable !== false) { %>Optional[datetime]<% } else { %>datetime<% } %>] = mapped_column(
         DateTime(timezone=True),
-        nullable=<%= it.field.required ? 'False' : 'True' %><% if (isCreatedAt) { %>,
+        nullable=<%= it.field.nullable === false ? 'False' : 'True' %><% if (isCreatedAt) { %>,
         server_default=func.now()<% } %><% if (isUpdatedAt) { %>,
         server_default=func.now(),
         onupdate=func.now()<% } %>

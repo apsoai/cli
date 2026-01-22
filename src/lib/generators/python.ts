@@ -83,6 +83,7 @@ export class PythonGenerator extends BaseGenerator {
           "decimal",
           "numeric",
           "date",
+          "datetime",
           "timestamp",
           "timestamptz",
           "json",

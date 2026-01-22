@@ -1,6 +1,6 @@
-    <%= it.field.name %>: Mapped[<% if (!it.field.required) { %>Optional[str]<% } else { %>str<% } %>] = mapped_column(
+    <%= it.field.name %>: Mapped[<% if (it.field.nullable !== false) { %>Optional[str]<% } else { %>str<% } %>] = mapped_column(
         Text,
-        nullable=<%= it.field.required ? 'False' : 'True' %><% if (it.field.unique) { %>,
+        nullable=<%= it.field.nullable === false ? 'False' : 'True' %><% if (it.field.unique) { %>,
         unique=True<% } %><% if (it.field.default !== undefined && it.field.default !== null) { %>,
-        default=<%= JSON.stringify(it.field.default) %><% } %>
+        default=<%~ JSON.stringify(it.field.default) %><% } %>
     )

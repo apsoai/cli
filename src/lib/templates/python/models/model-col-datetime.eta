@@ -1,0 +1,5 @@
+    <%= it.field.name %>: Mapped[<% if (it.field.nullable !== false) { %>Optional[datetime]<% } else { %>datetime<% } %>] = mapped_column(
+        DateTime,
+        nullable=<%= it.field.nullable === false ? 'False' : 'True' %><% if (it.field.default !== undefined && it.field.default !== null) { %>,
+        default=<%~ it.field.default === null ? 'None' : JSON.stringify(it.field.default) %><% } %>
+    )

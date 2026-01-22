@@ -1,5 +1,6 @@
-    <%= it.field.name %>: Mapped[<% if (!it.field.required) { %>Optional[float]<% } else { %>float<% } %>] = mapped_column(
+    <%= it.field.name %>: Mapped[<% if (it.field.nullable !== false) { %>Optional[float]<% } else { %>float<% } %>] = mapped_column(
         Float,
-        nullable=<%= it.field.required ? 'False' : 'True' %><% if (it.field.default !== undefined) { %>,
+        nullable=<%= it.field.nullable === false ? 'False' : 'True' %><% if (it.field.unique) { %>,
+        unique=True<% } %><% if (it.field.default !== undefined && it.field.default !== null) { %>,
         default=<%= it.field.default %><% } %>
     )

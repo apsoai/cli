@@ -5,12 +5,12 @@ const enumTypeName = it.field.enumType || `${it.entityName}${fieldNamePascal}Enu
 // Generate the PostgreSQL enum type name (snake_case version)
 const pgEnumName = (it.entityName + '_' + it.field.name + '_enum').toLowerCase().replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase();
 -%>
-    <%= it.field.name %>: Mapped[<% if (!it.field.required) { %>Optional[enums.<%= enumTypeName %>]<% } else { %>enums.<%= enumTypeName %><% } %>] = mapped_column(
+    <%= it.field.name %>: Mapped[<% if (it.field.nullable !== false) { %>Optional[enums.<%= enumTypeName %>]<% } else { %>enums.<%= enumTypeName %><% } %>] = mapped_column(
         SAEnum(
             enums.<%= enumTypeName %>,
             name="<%= pgEnumName %>",
             values_callable=lambda x: [e.value for e in x],
             create_type=False
         ),
-        nullable=<%= it.field.required ? 'False' : 'True' %>
+        nullable=<%= it.field.nullable === false ? 'False' : 'True' %>
     )
