@@ -2,6 +2,8 @@
 
 <% it.allEnumsFields.forEach((enumType) => { %>
 export enum <%= enumType.name %> {
-<%~ enumType.values.map((enumValue) => `${enumValue} = '${enumValue}'`).join(', ') %>
+<% for (const enumValue of (enumType.values || [])) { %>
+  <%= enumValue.toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/^(\d)/, '_$1').replace(/_+/g, '_').replace(/_$/, '') %> = '<%= enumValue %>',
+<% } %>
 }
 <% }) %>

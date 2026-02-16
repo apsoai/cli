@@ -93,15 +93,25 @@
     "version": "oclif readme && git add README.md"
   },
   "engines": {
-    "node": ">=12.0.0"
+    "node": ">=18.0.0"
   },
-  "bugs": "https://github.com/@apsoai/cli/issues",
+  "bugs": "https://github.com/apsoai/cli/issues",
   "keywords": [
     "apso",
     "apsoai",
     "apso-cli",
     "cli",
-    "oclif"
+    "oclif",
+    "backend-generator",
+    "api-generator",
+    "nestjs",
+    "code-generation",
+    "schema-to-api",
+    "rest-api",
+    "scaffolding",
+    "typeorm",
+    "fastapi",
+    "golang"
   ],
   "types": "dist/index.d.ts"
 }
