@@ -34,7 +34,7 @@
     "shelljs": "^0.8.5"
   },
   "devDependencies": {
-    "@jest/globals": "^29.5.0",
+    "@jest/globals": "^29.7.0",
     "@oclif/test": "^2.4.7",
     "@types/chai": "^4",
     "@types/inquirer": "^8.2.12",
