@@ -1,398 +1,824 @@
-/**
- * Platform API Client
- *
- * HTTP client for making authenticated requests to the Apso platform.
- * Features:
- * - Automatic token refresh
- * - Request/response interceptors
- * - Retry with exponential backoff
- * - Timeout handling
- */
-
+/* eslint-disable camelcase */
 import {
-  ApiError,
-  ApiRequestOptions,
-  TokenRefreshResponse,
-} from "./types";
-import { globalConfig, credentials } from "../config";
+  getApiBaseUrl,
+  readCredentials,
+  isAuthenticated,
+} from "../config/index";
+import { refreshAccessToken } from "../auth/oauth";
+import { Readable } from "stream";
 
-/**
- * Default request timeout in milliseconds
- */
-const DEFAULT_TIMEOUT = 30_000;
-
-/**
- * Maximum retry attempts for failed requests
- */
-const MAX_RETRIES = 3;
-
-/**
- * Base delay for exponential backoff in milliseconds
- */
-const BACKOFF_BASE_DELAY = 1000;
-
-/**
- * Custom error class for API errors
- */
-export class ApiClientError extends Error {
-  constructor(
-    message: string,
-    public statusCode: number,
-    public details?: Record<string, unknown>
-  ) {
-    super(message);
-    this.name = "ApiClientError";
-  }
-
-  /**
-   * Check if error is due to authentication failure
-   */
-  isAuthError(): boolean {
-    return this.statusCode === 401;
-  }
-
-  /**
-   * Check if error is a rate limit error
-   */
-  isRateLimitError(): boolean {
-    return this.statusCode === 429;
-  }
-
-  /**
-   * Check if error is a server error (5xx)
-   */
-  isServerError(): boolean {
-    return this.statusCode >= 500 && this.statusCode < 600;
-  }
+export interface WorkspaceSummary {
+  id: number;
+  slug: string;
+  name: string;
 }
 
-/**
- * Check if we're running in an environment with network access
- */
-export async function checkNetworkConnectivity(): Promise<boolean> {
-  try {
-    const config = globalConfig.read();
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
-
-    const response = await fetch(`${config.apiUrl}/health`, {
-      method: "HEAD",
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-    return response.ok;
-  } catch {
-    return false;
-  }
+export interface ServiceEnvironment {
+  id: string;
+  slug?: string;
+  name: string;
 }
 
-/**
- * Sleep for a given number of milliseconds
- */
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
+export interface ServiceInfrastructureDetails {
+  repoName?: string;
+  branchName?: string;
+  githubOwner?: string;
+  githubRepoUrl?: string;
+  githubConnectionId?: number;
+}
+export interface ServiceSummary {
+  id: number;
+  slug: string;
+  name: string;
+  environments?: ServiceEnvironment[];
+  infrastructure_details?: ServiceInfrastructureDetails
 }
 
-/**
- * Calculate backoff delay with jitter
- */
-function getBackoffDelay(attempt: number): number {
-  const delay = BACKOFF_BASE_DELAY * 2**attempt;
-  const jitter = Math.random() * 0.3 * delay;
-  return delay + jitter;
-}
+export class ApiClient {
+  private apiBaseUrl: string;
 
-/**
- * Build URL with query parameters
- */
-function buildUrl(
-  baseUrl: string,
-  path: string,
-  params?: Record<string, string | number | boolean | undefined>
-): string {
-  const url = new URL(path, baseUrl);
-
-  if (params) {
-    Object.entries(params).forEach(([key, value]) => {
-      if (value !== undefined) {
-        url.searchParams.append(key, String(value));
-      }
-    });
+  constructor() {
+    this.apiBaseUrl = getApiBaseUrl();
   }
 
-  return url.toString();
-}
+  private getCurrentUserId(): number {
+    const creds = readCredentials();
+    if (!creds) {
+      throw new Error(
+        "Credentials are missing. Please run 'apso login' to authenticate."
+      );
+    }
 
-/**
- * Refresh the access token using the refresh token
- */
-async function refreshAccessToken(): Promise<boolean> {
-  const creds = credentials.read();
-  if (!creds) {
-    return false;
+    const id = Number(creds.user.id);
+    if (Number.isNaN(id)) {
+      throw new TypeError(
+        "Authenticated user ID is not a number. Please contact support."
+      );
+    }
+
+    return id;
   }
 
-  try {
-    const config = globalConfig.read();
-    const response = await fetch(`${config.apiUrl}/auth/cli/refresh`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        refreshToken: creds.tokens.refreshToken,
-      }),
+  private async getAccessToken(): Promise<string> {
+    if (!isAuthenticated()) {
+      throw new Error(
+        "You are not logged in. Please run 'apso login' and try again."
+      );
+    }
+
+    const creds = readCredentials();
+    if (!creds) {
+      throw new Error(
+        "Credentials are missing. Please run 'apso login' to authenticate."
+      );
+    }
+
+    const expiresAt = new Date(creds.expiresAt);
+    const now = new Date();
+
+    // If token is expired or about to expire in the next minute, try to refresh.
+    if (expiresAt.getTime() - now.getTime() < 60 * 1000) {
+      const refreshed = await refreshAccessToken(creds.refreshToken);
+      // Persisting refreshed credentials is handled in the login flow;
+      // for now we simply use the new access token.
+      return refreshed.accessToken;
+    }
+
+    return creds.accessToken;
+  }
+
+  private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+    const token = await this.getAccessToken();
+    const url = `${this.apiBaseUrl}${path}`;
+
+    const headers: HeadersInit = {
+      ...init.headers,
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    };
+
+    const response = await fetch(url, {
+      ...init,
+      headers,
     });
 
     if (!response.ok) {
-      return false;
-    }
+      const text = await response.text();
 
-    const data = (await response.json()) as TokenRefreshResponse;
+      if (process.env.DEBUG || process.env.APSO_DEBUG) {
+        console.log(`[DEBUG] API Error Response (${response.status}):`, text);
+      }
 
-    // Update stored credentials with new access token
-    credentials.write({
-      tokens: {
-        ...creds.tokens,
-        accessToken: data.accessToken,
-        expiresAt: new Date(
-          Date.now() + data.expiresIn * 1000
-        ).toISOString(),
-      },
-      user: creds.user,
-    });
+      if (response.status === 401) {
+        throw new Error(
+          "Authentication failed (401). Please run 'apso login' again and retry."
+        );
+      }
 
-    return true;
-  } catch {
-    return false;
-  }
-}
+      if (response.status === 404) {
+        throw new Error(
+          `API endpoint not found (404): ${url}\n` +
+          `Please verify that the backend API is running and the endpoint exists.`
+        );
+      }
 
-/**
- * Make an authenticated request to the platform API
- * Note: Sequential retries are intentional for proper backoff behavior
- */
-/* eslint-disable no-await-in-loop */
-export async function apiRequest<T>(
-  path: string,
-  options: ApiRequestOptions = {}
-): Promise<T> {
-  const {
-    method = "GET",
-    body,
-    params,
-    headers = {},
-    timeout = DEFAULT_TIMEOUT,
-    skipAuth = false,
-  } = options;
-
-  const config = globalConfig.read();
-  const url = buildUrl(config.apiUrl, path, params);
-
-  // Build request headers
-  const requestHeaders: Record<string, string> = {
-    "Content-Type": "application/json",
-    "User-Agent": `apso-cli/${getCliVersion()}`,
-    ...headers,
-  };
-
-  // Add authentication if not skipped
-  if (!skipAuth) {
-    const creds = credentials.read();
-    if (!creds) {
-      throw new ApiClientError(
-        "Not authenticated. Run 'apso login' first.",
-        401
+      throw new Error(
+        `API request failed (${response.status}): ${text || response.statusText}`
       );
     }
 
-    // Check if token needs refresh
-    if (credentials.needsRefresh()) {
-      const refreshed = await refreshAccessToken();
-      if (!refreshed) {
-        throw new ApiClientError(
-          "Session expired. Please run 'apso login' again.",
-          401
-        );
-      }
+    const json = await response.json();
+
+    if (process.env.DEBUG || process.env.APSO_DEBUG) {
+      console.log(`[DEBUG] API Response:`, JSON.stringify(json, null, 2).slice(0, 500));
     }
 
-    // Re-read credentials after potential refresh
-    const freshCreds = credentials.read();
-    if (freshCreds) {
-      requestHeaders.Authorization = `Bearer ${freshCreds.tokens.accessToken}`;
-    }
+    return json as T;
   }
 
-  // Make request with retries
-  let lastError: Error | null = null;
+  /**
+   * Low-level helper used by a few advanced CLI commands that need to hit
+   * backend endpoints which don't yet have first-class wrappers here.
+   * Prefer adding dedicated typed methods instead of using this where possible.
+   */
+  async rawRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+    return this.request<T>(path, init);
+  }
 
-  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), timeout);
+  /**
+   * Upload a file using multipart/form-data
+   * Handles form-data package streams properly for Node.js
+   */
+  async uploadFile<T>(
+    path: string,
+    formData: any,
+    init: RequestInit = {}
+  ): Promise<T> {
+    const token = await this.getAccessToken();
+    const url = `${this.apiBaseUrl}${path}`;
 
-      const response = await fetch(url, {
-        method,
-        headers: requestHeaders,
-        body: body ? JSON.stringify(body) : undefined,
-        signal: controller.signal,
+    // Get headers from formData (form-data package provides getHeaders with boundary)
+    const formHeaders = formData.getHeaders ? formData.getHeaders() : {};
+
+    // Convert form-data stream to buffer
+    // form-data is a Readable stream, we need to consume it
+    const body = await new Promise<Buffer>((resolve, reject) => {
+      const chunks: Buffer[] = [];
+
+      // Ensure form-data is treated as a readable stream
+      const stream = formData as Readable;
+
+      stream.on('data', (chunk: Buffer | string) => {
+        // form-data emits both strings (boundaries) and Buffers
+        // We only want Buffer chunks
+        if (Buffer.isBuffer(chunk)) {
+          chunks.push(chunk);
+        } else if (typeof chunk === 'string') {
+          // Convert string to Buffer (boundary markers, etc.)
+          chunks.push(Buffer.from(chunk, 'utf8'));
+        }
       });
 
-      clearTimeout(timeoutId);
-
-      // Handle response
-      if (response.ok) {
-        // Handle empty responses
-        const contentType = response.headers.get("content-type");
-        if (
-          contentType?.includes("application/json") &&
-          response.status !== 204
-        ) {
-          return (await response.json()) as T;
+      stream.on('end', () => {
+        if (chunks.length === 0) {
+          reject(new Error('FormData stream ended with no data'));
+          return;
         }
-        return {} as T;
+        const result = Buffer.concat(chunks as unknown as Uint8Array[]);
+        resolve(result);
+      });
+
+      stream.on('error', (err: Error) => {
+        reject(err);
+      });
+
+      // Start reading the stream
+      stream.resume();
+    });
+
+    const headers: HeadersInit = {
+      ...formHeaders,
+      ...init.headers,
+      Authorization: `Bearer ${token}`,
+    };
+
+    const response = await fetch(url, {
+      ...init,
+      method: init.method || "POST",
+      body: body as any, // Buffer is compatible with fetch body but TypeScript needs help
+      headers,
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+
+      if (process.env.DEBUG || process.env.APSO_DEBUG) {
+        console.log(`[DEBUG] Upload Error Response (${response.status}):`, text);
       }
 
-      // Parse error response
-      let errorData: ApiError;
-      try {
-        errorData = await response.json();
-      } catch {
-        errorData = {
-          statusCode: response.status,
-          message: response.statusText,
-        };
-      }
-
-      // Handle 401 - try refresh once
-      if (response.status === 401 && attempt === 0 && !skipAuth) {
-        const refreshed = await refreshAccessToken();
-        if (refreshed) {
-          // Retry with new token
-          continue;
-        }
-        throw new ApiClientError(
-          "Session expired. Please run 'apso login' again.",
-          401
+      if (response.status === 401) {
+        throw new Error(
+          "Authentication failed (401). Please run 'apso login' again and retry."
         );
       }
 
-      // Handle rate limiting
-      if (response.status === 429) {
-        const retryAfter = response.headers.get("retry-after");
-        const waitTime = retryAfter
-          ? Number.parseInt(retryAfter, 10) * 1000
-          : getBackoffDelay(attempt);
-        await sleep(waitTime);
-        continue;
-      }
-
-      // Handle server errors with retry
-      if (response.status >= 500) {
-        lastError = new ApiClientError(
-          errorData.message || "Server error",
-          response.status,
-          errorData.details
+      if (response.status === 404) {
+        throw new Error(
+          `API endpoint not found (404): ${url}\n` +
+          `Please verify that the backend API is running and the endpoint exists.`
         );
-        await sleep(getBackoffDelay(attempt));
-        continue;
       }
 
-      // Client errors - don't retry
-      throw new ApiClientError(
-        errorData.message || "Request failed",
-        response.status,
-        errorData.details
+      throw new Error(
+        `API request failed (${response.status}): ${text || response.statusText}`
       );
-    } catch (error) {
-      if (error instanceof ApiClientError) {
-        throw error;
-      }
-
-      // Handle abort/timeout
-      if (error instanceof Error && error.name === "AbortError") {
-        lastError = new ApiClientError("Request timeout", 408);
-        continue;
-      }
-
-      // Network errors
-      lastError = new ApiClientError(
-        error instanceof Error ? error.message : "Network error",
-        0
-      );
-      await sleep(getBackoffDelay(attempt));
     }
+
+    const json = await response.json();
+
+    if (process.env.DEBUG || process.env.APSO_DEBUG) {
+      console.log(`[DEBUG] Upload Response:`, JSON.stringify(json, null, 2).slice(0, 500));
+    }
+
+    return json as T;
   }
 
-  throw lastError || new ApiClientError("Request failed after retries", 500);
-}
-/* eslint-enable no-await-in-loop */
+  /**
+   * List workspaces for the currently authenticated user, mirroring the
+   * frontend's getWorkspacesByUserId helper.
+   */
+  async listWorkspaces(): Promise<WorkspaceSummary[]> {
+    const userId = this.getCurrentUserId();
 
-/**
- * Get CLI version for User-Agent header
- */
-function getCliVersion(): string {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const pkg = require("../../../package.json");
-    return pkg.version;
-  } catch {
-    return "0.0.0";
+    const url =
+      `/WorkspaceUsers?filter=userId||$eq||${encodeURIComponent(
+        String(userId)
+      )}` +
+      `&filter=status||$eq||Active&join=workspace&limit=100`;
+
+    const response = await this.request<{
+      data: Array<{
+        id: number;
+        workspace: { id: number; name: string; slug: string };
+      }>;
+    }>(url);
+
+    const items = Array.isArray(response.data) ? response.data : [];
+
+    const seenWorkspaceIds = new Set<number>();
+
+    return items
+      .filter(
+        (item) => item.workspace && !seenWorkspaceIds.has(item.workspace.id)
+      )
+      .map((item) => {
+        seenWorkspaceIds.add(item.workspace.id);
+        return {
+          id: item.workspace.id,
+          name: item.workspace.name,
+          slug: item.workspace.slug,
+        };
+      });
+  }
+
+  async listServices(workspaceId: string): Promise<ServiceSummary[]> {
+    const numericId = Number(workspaceId);
+    if (Number.isNaN(numericId)) {
+      throw new TypeError(`Invalid workspace ID: ${workspaceId}`);
+    }
+
+    const pageSize = 100;
+    let offset = 0;
+    let allServices: ServiceSummary[] = [];
+    let hasMore = true;
+
+    while (hasMore) {
+      const url = `/WorkspaceServices?s=${encodeURIComponent(
+        JSON.stringify({ workspaceId: numericId })
+      )}&limit=${pageSize}&offset=${offset}`;
+
+      // eslint-disable-next-line no-await-in-loop
+      const response = await this.request<{
+        data: Array<{ id: number; name: string; slug: string, infrastructure_details?: ServiceInfrastructureDetails }>;
+        total?: number;
+      }>(url);
+
+      const items = Array.isArray(response.data) ? response.data : [];
+      const services = items.map((svc) => ({
+        id: svc.id,
+        name: svc.name,
+        slug: svc.slug,
+        infrastructure_details: svc.infrastructure_details,
+      }));
+
+      allServices = [...allServices, ...services];
+
+      // Check if we've fetched all services
+      if (items.length < pageSize || (response.total !== undefined && allServices.length >= response.total)) {
+        hasMore = false;
+      } else {
+        offset += pageSize;
+      }
+    }
+
+    return allServices;
+  }
+
+  /**
+   * Create a new workspace with sensible defaults. This mirrors the backend's
+   * Workspace entity defaults and keeps the payload minimal.
+   */
+  async createWorkspace(name: string): Promise<WorkspaceSummary> {
+    const slug = this.slugify(`${name}`);
+
+    const body = {
+      name,
+      slug,
+      workspaceType: "Other",
+      status: "Active",
+    };
+
+    const created = await this.request<{
+      id: number;
+      name: string;
+      slug: string;
+    }>("/Workspaces", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+
+    return {
+      id: created.id,
+      name: created.name,
+      slug: created.slug,
+    };
+  }
+
+
+  async getLatestSchema(serviceId: string): Promise<any> {
+    const serviceIdNum = Number.parseInt(serviceId, 10);
+    if (Number.isNaN(serviceIdNum)) {
+      throw new TypeError(`Invalid service ID format: ${serviceId}`);
+    }
+
+    console.log(`[DEBUG] Verifying authentication by checking user info...`);
+    try {
+      const creds = readCredentials();
+      if (creds?.user) {
+        console.log(
+          `[DEBUG] Authenticated as user ID: ${creds.user.id}, email: ${creds.user.email}`
+        );
+      }
+    } catch (error) {
+      console.log(`[DEBUG] Could not read credentials:`, error);
+    }
+
+    // Fetch the base WorkspaceService once so we can re-use its apsorc field as a fallback
+    let workspaceService: {
+      id: number;
+      name: string;
+      workspaceId: number;
+      apsorc?: any;
+    } | null = null;
+
+    try {
+      workspaceService = await this.request<{
+        id: number;
+        name: string;
+        workspaceId: number;
+        apsorc?: any;
+      }>(`/WorkspaceServices/${serviceIdNum}`);
+      console.log(
+        `[DEBUG] ✓ Can access service: ${workspaceService.name} (workspaceId: ${workspaceService.workspaceId})`
+      );
+    } catch (error: any) {
+      console.error(`[DEBUG] ✗ Cannot access service: ${error.message}`);
+      throw new Error(
+        `Cannot access service ${serviceIdNum}. You may not have permission to view this service.\n` +
+        `Original error: ${error.message}`
+      );
+    }
+
+    let debugResponse: any = null;
+    let allSchemas: any[] = [];
+
+    const queryFormats = [
+      `/WorkspaceServices/${serviceIdNum}?join=serviceSchemas&limit=100`,
+      `/ServiceSchemas?filter=workspaceServiceId||$eq||${serviceIdNum}&join=workspaceService&limit=10`,
+      `/ServiceSchemas?filter=workspaceServiceId||$eq||${serviceIdNum}&limit=10`,
+      `/ServiceSchemas?s=${encodeURIComponent(JSON.stringify({ workspaceServiceId: serviceIdNum }))}&limit=10`,
+    ];
+
+    for (const query of queryFormats) {
+      try {
+        console.log(`[DEBUG] Trying query format: ${query}`);
+        // eslint-disable-next-line no-await-in-loop
+        const response = await this.request<any>(query);
+
+        if (query.includes('/WorkspaceServices/')) {
+          const service = response;
+          if (service.serviceSchemas && Array.isArray(service.serviceSchemas)) {
+            allSchemas = service.serviceSchemas;
+            debugResponse = { data: allSchemas };
+            console.log(`[DEBUG] ✓ Found schemas via WorkspaceService relationship: ${allSchemas.length} schemas`);
+            break;
+          } else {
+            console.log(`[DEBUG] WorkspaceService response doesn't have serviceSchemas array`);
+            console.log(`[DEBUG] Response keys:`, Object.keys(service || {}));
+          }
+        } else {
+          debugResponse = response;
+          allSchemas = response.data || [];
+          if (allSchemas.length > 0) {
+            console.log(`[DEBUG] ✓ Query format worked! Found ${allSchemas.length} schemas`);
+            break;
+          } else {
+            console.log(`[DEBUG] Query returned empty results`);
+          }
+        }
+      } catch (error: any) {
+        console.log(`[DEBUG] Query format failed: ${error.message}`);
+        continue;
+      }
+    }
+
+    console.log(`[DEBUG] Final result: Found ${allSchemas.length} schemas for service ${serviceIdNum}:`);
+    if (allSchemas.length > 0) {
+      allSchemas.forEach((s) => {
+        console.log(`  - Schema ${s.id}: status=${s.status}, active=${s.active}, version=${s.version}, hasApsorc=${Boolean(s.apsorc)}, workspaceServiceId=${s.workspaceServiceId}`);
+      });
+    } else {
+      console.log(`[DEBUG] No schemas found. Full response:`, JSON.stringify(debugResponse, null, 2));
+    }
+
+    let response = await this.request<{
+      data: Array<{
+        id: number;
+        apsorc: any;
+        status: string;
+        active: boolean;
+        version: string;
+        created_at: string;
+      }>;
+      count: number;
+      total: number;
+    }>(
+      `/ServiceSchemas?sort=created_at,DESC&filter=workspaceServiceId||$eq||${serviceIdNum}&filter=active||$eq||true&limit=1`
+    );
+
+    if (!response.data || response.data.length === 0) {
+      response = await this.request<{
+        data: Array<{
+          id: number;
+          apsorc: any;
+          status: string;
+          active: boolean;
+          version: string;
+          created_at: string;
+        }>;
+        count: number;
+        total: number;
+      }>(
+        `/ServiceSchemas?sort=created_at,DESC&filter=workspaceServiceId||$eq||${serviceIdNum}&limit=1`
+      );
+    }
+
+    if (!response.data || response.data.length === 0) {
+      response = await this.request<{
+        data: Array<{
+          id: number;
+          apsorc: any;
+          status: string;
+          active: boolean;
+          version: string;
+          created_at: string;
+        }>;
+        count: number;
+        total: number;
+      }>(
+        `/ServiceSchemas?sort=created_at,DESC&filter=workspaceServiceId||$eq||${serviceIdNum}&filter=status||$eq||Deploy&limit=1`
+      );
+    }
+
+    if (!response.data || response.data.length === 0) {
+      response = await this.request<{
+        data: Array<{
+          id: number;
+          apsorc: any;
+          status: string;
+          active: boolean;
+          version: string;
+          created_at: string;
+        }>;
+        count: number;
+        total: number;
+      }>(
+        `/ServiceSchemas?sort=created_at,DESC&filter=workspaceServiceId||$eq||${serviceIdNum}&filter=status||$eq||Build&limit=1`
+      );
+    }
+
+    if (!response.data || response.data.length === 0) {
+      response = await this.request<{
+        data: Array<{
+          id: number;
+          apsorc: any;
+          status: string;
+          active: boolean;
+          version: string;
+          created_at: string;
+        }>;
+        count: number;
+        total: number;
+      }>(
+        `/ServiceSchemas?sort=created_at,DESC&filter=workspaceServiceId||$eq||${serviceIdNum}&filter=status||$eq||Draft&limit=1`
+      );
+    }
+
+    if (!response.data || response.data.length === 0) {
+      console.log(
+        `[DEBUG] No ServiceSchema records found via direct queries. Falling back to ServiceSchemaChat (chat history).`
+      );
+
+      const chatResponse = await this.request<{
+        data: Array<{
+          id: number;
+          schema: any;
+          created_at: string;
+          workspaceServiceId: number;
+        }>;
+        count: number;
+        total: number;
+      }>(
+        `/ServiceSchemaChats?sort=created_at,DESC&filter=workspaceServiceId||$eq||${serviceIdNum}&limit=1`
+      );
+
+      const chatSchemas = chatResponse.data || [];
+
+      if (chatSchemas.length === 0) {
+        if (debugResponse && debugResponse.data && debugResponse.data.length > 0) {
+          const statuses = debugResponse.data
+            .map(
+              (s: {
+                id: number;
+                status: string;
+                active: boolean;
+                version: string;
+              }) =>
+                `id=${s.id}, status=${s.status}, active=${s.active}, version=${s.version}`
+            )
+            .join("; ");
+          throw new Error(
+            `No schema found matching criteria for service ${serviceId}.\n` +
+            `Found ${debugResponse.data.length} ServiceSchema record(s) with: ${statuses}\n` +
+            `And no ServiceSchemaChat records were found either.\n` +
+            `Please ensure a schema is created on the platform.`
+          );
+        }
+
+        throw new Error(
+          `No schema found for service ${serviceId}.\n` +
+          `Please create a schema on the platform first.`
+        );
+      }
+
+      const chatSchema = chatSchemas[0];
+      if (!chatSchema.schema) {
+        throw new Error(
+          `ServiceSchemaChat ${chatSchema.id} has no schema data.\n` +
+          `This chat history may be incomplete.`
+        );
+      }
+
+      console.log(
+        `[DEBUG] Using schema from ServiceSchemaChat ${chatSchema.id} as fallback.`
+      );
+
+
+      if (typeof chatSchema.schema === "string") {
+        try {
+          return JSON.parse(chatSchema.schema);
+        } catch (error) {
+          throw new Error(
+            `ServiceSchemaChat ${chatSchema.id} schema is not valid JSON: ${(error as Error).message}`
+          );
+        }
+      }
+
+      return chatSchema.schema;
+    }
+
+    const schema = response.data[0];
+    if (!schema.apsorc) {
+      throw new Error(
+        `ServiceSchema ${schema.id} has no apsorc data.\n` +
+        `This schema may be incomplete.`
+      );
+    }
+
+    if (typeof schema.apsorc === "string") {
+      try {
+        return JSON.parse(schema.apsorc);
+      } catch (error) {
+        throw new Error(
+          `ServiceSchema ${schema.id} apsorc is not valid JSON: ${(error as Error).message}`
+        );
+      }
+    }
+
+    return schema.apsorc;
+  }
+
+  private slugify(value: string): string {
+    return value
+      .toLowerCase()
+      .trim()
+      .replace(/[^\da-z]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60);
+  }
+
+  /**
+   * Push schema to the platform
+   * Creates or updates a ServiceSchema record for the given service
+   * Deactivates all other active schemas for this service to ensure only one is active
+   */
+  async pushSchema(
+    serviceId: string,
+    schema: any
+  ): Promise<{ id?: number; version?: string; hash?: string }> {
+    const serviceIdNum = Number.parseInt(serviceId, 10);
+    if (Number.isNaN(serviceIdNum)) {
+      throw new TypeError(`Invalid service ID format: ${serviceId}`);
+    }
+
+    // First, find all active schemas for this service
+    let existingActiveSchemas: any[] = [];
+    try {
+      const response = await this.request<{
+        data: Array<{
+          id: number;
+          apsorc: any;
+          status: string;
+          active: boolean;
+          version: string;
+          workspaceServiceId: number;
+        }>;
+        count: number;
+      }>(
+        `/ServiceSchemas?filter=workspaceServiceId||$eq||${serviceIdNum}&filter=active||$eq||true`
+      );
+
+      if (response.data && response.data.length > 0) {
+        existingActiveSchemas = response.data;
+      }
+    } catch (error) {
+      // If query fails, we'll continue anyway
+      const err = error as Error;
+      if (process.env.DEBUG || process.env.APSO_DEBUG) {
+        console.log(`[DEBUG] Could not find existing schemas: ${err.message}`);
+      }
+    }
+
+    // Find the most recent active schema (if any) to update, otherwise create new
+    const existingSchema = existingActiveSchemas.length > 0
+      ? existingActiveSchemas.sort((a, b) => {
+        // Sort by created_at descending to get the most recent
+        const aDate = new Date(a.created_at || 0).getTime();
+        const bDate = new Date(b.created_at || 0).getTime();
+        return bDate - aDate;
+      })[0]
+      : null;
+
+    // Prepare schema payload
+    const schemaPayload = {
+      apsorc: schema,
+      workspaceServiceId: serviceIdNum,
+      status: "Draft", // Default to Draft, can be changed later
+      active: true,
+      version: `v${Date.now()}`, // Generate a version string
+    };
+
+    let result: any;
+
+    if (existingSchema) {
+      // Update existing schema
+      try {
+        result = await this.request<{
+          id: number;
+          apsorc: any;
+          version: string;
+          status: string;
+          active: boolean;
+        }>(`/ServiceSchemas/${existingSchema.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            ...schemaPayload,
+            version: existingSchema.version, // Keep existing version
+          }),
+        });
+      } catch (error) {
+        const err = error as Error;
+        throw new Error(
+          `Failed to update schema on platform: ${err.message}\n` +
+          `Schema ID: ${existingSchema.id}`
+        );
+      }
+    } else {
+      // Create new schema
+      try {
+        result = await this.request<{
+          id: number;
+          apsorc: any;
+          version: string;
+          status: string;
+          active: boolean;
+        }>(`/ServiceSchemas`, {
+          method: "POST",
+          body: JSON.stringify(schemaPayload),
+        });
+      } catch (error) {
+        const err = error as Error;
+        throw new Error(
+          `Failed to create schema on platform: ${err.message}\n` +
+          `Service ID: ${serviceIdNum}`
+        );
+      }
+    }
+
+    // IMPORTANT: Deactivate ALL other active schemas for this service
+    // This ensures only the schema we just pushed is active
+    // We need to fetch again in case a new schema was created (not updated)
+    let allActiveSchemas: any[] = [];
+    try {
+      const allActiveResponse = await this.request<{
+        data: Array<{
+          id: number;
+          active: boolean;
+        }>;
+      }>(
+        `/ServiceSchemas?filter=workspaceServiceId||$eq||${serviceIdNum}&filter=active||$eq||true`
+      );
+
+      if (allActiveResponse.data && allActiveResponse.data.length > 0) {
+        allActiveSchemas = allActiveResponse.data;
+      }
+    } catch (error) {
+      // If query fails, log but continue
+      const err = error as Error;
+      if (process.env.DEBUG || process.env.APSO_DEBUG) {
+        console.log(`[DEBUG] Could not fetch all active schemas for deactivation: ${err.message}`);
+      }
+    }
+
+    // Deactivate all schemas except the one we just created/updated
+    const schemasToDeactivate = allActiveSchemas.filter(
+      (s) => s.id !== result.id
+    );
+
+    if (schemasToDeactivate.length > 0) {
+      if (process.env.DEBUG || process.env.APSO_DEBUG) {
+        console.log(
+          `[DEBUG] Deactivating ${schemasToDeactivate.length} other active schema(s)`
+        );
+      }
+
+      // Deactivate other schemas in parallel
+      await Promise.all(
+        schemasToDeactivate.map(async (schemaToDeactivate) => {
+          try {
+            await this.request(`/ServiceSchemas/${schemaToDeactivate.id}`, {
+              method: "PATCH",
+              body: JSON.stringify({
+                active: false,
+              }),
+            });
+            if (process.env.DEBUG || process.env.APSO_DEBUG) {
+              console.log(
+                `[DEBUG] ✓ Deactivated schema ${schemaToDeactivate.id}`
+              );
+            }
+          } catch (error) {
+            // Log but don't fail the entire push if deactivation fails
+            const err = error as Error;
+            console.warn(
+              `Warning: Failed to deactivate schema ${schemaToDeactivate.id}: ${err.message}`
+            );
+          }
+        })
+      );
+    } else if (process.env.DEBUG || process.env.APSO_DEBUG) {
+      console.log(`[DEBUG] No other active schemas to deactivate`);
+    }
+
+    return {
+      id: result.id,
+      version: result.version,
+      // Hash would be calculated client-side if needed
+      hash: undefined,
+    };
   }
 }
 
-/**
- * Platform API client with typed methods
- */
-export const api = {
-  /**
-   * Make a GET request
-   */
-  get<T>(path: string, options?: Omit<ApiRequestOptions, "method" | "body">) {
-    return apiRequest<T>(path, { ...options, method: "GET" });
-  },
-
-  /**
-   * Make a POST request
-   */
-  post<T>(
-    path: string,
-    body?: unknown,
-    options?: Omit<ApiRequestOptions, "method" | "body">
-  ) {
-    return apiRequest<T>(path, { ...options, method: "POST", body });
-  },
-
-  /**
-   * Make a PUT request
-   */
-  put<T>(
-    path: string,
-    body?: unknown,
-    options?: Omit<ApiRequestOptions, "method" | "body">
-  ) {
-    return apiRequest<T>(path, { ...options, method: "PUT", body });
-  },
-
-  /**
-   * Make a PATCH request
-   */
-  patch<T>(
-    path: string,
-    body?: unknown,
-    options?: Omit<ApiRequestOptions, "method" | "body">
-  ) {
-    return apiRequest<T>(path, { ...options, method: "PATCH", body });
-  },
-
-  /**
-   * Make a DELETE request
-   */
-  delete<T>(path: string, options?: Omit<ApiRequestOptions, "method">) {
-    return apiRequest<T>(path, { ...options, method: "DELETE" });
-  },
-};
+export function createApiClient(): ApiClient {
+  return new ApiClient();
+}
