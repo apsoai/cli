@@ -2,33 +2,15 @@ import { Flags } from "@oclif/core";
 import * as path from "path";
 import inquirer from "inquirer";
 import {
-  Entity,
-  RelationshipMap,
-  createEntity,
-  createController,
-  createModule,
-  createService,
-  createIndexAppModule,
-  createDto,
   parseApsorc,
-  createEnums,
-  createGqlDTO,
-  createGuards,
   createGenerator,
   isLanguageSupported,
   getImplementedLanguages,
 } from "../lib";
 import { TargetLanguage, GeneratorConfig } from "../lib/types";
 import BaseCommand from "../lib/base-command";
-import { ApiType } from "../lib/apsorc-parser";
 import { performance } from "perf_hooks";
-import * as Eta from "eta";
 import { createFile } from "../lib/utils/file-system";
-
-Eta.configure({
-  views: path.join(__dirname, "../lib/templates"),
-  cache: false,
-});
 
 export default class Generate extends BaseCommand {
   static description = "Generate code from .apsorc schema";
@@ -55,122 +37,6 @@ export default class Generate extends BaseCommand {
 
   static args = {};
 
-  async scaffoldServer(options: {
-    dir: string;
-    entity: Entity;
-    relationshipMap: RelationshipMap;
-    apiType: string;
-    allEntities: Entity[];
-  }): Promise<void> {
-    const { dir, entity, relationshipMap, apiType, allEntities } = options;
-    const entityBuildStart = performance.now();
-    this.log(`Building... ${entity.name}`);
-
-    const entityName = entity.name;
-    const filePath = path.join(dir, entityName);
-    const entityRelationships = relationshipMap[entity.name] || [];
-    await createEntity({
-      apiBaseDir: filePath,
-      entity,
-      relationships: entityRelationships,
-      apiType,
-      allEntities,
-    });
-    switch (apiType) {
-      case ApiType.Graphql:
-        await this.setupGraphqlFiles(dir, entity, relationshipMap);
-        break;
-      case ApiType.Rest:
-        await this.setupRestFiles(
-          dir,
-          entity,
-          relationshipMap,
-          apiType,
-          allEntities
-        );
-        break;
-      default:
-        break;
-    }
-    await createModule(filePath, entity, { apiType });
-    const entityBuildTime = performance.now() - entityBuildStart;
-    console.log(
-      `[apso] Finished building entity '${
-        entity.name
-      }' in ${entityBuildTime.toFixed(2)} ms`
-    );
-  }
-
-  async setupRestFiles(
-    dir: string,
-    entity: Entity,
-    relationshipMap: RelationshipMap,
-    apiType: string,
-    allEntities: Entity[]
-  ) {
-    const filePath = path.join(dir, entity.name);
-    const entityRelationships = relationshipMap[entity.name] || [];
-
-    const tDto = performance.now();
-    await createDto(filePath, entity, entityRelationships, {
-      apiType,
-      allEntities,
-    });
-    if (process.env.DEBUG) {
-      console.log(
-        `[timing] createDto for ${entity.name}: ${(
-          performance.now() - tDto
-        ).toFixed(2)}ms`
-      );
-      const used = process.memoryUsage();
-      console.log(
-        `[mem] heapUsed after createDto for ${entity.name}: ${(
-          used.heapUsed /
-          1024 /
-          1024
-        ).toFixed(2)} MB`
-      );
-    }
-
-    const tService = performance.now();
-    await createService(filePath, entity, relationshipMap);
-    if (process.env.DEBUG) {
-      console.log(
-        `[timing] createService for ${entity.name}: ${(
-          performance.now() - tService
-        ).toFixed(2)}ms`
-      );
-      const used = process.memoryUsage();
-      console.log(
-        `[mem] heapUsed after createService for ${entity.name}: ${(
-          used.heapUsed /
-          1024 /
-          1024
-        ).toFixed(2)} MB`
-      );
-    }
-
-    const tController = performance.now();
-    await createController(filePath, entity, relationshipMap);
-    if (process.env.DEBUG) {
-      console.log(
-        `[timing] createController for ${entity.name}: ${(
-          performance.now() - tController
-        ).toFixed(2)}ms`
-      );
-    }
-  }
-
-  async setupGraphqlFiles(
-    dir: string,
-    entity: Entity,
-    relationshipMap: RelationshipMap
-  ) {
-    const filePath = path.join(dir, entity.name);
-    const entityRelationships = relationshipMap[entity.name] || [];
-    await createGqlDTO(filePath, entity, entityRelationships);
-  }
-
   async run(): Promise<void> {
     const { flags } = await this.parse(Generate);
     const skipFormat = flags["skip-format"];
@@ -186,7 +52,6 @@ export default class Generate extends BaseCommand {
       language = configLanguage;
       console.log(`[apso] Using language from .apsorc: ${language}`);
     } else {
-      // Prompt the user
       const implementedLanguages = getImplementedLanguages();
       const { selectedLanguage } = await inquirer.prompt<{ selectedLanguage: TargetLanguage }>([
         {
@@ -205,7 +70,6 @@ export default class Generate extends BaseCommand {
       language = selectedLanguage;
     }
 
-    // Validate language support
     if (!isLanguageSupported(language)) {
       this.error(`Unsupported language: ${language}. Supported: typescript, python, go`);
     }
@@ -216,109 +80,17 @@ export default class Generate extends BaseCommand {
         `Language '${language}' is not yet implemented. Currently available: ${implementedLanguages.join(", ")}`
       );
     }
+
     const rootPath = path.join(process.cwd(), rootFolder);
     const autogenPath = path.join(rootPath, "autogen");
     const lowerCaseApiType = apiType.toLowerCase();
 
     console.log(`[apso] Generating ${language} code for ${entities.length} entities...`);
 
-    // For TypeScript, use the existing code path (for backward compatibility)
-    // For other languages, use the new generator system
-    await (language === "typescript" ? this.scaffoldTypeScript({
-        autogenPath,
-        rootPath,
-        entities,
-        relationshipMap,
-        apiType: lowerCaseApiType,
-        auth,
-        skipFormat,
-      }) : this.scaffoldWithGenerator({
-        language,
-        rootFolder,
-        autogenPath,
-        entities,
-        relationshipMap,
-        apiType: lowerCaseApiType,
-        auth,
-        skipFormat,
-      }));
-
-    const totalBuildTime = performance.now() - totalBuildStart;
-    console.log(
-      `[apso] Finished building all entities in ${totalBuildTime.toFixed(2)} ms`
-    );
-  }
-
-  private async scaffoldTypeScript(options: {
-    autogenPath: string;
-    rootPath: string;
-    entities: Entity[];
-    relationshipMap: RelationshipMap;
-    apiType: string;
-    auth?: any;
-    skipFormat: boolean;
-  }): Promise<void> {
-    const { autogenPath, rootPath, entities, relationshipMap, apiType, auth, skipFormat } = options;
-
-    await createEnums(autogenPath, entities, apiType);
-    await Promise.all(
-      entities.map(async (entity) => {
-        const scaffoldModel = this.scaffoldServer.bind(this);
-        await scaffoldModel({
-          dir: autogenPath,
-          entity,
-          relationshipMap,
-          apiType,
-          allEntities: entities,
-        });
-        if (process.env.DEBUG) {
-          const used = process.memoryUsage();
-          console.log(
-            `[mem] heapUsed after ${entity.name}: ${(
-              used.heapUsed /
-              1024 /
-              1024
-            ).toFixed(2)} MB`
-          );
-        }
-      })
-    );
-
-    await createGuards(rootPath, entities, auth);
-
-    await createIndexAppModule(autogenPath, entities, apiType);
-
-    if (skipFormat) {
-      console.log("[apso] Skipping formatting (--skip-format flag set)");
-    } else {
-      const formatStart = performance.now();
-      console.log("[apso] Formatting files...");
-      await this.runNpmCommand(
-        ["run", "format", "src/autogen/**/*.ts", "src/guards/**/*.ts"],
-        true
-      );
-      const formatTime = performance.now() - formatStart;
-      console.log(`[apso] Finished formatting in ${formatTime.toFixed(2)} ms`);
-    }
-  }
-
-  /* eslint-disable no-await-in-loop */
-  private async scaffoldWithGenerator(options: {
-    language: TargetLanguage;
-    rootFolder: string;
-    autogenPath: string;
-    entities: Entity[];
-    relationshipMap: RelationshipMap;
-    apiType: string;
-    auth?: any;
-    skipFormat: boolean;
-  }): Promise<void> {
-    const { language, rootFolder, autogenPath, entities, relationshipMap, apiType, auth } = options;
-
     const generatorConfig: GeneratorConfig = {
       language,
       rootFolder,
-      apiType,
+      apiType: lowerCaseApiType,
       entities,
       relationshipMap,
       auth,
@@ -334,73 +106,63 @@ export default class Generate extends BaseCommand {
       console.log(`[apso] Warnings:\n${validationResult.warnings.join("\n")}`);
     }
 
-    const enumFiles = await generator.generateEnums(entities, apiType);
+    // Generate enums
+    const enumFiles = await generator.generateEnums(entities, lowerCaseApiType);
     for (const file of enumFiles) {
       const fullPath = path.join(autogenPath, file.path);
+      // eslint-disable-next-line no-await-in-loop
       await createFile(fullPath, file.content);
-      console.log(`[apso] Generated ${fullPath}`);
     }
 
+    // Generate per-entity files
     for (const entity of entities) {
       console.log(`[apso] Building... ${entity.name}`);
       const entityBuildStart = performance.now();
       const entityRelationships = relationshipMap[entity.name] || [];
 
-      const entityFiles = await generator.generateEntity({
-        entity,
-        relationships: entityRelationships,
-        allEntities: entities,
-        apiType,
-      });
-      for (const file of entityFiles) {
-        const fullPath = path.join(autogenPath, file.path);
-        await createFile(fullPath, file.content);
-      }
+      // eslint-disable-next-line no-await-in-loop
+      const allFiles = await Promise.all([
+        generator.generateEntity({
+          entity,
+          relationships: entityRelationships,
+          allEntities: entities,
+          apiType: lowerCaseApiType,
+        }),
+        generator.generateDto({
+          entity,
+          relationships: entityRelationships,
+          allEntities: entities,
+          apiType: lowerCaseApiType,
+        }),
+        generator.generateService({
+          entity,
+          relationships: entityRelationships,
+          allEntities: entities,
+          apiType: lowerCaseApiType,
+          relationshipMap,
+        }),
+        generator.generateController({
+          entity,
+          relationships: entityRelationships,
+          allEntities: entities,
+          apiType: lowerCaseApiType,
+          relationshipMap,
+        }),
+        generator.generateModule({
+          entity,
+          relationships: entityRelationships,
+          allEntities: entities,
+          apiType: lowerCaseApiType,
+        }),
+      ]);
 
-      const dtoFiles = await generator.generateDto({
-        entity,
-        relationships: entityRelationships,
-        allEntities: entities,
-        apiType,
-      });
-      for (const file of dtoFiles) {
-        const fullPath = path.join(autogenPath, file.path);
-        await createFile(fullPath, file.content);
-      }
-
-      const serviceFiles = await generator.generateService({
-        entity,
-        relationships: entityRelationships,
-        allEntities: entities,
-        apiType,
-        relationshipMap,
-      });
-      for (const file of serviceFiles) {
-        const fullPath = path.join(autogenPath, file.path);
-        await createFile(fullPath, file.content);
-      }
-
-      const controllerFiles = await generator.generateController({
-        entity,
-        relationships: entityRelationships,
-        allEntities: entities,
-        apiType,
-        relationshipMap,
-      });
-      for (const file of controllerFiles) {
-        const fullPath = path.join(autogenPath, file.path);
-        await createFile(fullPath, file.content);
-      }
-
-      const moduleFiles = await generator.generateModule({
-        entity,
-        relationships: entityRelationships,
-        allEntities: entities,
-        apiType,
-      });
-      for (const file of moduleFiles) {
-        const fullPath = path.join(autogenPath, file.path);
-        await createFile(fullPath, file.content);
+      // eslint-disable-next-line no-await-in-loop
+      for (const files of allFiles) {
+        for (const file of files) {
+          const fullPath = path.join(autogenPath, file.path);
+          // eslint-disable-next-line no-await-in-loop
+          await createFile(fullPath, file.content);
+        }
       }
 
       const entityBuildTime = performance.now() - entityBuildStart;
@@ -409,20 +171,39 @@ export default class Generate extends BaseCommand {
       );
     }
 
+    // Generate guards
     const guardFiles = await generator.generateGuards(entities, auth);
-    const rootPath = path.dirname(autogenPath);
     for (const file of guardFiles) {
-      const fullPath = path.join(rootPath, "autogen", file.path);
+      const fullPath = path.join(autogenPath, file.path);
+      // eslint-disable-next-line no-await-in-loop
       await createFile(fullPath, file.content);
-      console.log(`[apso] Generated ${fullPath}`);
     }
 
-    const indexFiles = await generator.generateIndexModule(entities, apiType);
+    // Generate index module
+    const indexFiles = await generator.generateIndexModule(entities, lowerCaseApiType);
     for (const file of indexFiles) {
       const fullPath = path.join(autogenPath, file.path);
+      // eslint-disable-next-line no-await-in-loop
       await createFile(fullPath, file.content);
-      console.log(`[apso] Generated ${fullPath}`);
     }
+
+    // Format generated files (TypeScript only)
+    if (language === "typescript" && !skipFormat) {
+      const formatStart = performance.now();
+      console.log("[apso] Formatting files...");
+      await this.runNpmCommand(
+        ["run", "format", "src/autogen/**/*.ts", "src/guards/**/*.ts"],
+        true
+      );
+      const formatTime = performance.now() - formatStart;
+      console.log(`[apso] Finished formatting in ${formatTime.toFixed(2)} ms`);
+    } else if (skipFormat) {
+      console.log("[apso] Skipping formatting (--skip-format flag set)");
+    }
+
+    const totalBuildTime = performance.now() - totalBuildStart;
+    console.log(
+      `[apso] Finished building all entities in ${totalBuildTime.toFixed(2)} ms`
+    );
   }
-  /* eslint-enable no-await-in-loop */
 }

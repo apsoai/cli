@@ -137,7 +137,7 @@ async function refreshAccessToken(): Promise<boolean> {
 
   try {
     const config = globalConfig.read();
-    const response = await fetch(`${config.apiUrl}/auth/cli/refresh`, {
+    const response = await fetch(`${config.apiUrl}/api/auth/cli/refresh`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
