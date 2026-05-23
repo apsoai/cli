@@ -108,24 +108,16 @@ npm run pack         # Create tarballs for distribution
 
 ### Python Code Generation Bugs (High Priority)
 
-#### Row 49 - Relationships not created in Python (QA - High)
-**Issue**: Relationships are not being created in the CLI Python code generation.
-**Status**: QA
-**Details**: The CLI's Python code generator needs to properly generate relationship definitions between models.
+#### Row 49 - Relationships not created in Python -- RESOLVED
+Relationships are generated correctly (OneToMany, ManyToOne with FK columns, back_populates).
 
-#### Row 48 - datetime type not supported (To-Do - Medium)
-**Issue**: The datetime type is not supported in the CLI Python code generation.
-**Status**: To-Do
-**Details**: Need to add datetime type mapping for Python/SQLAlchemy output.
+#### Row 48 - datetime type not supported -- RESOLVED
+DateTime type is fully supported (DateTime column, datetime Python type, template exists).
 
-#### Row 50 - Multiple Python syntax issues (To-Do - Medium)
-**Issue**: Several Python code generation issues:
-1. **Invalid Python syntax** - Generates `default=null` instead of `None` (Python uses `None`, not `null`)
-2. **Primary keys not configured correctly** - Generated as `nullable=True` instead of `primary_key=True, autoincrement=True`
-3. **HTML-encoded characters** - Generates `default=&quot;pending&quot;` instead of `default="pending"`
-
-**Status**: To-Do
-**Details**: Fix Eta templates for Python code generation to use proper Python syntax.
+#### Row 50 - Multiple Python syntax issues -- RESOLVED
+1. **default=null** -- Templates already use `None` for null defaults. No bug found.
+2. **Primary keys** -- Templates generate `primary_key=True, autoincrement=True` correctly.
+3. **HTML-encoded characters** -- Fixed. Replaced `JSON.stringify()` with direct string output in model-col-text, model-col-string, model-col-varchar, and model-col-datetime templates.
 
 ### Priority: Harden Existing Features
 

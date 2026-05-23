@@ -2,5 +2,5 @@
         Text,
         nullable=<%= it.field.nullable === false ? 'False' : 'True' %><% if (it.field.unique) { %>,
         unique=True<% } %><% if (it.field.default !== undefined && it.field.default !== null) { %>,
-        default=<%~ JSON.stringify(it.field.default) %><% } %>
+        default="<%= it.field.default %>"<% } %>
     )
