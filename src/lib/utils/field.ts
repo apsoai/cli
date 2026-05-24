@@ -1,6 +1,82 @@
 import { FieldType, Field, ComputedField, Entity } from "../types";
 import { pascalCase } from "./casing";
 
+/**
+ * Canonical mapping from .apsorc field types to Postgres column types.
+ * This is the single source of truth -- sandbox, entity-generator, and
+ * templates should all derive from this map.
+ */
+export const fieldTypeToColumnType: Record<string, string> = {
+  text: "text",
+  string: "varchar",
+  varchar: "varchar",
+  char: "char",
+  boolean: "boolean",
+  integer: "integer",
+  int: "integer",
+  smallint: "smallint",
+  bigint: "bigint",
+  float: "float",
+  real: "real",
+  double: "double precision",
+  decimal: "decimal",
+  numeric: "numeric",
+  serial: "integer",
+  bigserial: "bigint",
+  smallserial: "smallint",
+  date: "date",
+  timestamp: "timestamp",
+  timestamptz: "timestamptz",
+  time: "time",
+  timetz: "timetz",
+  json: "json",
+  jsonb: "jsonb",
+  "json-plain": "json",
+  uuid: "uuid",
+  money: "money",
+  bytea: "bytea",
+  xml: "xml",
+  inet: "inet",
+  interval: "interval",
+  tsvector: "tsvector",
+  enum: "enum",
+  array: "text",
+  point: "point",
+  geometry: "geometry",
+  geography: "geography",
+  linestring: "geometry",
+  polygon: "geometry",
+  multipoint: "geometry",
+  multilinestring: "geometry",
+  multipolygon: "geometry",
+  geometrycollection: "geometry",
+  int4range: "int4range",
+};
+
+/**
+ * Normalize PostgreSQL field types that have spaces or variants to their
+ * template-compatible names. This ensures field types like "double precision"
+ * map to the corresponding template file (entity-col-double.eta).
+ */
+const fieldTypeNormalizationMap: Record<string, string> = {
+  "double precision": "double",
+  "character varying": "varchar",
+  "bit varying": "varbit",
+  "time without time zone": "time",
+  "time with time zone": "timetz",
+  "timestamp without time zone": "timestamp",
+  "timestamp with time zone": "timestamptz",
+};
+
+/**
+ * Normalize a field type to its template-compatible name.
+ * PostgreSQL has some types with spaces (e.g., "double precision")
+ * that need to be mapped to simpler names for template lookup.
+ */
+export const normalizeFieldType = (type: string): string => {
+  return fieldTypeNormalizationMap[type.toLowerCase()] || type;
+};
+
 const typeToJsType: Record<string, string> = {
   array: "string[]", // or handle elementType elsewhere
   boolean: "boolean",
@@ -8,6 +84,7 @@ const typeToJsType: Record<string, string> = {
   float: "number",
   real: "number",
   double: "number",
+  "double precision": "number", // PostgreSQL alias for double
   decimal: "number",
   numeric: "number",
   smallint: "number",
@@ -94,8 +171,13 @@ export const getFieldForTemplate = (
     // Validate decimal/numeric fields
     validateDecimalField(field);
 
+    // Normalize field type for template lookup (e.g., "double precision" -> "double")
+    const normalizedType = normalizeFieldType(field.type);
+
     return {
       ...field,
+      // Use normalized type for template lookup
+      type: normalizedType as FieldType,
       default: getDefaultValueForField(field),
       dataType:
         field.type === "enum"

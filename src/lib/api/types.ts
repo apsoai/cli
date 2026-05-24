@@ -178,8 +178,15 @@ export interface UserProfile {
 export interface TokenExchangeResponse {
   accessToken: string;
   refreshToken: string;
-  expiresIn: number;
-  tokenType: string;
+  /**
+   * Token expiration as ISO timestamp string
+   */
+  expiresAt: string;
+  /**
+   * Optional: Token expiration in seconds (for compatibility)
+   */
+  expiresIn?: number;
+  tokenType?: string;
   user: {
     id: string;
     email: string;

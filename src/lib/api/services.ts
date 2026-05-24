@@ -26,7 +26,7 @@ export const authApi = {
    */
   exchangeCode(code: string): Promise<TokenExchangeResponse> {
     return api.post<TokenExchangeResponse>(
-      "/auth/cli/exchange",
+      "/api/auth/cli/exchange",
       { code },
       { skipAuth: true }
     );
@@ -36,14 +36,14 @@ export const authApi = {
    * Get current user profile
    */
   getProfile(): Promise<UserProfile> {
-    return api.get<UserProfile>("/auth/me");
+    return api.get<UserProfile>("/api/auth/me");
   },
 
   /**
    * Revoke current session
    */
   logout(): Promise<void> {
-    return api.post<void>("/auth/cli/logout");
+    return api.post<void>("/api/auth/cli/logout");
   },
 };
 
