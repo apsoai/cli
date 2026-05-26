@@ -24,6 +24,7 @@
   ],
   "dependencies": {
     "@electric-sql/pglite": "^0.2.17",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@oclif/core": "^2",
     "@oclif/plugin-help": "^5",
     "@oclif/plugin-plugins": "^3",
@@ -80,6 +81,19 @@
       },
       "schema": {
         "description": "Manage service schema (validate, push, pull, diff)"
+      },
+      "mcp": {
+        "description": "MCP server for AI coding agents"
+      }
+    },
+    "update": {
+      "node": {
+        "version": "18.20.4",
+        "targets": [
+          "darwin-x64",
+          "darwin-arm64",
+          "linux-x64"
+        ]
       }
     }
   },
