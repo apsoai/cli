@@ -35,8 +35,8 @@ export default class McpServe extends BaseCommand {
     await this.parse(McpServe);
 
     const server = new McpServer({
-      name: "api-tools",
-      version: "0.1.0",
+      name: "apso",
+      version: "0.10.2",
     });
 
     this.registerTools(server);

@@ -1,6 +1,7 @@
 {
   "name": "@apso/cli",
   "version": "0.10.2",
+  "mcpName": "io.github.apsoai/apso",
   "description": "Apso CLI",
   "author": "Apso by Mavric - @mavric",
   "bin": {
@@ -123,6 +124,10 @@
     "apso-cli",
     "cli",
     "oclif",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "ai-coding",
     "backend-generator",
     "api-generator",
     "nestjs",

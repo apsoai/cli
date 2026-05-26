@@ -21,6 +21,49 @@ npm install -g @apso/cli
 
 Requires Node.js 18.0 or higher.
 
+## MCP Server (AI editor integration)
+
+Apso works as an MCP server inside Claude Code, Cursor, Windsurf, and other MCP-compatible editors. Your AI assistant can design schemas, generate APIs, and deploy backends through conversation.
+
+**Claude Code**
+
+```bash
+claude mcp add apso -- apso mcp serve
+```
+
+**Cursor / VS Code / Other editors**
+
+Add to your MCP configuration:
+
+```json
+{
+  "mcpServers": {
+    "apso": {
+      "command": "apso",
+      "args": ["mcp", "serve"]
+    }
+  }
+}
+```
+
+**Available tools:**
+
+| Tool | Description |
+|------|-------------|
+| `design_schema` | Design a database schema from application requirements |
+| `validate_schema` | Validate an `.apsorc` schema file |
+| `scaffold_api` | Generate API code from schema (TypeScript, Python, or Go) |
+| `setup_auth` | Configure authentication (BetterAuth, Auth0, Clerk, Cognito, API Keys) |
+| `start_dev_server` | Start local dev environment via Docker Compose |
+| `deploy_api` | Deploy to the Apso platform |
+
+**Available resources:**
+
+| Resource | URI | Description |
+|----------|-----|-------------|
+| Schema reference | `apso://schema-guide` | Schema design guidelines and examples |
+| Current schema | `apso://current-schema` | Your project's current `.apsorc` |
+
 ## Connect
 
 Authenticate with the Apso platform:
@@ -72,6 +115,7 @@ Your API is live at `http://localhost:3000` with Swagger docs at `/api`. The gen
 | [projects](#apso-projects) | | List services in a workspace |
 | [config](#apso-config) | `get`, `set`, `reset` | View or modify CLI configuration |
 | [schema](#apso-schema) | `diff`, `push`, `pull`, `validate` | Manage schema sync with platform |
+| [mcp serve](#mcp-server-ai-editor-integration) | | Start MCP server for AI editors |
 
 ## Command reference
 
