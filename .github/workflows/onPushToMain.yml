@@ -61,13 +61,13 @@ jobs:
         fi
       
     - name: Debug Version Output
-      run: echo "New tag is ${{ steps.bump_version.outputs.new_tag }}"
+      run: echo "New tag is ${{ steps.bump_version.outputs.newTag }}"
       
     - name: Create GitHub Release
       run: |
-        if [ -n "${{ steps.bump_version.outputs.new_tag }}" ]; then
-          gh release create "${{ steps.bump_version.outputs.new_tag }}" \
-            --title "Release ${{ steps.bump_version.outputs.new_tag }}" \
+        if [ -n "${{ steps.bump_version.outputs.newTag }}" ]; then
+          gh release create "${{ steps.bump_version.outputs.newTag }}" \
+            --title "Release ${{ steps.bump_version.outputs.newTag }}" \
             --generate-notes
         else
           echo "No new tag was created, skipping release creation"
@@ -91,12 +91,12 @@ jobs:
         NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN }}
 
     - name: Build standalone tarballs
-      if: steps.bump_version.outputs.new_tag != ''
+      if: steps.bump_version.outputs.newTag != ''
       run: |
         npx oclif pack tarballs --targets darwin-x64,darwin-arm64,linux-x64
 
     - name: Rename tarballs and compute checksums
-      if: steps.bump_version.outputs.new_tag != ''
+      if: steps.bump_version.outputs.newTag != ''
       id: tarballs
       run: |
         VERSION=$(node -p "require('./package.json').version")
@@ -117,14 +117,14 @@ jobs:
         done
 
     - name: Upload tarballs to GitHub Release
-      if: steps.bump_version.outputs.new_tag != ''
+      if: steps.bump_version.outputs.newTag != ''
       run: |
-        gh release upload "${{ steps.bump_version.outputs.new_tag }}" release-assets/*.tar.gz --clobber
+        gh release upload "${{ steps.bump_version.outputs.newTag }}" release-assets/*.tar.gz --clobber
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Update Homebrew formula
-      if: steps.bump_version.outputs.new_tag != ''
+      if: steps.bump_version.outputs.newTag != ''
       run: |
         VERSION=$(node -p "require('./package.json').version")
         SHA_DARWIN_ARM64="${{ steps.tarballs.outputs.sha_darwin_arm64 }}"
