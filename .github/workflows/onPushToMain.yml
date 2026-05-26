@@ -83,6 +83,7 @@ jobs:
         NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN }}
     
     - name: Publish to npm
+      continue-on-error: true
       run: |
         npm config set access public
         npm publish
@@ -130,7 +131,7 @@ jobs:
         SHA_DARWIN_X64="${{ steps.tarballs.outputs.sha_darwin_x64 }}"
         SHA_LINUX_X64="${{ steps.tarballs.outputs.sha_linux_x64 }}"
 
-        git clone https://x-access-token:${{ secrets.HOMEBREW_TAP_TOKEN }}@github.com/apsoai/homebrew-tap.git /tmp/homebrew-tap-update
+        git clone https://x-access-token:${{ secrets.HOMEBRE_TAP_TOKEN }}@github.com/apsoai/homebrew-tap.git /tmp/homebrew-tap-update
         cd /tmp/homebrew-tap-update
 
         cat > Formula/apso.rb << 'FORMULA'
@@ -180,5 +181,5 @@ jobs:
         git commit -m "Update apso to ${VERSION}"
         git push
       env:
-        HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        HOMEBRE_TAP_TOKEN: ${{ secrets.HOMEBRE_TAP_TOKEN }}
 
