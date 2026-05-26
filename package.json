@@ -81,6 +81,16 @@
       "schema": {
         "description": "Manage service schema (validate, push, pull, diff)"
       }
+    },
+    "update": {
+      "node": {
+        "version": "18.20.4",
+        "targets": [
+          "darwin-x64",
+          "darwin-arm64",
+          "linux-x64"
+        ]
+      }
     }
   },
   "scripts": {

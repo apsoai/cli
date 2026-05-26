@@ -89,3 +89,96 @@ jobs:
       env:
         NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN }}
 
+    - name: Build standalone tarballs
+      if: steps.bump_version.outputs.new_tag != ''
+      run: |
+        npx oclif pack tarballs --targets darwin-x64,darwin-arm64,linux-x64
+
+    - name: Rename tarballs and compute checksums
+      if: steps.bump_version.outputs.new_tag != ''
+      id: tarballs
+      run: |
+        VERSION=$(node -p "require('./package.json').version")
+        mkdir -p release-assets
+
+        for target in darwin-x64 darwin-arm64 linux-x64; do
+          # oclif produces files like apso-v0.8.6-<short-sha>-<target>.tar.gz
+          src=$(ls dist/apso-v*-${target}.tar.gz 2>/dev/null | head -1)
+          if [ -z "$src" ]; then
+            echo "No tarball found for ${target}, skipping"
+            continue
+          fi
+          dest="release-assets/apso-v${VERSION}-${target}.tar.gz"
+          cp "$src" "$dest"
+          sha=$(shasum -a 256 "$dest" | awk '{print $1}')
+          echo "sha_${target//-/_}=${sha}" >> "$GITHUB_OUTPUT"
+          echo "${target}: ${sha}"
+        done
+
+    - name: Upload tarballs to GitHub Release
+      if: steps.bump_version.outputs.new_tag != ''
+      run: |
+        gh release upload "${{ steps.bump_version.outputs.new_tag }}" release-assets/*.tar.gz --clobber
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Update Homebrew formula
+      if: steps.bump_version.outputs.new_tag != ''
+      run: |
+        VERSION=$(node -p "require('./package.json').version")
+        SHA_DARWIN_ARM64="${{ steps.tarballs.outputs.sha_darwin_arm64 }}"
+        SHA_DARWIN_X64="${{ steps.tarballs.outputs.sha_darwin_x64 }}"
+        SHA_LINUX_X64="${{ steps.tarballs.outputs.sha_linux_x64 }}"
+
+        git clone https://x-access-token:${{ secrets.HOMEBREW_TAP_TOKEN }}@github.com/apsoai/homebrew-tap.git /tmp/homebrew-tap-update
+        cd /tmp/homebrew-tap-update
+
+        cat > Formula/apso.rb << 'FORMULA'
+        class Apso < Formula
+          desc "CLI for the Apso backend-as-a-service platform"
+          homepage "https://apso.ai"
+          version "___VERSION___"
+          license "MIT"
+
+          on_macos do
+            if Hardware::CPU.arm?
+              url "https://github.com/apsoai/cli/releases/download/v#{version}/apso-v#{version}-darwin-arm64.tar.gz"
+              sha256 "___SHA_DARWIN_ARM64___"
+            elsif Hardware::CPU.intel?
+              url "https://github.com/apsoai/cli/releases/download/v#{version}/apso-v#{version}-darwin-x64.tar.gz"
+              sha256 "___SHA_DARWIN_X64___"
+            end
+          end
+
+          on_linux do
+            if Hardware::CPU.intel?
+              url "https://github.com/apsoai/cli/releases/download/v#{version}/apso-v#{version}-linux-x64.tar.gz"
+              sha256 "___SHA_LINUX_X64___"
+            end
+          end
+
+          def install
+            libexec.install Dir["*"]
+            bin.install_symlink libexec/"bin/apso"
+          end
+
+          test do
+            assert_match version.to_s, shell_output("#{bin}/apso --version")
+          end
+        end
+        FORMULA
+
+        sed -i "s/___VERSION___/${VERSION}/g" Formula/apso.rb
+        sed -i "s/___SHA_DARWIN_ARM64___/${SHA_DARWIN_ARM64}/g" Formula/apso.rb
+        sed -i "s/___SHA_DARWIN_X64___/${SHA_DARWIN_X64}/g" Formula/apso.rb
+        sed -i "s/___SHA_LINUX_X64___/${SHA_LINUX_X64}/g" Formula/apso.rb
+        sed -i 's/^        //' Formula/apso.rb
+
+        git config user.name "GitHub Actions"
+        git config user.email "actions@github.com"
+        git add Formula/apso.rb
+        git commit -m "Update apso to ${VERSION}"
+        git push
+      env:
+        HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+

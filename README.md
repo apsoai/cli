@@ -6,6 +6,13 @@ Apso generates production-ready backend services from a JSON schema file. You ge
 
 ## Install
 
+**Homebrew** (macOS / Linux)
+
+```bash
+brew tap apsoai/tap
+brew install apso
+```
+
 **npm**
 
 ```bash
