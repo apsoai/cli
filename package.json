@@ -8,7 +8,7 @@
     "apso": "bin/run"
   },
   "homepage": "https://github.com/apsoai/cli",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "main": "dist/index.js",
   "repository": {
     "type": "git",
