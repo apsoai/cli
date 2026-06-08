@@ -207,6 +207,16 @@ export interface MigrationGenerationOptions {
    * Migration name/version
    */
   migrationName?: string;
+
+  /**
+   * SQL statements for the up direction (from PGlite sandbox)
+   */
+  upSql?: string[];
+
+  /**
+   * SQL statements for the down direction (from PGlite sandbox)
+   */
+  downSql?: string[];
 }
 
 /**

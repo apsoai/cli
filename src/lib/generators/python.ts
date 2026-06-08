@@ -294,11 +294,52 @@ export class PythonGenerator extends BaseGenerator {
   }
 
   async generateMigration(
-    _options: MigrationGenerationOptions
+    options: MigrationGenerationOptions
   ): Promise<GeneratedFile[]> {
-    // Alembic handles migrations differently
-    // This is a placeholder for future migration template generation
-    return [];
+    const { upSql, downSql, migrationName } = options;
+
+    if (!upSql || upSql.length === 0) {
+      return [];
+    }
+
+    const timestamp = new Date()
+      .toISOString()
+      .replace(/[-:T]/g, "")
+      .slice(0, 14);
+    const revision = timestamp;
+    const name = migrationName || "auto";
+    const filename = `${timestamp}_${name}.py`;
+
+    const upStatements = upSql
+      .map((sql) => `    op.execute("""${sql}""")`)
+      .join("\n");
+    const downStatements = (downSql || [])
+      .map((sql) => `    op.execute("""${sql}""")`)
+      .join("\n");
+
+    const content = `"""${name}"""
+from alembic import op
+
+revision = '${revision}'
+down_revision = None
+branch_labels = None
+depends_on = None
+
+
+def upgrade() -> None:
+${upStatements}
+
+
+def downgrade() -> None:
+${downStatements || "    pass"}
+`;
+
+    return [
+      {
+        path: `alembic/versions/${filename}`,
+        content,
+      },
+    ];
   }
 
   async generateEnums(

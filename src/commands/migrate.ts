@@ -1,12 +1,15 @@
+import * as path from "path";
 import { Flags } from "@oclif/core";
 import BaseCommand from "../lib/base-command";
 import { parseApsorc } from "../lib/apsorc-parser";
-import { readSnapshot, hasChanges, ComparableSchema } from "../lib/migrate/snapshot";
 import {
   runMigrationSandbox,
   applyMigration,
   resetSandbox,
 } from "../lib/migrate/sandbox";
+import { createGenerator } from "../lib";
+import { TargetLanguage, GeneratorConfig } from "../lib/types";
+import { createFile } from "../lib/utils/file-system";
 
 export default class Migrate extends BaseCommand {
   static description =
@@ -54,33 +57,6 @@ export default class Migrate extends BaseCommand {
       this.error(`Failed to parse .apsorc: ${msg}`);
     }
 
-    // Quick check against snapshot
-    const snapshot = readSnapshot();
-    const currentComparable: ComparableSchema = {
-      entities: parsed.entities.map((e) => ({
-        name: e.name,
-        fields: e.fields?.map((f) => ({
-          name: f.name,
-          type: f.type,
-          nullable: f.nullable,
-          unique: f.unique,
-          default: f.default ?? undefined,
-          index: f.index,
-        })),
-        primaryKeyType: e.primaryKeyType,
-        created_at: e.created_at,
-        updated_at: e.updated_at,
-        scopeBy: e.scopeBy,
-      })),
-    };
-
-    if (!hasChanges(currentComparable, snapshot)) {
-      if (!flags.sql) {
-        this.log("Schema unchanged. No migration needed.");
-      }
-      return;
-    }
-
     if (!flags.sql) {
       this.log("Schema changes detected. Running migration sandbox...");
     }
@@ -117,6 +93,32 @@ export default class Migrate extends BaseCommand {
       this.log("");
       this.log(`${result.upSql.length} statement(s) generated and tested.`);
       this.log("Migration validated against local PGlite.");
+
+      // Generate language-native migration files for Python and Go
+      const language: TargetLanguage = parsed.language || "typescript";
+      if (language !== "typescript") {
+        const generatorConfig: GeneratorConfig = {
+          language,
+          rootFolder: parsed.rootFolder || "src",
+          apiType: parsed.apiType || "rest",
+          entities: parsed.entities,
+          relationshipMap: parsed.relationshipMap,
+        };
+
+        const generator = createGenerator(generatorConfig);
+        const migrationFiles = await generator.generateMigration({
+          entities: parsed.entities,
+          relationshipMap: parsed.relationshipMap,
+          upSql: result.upSql,
+          downSql: result.downSql,
+        });
+
+        for (const file of migrationFiles) {
+          const fullPath = path.join(process.cwd(), file.path);
+          await createFile(fullPath, file.content);
+          this.log(`Generated migration file: ${file.path}`);
+        }
+      }
 
       if (flags.apply) {
         applyMigration({
