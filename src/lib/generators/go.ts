@@ -34,6 +34,7 @@ export class GoGenerator extends BaseGenerator {
     Eta.configure({
       views: this.templateBasePath,
       cache: false,
+      autoTrim: false,
     });
   }
 
@@ -187,6 +188,9 @@ export class GoGenerator extends BaseGenerator {
       primaryKeyGoType: this.getPrimaryKeyGoType(primaryKeyType),
       camelReferenceName: camelCase(rel.referenceName || rel.name),
       snakeReferenceName: snakeCase(rel.referenceName || rel.name),
+      pluralName: pascalCase(pluralize(rel.name)),
+      camelPluralName: camelCase(pluralize(rel.name)),
+      inverseName: pascalCase(rel.inversePropertyName || name),
     }));
 
     const entitiesToImport = getRelationshipsForImport(
@@ -324,6 +328,8 @@ export class GoGenerator extends BaseGenerator {
         ...rel,
         primaryKeyGoType: this.getPrimaryKeyGoType(referencedPrimaryKeyType),
         camelReferenceName: camelCase(rel.referenceName || rel.name),
+        pluralName: pascalCase(pluralize(rel.name)),
+        camelPluralName: camelCase(pluralize(rel.name)),
       };
     });
 
@@ -451,6 +457,19 @@ export class GoGenerator extends BaseGenerator {
         path: "middleware/auth.go",
         content,
       },
+    ];
+  }
+
+  async generateQueryUtils(
+    _entities: Entity[],
+    _apiType: string
+  ): Promise<GeneratedFile[]> {
+    const typesContent = await this.renderTemplate("./utils/types", {});
+    const queryContent = await this.renderTemplate("./utils/query", {});
+
+    return [
+      { path: "utils/types.go", content: typesContent },
+      { path: "utils/query.go", content: queryContent },
     ];
   }
 }

@@ -114,6 +114,14 @@ export default class Generate extends BaseCommand {
       await createFile(fullPath, file.content);
     }
 
+    // Generate shared query utilities
+    const queryUtilFiles = await generator.generateQueryUtils(entities, lowerCaseApiType);
+    for (const file of queryUtilFiles) {
+      const fullPath = path.join(autogenPath, file.path);
+      // eslint-disable-next-line no-await-in-loop
+      await createFile(fullPath, file.content);
+    }
+
     // Generate per-entity files
     for (const entity of entities) {
       console.log(`[apso] Building... ${entity.name}`);

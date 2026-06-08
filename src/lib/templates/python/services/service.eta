@@ -1,12 +1,12 @@
 <%~ includeFile('../header.eta', it) %>
 
-from typing import List, Optional, Tuple, Any, Dict
-from sqlalchemy import select, func, desc, asc
+from typing import List, Optional, Any
+
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from ..models.<%= it.entityName.toLowerCase() %> import <%= it.entityName %>
 from ..schemas.<%= it.entityName.toLowerCase() %> import <%= it.entityName %>Create, <%= it.entityName %>Update
+from ..utils.query import QueryBuilder, QueryOptions, PaginatedResult
 
 
 class <%= it.entityName %>Service:
@@ -16,59 +16,13 @@ class <%= it.entityName %>Service:
 
     def __init__(self, db: AsyncSession):
         self.db = db
+        self._qb = QueryBuilder(<%= it.entityName %>, db)
 
-    async def get_many(
-        self,
-        skip: int = 0,
-        limit: int = 10,
-        sort: Optional[str] = None,
-        filters: Optional[Dict[str, Any]] = None,
-        joins: Optional[List[str]] = None,
-    ) -> Tuple[List[<%= it.entityName %>], int]:
+    async def get_many(self, options: QueryOptions) -> PaginatedResult:
         """
-        Retrieve a paginated list of <%= it.pluralEntityName %>.
+        Retrieve a paginated list of <%= it.pluralEntityName %> with filtering, sorting, and joins.
         """
-        # Build base query
-        query = select(<%= it.entityName %>)
-
-        # Apply filters
-        if filters:
-            for field, value in filters.items():
-                if hasattr(<%= it.entityName %>, field) and value is not None:
-                    query = query.where(getattr(<%= it.entityName %>, field) == value)
-
-        # Apply sorting
-        if sort:
-            if sort.startswith("-"):
-                query = query.order_by(desc(getattr(<%= it.entityName %>, sort[1:])))
-            else:
-                query = query.order_by(asc(getattr(<%= it.entityName %>, sort)))
-        else:
-            query = query.order_by(<%= it.entityName %>.id)
-
-        # Apply joins
-        if joins:
-            for join in joins:
-                if hasattr(<%= it.entityName %>, join):
-                    query = query.options(selectinload(getattr(<%= it.entityName %>, join)))
-
-        # Get total count
-        count_query = select(func.count()).select_from(<%= it.entityName %>)
-        if filters:
-            for field, value in filters.items():
-                if hasattr(<%= it.entityName %>, field) and value is not None:
-                    count_query = count_query.where(getattr(<%= it.entityName %>, field) == value)
-        total_result = await self.db.execute(count_query)
-        total = total_result.scalar() or 0
-
-        # Apply pagination
-        query = query.offset(skip).limit(limit)
-
-        # Execute query
-        result = await self.db.execute(query)
-        items = list(result.scalars().all())
-
-        return items, total
+        return await self._qb.get_many(options)
 
     async def get_one(
         self,
@@ -78,16 +32,7 @@ class <%= it.entityName %>Service:
         """
         Retrieve a single <%= it.entityName %> by ID.
         """
-        query = select(<%= it.entityName %>).where(<%= it.entityName %>.id == id)
-
-        # Apply joins
-        if joins:
-            for join in joins:
-                if hasattr(<%= it.entityName %>, join):
-                    query = query.options(selectinload(getattr(<%= it.entityName %>, join)))
-
-        result = await self.db.execute(query)
-        return result.scalar_one_or_none()
+        return await self._qb.get_one(id, joins=joins)
 
     async def create_one(self, data: <%= it.entityName %>Create) -> <%= it.entityName %>:
         """

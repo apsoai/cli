@@ -6,10 +6,29 @@ import (
 	"context"
 	"errors"
 
-	"app/dto"
-	"app/models"
+	"app/autogen/dto"
+	"app/autogen/models"
+	"app/autogen/utils"
 	"gorm.io/gorm"
 )
+
+// AllowedFields<%= it.entityName %> defines the column names that can be used in
+// filter and sort query parameters. This prevents arbitrary column access.
+var AllowedFields<%= it.entityName %> = map[string]bool{
+	"id": true,
+<% it.columns.forEach((column) => { %>
+	"<%= column.snakeName %>": true,
+<% }) %>
+<% if (it.createdAt) { %>
+	"created_at": true,
+<% } %>
+<% if (it.updatedAt) { %>
+	"updated_at": true,
+<% } %>
+<% it.associations.filter(a => a.type === 'ManyToOne' || (a.type === 'OneToOne' && a.isOwner)).forEach((assoc) => { %>
+	"<%= assoc.snakeReferenceName || assoc.snakeName %>_id": true,
+<% }) %>
+}
 
 type <%= it.entityName %>Service struct {
 	db *gorm.DB
@@ -19,28 +38,19 @@ func New<%= it.entityName %>Service(db *gorm.DB) *<%= it.entityName %>Service {
 	return &<%= it.entityName %>Service{db: db}
 }
 
-// FindAll retrieves a paginated list of <%= it.pluralName %>
-func (s *<%= it.entityName %>Service) FindAll(ctx context.Context, page, pageSize int) (*dto.<%= it.entityName %>PaginatedResponse, error) {
-	var total int64
+// FindAll retrieves a paginated list of <%= it.pluralName %> with filtering, sorting, and joins.
+func (s *<%= it.entityName %>Service) FindAll(ctx context.Context, opts utils.QueryOptions) (*dto.<%= it.entityName %>PaginatedResponse, error) {
 	var items []models.<%= it.entityName %>
 
-	offset := (page - 1) * pageSize
-
-	if err := s.db.WithContext(ctx).Model(&models.<%= it.entityName %>{}).Count(&total).Error; err != nil {
-		return nil, err
-	}
-
-	query := s.db.WithContext(ctx)
+	query := s.db.WithContext(ctx).Model(&models.<%= it.entityName %>{})
 <% it.associations.filter(a => a.eager).forEach((assoc) => { %>
 	query = query.Preload("<%= assoc.referenceName || assoc.name %>")
 <% }) %>
-	if err := query.Offset(offset).Limit(pageSize).Find(&items).Error; err != nil {
-		return nil, err
-	}
 
-	totalPages := int(total) / pageSize
-	if int(total)%pageSize > 0 {
-		totalPages++
+	query, total, pageCount := utils.ApplyQuery(query, opts, AllowedFields<%= it.entityName %>)
+
+	if err := query.Find(&items).Error; err != nil {
+		return nil, err
 	}
 
 	response := make([]dto.<%= it.entityName %>Response, len(items))
@@ -49,11 +59,11 @@ func (s *<%= it.entityName %>Service) FindAll(ctx context.Context, page, pageSiz
 	}
 
 	return &dto.<%= it.entityName %>PaginatedResponse{
-		Data:       response,
-		Total:      total,
-		Page:       page,
-		PageSize:   pageSize,
-		TotalPages: totalPages,
+		Data:      response,
+		Count:     len(response),
+		Total:     total,
+		Page:      opts.Page,
+		PageCount: pageCount,
 	}, nil
 }
 

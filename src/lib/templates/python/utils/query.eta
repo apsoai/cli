@@ -1,0 +1,320 @@
+<%~ includeFile('../header.eta', it) %>
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Type, TypeVar
+
+from sqlalchemy import asc, desc, func, or_
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+from sqlalchemy.sql import Select, select
+
+T = TypeVar("T")
+
+MAX_LIMIT = 200
+DEFAULT_LIMIT = 25
+DEFAULT_PAGE = 1
+
+
+# ---------------------------------------------------------------------------
+# Parsed query structures
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ParsedFilter:
+    field: str
+    operator: str
+    value: str
+
+
+@dataclass
+class ParsedSort:
+    field: str
+    direction: str  # "ASC" or "DESC"
+
+
+@dataclass
+class ParsedJoin:
+    relation: str
+    fields: Optional[List[str]] = None
+
+
+@dataclass
+class QueryOptions:
+    filters: List[ParsedFilter] = field(default_factory=list)
+    or_filters: List[ParsedFilter] = field(default_factory=list)
+    sorts: List[ParsedSort] = field(default_factory=list)
+    fields: Optional[List[str]] = None
+    joins: List[ParsedJoin] = field(default_factory=list)
+    limit: int = DEFAULT_LIMIT
+    page: int = DEFAULT_PAGE
+
+
+@dataclass
+class PaginatedResult:
+    data: List[Any]
+    count: int
+    total: int
+    page: int
+    page_count: int
+
+
+# ---------------------------------------------------------------------------
+# Operator registry
+# ---------------------------------------------------------------------------
+
+def _apply_operator(model: Any, field_name: str, op: str, value: str) -> Any:
+    """Return a SQLAlchemy filter expression for the given operator."""
+    col = getattr(model, field_name, None)
+    if col is None:
+        return None
+
+    lower_col = func.lower(col)
+
+    operators: Dict[str, Any] = {
+        "$eq": lambda: col == value,
+        "$ne": lambda: col != value,
+        "$gt": lambda: col > value,
+        "$gte": lambda: col >= value,
+        "$lt": lambda: col < value,
+        "$lte": lambda: col <= value,
+        "$starts": lambda: col.like(f"{value}%"),
+        "$ends": lambda: col.like(f"%{value}"),
+        "$cont": lambda: col.like(f"%{value}%"),
+        "$excl": lambda: ~col.like(f"%{value}%"),
+        "$in": lambda: col.in_(_split_value(value)),
+        "$notin": lambda: ~col.in_(_split_value(value)),
+        "$isnull": lambda: col.is_(None),
+        "$notnull": lambda: col.isnot(None),
+        "$between": lambda: col.between(*_split_value(value)[:2]),
+        "$eqL": lambda: lower_col == value.lower(),
+        "$neL": lambda: lower_col != value.lower(),
+        "$startsL": lambda: lower_col.like(f"{value.lower()}%"),
+        "$endsL": lambda: lower_col.like(f"%{value.lower()}"),
+        "$contL": lambda: lower_col.like(f"%{value.lower()}%"),
+        "$exclL": lambda: ~lower_col.like(f"%{value.lower()}%"),
+        "$inL": lambda: lower_col.in_([v.lower() for v in _split_value(value)]),
+        "$notinL": lambda: ~lower_col.in_([v.lower() for v in _split_value(value)]),
+    }
+
+    fn = operators.get(op)
+    if fn is None:
+        return None
+    return fn()
+
+
+def _split_value(value: str) -> List[str]:
+    """Split a comma-separated value string."""
+    return [v.strip() for v in value.split(",")]
+
+
+# ---------------------------------------------------------------------------
+# Parser
+# ---------------------------------------------------------------------------
+
+def _parse_filter_param(raw: str) -> Optional[ParsedFilter]:
+    """Parse 'field||$operator||value' into a ParsedFilter."""
+    parts = raw.split("||")
+    if len(parts) < 2:
+        return None
+    field_name = parts[0]
+    operator = parts[1]
+    value = parts[2] if len(parts) > 2 else ""
+    return ParsedFilter(field=field_name, operator=operator, value=value)
+
+
+def _parse_sort_param(raw: str) -> Optional[ParsedSort]:
+    """Parse 'field,ASC' or 'field,DESC' into a ParsedSort."""
+    parts = raw.split(",")
+    if not parts:
+        return None
+    field_name = parts[0]
+    direction = parts[1].upper() if len(parts) > 1 else "ASC"
+    if direction not in ("ASC", "DESC"):
+        direction = "ASC"
+    return ParsedSort(field=field_name, direction=direction)
+
+
+def _parse_join_param(raw: str) -> ParsedJoin:
+    """Parse 'relation' or 'relation||field1,field2' into a ParsedJoin."""
+    parts = raw.split("||")
+    relation = parts[0]
+    fields = None
+    if len(parts) > 1 and parts[1]:
+        fields = [f.strip() for f in parts[1].split(",")]
+    return ParsedJoin(relation=relation, fields=fields)
+
+
+def parse_query_params(params: Any) -> QueryOptions:
+    """
+    Parse Starlette/FastAPI QueryParams into QueryOptions.
+    Supports repeated keys via getlist().
+    """
+    opts = QueryOptions()
+
+    # Filters
+    for raw in params.getlist("filter"):
+        parsed = _parse_filter_param(raw)
+        if parsed:
+            opts.filters.append(parsed)
+
+    # OR filters
+    for raw in params.getlist("or"):
+        parsed = _parse_filter_param(raw)
+        if parsed:
+            opts.or_filters.append(parsed)
+
+    # Sorts
+    for raw in params.getlist("sort"):
+        parsed = _parse_sort_param(raw)
+        if parsed:
+            opts.sorts.append(parsed)
+
+    # Fields
+    fields_raw = params.get("fields")
+    if fields_raw:
+        opts.fields = [f.strip() for f in fields_raw.split(",")]
+
+    # Joins
+    for raw in params.getlist("join"):
+        opts.joins.append(_parse_join_param(raw))
+
+    # Pagination
+    limit_raw = params.get("limit")
+    if limit_raw is not None:
+        try:
+            opts.limit = min(int(limit_raw), MAX_LIMIT)
+        except (ValueError, TypeError):
+            pass
+
+    page_raw = params.get("page")
+    if page_raw is not None:
+        try:
+            opts.page = max(int(page_raw), 1)
+        except (ValueError, TypeError):
+            pass
+
+    return opts
+
+
+# ---------------------------------------------------------------------------
+# Query builder
+# ---------------------------------------------------------------------------
+
+class QueryBuilder:
+    """Build and execute filtered/sorted/paginated SQLAlchemy queries."""
+
+    def __init__(self, model: Type[T], db: AsyncSession):
+        self.model = model
+        self.db = db
+
+    async def get_many(self, options: QueryOptions) -> PaginatedResult:
+        query = select(self.model)
+
+        # AND filters
+        for f in options.filters:
+            expr = _apply_operator(self.model, f.field, f.operator, f.value)
+            if expr is not None:
+                query = query.where(expr)
+
+        # OR filters
+        if options.or_filters:
+            or_exprs = []
+            for f in options.or_filters:
+                expr = _apply_operator(self.model, f.field, f.operator, f.value)
+                if expr is not None:
+                    or_exprs.append(expr)
+            if or_exprs:
+                query = query.where(or_(*or_exprs))
+
+        # Field selection
+        if options.fields:
+            cols = []
+            for name in options.fields:
+                col = getattr(self.model, name, None)
+                if col is not None:
+                    cols.append(col)
+            if cols:
+                query = select(*cols).select_from(self.model)
+                # Re-apply filters on the column-select query
+                for f in options.filters:
+                    expr = _apply_operator(self.model, f.field, f.operator, f.value)
+                    if expr is not None:
+                        query = query.where(expr)
+                if options.or_filters:
+                    or_exprs_2 = []
+                    for f in options.or_filters:
+                        expr = _apply_operator(self.model, f.field, f.operator, f.value)
+                        if expr is not None:
+                            or_exprs_2.append(expr)
+                    if or_exprs_2:
+                        query = query.where(or_(*or_exprs_2))
+
+        # Sorting
+        for s in options.sorts:
+            col = getattr(self.model, s.field, None)
+            if col is not None:
+                query = query.order_by(
+                    desc(col) if s.direction == "DESC" else asc(col)
+                )
+        if not options.sorts:
+            query = query.order_by(self.model.id)
+
+        # Joins (eager loading)
+        for j in options.joins:
+            rel = getattr(self.model, j.relation, None)
+            if rel is not None:
+                query = query.options(selectinload(rel))
+
+        # Count (before pagination)
+        count_query = select(func.count()).select_from(self.model)
+        for f in options.filters:
+            expr = _apply_operator(self.model, f.field, f.operator, f.value)
+            if expr is not None:
+                count_query = count_query.where(expr)
+        if options.or_filters:
+            or_exprs_count = []
+            for f in options.or_filters:
+                expr = _apply_operator(self.model, f.field, f.operator, f.value)
+                if expr is not None:
+                    or_exprs_count.append(expr)
+            if or_exprs_count:
+                count_query = count_query.where(or_(*or_exprs_count))
+
+        total_result = await self.db.execute(count_query)
+        total = total_result.scalar() or 0
+
+        # Pagination
+        offset = (options.page - 1) * options.limit
+        query = query.offset(offset).limit(options.limit)
+
+        result = await self.db.execute(query)
+        items = list(result.scalars().all())
+
+        page_count = math.ceil(total / options.limit) if options.limit > 0 else 1
+
+        return PaginatedResult(
+            data=items,
+            count=len(items),
+            total=total,
+            page=options.page,
+            page_count=page_count,
+        )
+
+    async def get_one(
+        self,
+        id: Any,
+        joins: Optional[List[str]] = None,
+    ) -> Optional[Any]:
+        query = select(self.model).where(self.model.id == id)
+
+        if joins:
+            for join_name in joins:
+                rel = getattr(self.model, join_name, None)
+                if rel is not None:
+                    query = query.options(selectinload(rel))
+
+        result = await self.db.execute(query)
+        return result.scalar_one_or_none()

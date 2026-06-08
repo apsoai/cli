@@ -81,7 +81,7 @@ class <%= it.entityName %>(BaseModel):
 class <%= it.entityName %>List(BaseModel):
     """Paginated list response for <%= it.entityName %>"""
     data: List[<%= it.entityName %>]
+    count: int
     total: int
     page: int
-    pageSize: int
-    totalPages: int
+    pageCount: int

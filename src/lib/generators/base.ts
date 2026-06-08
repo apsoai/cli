@@ -120,6 +120,17 @@ export abstract class BaseGenerator implements LanguageGenerator {
   ): Promise<GeneratedFile[]>;
 
   /**
+   * Generate shared query utility files (filter, sort, pagination).
+   * Default no-op. Override in language generators that need query utils.
+   */
+  async generateQueryUtils(
+    _entities: Entity[],
+    _apiType: string
+  ): Promise<GeneratedFile[]> {
+    return [];
+  }
+
+  /**
    * Render a template file with the given data
    */
   protected async renderTemplate(

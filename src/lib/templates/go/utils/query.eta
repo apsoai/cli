@@ -1,0 +1,301 @@
+<%~ includeFile('../../header.eta', it) %>
+
+package utils
+
+import (
+	"fmt"
+	"math"
+	"net/url"
+	"strconv"
+	"strings"
+
+	"gorm.io/gorm"
+)
+
+const (
+	MaxLimit     = 200
+	DefaultLimit = 25
+	DefaultPage  = 1
+)
+
+// ParseQueryParams parses standard query parameters from a url.Values map
+// into a QueryOptions struct.
+func ParseQueryParams(params url.Values) QueryOptions {
+	opts := DefaultQueryOptions()
+
+	// Filters: ?filter=field||$op||value (repeatable)
+	for _, raw := range params["filter"] {
+		if f := parseFilterParam(raw); f != nil {
+			opts.Filters = append(opts.Filters, *f)
+		}
+	}
+
+	// OR filters: ?or=field||$op||value (repeatable)
+	for _, raw := range params["or"] {
+		if f := parseFilterParam(raw); f != nil {
+			opts.OrFilters = append(opts.OrFilters, *f)
+		}
+	}
+
+	// Sorts: ?sort=field,ASC (repeatable)
+	for _, raw := range params["sort"] {
+		if s := parseSortParam(raw); s != nil {
+			opts.Sorts = append(opts.Sorts, *s)
+		}
+	}
+
+	// Fields: ?fields=field1,field2
+	if fieldsRaw := params.Get("fields"); fieldsRaw != "" {
+		for _, f := range strings.Split(fieldsRaw, ",") {
+			f = strings.TrimSpace(f)
+			if f != "" {
+				opts.Fields = append(opts.Fields, f)
+			}
+		}
+	}
+
+	// Joins: ?join=relation or ?join=relation||field1,field2 (repeatable)
+	for _, raw := range params["join"] {
+		opts.Joins = append(opts.Joins, parseJoinParam(raw))
+	}
+
+	// Pagination
+	if limitRaw := params.Get("limit"); limitRaw != "" {
+		if v, err := strconv.Atoi(limitRaw); err == nil {
+			if v > MaxLimit {
+				v = MaxLimit
+			}
+			if v > 0 {
+				opts.Limit = v
+			}
+		}
+	}
+
+	if pageRaw := params.Get("page"); pageRaw != "" {
+		if v, err := strconv.Atoi(pageRaw); err == nil && v > 0 {
+			opts.Page = v
+		}
+	}
+
+	return opts
+}
+
+// ApplyQuery applies filters, sorts, and pagination from QueryOptions to a
+// GORM query. The allowedFields map restricts which column names can be used
+// in filters and sorts to prevent injection.
+func ApplyQuery(db *gorm.DB, opts QueryOptions, allowedFields map[string]bool) (*gorm.DB, int64, int) {
+	query := db
+
+	// AND filters
+	for _, f := range opts.Filters {
+		if !allowedFields[f.Field] {
+			continue
+		}
+		query = applyOperator(query, f.Field, f.Operator, f.Value, false)
+	}
+
+	// OR filters
+	if len(opts.OrFilters) > 0 {
+		query = query.Where(func(tx *gorm.DB) *gorm.DB {
+			first := true
+			for _, f := range opts.OrFilters {
+				if !allowedFields[f.Field] {
+					continue
+				}
+				if first {
+					tx = applyOperator(tx, f.Field, f.Operator, f.Value, false)
+					first = false
+				} else {
+					tx = applyOperator(tx, f.Field, f.Operator, f.Value, true)
+				}
+			}
+			return tx
+		}(db.Session(&gorm.Session{NewDB: true})))
+	}
+
+	// Count before pagination
+	var total int64
+	countQuery := query.Session(&gorm.Session{})
+	countQuery.Count(&total)
+
+	// Sorting
+	for _, s := range opts.Sorts {
+		if !allowedFields[s.Field] {
+			continue
+		}
+		dir := "ASC"
+		if strings.EqualFold(s.Direction, "DESC") {
+			dir = "DESC"
+		}
+		query = query.Order(fmt.Sprintf("%s %s", s.Field, dir))
+	}
+
+	// Field selection
+	if len(opts.Fields) > 0 {
+		var safe []string
+		for _, f := range opts.Fields {
+			if allowedFields[f] {
+				safe = append(safe, f)
+			}
+		}
+		if len(safe) > 0 {
+			query = query.Select(safe)
+		}
+	}
+
+	// Joins (Preloads)
+	for _, j := range opts.Joins {
+		query = query.Preload(j.Relation)
+	}
+
+	// Pagination
+	offset := (opts.Page - 1) * opts.Limit
+	query = query.Offset(offset).Limit(opts.Limit)
+
+	pageCount := int(math.Ceil(float64(total) / float64(opts.Limit)))
+	if pageCount < 1 {
+		pageCount = 1
+	}
+
+	return query, total, pageCount
+}
+
+// ---------------------------------------------------------------------------
+// Internal parsers
+// ---------------------------------------------------------------------------
+
+func parseFilterParam(raw string) *ParsedFilter {
+	parts := strings.SplitN(raw, "||", 3)
+	if len(parts) < 2 {
+		return nil
+	}
+	value := ""
+	if len(parts) > 2 {
+		value = parts[2]
+	}
+	return &ParsedFilter{
+		Field:    parts[0],
+		Operator: parts[1],
+		Value:    value,
+	}
+}
+
+func parseSortParam(raw string) *ParsedSort {
+	parts := strings.SplitN(raw, ",", 2)
+	if len(parts) == 0 || parts[0] == "" {
+		return nil
+	}
+	dir := "ASC"
+	if len(parts) > 1 {
+		d := strings.ToUpper(strings.TrimSpace(parts[1]))
+		if d == "DESC" {
+			dir = "DESC"
+		}
+	}
+	return &ParsedSort{
+		Field:     parts[0],
+		Direction: dir,
+	}
+}
+
+func parseJoinParam(raw string) ParsedJoin {
+	parts := strings.SplitN(raw, "||", 2)
+	j := ParsedJoin{Relation: parts[0]}
+	if len(parts) > 1 && parts[1] != "" {
+		for _, f := range strings.Split(parts[1], ",") {
+			f = strings.TrimSpace(f)
+			if f != "" {
+				j.Fields = append(j.Fields, f)
+			}
+		}
+	}
+	return j
+}
+
+// ---------------------------------------------------------------------------
+// Operator application
+// ---------------------------------------------------------------------------
+
+func applyOperator(query *gorm.DB, field, op, value string, useOr bool) *gorm.DB {
+	where := query.Where
+	if useOr {
+		where = query.Or
+	}
+
+	switch op {
+	case "$eq":
+		return where(fmt.Sprintf("%s = ?", field), value)
+	case "$ne":
+		return where(fmt.Sprintf("%s != ?", field), value)
+	case "$gt":
+		return where(fmt.Sprintf("%s > ?", field), value)
+	case "$gte":
+		return where(fmt.Sprintf("%s >= ?", field), value)
+	case "$lt":
+		return where(fmt.Sprintf("%s < ?", field), value)
+	case "$lte":
+		return where(fmt.Sprintf("%s <= ?", field), value)
+	case "$starts":
+		return where(fmt.Sprintf("%s LIKE ?", field), value+"%")
+	case "$ends":
+		return where(fmt.Sprintf("%s LIKE ?", field), "%"+value)
+	case "$cont":
+		return where(fmt.Sprintf("%s LIKE ?", field), "%"+value+"%")
+	case "$excl":
+		return where(fmt.Sprintf("%s NOT LIKE ?", field), "%"+value+"%")
+	case "$in":
+		return where(fmt.Sprintf("%s IN ?", field), splitValue(value))
+	case "$notin":
+		return where(fmt.Sprintf("%s NOT IN ?", field), splitValue(value))
+	case "$isnull":
+		return where(fmt.Sprintf("%s IS NULL", field))
+	case "$notnull":
+		return where(fmt.Sprintf("%s IS NOT NULL", field))
+	case "$between":
+		vals := splitValue(value)
+		if len(vals) >= 2 {
+			return where(fmt.Sprintf("%s BETWEEN ? AND ?", field), vals[0], vals[1])
+		}
+		return query
+	case "$eqL":
+		return where(fmt.Sprintf("LOWER(%s) = ?", field), strings.ToLower(value))
+	case "$neL":
+		return where(fmt.Sprintf("LOWER(%s) != ?", field), strings.ToLower(value))
+	case "$startsL":
+		return where(fmt.Sprintf("LOWER(%s) LIKE ?", field), strings.ToLower(value)+"%")
+	case "$endsL":
+		return where(fmt.Sprintf("LOWER(%s) LIKE ?", field), "%"+strings.ToLower(value))
+	case "$contL":
+		return where(fmt.Sprintf("LOWER(%s) LIKE ?", field), "%"+strings.ToLower(value)+"%")
+	case "$exclL":
+		return where(fmt.Sprintf("LOWER(%s) NOT LIKE ?", field), "%"+strings.ToLower(value)+"%")
+	case "$inL":
+		vals := splitValue(value)
+		lower := make([]string, len(vals))
+		for i, v := range vals {
+			lower[i] = strings.ToLower(v)
+		}
+		return where(fmt.Sprintf("LOWER(%s) IN ?", field), lower)
+	case "$notinL":
+		vals := splitValue(value)
+		lower := make([]string, len(vals))
+		for i, v := range vals {
+			lower[i] = strings.ToLower(v)
+		}
+		return where(fmt.Sprintf("LOWER(%s) NOT IN ?", field), lower)
+	default:
+		return query
+	}
+}
+
+func splitValue(value string) []string {
+	parts := strings.Split(value, ",")
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			result = append(result, p)
+		}
+	}
+	return result
+}

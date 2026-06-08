@@ -1,7 +1,7 @@
 <%~ includeFile('../header.eta', it) %>
 
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -14,6 +14,7 @@ from ..schemas.<%= it.entityName.toLowerCase() %> import (
     <%= it.entityName %>List,
 )
 from ..services.<%= it.entityName.toLowerCase() %> import <%= it.entityName %>Service
+from ..utils.query import parse_query_params
 
 router = APIRouter(
     prefix="/<%= it.pluralEntityName.toLowerCase() %>",
@@ -27,39 +28,30 @@ router = APIRouter(
     summary="Retrieve multiple <%= it.pluralEntityName %>",
 )
 async def get_many(
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(10, ge=1, le=100),
-    sort: Optional[str] = Query(None, description="Sort field (prefix with - for descending)"),
-<% /* Add filter parameters for common fields */ %>
-<% it.associations.filter(a => a.type === 'ManyToOne').forEach((assoc) => { %>
-    <%= assoc.camelCasedId %>: Optional[<% if (assoc.referencedEntityPrimaryKeyType === 'uuid') { %>str<% } else { %>int<% } %>] = Query(None),
-<% }) %>
 ) -> <%= it.entityName %>List:
     """
     Retrieve a paginated list of <%= it.pluralEntityName %>.
+
+    Supports query parameters:
+    - filter=field||$operator||value (repeatable)
+    - or=field||$operator||value (repeatable)
+    - sort=field,ASC (repeatable)
+    - fields=field1,field2
+    - join=relation (repeatable)
+    - limit=25&page=1
     """
     service = <%= it.entityName %>Service(db)
-
-    filters = {}
-<% it.associations.filter(a => a.type === 'ManyToOne').forEach((assoc) => { %>
-    if <%= assoc.camelCasedId %> is not None:
-        filters["<%= assoc.camelCasedId %>"] = <%= assoc.camelCasedId %>
-<% }) %>
-
-    items, total = await service.get_many(
-        skip=skip,
-        limit=limit,
-        sort=sort,
-        filters=filters,
-    )
+    options = parse_query_params(request.query_params)
+    result = await service.get_many(options)
 
     return <%= it.entityName %>List(
-        data=items,
-        total=total,
-        page=(skip // limit) + 1 if limit > 0 else 1,
-        pageSize=limit,
-        totalPages=(total + limit - 1) // limit if limit > 0 else 1,
+        data=result.data,
+        count=result.count,
+        total=result.total,
+        page=result.page,
+        pageCount=result.page_count,
     )
 
 
@@ -70,31 +62,19 @@ async def get_many(
 )
 async def get_one(
     id: <% if (it.primaryKeyType === 'uuid') { %>str<% } else { %>int<% } %>,
+    request: Request,
     db: AsyncSession = Depends(get_db),
-<% /* Add join parameters */ %>
-<% it.associations.forEach((assoc) => { %>
-<% if (assoc.type === 'OneToMany' || assoc.type === 'ManyToMany') { %>
-    join_<%= assoc.pluralizedRelationshipName %>: bool = Query(False, alias="join[<%= assoc.pluralizedRelationshipName %>]"),
-<% } else { %>
-    join_<%= assoc.relationshipName %>: bool = Query(False, alias="join[<%= assoc.relationshipName %>]"),
-<% } %>
-<% }) %>
 ) -> <%= it.entityName %>Schema:
     """
     Retrieve a single <%= it.entityName %> by ID.
+
+    Supports query parameters:
+    - join=relation (repeatable)
     """
     service = <%= it.entityName %>Service(db)
 
-    joins = []
-<% it.associations.forEach((assoc) => { %>
-<% if (assoc.type === 'OneToMany' || assoc.type === 'ManyToMany') { %>
-    if join_<%= assoc.pluralizedRelationshipName %>:
-        joins.append("<%= assoc.pluralizedRelationshipName %>")
-<% } else { %>
-    if join_<%= assoc.relationshipName %>:
-        joins.append("<%= assoc.relationshipName %>")
-<% } %>
-<% }) %>
+    options = parse_query_params(request.query_params)
+    joins = [j.relation for j in options.joins] if options.joins else None
 
     item = await service.get_one(id, joins=joins)
     if not item:

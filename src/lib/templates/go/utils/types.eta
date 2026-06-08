@@ -1,0 +1,50 @@
+<%~ includeFile('../../header.eta', it) %>
+
+package utils
+
+// ParsedFilter represents a single filter condition.
+type ParsedFilter struct {
+	Field    string
+	Operator string
+	Value    string
+}
+
+// ParsedSort represents a single sort directive.
+type ParsedSort struct {
+	Field     string
+	Direction string // "ASC" or "DESC"
+}
+
+// ParsedJoin represents a relation to eager-load.
+type ParsedJoin struct {
+	Relation string
+	Fields   []string // nil means load all fields
+}
+
+// QueryOptions holds the parsed query parameters for list endpoints.
+type QueryOptions struct {
+	Filters   []ParsedFilter
+	OrFilters []ParsedFilter
+	Sorts     []ParsedSort
+	Fields    []string
+	Joins     []ParsedJoin
+	Limit     int
+	Page      int
+}
+
+// PaginatedResult is the standard paginated response envelope.
+type PaginatedResult struct {
+	Data      interface{} `json:"data"`
+	Count     int         `json:"count"`
+	Total     int64       `json:"total"`
+	Page      int         `json:"page"`
+	PageCount int         `json:"pageCount"`
+}
+
+// DefaultQueryOptions returns options with default pagination values.
+func DefaultQueryOptions() QueryOptions {
+	return QueryOptions{
+		Limit: 25,
+		Page:  1,
+	}
+}

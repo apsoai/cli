@@ -6,8 +6,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"app/dto"
-	"app/services"
+	"app/autogen/dto"
+	"app/autogen/services"
+	"app/autogen/utils"
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
 )
@@ -39,27 +40,24 @@ func (h *<%= it.entityName %>Handler) RegisterRoutes(r *gin.RouterGroup) {
 
 // FindAll godoc
 // @Summary      List all <%= it.pluralName %>
-// @Description  Get a paginated list of <%= it.pluralName %>
+// @Description  Get a paginated list of <%= it.pluralName %> with filtering, sorting, and joins
 // @Tags         <%= it.pluralName %>
 // @Accept       json
 // @Produce      json
-// @Param        page     query    int  false  "Page number"  default(1)
-// @Param        pageSize query    int  false  "Page size"    default(10)
+// @Param        filter   query    string  false  "Filter: field||$operator||value (repeatable)"
+// @Param        or       query    string  false  "OR filter: field||$operator||value (repeatable)"
+// @Param        sort     query    string  false  "Sort: field,ASC or field,DESC (repeatable)"
+// @Param        fields   query    string  false  "Field selection: field1,field2"
+// @Param        join     query    string  false  "Join: relation or relation||field1,field2 (repeatable)"
+// @Param        limit    query    int     false  "Page size (max 200)"  default(25)
+// @Param        page     query    int     false  "Page number"          default(1)
 // @Success      200  {object}  dto.<%= it.entityName %>PaginatedResponse
 // @Failure      500  {object}  map[string]string
 // @Router       /<%= it.kebabPluralName %> [get]
 func (h *<%= it.entityName %>Handler) FindAll(c *gin.Context) {
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "10"))
+	opts := utils.ParseQueryParams(c.Request.URL.Query())
 
-	if page < 1 {
-		page = 1
-	}
-	if pageSize < 1 || pageSize > 100 {
-		pageSize = 10
-	}
-
-	result, err := h.service.FindAll(c.Request.Context(), page, pageSize)
+	result, err := h.service.FindAll(c.Request.Context(), opts)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

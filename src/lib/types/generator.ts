@@ -285,6 +285,14 @@ export interface LanguageGenerator {
     entities: Entity[],
     auth?: AuthConfig
   ): Promise<GeneratedFile[]>;
+
+  /**
+   * Generate shared query utility files (filter, sort, pagination)
+   */
+  generateQueryUtils(
+    entities: Entity[],
+    apiType: string
+  ): Promise<GeneratedFile[]>;
 }
 
 /**

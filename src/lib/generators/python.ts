@@ -358,4 +358,17 @@ export class PythonGenerator extends BaseGenerator {
     // This is a placeholder for future implementation
     return [];
   }
+
+  async generateQueryUtils(
+    _entities: Entity[],
+    _apiType: string
+  ): Promise<GeneratedFile[]> {
+    const queryContent = await this.renderTemplate("./utils/query", {});
+    const initContent = await this.renderTemplate("./utils/init", {});
+
+    return [
+      { path: "utils/query.py", content: queryContent },
+      { path: "utils/__init__.py", content: initContent },
+    ];
+  }
 }
