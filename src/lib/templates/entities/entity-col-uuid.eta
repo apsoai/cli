@@ -1,11 +1,12 @@
 <% const {field} = it; %>
 
+<% if (field.primary ) {%>
+@PrimaryGeneratedColumn('uuid')
+<% } else { %>
 @Column({ "type": "uuid"<% if (field.default !== null) {%>, default:  <%= field.default %><% } %> })
 <% if (field.index ) {%>
 @Index()
 <% } %>
-<% if (field.primary ) {%>
-@PrimaryColumn()
 <% } %>
 
-<%= field.name %>: string; 
+<%= field.name %>: string;

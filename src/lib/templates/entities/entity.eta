@@ -58,8 +58,7 @@ export class <%= it.name %> {
 <% if (it.createPrimaryKey) { %>
     // Fields
     <% if (it.primaryKeyType === 'uuid') { %>
-    @Column({ type: 'uuid' })
-    @PrimaryColumn()
+    @PrimaryGeneratedColumn('uuid')
     id: string;
     <% } else if (it.primaryKeyType === 'text') { %>
     @Column({ type: 'text' })
