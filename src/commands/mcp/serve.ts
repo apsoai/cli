@@ -12,6 +12,14 @@ import {
   getImplementedLanguages,
 } from "../../lib";
 import { GeneratorConfig, TargetLanguage } from "../../lib/types";
+import { DiagnosticContext } from "../../lib/doctor/types";
+import {
+  runDiagnostics,
+  formatFindings,
+  isGhAvailable,
+  searchExistingIssues,
+  fileGitHubIssue,
+} from "../../lib/doctor/runner";
 import { createFile } from "../../lib/utils/file-system";
 import { apsorcToServiceSchema } from "../../lib/utils/schema-convert";
 import { performance } from "perf_hooks";
@@ -739,6 +747,159 @@ export default class McpServe extends BaseCommand {
         };
       }
     );
+
+    // ── diagnose ──────────────────────────────────────────────────
+    server.tool(
+      "diagnose",
+      "Run diagnostic checks on the current project's generated code. Detects issues like missing PK generation strategies, unused imports, unrecognized field types, broken relationships, and migration failures.",
+      {},
+      async () => {
+        try {
+          const configPath = findConfigPath();
+          if (!configPath) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: "No .apsorc file found in the current directory or parent directories.",
+                },
+              ],
+              isError: true,
+            };
+          }
+
+          const parsed = parseApsorc();
+          const projectRoot = path.dirname(configPath);
+          const language: TargetLanguage = parsed.language || "typescript";
+
+          const ctx: DiagnosticContext = {
+            entities: parsed.entities,
+            relationshipMap: parsed.relationshipMap,
+            rootFolder: parsed.rootFolder || "src",
+            language,
+            projectRoot,
+          };
+
+          const findings = await runDiagnostics(ctx);
+
+          if (findings.length === 0) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: "All diagnostic checks passed. No issues found.",
+                },
+              ],
+            };
+          }
+
+          const text = formatFindings(findings);
+          const errors = findings.filter((f) => f.severity === "error").length;
+          const warnings = findings.filter((f) => f.severity === "warning").length;
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `${text}\n${findings.length} finding(s): ${errors} error(s), ${warnings} warning(s)\n\nUse the report_issue tool to file a GitHub issue with these findings.`,
+              },
+            ],
+            isError: errors > 0,
+          };
+        } catch (error: unknown) {
+          const msg = error instanceof Error ? error.message : String(error);
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Diagnostic error: ${msg}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    );
+
+    // ── report_issue ──────────────────────────────────────────────
+    server.tool(
+      "report_issue",
+      "File a GitHub issue against apsoai/cli with diagnostic findings or a custom description. Deduplicates against open issues. Requires the gh CLI to be installed and authenticated.",
+      {
+        title: z.string().describe("Issue title"),
+        body: z.string().describe("Issue body (markdown)"),
+        confirm: z
+          .boolean()
+          .default(false)
+          .describe(
+            "Set to true to actually create the issue. When false, returns a preview and any duplicate issues found."
+          ),
+      },
+      async ({ title, body, confirm }) => {
+        try {
+          if (!isGhAvailable()) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: "GitHub CLI (gh) is not installed or not authenticated.\nInstall: https://cli.github.com\nAuthenticate: gh auth login",
+                },
+              ],
+              isError: true,
+            };
+          }
+
+          // Check for duplicates
+          const existing = searchExistingIssues(title);
+          const dupeInfo =
+            existing.length > 0
+              ? `\n\nPotentially related open issues:\n${existing.map((i) => `  #${i.number}: ${i.title} (${i.url})`).join("\n")}`
+              : "";
+
+          if (!confirm) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `Issue preview:\n\nTitle: ${title}\n\n${body}${dupeInfo}\n\nCall report_issue again with confirm: true to file this issue.`,
+                },
+              ],
+            };
+          }
+
+          // File the issue
+          const { execSync } = await import("child_process");
+          const url = execSync(
+            `gh issue create --repo apsoai/cli --title "${title.replace(/"/g, '\\"')}" --body-file -`,
+            {
+              input: body,
+              encoding: "utf-8",
+              timeout: 30_000,
+            }
+          ).trim();
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Issue filed: ${url}${dupeInfo}`,
+              },
+            ],
+          };
+        } catch (error: unknown) {
+          const msg = error instanceof Error ? error.message : String(error);
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Failed to file issue: ${msg}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+      }
+    );
   }
 
   private registerResources(server: McpServer): void {
@@ -843,8 +1004,9 @@ function validateSchemaObject(schema: Record<string, unknown>): string[] {
   }
 
   const validFieldTypes = [
-    "text", "integer", "float", "decimal", "numeric",
-    "boolean", "date", "enum", "json", "json-plain", "array",
+    "text", "string", "varchar", "integer", "float", "decimal", "numeric",
+    "boolean", "date", "timestamp", "datetime", "uuid", "enum", "json",
+    "json-plain", "array",
   ];
   const validRelTypes = ["OneToMany", "ManyToOne", "ManyToMany", "OneToOne"];
   const entityNames = new Set<string>();
