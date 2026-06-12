@@ -9,6 +9,8 @@
  * This validates migrations before anything touches a remote database.
  */
 
+/* eslint-disable new-cap -- TypeORM decorator factories (Entity, Column, ...) are applied programmatically */
+
 import * as fs from "fs";
 import * as path from "path";
 import { getProjectConfigDir } from "../config/paths";
@@ -19,6 +21,9 @@ import { RelationshipMap } from "../types/relationship";
 import { normalizeFieldType, fieldTypeToColumnType } from "../utils/field";
 import { snakeCase } from "../utils/casing";
 import { getRelationshipForTemplate } from "../utils/relationships";
+
+/** Constructor type for entity classes built at runtime. */
+type EntityCtor = new () => unknown;
 
 /**
  * Result of a migration sandbox run.
@@ -80,11 +85,11 @@ async function resetPGliteSingleton(): Promise<void> {
 function buildEntityClasses(
   entities: EntityDef[],
   relationshipMap: RelationshipMap = {}
-): Function[] {
+): EntityCtor[] {
   clearTypeOrmMetadata();
   const typeorm = require("typeorm");
-  const classes: Function[] = [];
-  const classMap = new Map<string, Function>();
+  const classes: EntityCtor[] = [];
+  const classMap = new Map<string, EntityCtor>();
 
   for (const entityDef of entities) {
     const className = entityDef.name;
@@ -132,7 +137,7 @@ function buildEntityClasses(
       if (field.type === "enum" && field.values) {
         colOpts.enum = field.values;
       }
-      if (field.length) colOpts.length = field.length;
+      if ((field.length ?? 0) > 0) colOpts.length = field.length;
       if (field.precision) colOpts.precision = field.precision;
       if (field.scale !== undefined) colOpts.scale = field.scale;
 
@@ -311,7 +316,7 @@ function relationshipMapFromSnapshot(
  * Create a TypeORM DataSource configured for PGlite with in-memory entity classes.
  */
 async function createPGliteDataSource(
-  entityClasses: Function[]
+  entityClasses: EntityCtor[]
 ): Promise<any> {
   const { DataSource } = await import("typeorm");
 
@@ -319,11 +324,11 @@ async function createPGliteDataSource(
   try {
     const pgliteModule = await import("typeorm-pglite");
     PGliteDriver = pgliteModule.PGliteDriver;
-  } catch (e) {
+  } catch (error) {
     throw new Error(
       "Migration sandbox requires typeorm-pglite and @electric-sql/pglite.\n" +
         "Install them with: npm install typeorm @electric-sql/pglite typeorm-pglite\n" +
-        `Original error: ${e instanceof Error ? e.message : e}`
+        `Original error: ${error instanceof Error ? error.message : error}`
     );
   }
 
@@ -477,7 +482,11 @@ export async function runMigrationSandbox(
       };
     }
   } catch (outerError) {
-    try { await resetPGliteSingleton(); } catch { /* ignore */ }
+    try {
+      await resetPGliteSingleton();
+    } catch {
+      /* ignore */
+    }
 
     return {
       needed: true,

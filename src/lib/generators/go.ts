@@ -383,7 +383,7 @@ export class GoGenerator extends BaseGenerator {
 
     const timestamp = new Date()
       .toISOString()
-      .replace(/[-:T]/g, "")
+      .replace(/[:T-]/g, "")
       .slice(0, 14);
     const name = migrationName || "auto";
     const filename = `${timestamp}_${name}.sql`;
@@ -463,9 +463,6 @@ ${downStatements}
     });
 
     // Generate model registry for AutoMigrate support
-    const modelImports = entities
-      .map((e) => `\t// ${e.name} model`)
-      .join("\n");
     const modelRefs = entities
       .map((e) => `\t\t&${pascalCase(e.name)}{},`)
       .join("\n");

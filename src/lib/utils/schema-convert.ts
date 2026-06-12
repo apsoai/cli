@@ -214,7 +214,7 @@ export function serviceSchemaToApsorc(schema: ServiceSchema): ApsorcOutput {
  */
 function sortKeys(value: unknown): unknown {
   if (Array.isArray(value)) {
-    return value.map(sortKeys);
+    return value.map((item) => sortKeys(item));
   }
   if (value !== null && typeof value === "object") {
     const sorted: Record<string, unknown> = {};

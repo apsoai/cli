@@ -1,6 +1,23 @@
 {
   "extends": ["oclif", "oclif-typescript", "prettier"],
   "rules": {
+    "camelcase": [
+      "error",
+      {
+        "allow": [
+          "created_at",
+          "updated_at",
+          "to_name",
+          "bi_directional",
+          "schema_json",
+          "multi_tenant",
+          "auth_provider",
+          "skip_format",
+          "skip_migrate",
+          "is_email"
+        ]
+      }
+    ],
     "unicorn/prefer-module": ["off"],
     "unicorn/prefer-node-protocol": ["off"],
     "unicorn/import-style": ["off"],

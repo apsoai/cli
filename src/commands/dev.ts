@@ -33,6 +33,12 @@ export default class Dev extends BaseCommand {
 
   private children: ChildProcess[] = [];
 
+  private cleanup = (): void => {
+    for (const child of this.children) {
+      child.kill("SIGTERM");
+    }
+  };
+
   async run(): Promise<void> {
     const { flags } = await this.parse(Dev);
 
@@ -47,13 +53,8 @@ export default class Dev extends BaseCommand {
     this.log(`Database type: ${databaseType}`);
 
     // Set up signal forwarding for clean shutdown
-    const cleanup = () => {
-      for (const child of this.children) {
-        child.kill("SIGTERM");
-      }
-    };
-    process.on("SIGINT", cleanup);
-    process.on("SIGTERM", cleanup);
+    process.on("SIGINT", this.cleanup);
+    process.on("SIGTERM", this.cleanup);
 
     try {
       switch (language) {
@@ -72,8 +73,8 @@ export default class Dev extends BaseCommand {
           );
       }
     } finally {
-      process.removeListener("SIGINT", cleanup);
-      process.removeListener("SIGTERM", cleanup);
+      process.removeListener("SIGINT", this.cleanup);
+      process.removeListener("SIGTERM", this.cleanup);
     }
   }
 
@@ -169,6 +170,7 @@ export default class Dev extends BaseCommand {
     }
 
     try {
+      // eslint-disable-next-line unicorn/prefer-json-parse-buffer -- TS types JSON.parse as string-only
       const content = fs.readFileSync(apsorcPath, "utf-8");
       const config = JSON.parse(content);
       return config.language || "typescript";

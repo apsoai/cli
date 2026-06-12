@@ -177,7 +177,7 @@ export default class Login extends BaseCommand {
       });
 
       this.log(`Logged in as ${profile.email}`);
-    } catch (error) {
+    } catch {
       credentials.clear();
       this.error("Invalid token. Please check your token and try again.");
     }

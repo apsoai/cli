@@ -84,6 +84,7 @@ export function readSnapshot(projectDir?: string): ApsorcSnapshot | null {
   }
 
   try {
+    // eslint-disable-next-line unicorn/prefer-json-parse-buffer -- TS types JSON.parse as string-only
     const content = fs.readFileSync(snapshotPath, "utf8");
     return JSON.parse(content) as ApsorcSnapshot;
   } catch {
@@ -121,6 +122,8 @@ export function resetSnapshot(projectDir?: string): void {
  * deterministic JSON serialization. Returns true if any change is detected,
  * or if no snapshot exists (first run).
  */
+const normalize = (obj: unknown): string => JSON.stringify(obj);
+
 export function hasChanges(
   current: ComparableSchema,
   snapshot: ApsorcSnapshot | null
@@ -128,8 +131,6 @@ export function hasChanges(
   if (!snapshot) {
     return true;
   }
-
-  const normalize = (obj: unknown): string => JSON.stringify(obj);
 
   // Compare entity count
   if (current.entities.length !== snapshot.entities.length) {
