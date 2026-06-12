@@ -49,7 +49,8 @@ describe("GoGenerator", () => {
       expect(content).toBeDefined();
       expect(content).toContain("package models");
       expect(content).toContain(`"time"`);
-      expect(content).toContain(`"gorm.io/gorm"`);
+      // gorm.io/gorm is no longer imported (unused imports are Go compile errors)
+      expect(content).not.toContain(`"gorm.io/gorm"`);
       expect(content).toContain("type User struct {");
     });
 
@@ -291,7 +292,7 @@ describe("GoGenerator", () => {
       });
 
       const content = findFileContent(files, "order.go")!;
-      expect(content).toContain(`"app/models/enums"`);
+      expect(content).toContain(`"app/autogen/models/enums"`);
     });
   });
 
