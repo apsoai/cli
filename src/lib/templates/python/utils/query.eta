@@ -6,7 +6,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Type, TypeVar
 
-from sqlalchemy import asc, desc, func, or_
+from sqlalchemy import Boolean, Date, DateTime, Float, Integer, Numeric, asc, desc, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql import Select, select
@@ -65,30 +65,58 @@ class PaginatedResult:
 # Operator registry
 # ---------------------------------------------------------------------------
 
+def _coerce_value(col: Any, value: str) -> Any:
+    """Coerce a string query param value to match the column's SQL type."""
+    try:
+        col_type = col.property.columns[0].type
+    except (AttributeError, IndexError):
+        return value
+
+    if isinstance(col_type, Boolean):
+        return value.lower() in ("true", "1", "yes")
+    if isinstance(col_type, (Integer,)):
+        try:
+            return int(value)
+        except (ValueError, TypeError):
+            return value
+    if isinstance(col_type, (Float, Numeric)):
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            return value
+    return value
+
+
+def _coerce_list(col: Any, values: List[str]) -> List[Any]:
+    """Coerce a list of string values to match the column's SQL type."""
+    return [_coerce_value(col, v) for v in values]
+
+
 def _apply_operator(model: Any, field_name: str, op: str, value: str) -> Any:
     """Return a SQLAlchemy filter expression for the given operator."""
     col = getattr(model, field_name, None)
     if col is None:
         return None
 
+    typed_value = _coerce_value(col, value)
     lower_col = func.lower(col)
 
     operators: Dict[str, Any] = {
-        "$eq": lambda: col == value,
-        "$ne": lambda: col != value,
-        "$gt": lambda: col > value,
-        "$gte": lambda: col >= value,
-        "$lt": lambda: col < value,
-        "$lte": lambda: col <= value,
+        "$eq": lambda: col == typed_value,
+        "$ne": lambda: col != typed_value,
+        "$gt": lambda: col > typed_value,
+        "$gte": lambda: col >= typed_value,
+        "$lt": lambda: col < typed_value,
+        "$lte": lambda: col <= typed_value,
         "$starts": lambda: col.like(f"{value}%"),
         "$ends": lambda: col.like(f"%{value}"),
         "$cont": lambda: col.like(f"%{value}%"),
         "$excl": lambda: ~col.like(f"%{value}%"),
-        "$in": lambda: col.in_(_split_value(value)),
-        "$notin": lambda: ~col.in_(_split_value(value)),
+        "$in": lambda: col.in_(_coerce_list(col, _split_value(value))),
+        "$notin": lambda: ~col.in_(_coerce_list(col, _split_value(value))),
         "$isnull": lambda: col.is_(None),
         "$notnull": lambda: col.isnot(None),
-        "$between": lambda: col.between(*_split_value(value)[:2]),
+        "$between": lambda: col.between(*_coerce_list(col, _split_value(value)[:2])),
         "$eqL": lambda: lower_col == value.lower(),
         "$neL": lambda: lower_col != value.lower(),
         "$startsL": lambda: lower_col.like(f"{value.lower()}%"),

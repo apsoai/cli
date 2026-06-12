@@ -15,8 +15,10 @@ import { getProjectConfigDir } from "../config/paths";
 import { readSnapshot, writeSnapshot, resetSnapshot, ApsorcSnapshot } from "./snapshot";
 import { EntityGeneratorInput } from "./entity-generator";
 import { Entity as EntityDef } from "../types/entity";
+import { RelationshipMap } from "../types/relationship";
 import { normalizeFieldType, fieldTypeToColumnType } from "../utils/field";
 import { snakeCase } from "../utils/casing";
+import { getRelationshipForTemplate } from "../utils/relationships";
 
 /**
  * Result of a migration sandbox run.
@@ -75,10 +77,14 @@ async function resetPGliteSingleton(): Promise<void> {
  * Clears TypeORM's global metadata storage first to prevent cross-contamination
  * between runs.
  */
-function buildEntityClasses(entities: EntityDef[]): Function[] {
+function buildEntityClasses(
+  entities: EntityDef[],
+  relationshipMap: RelationshipMap = {}
+): Function[] {
   clearTypeOrmMetadata();
   const typeorm = require("typeorm");
   const classes: Function[] = [];
+  const classMap = new Map<string, Function>();
 
   for (const entityDef of entities) {
     const className = entityDef.name;
@@ -138,9 +144,167 @@ function buildEntityClasses(entities: EntityDef[]): Function[] {
     }
 
     classes.push(EntityClass);
+    classMap.set(entityDef.name, EntityClass);
+  }
+
+  for (const entityDef of entities) {
+    const EntityClass = classMap.get(entityDef.name);
+    if (!EntityClass) continue;
+
+    const relationships = getRelationshipForTemplate(
+      entityDef.name,
+      relationshipMap[entityDef.name] || [],
+      entities
+    );
+
+    for (const relationship of relationships) {
+      const targetClass = classMap.get(relationship.name);
+      if (!targetClass) continue;
+      const inversePropertyName =
+        (relationship as any).inverseSidePropertyName ||
+        relationship.inversePropertyName ||
+        entityDef.name;
+
+      const relationOptions: Record<string, unknown> = {};
+      if (relationship.nullable !== undefined) {
+        relationOptions.nullable = relationship.nullable;
+      }
+      if (relationship.cascadeDelete) {
+        relationOptions.onDelete = "CASCADE";
+      }
+
+      if (relationship.type === "ManyToOne") {
+        if (relationship.index) {
+          typeorm.Index()(EntityClass.prototype, relationship.relationshipName);
+        }
+
+        const inverseSide = relationship.biDirectional
+          ? (target: Record<string, unknown>) => target[inversePropertyName]
+          : undefined;
+
+        typeorm.ManyToOne(
+          () => targetClass,
+          inverseSide,
+          relationOptions
+        )(EntityClass.prototype, relationship.relationshipName);
+        typeorm.JoinColumn({ name: relationship.camelCasedId })(
+          EntityClass.prototype,
+          relationship.relationshipName
+        );
+      }
+
+      if (relationship.type === "OneToMany" && relationship.biDirectional) {
+        typeorm.OneToMany(
+          () => targetClass,
+          (target: Record<string, unknown>) => target[inversePropertyName]
+        )(EntityClass.prototype, relationship.pluralizedRelationshipName);
+      }
+
+      if (relationship.type === "ManyToMany") {
+        const inverseSide = relationship.biDirectional
+          ? (target: Record<string, unknown>) => target[inversePropertyName]
+          : undefined;
+        typeorm.ManyToMany(
+          () => targetClass,
+          inverseSide
+        )(EntityClass.prototype, relationship.pluralizedRelationshipName);
+
+        if (relationship.joinTable) {
+          const joinTableOptions: Record<string, unknown> = {};
+          if (relationship.joinTableName) {
+            joinTableOptions.name = relationship.joinTableName;
+          }
+          if (relationship.joinColumnName) {
+            joinTableOptions.joinColumn = {
+              name: relationship.joinColumnName,
+              referencedColumnName: "id",
+            };
+          }
+          if (relationship.inverseJoinColumnName) {
+            joinTableOptions.inverseJoinColumn = {
+              name: relationship.inverseJoinColumnName,
+              referencedColumnName: "id",
+            };
+          }
+
+          typeorm.JoinTable(
+            Object.keys(joinTableOptions).length > 0
+              ? joinTableOptions
+              : undefined
+          )(EntityClass.prototype, relationship.pluralizedRelationshipName);
+        }
+      }
+
+      if (relationship.type === "OneToOne") {
+        const inverseSide = relationship.biDirectional
+          ? (target: Record<string, unknown>) => target[inversePropertyName]
+          : undefined;
+        typeorm.OneToOne(
+          () => targetClass,
+          inverseSide,
+          relationOptions
+        )(EntityClass.prototype, relationship.relationshipName);
+
+        if (relationship.joinTable) {
+          typeorm.JoinColumn()(EntityClass.prototype, relationship.relationshipName);
+        }
+      }
+    }
   }
 
   return classes;
+}
+
+function snapshotRelationships(relationshipMap: RelationshipMap) {
+  return Object.entries(relationshipMap)
+    .flatMap(([from, relationships]) =>
+      relationships.map((relationship) => ({
+        from,
+        to: relationship.name,
+        type: relationship.type,
+        to_name: relationship.referenceName ?? undefined,
+        nullable: relationship.nullable,
+        bi_directional: relationship.biDirectional,
+        cascadeDelete: relationship.cascadeDelete,
+        index: relationship.index,
+        join: relationship.join,
+        joinTableName: relationship.joinTableName,
+        joinColumnName: relationship.joinColumnName,
+        inverseJoinColumnName: relationship.inverseJoinColumnName,
+        inverseReferenceName: relationship.inverseReferenceName,
+      }))
+    )
+    .sort((a, b) =>
+      `${a.from}:${a.to}:${a.type}:${a.to_name || ""}`.localeCompare(
+        `${b.from}:${b.to}:${b.type}:${b.to_name || ""}`
+      )
+    );
+}
+
+function relationshipMapFromSnapshot(
+  relationships: ReturnType<typeof snapshotRelationships> = []
+): RelationshipMap {
+  const relationshipMap: RelationshipMap = {};
+  for (const relationship of relationships) {
+    relationshipMap[relationship.from] = [
+      ...(relationshipMap[relationship.from] || []),
+      {
+        name: relationship.to,
+        type: relationship.type as any,
+        referenceName: relationship.to_name,
+        nullable: relationship.nullable,
+        biDirectional: relationship.bi_directional,
+        cascadeDelete: relationship.cascadeDelete,
+        index: relationship.index,
+        join: relationship.join,
+        joinTableName: relationship.joinTableName,
+        joinColumnName: relationship.joinColumnName,
+        inverseJoinColumnName: relationship.inverseJoinColumnName,
+        inverseReferenceName: relationship.inverseReferenceName,
+      },
+    ];
+  }
+  return relationshipMap;
 }
 
 /**
@@ -208,6 +372,7 @@ export async function runMigrationSandbox(
       updated_at: e.updated_at,
       scopeBy: e.scopeBy,
     })),
+    relationships: snapshotRelationships(current.relationshipMap),
   };
 
   // Quick check: has anything changed?
@@ -245,7 +410,10 @@ export async function runMigrationSandbox(
 
     // Step 1: Establish baseline with previous schema
     if (previousEntities.length > 0) {
-      const prevClasses = buildEntityClasses(previousEntities);
+      const prevClasses = buildEntityClasses(
+        previousEntities,
+        relationshipMapFromSnapshot(snapshot?.relationships as any)
+      );
       const prevDs = await createPGliteDataSource(prevClasses);
       await prevDs.initialize();
       await prevDs.synchronize();
@@ -255,7 +423,10 @@ export async function runMigrationSandbox(
     }
 
     // Step 2: Compute diff with current schema
-    const currentClasses = buildEntityClasses(current.entities);
+    const currentClasses = buildEntityClasses(
+      current.entities,
+      current.relationshipMap
+    );
     const currentDs = await createPGliteDataSource(currentClasses);
     await currentDs.initialize();
 
@@ -344,6 +515,7 @@ export function applyMigration(
       updated_at: e.updated_at,
       scopeBy: e.scopeBy,
     })),
+    relationships: snapshotRelationships(current.relationshipMap),
   };
   writeSnapshot(snapshot, projectDir);
 }
@@ -367,6 +539,8 @@ function schemaChanged(
   snapshot: ApsorcSnapshot
 ): boolean {
   return (
-    JSON.stringify(current.entities) !== JSON.stringify(snapshot.entities)
+    JSON.stringify(current.entities) !== JSON.stringify(snapshot.entities) ||
+    JSON.stringify(current.relationships || []) !==
+      JSON.stringify(snapshot.relationships || [])
   );
 }

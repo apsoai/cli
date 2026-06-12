@@ -1,17 +1,17 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.apsoai/apso",
-  "description": "Design schemas, generate production-ready APIs (NestJS, FastAPI, Go), and deploy backends from your AI editor. Define a data model and get a complete REST API with authentication, multi-tenancy, and AWS deployment.",
+  "description": "Design schemas, generate APIs (NestJS, FastAPI, Go), and deploy backends.",
   "repository": {
     "url": "https://github.com/apsoai/cli",
     "source": "github"
   },
-  "version": "0.10.2",
+  "version": "0.11.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@apso/cli",
-      "version": "0.10.2",
+      "version": "0.11.0",
       "transport": {
         "type": "stdio",
         "args": ["mcp", "serve"]

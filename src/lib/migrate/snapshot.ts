@@ -63,6 +63,7 @@ export interface ComparableSchema {
     updated_at?: boolean;
     scopeBy?: string | string[];
   }>;
+  relationships?: ApsorcSnapshot["relationships"];
 }
 
 function getSandboxDir(projectDir?: string): string {
@@ -166,6 +167,10 @@ export function hasChanges(
     if (normalize(currentEntity) !== normalize(snapshotEntity)) {
       return true;
     }
+  }
+
+  if (normalize(current.relationships || []) !== normalize(snapshot.relationships || [])) {
+    return true;
   }
 
   return false;

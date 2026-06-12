@@ -4,7 +4,7 @@ import shell from "shelljs";
 import { TargetLanguage } from "../types";
 
 export const TEMPLATE_REPOS: Record<TargetLanguage, string> = {
-  typescript: "https://github.com/apsoai/service-template.git",
+  typescript: "https://github.com/apsoai/service-template-ts.git",
   python: "https://github.com/apsoai/service-template-python.git",
   go: "https://github.com/apsoai/service-template-go.git",
 };

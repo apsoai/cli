@@ -106,14 +106,14 @@ describe("server new command", () => {
 
   describe("TEMPLATE_REPOS mapping", () => {
     const TEMPLATE_REPOS: Record<string, string> = {
-      typescript: "https://github.com/apsoai/service-template.git",
+      typescript: "https://github.com/apsoai/service-template-ts.git",
       python: "https://github.com/apsoai/service-template-python.git",
       go: "https://github.com/apsoai/service-template-go.git",
     };
 
     test("should have correct URL for TypeScript", () => {
       expect(TEMPLATE_REPOS.typescript).toBe(
-        "https://github.com/apsoai/service-template.git"
+        "https://github.com/apsoai/service-template-ts.git"
       );
     });
 

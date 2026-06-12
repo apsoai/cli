@@ -259,8 +259,8 @@ export interface SyncQueueFile {
  * Default values for global configuration
  */
 export const DEFAULT_GLOBAL_CONFIG: GlobalConfigFile = {
-  apiUrl: "https://api.apso.ai",
-  webUrl: "https://app.apso.ai",
+  apiUrl: "https://api.apso.dev",
+  webUrl: "https://app.apso.cloud",
   verbose: false,
   noColor: false,
   telemetryDisabled: false,

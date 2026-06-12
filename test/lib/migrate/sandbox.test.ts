@@ -170,6 +170,52 @@ describeIfPGlite("migration sandbox (integration)", () => {
     expect(allSql).toContain("create table");
     expect(allSql).toContain("book");
   });
+
+  test("add relationship: generates foreign key constraint", async () => {
+    const initial: EntityGeneratorInput = {
+      entities: [
+        {
+          name: "Author",
+          primaryKeyType: "serial",
+          fields: [{ name: "name", type: "text" }],
+        },
+        {
+          name: "Book",
+          primaryKeyType: "serial",
+          fields: [{ name: "title", type: "text" }],
+        },
+      ],
+      relationshipMap: {},
+    };
+
+    await runMigrationSandbox(initial, tmpDir);
+    applyMigration(initial, tmpDir);
+
+    const updated: EntityGeneratorInput = {
+      ...initial,
+      relationshipMap: {
+        Book: [
+          {
+            type: "ManyToOne",
+            name: "Author",
+            referenceName: "Author",
+            nullable: false,
+            index: false,
+            cascadeDelete: false,
+          },
+        ],
+      },
+    };
+
+    const result = await runMigrationSandbox(updated, tmpDir);
+
+    expect(result.needed).toBe(true);
+    expect(result.success).toBe(true);
+
+    const allSql = result.upSql.join(" ").toLowerCase();
+    expect(allSql).toContain("foreign key");
+    expect(allSql).toContain("authorid");
+  });
 });
 
 describe("applyMigration", () => {

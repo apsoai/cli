@@ -104,7 +104,7 @@ export default class Init extends BaseCommand {
     const workspaces = await workspacesApi.list();
     if (workspaces.length === 0) {
       this.error(
-        "No workspaces found. Create a workspace at https://app.apso.ai first."
+        "No workspaces found. Create a workspace at https://app.apso.cloud first."
       );
     }
 
@@ -249,7 +249,7 @@ export default class Init extends BaseCommand {
     const workspaces = await workspacesApi.list();
     if (workspaces.length === 0) {
       this.error(
-        "No workspaces found. Create a workspace at https://app.apso.ai first."
+        "No workspaces found. Create a workspace at https://app.apso.cloud first."
       );
     }
 

@@ -222,19 +222,21 @@ func applyOperator(query *gorm.DB, field, op, value string, useOr bool) *gorm.DB
 		where = query.Or
 	}
 
+	cv := coerceValue(value)
+
 	switch op {
 	case "$eq":
-		return where(fmt.Sprintf("%s = ?", field), value)
+		return where(fmt.Sprintf("%s = ?", field), cv)
 	case "$ne":
-		return where(fmt.Sprintf("%s != ?", field), value)
+		return where(fmt.Sprintf("%s != ?", field), cv)
 	case "$gt":
-		return where(fmt.Sprintf("%s > ?", field), value)
+		return where(fmt.Sprintf("%s > ?", field), cv)
 	case "$gte":
-		return where(fmt.Sprintf("%s >= ?", field), value)
+		return where(fmt.Sprintf("%s >= ?", field), cv)
 	case "$lt":
-		return where(fmt.Sprintf("%s < ?", field), value)
+		return where(fmt.Sprintf("%s < ?", field), cv)
 	case "$lte":
-		return where(fmt.Sprintf("%s <= ?", field), value)
+		return where(fmt.Sprintf("%s <= ?", field), cv)
 	case "$starts":
 		return where(fmt.Sprintf("%s LIKE ?", field), value+"%")
 	case "$ends":
@@ -244,9 +246,9 @@ func applyOperator(query *gorm.DB, field, op, value string, useOr bool) *gorm.DB
 	case "$excl":
 		return where(fmt.Sprintf("%s NOT LIKE ?", field), "%"+value+"%")
 	case "$in":
-		return where(fmt.Sprintf("%s IN ?", field), splitValue(value))
+		return where(fmt.Sprintf("%s IN ?", field), coerceValues(splitValue(value)))
 	case "$notin":
-		return where(fmt.Sprintf("%s NOT IN ?", field), splitValue(value))
+		return where(fmt.Sprintf("%s NOT IN ?", field), coerceValues(splitValue(value)))
 	case "$isnull":
 		return where(fmt.Sprintf("%s IS NULL", field))
 	case "$notnull":
@@ -254,7 +256,7 @@ func applyOperator(query *gorm.DB, field, op, value string, useOr bool) *gorm.DB
 	case "$between":
 		vals := splitValue(value)
 		if len(vals) >= 2 {
-			return where(fmt.Sprintf("%s BETWEEN ? AND ?", field), vals[0], vals[1])
+			return where(fmt.Sprintf("%s BETWEEN ? AND ?", field), coerceValue(vals[0]), coerceValue(vals[1]))
 		}
 		return query
 	case "$eqL":
@@ -296,6 +298,32 @@ func splitValue(value string) []string {
 		if p != "" {
 			result = append(result, p)
 		}
+	}
+	return result
+}
+
+// coerceValue converts a string query parameter to a typed value.
+// Booleans and numbers are converted so the database driver sends the
+// correct wire type instead of a raw string.
+func coerceValue(value string) interface{} {
+	low := strings.ToLower(value)
+	if low == "true" || low == "false" || low == "yes" || low == "no" || low == "1" || low == "0" {
+		return low == "true" || low == "yes" || low == "1"
+	}
+	if v, err := strconv.ParseInt(value, 10, 64); err == nil {
+		return v
+	}
+	if v, err := strconv.ParseFloat(value, 64); err == nil {
+		return v
+	}
+	return value
+}
+
+// coerceValues applies coerceValue to each element in a slice.
+func coerceValues(values []string) []interface{} {
+	result := make([]interface{}, len(values))
+	for i, v := range values {
+		result[i] = coerceValue(v)
 	}
 	return result
 }
