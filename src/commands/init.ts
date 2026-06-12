@@ -1,5 +1,4 @@
 import { Flags } from "@oclif/core";
-import { spawn } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 import shell from "shelljs";
@@ -11,7 +10,6 @@ import { ProjectLinkFile } from "../lib/config/types";
 import { workspacesApi, servicesApi } from "../lib/api/services";
 import { Workspace, Service } from "../lib/api/types";
 import {
-  TEMPLATE_REPOS,
   PROJECT_NAME_PATTERN,
   cloneTemplate,
   initGitRepo,
@@ -65,11 +63,7 @@ export default class Init extends BaseCommand {
 
     const isAuthenticated = !flags["skip-platform"] && credentials.isValid();
 
-    if (isAuthenticated) {
-      await this.runAuthenticated(flags);
-    } else {
-      await this.runOffline(flags);
-    }
+    await (isAuthenticated ? this.runAuthenticated(flags) : this.runOffline(flags));
   }
 
   private async runAuthenticated(flags: {
@@ -92,11 +86,7 @@ export default class Init extends BaseCommand {
       },
     ]);
 
-    if (action === "clone") {
-      await this.cloneExisting();
-    } else {
-      await this.createNew(flags);
-    }
+    await (action === "clone" ? this.cloneExisting() : this.createNew(flags));
   }
 
   private async cloneExisting(): Promise<void> {

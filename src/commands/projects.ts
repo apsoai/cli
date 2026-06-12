@@ -3,7 +3,7 @@ import inquirer from "inquirer";
 import BaseCommand from "../lib/base-command";
 import { credentials, projectLink } from "../lib/config";
 import { workspacesApi, servicesApi } from "../lib/api/services";
-import { Workspace, Service } from "../lib/api/types";
+import { Workspace } from "../lib/api/types";
 
 export default class Projects extends BaseCommand {
   static description = "List projects (services) in a workspace";

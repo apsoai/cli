@@ -7,11 +7,11 @@ import { apsorcToServiceSchema } from "../../lib/utils/schema-convert";
 // Inline ANSI color helpers (no dependency needed)
 const useColor = (): boolean => !globalConfig.read().noColor;
 const green = (s: string): string =>
-  useColor() ? `\x1b[32m${s}\x1b[0m` : s;
+  useColor() ? `\u001B[32m${s}\u001B[0m` : s;
 const red = (s: string): string =>
-  useColor() ? `\x1b[31m${s}\x1b[0m` : s;
+  useColor() ? `\u001B[31m${s}\u001B[0m` : s;
 const yellow = (s: string): string =>
-  useColor() ? `\x1b[33m${s}\x1b[0m` : s;
+  useColor() ? `\u001B[33m${s}\u001B[0m` : s;
 
 export default class SchemaDiff extends BaseCommand {
   static description = "Show diff between local and remote schema";

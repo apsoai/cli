@@ -115,6 +115,7 @@ export default class Migrate extends BaseCommand {
 
         for (const file of migrationFiles) {
           const fullPath = path.join(process.cwd(), file.path);
+          // eslint-disable-next-line no-await-in-loop
           await createFile(fullPath, file.content);
           this.log(`Generated migration file: ${file.path}`);
         }

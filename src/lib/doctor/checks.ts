@@ -47,7 +47,7 @@ export function checkPkStrategy(ctx: DiagnosticContext): DiagnosticFinding[] {
     const content = fs.readFileSync(entityPath, "utf-8");
 
     // The correct pattern is @PrimaryGeneratedColumn('uuid')
-    const hasPrimaryGenerated = /PrimaryGeneratedColumn\s*\(\s*['"]uuid['"]\s*\)/.test(content);
+    const hasPrimaryGenerated = /PrimaryGeneratedColumn\s*\(\s*["']uuid["']\s*\)/.test(content);
 
     // Wrong patterns: @PrimaryColumn() or @PrimaryColumn({ type: 'uuid' }) without generation
     const hasPrimaryColumnOnly = /PrimaryColumn\s*\(/.test(content) && !hasPrimaryGenerated;
@@ -106,7 +106,7 @@ export function checkUnusedImports(ctx: DiagnosticContext): DiagnosticFinding[] 
     // Find import lines from typeorm
     for (const line of lines) {
       const importMatch = line.match(
-        /import\s*\{([^}]+)\}\s*from\s*['"]typeorm['"]/
+        /import\s*{([^}]+)}\s*from\s*["']typeorm["']/
       );
       if (!importMatch) continue;
 

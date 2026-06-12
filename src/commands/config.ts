@@ -12,11 +12,11 @@ const VALID_KEYS: Array<keyof GlobalConfigFile> = [
   "defaultWorkspace",
 ];
 
-const BOOLEAN_KEYS: Array<keyof GlobalConfigFile> = [
+const BOOLEAN_KEYS: Set<keyof GlobalConfigFile> = new Set([
   "verbose",
   "noColor",
   "telemetryDisabled",
-];
+]);
 
 function parseBoolean(value: string): boolean | null {
   const lower = value.toLowerCase();
@@ -98,7 +98,7 @@ export default class Config extends BaseCommand {
         );
       }
 
-      if (BOOLEAN_KEYS.includes(key as keyof GlobalConfigFile)) {
+      if (BOOLEAN_KEYS.has(key as keyof GlobalConfigFile)) {
         const boolVal = parseBoolean(value);
         if (boolVal === null) {
           this.error(

@@ -210,6 +210,6 @@ describe("computeSchemaHash", () => {
   test("hash is a 64-char hex string (SHA-256)", () => {
     const schema = { entities: [] };
     const hash = computeSchemaHash(schema);
-    expect(hash).toMatch(/^[a-f0-9]{64}$/);
+    expect(hash).toMatch(/^[\da-f]{64}$/);
   });
 });

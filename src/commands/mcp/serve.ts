@@ -1,7 +1,9 @@
 import { Flags } from "@oclif/core";
 import * as fs from "fs";
 import * as path from "path";
+// eslint-disable-next-line node/no-missing-import -- eslint-plugin-node cannot resolve package "exports" subpaths
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+// eslint-disable-next-line node/no-missing-import -- eslint-plugin-node cannot resolve package "exports" subpaths
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import BaseCommand from "../../lib/base-command";
@@ -18,12 +20,10 @@ import {
   formatFindings,
   isGhAvailable,
   searchExistingIssues,
-  fileGitHubIssue,
 } from "../../lib/doctor/runner";
 import { createFile } from "../../lib/utils/file-system";
 import { apsorcToServiceSchema } from "../../lib/utils/schema-convert";
 import { performance } from "perf_hooks";
-import { spawn } from "child_process";
 
 export default class McpServe extends BaseCommand {
   static description =
@@ -306,7 +306,7 @@ export default class McpServe extends BaseCommand {
           .optional()
           .describe("Skip code formatting after generation (default: false)"),
       },
-      async ({ language, skip_format }) => {
+      async ({ language }) => {
         try {
           const configPath = findConfigPath();
           if (!configPath) {
@@ -391,6 +391,7 @@ export default class McpServe extends BaseCommand {
           );
           for (const file of enumFiles) {
             const fullPath = path.join(autogenPath, file.path);
+            // eslint-disable-next-line no-await-in-loop
             await createFile(fullPath, file.content);
             filesGenerated.push(file.path);
           }
@@ -398,6 +399,7 @@ export default class McpServe extends BaseCommand {
           // Generate per-entity files
           for (const entity of entities) {
             const entityRelationships = relationshipMap[entity.name] || [];
+            // eslint-disable-next-line no-await-in-loop
             const allFiles = await Promise.all([
               generator.generateEntity({
                 entity,
@@ -435,6 +437,7 @@ export default class McpServe extends BaseCommand {
             for (const files of allFiles) {
               for (const file of files) {
                 const fullPath = path.join(autogenPath, file.path);
+                // eslint-disable-next-line no-await-in-loop
                 await createFile(fullPath, file.content);
                 filesGenerated.push(file.path);
               }
@@ -445,6 +448,7 @@ export default class McpServe extends BaseCommand {
           const guardFiles = await generator.generateGuards(entities, auth);
           for (const file of guardFiles) {
             const fullPath = path.join(autogenPath, file.path);
+            // eslint-disable-next-line no-await-in-loop
             await createFile(fullPath, file.content);
             filesGenerated.push(file.path);
           }
@@ -456,6 +460,7 @@ export default class McpServe extends BaseCommand {
           );
           for (const file of indexFiles) {
             const fullPath = path.join(autogenPath, file.path);
+            // eslint-disable-next-line no-await-in-loop
             await createFile(fullPath, file.content);
             filesGenerated.push(file.path);
           }

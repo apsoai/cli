@@ -24,7 +24,8 @@ export async function createSpinner(text: string): Promise<SpinnerInstance> {
 
   try {
     // Dynamic import to keep ora optional at startup
-    const ora = (await import("ora")).default;
+    const oraModule = await import("ora");
+    const ora = oraModule.default;
     const spinner = ora({
       text,
       color: config.noColor ? undefined : "cyan",

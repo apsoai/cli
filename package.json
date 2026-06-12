@@ -37,7 +37,8 @@
     "rc": "^1.2.8",
     "shelljs": "^0.8.5",
     "typeorm": "^0.3.20",
-    "typeorm-pglite": "^0.3.4"
+    "typeorm-pglite": "^0.3.4",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@jest/globals": "^29.5.0",

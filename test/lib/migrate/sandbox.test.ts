@@ -7,7 +7,7 @@ import {
   applyMigration,
   resetSandbox,
 } from "../../../src/lib/migrate/sandbox";
-import { writeSnapshot, readSnapshot } from "../../../src/lib/migrate/snapshot";
+import { readSnapshot } from "../../../src/lib/migrate/snapshot";
 import { EntityGeneratorInput } from "../../../src/lib/migrate/entity-generator";
 
 // These are integration tests that run PGlite in-process.

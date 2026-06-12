@@ -79,6 +79,7 @@ describe("snapshot", () => {
       );
       expect(fs.existsSync(filePath)).toBe(true);
 
+      // eslint-disable-next-line unicorn/prefer-json-parse-buffer -- TS types JSON.parse as string-only
       const content = JSON.parse(fs.readFileSync(filePath, "utf-8"));
       expect(content.entities[0].name).toBe("Product");
     });

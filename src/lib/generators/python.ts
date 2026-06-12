@@ -304,7 +304,7 @@ export class PythonGenerator extends BaseGenerator {
 
     const timestamp = new Date()
       .toISOString()
-      .replace(/[-:T]/g, "")
+      .replace(/[:T-]/g, "")
       .slice(0, 14);
     const revision = timestamp;
     const name = migrationName || "auto";
