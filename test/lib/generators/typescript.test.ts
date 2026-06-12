@@ -1,6 +1,6 @@
 import { expect, describe, test, beforeAll } from "@jest/globals";
 import { TypeScriptGenerator } from "../../../src/lib/generators/typescript";
-import { GeneratorConfig, Entity, Relationship } from "../../../src/lib/types";
+import { GeneratorConfig, Entity, Relationship, Field } from "../../../src/lib/types";
 
 // Helper to create generator config
 function createConfig(entities: Entity[], relationshipMap: { [key: string]: Relationship[] } = {}): GeneratorConfig {
@@ -92,6 +92,106 @@ describe("TypeScriptGenerator", () => {
       expect(entityContent).toContain("@PrimaryGeneratedColumn('uuid')");
       // Should NOT have a separate @Column for the primary key
       expect(entityContent).not.toContain("@Column({ type: 'uuid' })");
+    });
+  });
+
+  describe("nullable scalar numeric fields (issue #61)", () => {
+    test("nullable integer with default keeps nullable: true", async () => {
+      const entity: Entity = {
+        name: "Subscription",
+        primaryKeyType: "serial",
+        fields: [
+          { name: "recurringIntervalCount", type: "integer", nullable: true, default: "1" },
+        ],
+      };
+
+      const files = await generator.generateEntity({
+        entity,
+        relationships: [],
+        allEntities: [entity],
+        apiType: "rest",
+      });
+
+      const entityContent = findFileContent(files, "Subscription.entity");
+      expect(entityContent).toBeDefined();
+      expect(entityContent).toContain('@Column({ "type": "int", nullable: true, default:  1 })');
+    });
+
+    test("non-nullable integer is emitted with nullable: false", async () => {
+      const entity: Entity = {
+        name: "Counter",
+        primaryKeyType: "serial",
+        fields: [
+          { name: "count", type: "integer", nullable: false },
+        ],
+      };
+
+      const files = await generator.generateEntity({
+        entity,
+        relationships: [],
+        allEntities: [entity],
+        apiType: "rest",
+      });
+
+      const entityContent = findFileContent(files, "Counter.entity");
+      expect(entityContent).toBeDefined();
+      expect(entityContent).toContain('@Column({ "type": "int", nullable: false })');
+    });
+
+    test("nullable float, decimal, and numeric keep nullable: true", async () => {
+      const entity: Entity = {
+        name: "Measurement",
+        primaryKeyType: "serial",
+        fields: [
+          { name: "ratio", type: "float", nullable: true },
+          { name: "price", type: "decimal", nullable: true },
+          { name: "weight", type: "numeric", nullable: true },
+        ],
+      };
+
+      const files = await generator.generateEntity({
+        entity,
+        relationships: [],
+        allEntities: [entity],
+        apiType: "rest",
+      });
+
+      const entityContent = findFileContent(files, "Measurement.entity");
+      expect(entityContent).toBeDefined();
+      expect(entityContent).toContain('@Column({ "type": "decimal", nullable: true })');
+      expect(entityContent).toContain('@Column({ "type": "decimal", precision: 10, scale: 2, nullable: true })');
+      expect(entityContent).toContain('@Column({ "type": "numeric", precision: 10, scale: 2, nullable: true })');
+    });
+
+    test("nullable bigint, smallint, double, real, and money keep nullable: true", async () => {
+      const entity: Entity = {
+        name: "Metric",
+        primaryKeyType: "serial",
+        // These types are dispatched to templates by raw string (entity.eta)
+        // even though they are not in the FieldType union yet.
+        fields: [
+          { name: "total", type: "bigint", nullable: true },
+          { name: "rank", type: "smallint", nullable: true },
+          { name: "average", type: "double", nullable: true },
+          { name: "sample", type: "real", nullable: true },
+          { name: "cost", type: "money", nullable: true },
+        ] as unknown as Field[],
+      };
+
+      const files = await generator.generateEntity({
+        entity,
+        relationships: [],
+        allEntities: [entity],
+        apiType: "rest",
+      });
+
+      const entityContent = findFileContent(files, "Metric.entity");
+      expect(entityContent).toBeDefined();
+      expect(entityContent).toContain('@Column({ "type": "bigint", nullable: true })');
+      expect(entityContent).toContain('@Column({ "type": "smallint", nullable: true })');
+      expect(entityContent).toContain('@Column({ "type": "float8", nullable: true })');
+      expect(entityContent).toContain('@Column({ "type": "real", nullable: true })');
+      expect(entityContent).toContain('@Column({ "type": "money", nullable: true })');
     });
   });
 });
