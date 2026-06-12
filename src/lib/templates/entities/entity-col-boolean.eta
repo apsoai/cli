@@ -3,7 +3,7 @@
 @IsOptional({ groups: [CREATE, UPDATE] })
 @IsBoolean({ always: true })
 
-@Column({ type: 'boolean', default: <%= Boolean(field.default) || false %> })
+@Column({ type: 'boolean', nullable: <%= Boolean(field.nullable) %>, default: <%= Boolean(field.default) || false %> })
 <% if (field.index ) {%>
 @Index()
 <% } %>

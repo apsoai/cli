@@ -193,5 +193,38 @@ describe("TypeScriptGenerator", () => {
       expect(entityContent).toContain('@Column({ "type": "real", nullable: true })');
       expect(entityContent).toContain('@Column({ "type": "money", nullable: true })');
     });
+
+    test("nullable boolean, enum, and other scalar types keep nullable: true", async () => {
+      const entity: Entity = {
+        name: "Profile",
+        primaryKeyType: "serial",
+        fields: [
+          { name: "active", type: "boolean", nullable: true },
+          { name: "tier", type: "enum", nullable: true, values: ["free", "pro"] },
+          { name: "avatar", type: "bytea", nullable: true },
+          { name: "sessionLength", type: "interval", nullable: true },
+          { name: "checkIn", type: "time", nullable: true },
+          { name: "checkOut", type: "timetz", nullable: true },
+          { name: "externalId", type: "uuid", nullable: true },
+        ] as unknown as Field[],
+      };
+
+      const files = await generator.generateEntity({
+        entity,
+        relationships: [],
+        allEntities: [entity],
+        apiType: "rest",
+      });
+
+      const entityContent = findFileContent(files, "Profile.entity");
+      expect(entityContent).toBeDefined();
+      expect(entityContent).toContain("type: 'boolean', nullable: true");
+      expect(entityContent).toContain("nullable: true,\n    enum:");
+      expect(entityContent).toContain('@Column({ "type": "bytea", nullable: true })');
+      expect(entityContent).toContain('@Column({ "type": "interval", nullable: true })');
+      expect(entityContent).toContain('@Column({ "type": "time", nullable: true })');
+      expect(entityContent).toContain('@Column({ "type": "timetz", nullable: true })');
+      expect(entityContent).toContain('@Column({ "type": "uuid", nullable: true })');
+    });
   });
 });

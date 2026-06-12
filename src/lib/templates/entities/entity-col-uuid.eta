@@ -3,7 +3,7 @@
 <% if (field.primary ) {%>
 @PrimaryGeneratedColumn('uuid')
 <% } else { %>
-@Column({ "type": "uuid"<% if (field.default !== null) {%>, default:  <%= field.default %><% } %> })
+@Column({ "type": "uuid", nullable: <%= Boolean(field.nullable) %><% if (field.default !== null) {%>, default:  <%= field.default %><% } %> })
 <% if (field.index ) {%>
 @Index()
 <% } %>
