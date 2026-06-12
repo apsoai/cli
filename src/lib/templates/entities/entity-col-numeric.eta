@@ -1,6 +1,6 @@
 <% const {field} = it; %>
 
-@Column({ "type": "numeric", precision: <%= field.precision || 10 %>, scale: <%= field.scale || 2 %><% if (field.default !== null) {%>, default:  <%= field.default %><% } %> })
+@Column({ "type": "numeric", nullable: <%= Boolean(field.nullable) %>, precision: <%= field.precision || 10 %>, scale: <%= field.scale || 2 %><% if (field.default !== null) {%>, default:  <%= field.default %><% } %> })
 <% if (field.index ) {%>
 @Index()
 <% } %>
