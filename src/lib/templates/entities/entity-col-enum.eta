@@ -3,8 +3,8 @@
 @Column({
     type: 'enum',
     nullable: <%= Boolean(field.nullable) %>,
-    enum: enums.<%= field.dataType%>,
-    default: enums.<%= field.dataType%>.<%= field.default.toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/^(\d)/, '_$1').replace(/_+/g, '_').replace(/_$/, '') %>
+    enum: enums.<%= field.dataType%><% if (field.default !== null) { %>,
+    default: enums.<%= field.dataType%>.<%= field.default.toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/^(\d)/, '_$1').replace(/_+/g, '_').replace(/_$/, '') %><% } %>
 })
 <% if (field.index ) {%>
 @Index()
