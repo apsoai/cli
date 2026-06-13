@@ -8,6 +8,9 @@ export type FieldType =
   | "decimal"
   | "numeric"
   | "date"
+  | "timestamptz"
+  | "timestamp"
+  | "datetime"
   | "json"
   | "json-plain";
 

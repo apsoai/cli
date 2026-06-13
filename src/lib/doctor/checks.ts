@@ -156,7 +156,7 @@ export function checkFieldTypeMismatch(ctx: DiagnosticContext): DiagnosticFindin
           severity: "error",
           message: `Entity "${entity.name}", field "${field.name}": type "${field.type}" is not recognized by the generator`,
           entity: entity.name,
-          suggestion: `Valid types: text, integer, float, decimal, numeric, boolean, date, enum, json, json-plain, array, uuid`,
+          suggestion: `Valid types: text, integer, float, decimal, numeric, boolean, date, timestamptz, timestamp, datetime, enum, json, json-plain, array, uuid`,
         });
       }
 

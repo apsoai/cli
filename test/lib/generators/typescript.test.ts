@@ -226,5 +226,42 @@ describe("TypeScriptGenerator", () => {
       expect(entityContent).toContain('@Column({ "type": "timetz", nullable: true })');
       expect(entityContent).toContain('@Column({ "type": "uuid", nullable: true })');
     });
+
+    test("timestamptz, timestamp, and datetime generate instant-in-time columns honoring nullable", async () => {
+      const entity: Entity = {
+        name: "Event",
+        primaryKeyType: "serial",
+        fields: [
+          { name: "capturedAt", type: "timestamptz", nullable: true },
+          { name: "occurredAt", type: "timestamp", nullable: false },
+          { name: "loggedAt", type: "datetime", nullable: true },
+        ] as unknown as Field[],
+      };
+
+      const files = await generator.generateEntity({
+        entity,
+        relationships: [],
+        allEntities: [entity],
+        apiType: "rest",
+      });
+
+      const entityContent = findFileContent(files, "Event.entity");
+      expect(entityContent).toBeDefined();
+      // timestamptz (tz-aware) keeps its own column type
+      expect(entityContent).toContain(
+        "@Column({ type: 'timestamptz', nullable: true })"
+      );
+      expect(entityContent).toContain("capturedAt: Date;");
+      // timestamp (naive) honors nullable: false
+      expect(entityContent).toContain(
+        "@Column({ type: 'timestamp', nullable: false })"
+      );
+      expect(entityContent).toContain("occurredAt: Date;");
+      // datetime is an alias for a naive timestamp column
+      expect(entityContent).toContain(
+        "@Column({ type: 'timestamp', nullable: true })"
+      );
+      expect(entityContent).toContain("loggedAt: Date;");
+    });
   });
 });
