@@ -3,16 +3,20 @@ import { spawn } from "child_process";
 import os from "os";
 
 export default abstract class BaseCommand extends Command {
-  async runNpmCommand(args: string[], silent = false): Promise<void> {
+  async runCommand(
+    command: string,
+    args: string[],
+    silent = false
+  ): Promise<void> {
     return new Promise((resolve: any, reject) => {
       const isWindows = os.platform() === "win32";
-      const command = isWindows ? "npm.cmd" : "npm";
+      const resolvedCommand = isWindows ? `${command}.cmd` : command;
       const stdio = silent ? "ignore" : "inherit";
 
-      const cmdStr = `${command} ${args.join(" ")}`;
+      const cmdStr = `${resolvedCommand} ${args.join(" ")}`;
       this.log(`Running: ${cmdStr}`);
 
-      const child = spawn(command, args, {
+      const child = spawn(resolvedCommand, args, {
         stdio,
         shell: isWindows,
       });
@@ -29,5 +33,9 @@ export default abstract class BaseCommand extends Command {
         this.error(`Failed to run: ${cmdStr}`);
       });
     });
+  }
+
+  async runNpmCommand(args: string[], silent = false): Promise<void> {
+    return this.runCommand("npm", args, silent);
   }
 }

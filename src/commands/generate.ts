@@ -87,6 +87,14 @@ export default class Generate extends BaseCommand {
 
     console.log(`[apso] Generating ${language} code for ${entities.length} entities...`);
 
+    if (entities.length === 0) {
+      console.log(
+        "[apso] No entities found in .apsorc — nothing to generate. Check that the file exists and defines an `entities` array."
+      );
+    }
+
+    let generatedFileCount = 0;
+
     const generatorConfig: GeneratorConfig = {
       language,
       rootFolder,
@@ -113,6 +121,7 @@ export default class Generate extends BaseCommand {
       // eslint-disable-next-line no-await-in-loop
       await createFile(fullPath, file.content);
     }
+    generatedFileCount += enumFiles.length;
 
     // Generate shared query utilities
     const queryUtilFiles = await generator.generateQueryUtils(entities, lowerCaseApiType);
@@ -121,6 +130,7 @@ export default class Generate extends BaseCommand {
       // eslint-disable-next-line no-await-in-loop
       await createFile(fullPath, file.content);
     }
+    generatedFileCount += queryUtilFiles.length;
 
     // Generate per-entity files
     for (const entity of entities) {
@@ -170,6 +180,7 @@ export default class Generate extends BaseCommand {
           const fullPath = path.join(autogenPath, file.path);
           // eslint-disable-next-line no-await-in-loop
           await createFile(fullPath, file.content);
+          generatedFileCount += 1;
         }
       }
 
@@ -186,6 +197,7 @@ export default class Generate extends BaseCommand {
       // eslint-disable-next-line no-await-in-loop
       await createFile(fullPath, file.content);
     }
+    generatedFileCount += guardFiles.length;
 
     // Generate index module
     const indexFiles = await generator.generateIndexModule(entities, lowerCaseApiType);
@@ -194,19 +206,23 @@ export default class Generate extends BaseCommand {
       // eslint-disable-next-line no-await-in-loop
       await createFile(fullPath, file.content);
     }
+    generatedFileCount += indexFiles.length;
 
-    // Format generated files (TypeScript only)
-    if (language === "typescript" && !skipFormat) {
+    // Format generated files (TypeScript only).
+    // Run prettier directly against the generated output directory so we never
+    // reformat hand-written code elsewhere in the project tree (the project's
+    // `npm run format` script targets a broad glob like `{src,test}/**/*.ts`).
+    if (language === "typescript" && !skipFormat && generatedFileCount > 0) {
       const formatStart = performance.now();
-      console.log("[apso] Formatting files...");
-      await this.runNpmCommand(
-        ["run", "format", "src/autogen/**/*.ts", "src/guards/**/*.ts"],
-        true
-      );
+      console.log("[apso] Formatting generated files...");
+      const formatGlob = path.join(autogenPath, "**", "*.ts");
+      await this.runCommand("npx", ["prettier", "--write", formatGlob], true);
       const formatTime = performance.now() - formatStart;
       console.log(`[apso] Finished formatting in ${formatTime.toFixed(2)} ms`);
     } else if (skipFormat) {
       console.log("[apso] Skipping formatting (--skip-format flag set)");
+    } else if (generatedFileCount === 0) {
+      console.log("[apso] Skipping formatting (no files were generated)");
     }
 
     const totalBuildTime = performance.now() - totalBuildStart;
