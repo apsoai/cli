@@ -226,5 +226,33 @@ describe("TypeScriptGenerator", () => {
       expect(entityContent).toContain('@Column({ "type": "timetz", nullable: true })');
       expect(entityContent).toContain('@Column({ "type": "uuid", nullable: true })');
     });
+
+    test("nullable enum with explicit null default omits the default option", async () => {
+      const entity: Entity = {
+        name: "Foo",
+        primaryKeyType: "serial",
+        fields: [
+          { name: "tier", type: "enum", values: ["free", "pro"], nullable: true, default: null },
+        ] as unknown as Field[],
+      };
+
+      let files: { path: string; content: string }[] | undefined;
+      await expect(
+        (async () => {
+          files = await generator.generateEntity({
+            entity,
+            relationships: [],
+            allEntities: [entity],
+            apiType: "rest",
+          });
+        })()
+      ).resolves.not.toThrow();
+
+      const entityContent = findFileContent(files!, "Foo.entity");
+      expect(entityContent).toBeDefined();
+      expect(entityContent).toContain("nullable: true");
+      expect(entityContent).toContain("enum: enums.FooTierEnum");
+      expect(entityContent).not.toContain("default:");
+    });
   });
 });
