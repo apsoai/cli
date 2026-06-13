@@ -1,6 +1,6 @@
 <% const {field} = it; %>
 
-@Column({ "type": "bytea"<% if (field.default !== null) {%>, default:  <%= field.default %><% } %> })
+@Column({ "type": "bytea", nullable: <%= Boolean(field.nullable) %><% if (field.default !== null) {%>, default:  <%= field.default %><% } %> })
 <% if (field.index ) {%>
 @Index()
 <% } %>
