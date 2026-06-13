@@ -1,6 +1,11 @@
 export { Entity, RelationshipMap } from "./types";
 export { parseApsorc } from "./apsorc-parser";
 export { hasScopedEntities, getScopedEntities } from "./guards";
+export {
+  isEmitEventsEnabled,
+  getEventEmittingEntities,
+  hasEventEmittingEntities,
+} from "./events";
 
 // Generator exports
 export {

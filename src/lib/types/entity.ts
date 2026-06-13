@@ -55,6 +55,17 @@ export interface Entity {
    */
   scopeOptions?: ScopeOptions;
 
+  /**
+   * When true, state changes to this entity (insert/update/remove) emit a
+   * durable DomainEvent row written in the SAME database transaction as the
+   * change (transactional-outbox pattern, surfaced as generic "domain events").
+   *
+   * Resolution: the effective value is `entity.emitEvents ?? <global emitEvents> ?? false`.
+   * This means a top-level `emitEvents: true` enables it for every entity, while
+   * an individual entity can opt out with `emitEvents: false`.
+   */
+  emitEvents?: boolean;
+
   // only used for v1
   associations?: Association[];
 }

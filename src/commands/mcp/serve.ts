@@ -1092,6 +1092,7 @@ const INLINE_SCHEMA_REFERENCE = `# Schema Quick Reference
   "updated_at": true,
   "primaryKeyType": "serial",
   "scopeBy": "organizationId",
+  "emitEvents": true,
   "fields": [
     { "name": "fieldName", "type": "text", "length": 100 }
   ],
@@ -1100,6 +1101,19 @@ const INLINE_SCHEMA_REFERENCE = `# Schema Quick Reference
   ]
 }
 \`\`\`
+
+## Domain Events (emitEvents)
+Set \`emitEvents: true\` (per-entity or as a top-level default) to durably log
+state changes. A top-level \`emitEvents: true\` enables it for every entity; an
+individual entity can opt out with \`emitEvents: false\` (effective value is
+\`entity.emitEvents ?? <top-level emitEvents> ?? false\`).
+
+When at least one entity opts in, the generator emits a \`DomainEvent\` spine
+under \`autogen/events/\`: a \`DomainEvent\` entity (table \`events\`), a TypeORM
+\`DomainEventSubscriber\` that writes events in the SAME DB transaction as the
+change, an app-overridable \`DomainEventMapper\` (event-type + payload), and a
+\`DomainEventRelay\` whose \`publish()\` you override to deliver events. The
+\`DomainEventsModule\` is wired into the generated module list automatically.
 
 ## Relationship Types
 - OneToMany: parent has many children

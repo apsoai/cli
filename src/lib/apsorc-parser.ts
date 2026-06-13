@@ -24,6 +24,12 @@ export type ApsorcType = {
   relationships: ApsorcRelationship[];
   auth?: AuthConfig;
   language?: TargetLanguage;
+  /**
+   * Top-level default for the opt-in DomainEvent ("emitEvents") feature.
+   * When true, every entity emits domain events unless it opts out with
+   * its own `emitEvents: false`.
+   */
+  emitEvents?: boolean;
 };
 
 type ParsedApsorcData = {
@@ -37,6 +43,8 @@ type ParsedApsorc = {
   relationshipMap: RelationshipMap;
   auth?: AuthConfig;
   language?: TargetLanguage;
+  /** Top-level default for the DomainEvent ("emitEvents") feature. */
+  emitEvents?: boolean;
 };
 
 export const parseApsorcV1 = (apsorc: ApsorcType): ParsedApsorcData => {
@@ -63,6 +71,7 @@ const parseRc = (): ApsorcType => {
   const relationships = apsoConfig.relationships || [];
   const auth = apsoConfig.auth as AuthConfig | undefined;
   const language = apsoConfig.language as TargetLanguage | undefined;
+  const emitEvents = apsoConfig.emitEvents as boolean | undefined;
 
   return {
     rootFolder,
@@ -72,6 +81,7 @@ const parseRc = (): ApsorcType => {
     relationships,
     auth,
     language,
+    emitEvents,
   };
 };
 
@@ -95,6 +105,7 @@ export const parseApsorc = (): ParsedApsorc => {
           apiType: apsoConfig.apiType,
           auth: apsoConfig.auth,
           language: apsoConfig.language,
+          emitEvents: apsoConfig.emitEvents,
           ...parseApsorcV1(apsoConfig),
         };
         if (debug) {
@@ -119,6 +130,7 @@ export const parseApsorc = (): ParsedApsorc => {
           apiType: apsoConfig.apiType,
           auth: apsoConfig.auth,
           language: apsoConfig.language,
+          emitEvents: apsoConfig.emitEvents,
           ...(() => {
             const relStart = performance.now();
             const parsed = parseApsorcV2(apsoConfig);
