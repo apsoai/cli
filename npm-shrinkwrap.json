@@ -14,6 +14,7 @@
         "@oclif/core": "^2",
         "@oclif/plugin-help": "^5",
         "@oclif/plugin-plugins": "^3",
+        "@oclif/plugin-warn-if-update-available": "^2.1.1",
         "debug": "^4.3.4",
         "eta": "^2.0.0",
         "inquirer": "^8.2.7",
@@ -1752,9 +1753,10 @@
       }
     },
     "node_modules/@oclif/core": {
-      "version": "2.11.10",
-      "resolved": "https://registry.npmjs.org/@oclif/core/-/core-2.11.10.tgz",
-      "integrity": "sha512-/7Umij3OU++6o+z4U+waJ5nP6IvK9KKEVzz+xsla68YoECLQwz43boUKqYizlNMtTfiwNkiYb5QE+OU/q5qEtA==",
+      "version": "2.16.0",
+      "resolved": "https://registry.npmjs.org/@oclif/core/-/core-2.16.0.tgz",
+      "integrity": "sha512-dL6atBH0zCZl1A1IXCKJgLPrM/wR7K+Wi401E/IvqsK8m2iCHW+0TEOGrans/cuN3oTW+uxIyJFHJ8Im0k4qBw==",
+      "license": "MIT",
       "dependencies": {
         "@types/cli-progress": "^3.11.0",
         "ansi-escapes": "^4.3.2",
@@ -1765,7 +1767,6 @@
         "cli-progress": "^3.12.0",
         "debug": "^4.3.4",
         "ejs": "^3.1.8",
-        "fs-extra": "^9.1.0",
         "get-package-type": "^0.1.0",
         "globby": "^11.1.0",
         "hyperlinker": "^1.0.0",
@@ -1775,7 +1776,6 @@
         "natural-orderby": "^2.0.3",
         "object-treeify": "^1.1.33",
         "password-prompt": "^1.1.2",
-        "semver": "^7.5.3",
         "slice-ansi": "^4.0.0",
         "string-width": "^4.2.3",
         "strip-ansi": "^6.0.1",
@@ -1841,18 +1841,17 @@
       }
     },
     "node_modules/@oclif/plugin-warn-if-update-available": {
-      "version": "2.0.37",
-      "resolved": "https://registry.npmjs.org/@oclif/plugin-warn-if-update-available/-/plugin-warn-if-update-available-2.0.37.tgz",
-      "integrity": "sha512-rfDNvplwgiwV+QSV4JU96ypmWgNJ6Hk5FEAEAKzqF0v0J8AHwZGpwwYO/MCZSkbc7bfYpkqLx/sxjpMO6j6PmQ==",
-      "dev": true,
+      "version": "2.1.1",
+      "resolved": "https://registry.npmjs.org/@oclif/plugin-warn-if-update-available/-/plugin-warn-if-update-available-2.1.1.tgz",
+      "integrity": "sha512-y7eSzT6R5bmTIJbiMMXgOlbBpcWXGlVhNeQJBLBCCy1+90Wbjyqf6uvY0i2WcO4sh/THTJ20qCW80j3XUlgDTA==",
+      "license": "MIT",
       "dependencies": {
-        "@oclif/core": "^2.8.2",
+        "@oclif/core": "^2.15.0",
         "chalk": "^4.1.0",
         "debug": "^4.1.0",
-        "fs-extra": "^9.0.1",
         "http-call": "^5.2.2",
-        "lodash": "^4.17.21",
-        "semver": "^7.5.1"
+        "lodash.template": "^4.5.0",
+        "semver": "^7.5.4"
       },
       "engines": {
         "node": ">=12.0.0"
@@ -8334,6 +8333,12 @@
       "resolved": "https://registry.npmjs.org/lodash/-/lodash-4.17.21.tgz",
       "integrity": "sha512-v2kDEe57lecTulaDIuNTPy3Ry4gLGJ6Z1O3vE1krgXZNrsQ+LFTGHVxVjcXPs17LhbZVGedAJv8XZ1tvj5FvSg=="
     },
+    "node_modules/lodash._reinterpolate": {
+      "version": "3.0.0",
+      "resolved": "https://registry.npmjs.org/lodash._reinterpolate/-/lodash._reinterpolate-3.0.0.tgz",
+      "integrity": "sha512-xYHt68QRoYGjeeM/XOE1uJtvXQAgvszfBhjV4yvsQH0u2i9I6cI6c6/eG4Hh3UAOVn0y/xAXwmTzEay49Q//HA==",
+      "license": "MIT"
+    },
     "node_modules/lodash.memoize": {
       "version": "4.1.2",
       "resolved": "https://registry.npmjs.org/lodash.memoize/-/lodash.memoize-4.1.2.tgz",
@@ -8345,6 +8350,26 @@
       "resolved": "https://registry.npmjs.org/lodash.merge/-/lodash.merge-4.6.2.tgz",
       "integrity": "sha512-0KpjqXRVvrYyCsX1swR/XTK0va6VQkQM6MNo7PqW77ByjAhoARA8EfrP1N4+KlKj8YS0ZUCtRT/YUuhyYDujIQ==",
       "dev": true
+    },
+    "node_modules/lodash.template": {
+      "version": "4.18.1",
+      "resolved": "https://registry.npmjs.org/lodash.template/-/lodash.template-4.18.1.tgz",
+      "integrity": "sha512-5urZrLnV/VD6zHK5KsVtZgt7H19v51mIzoS0aBNH8yp3I8tbswrEjOABOPY8m8uB7NuibubLrMX+Y0PXsU9X+w==",
+      "deprecated": "This package is deprecated. Use https://socket.dev/npm/package/eta instead.",
+      "license": "MIT",
+      "dependencies": {
+        "lodash._reinterpolate": "^3.0.0",
+        "lodash.templatesettings": "^4.0.0"
+      }
+    },
+    "node_modules/lodash.templatesettings": {
+      "version": "4.2.0",
+      "resolved": "https://registry.npmjs.org/lodash.templatesettings/-/lodash.templatesettings-4.2.0.tgz",
+      "integrity": "sha512-stgLz+i3Aa9mZgnjr/O+v9ruKZsPsndy7qPZOchbqk2cnTU1ZaldKK+v7m54WoKIyxiuMZTKT2H81F8BeAc3ZQ==",
+      "license": "MIT",
+      "dependencies": {
+        "lodash._reinterpolate": "^3.0.0"
+      }
     },
     "node_modules/lodash.truncate": {
       "version": "4.4.2",
