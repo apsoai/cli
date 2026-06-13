@@ -20,6 +20,7 @@ import {
   formatFindings,
   isGhAvailable,
   searchExistingIssues,
+  fileIssue,
 } from "../../lib/doctor/runner";
 import { createFile } from "../../lib/utils/file-system";
 import { apsorcToServiceSchema } from "../../lib/utils/schema-convert";
@@ -872,16 +873,11 @@ export default class McpServe extends BaseCommand {
             };
           }
 
-          // File the issue
-          const { execSync } = await import("child_process");
-          const url = execSync(
-            `gh issue create --repo apsoai/cli --title "${title.replace(/"/g, '\\"')}" --body-file -`,
-            {
-              input: body,
-              encoding: "utf-8",
-              timeout: 30_000,
-            }
-          ).trim();
+          // File the issue. fileIssue passes the title as a discrete argv
+          // element and the body via a temp file (execFile, shell: false), so
+          // backticks / $() / quotes in user-supplied content are never
+          // shell-evaluated (no command injection).
+          const url = fileIssue(title, body);
 
           return {
             content: [

