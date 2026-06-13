@@ -1,5 +1,7 @@
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
+import * as fs from "fs";
 import * as os from "os";
+import * as path from "path";
 import { DiagnosticFinding, DiagnosticContext } from "./types";
 import {
   checkPkStrategy,
@@ -89,11 +91,43 @@ function formatFinding(f: DiagnosticFinding): string {
  */
 export function isGhAvailable(): boolean {
   try {
-    execSync("gh auth status", { stdio: "ignore" });
+    // execFile (shell: false) — no shell interpretation of arguments.
+    execFileSync("gh", ["auth", "status"], { stdio: "ignore" });
     return true;
   } catch {
     return false;
   }
+}
+
+/**
+ * The GitHub repository issues are filed against.
+ */
+const ISSUE_REPO = "apsoai/cli";
+
+/**
+ * Build the argv array for `gh issue list --search`.
+ *
+ * Pure function (no side effects) so it can be unit-tested. The search query
+ * is returned as its own array element and is NEVER concatenated into a shell
+ * string, so backticks / quotes / `$()` in the title are treated literally.
+ */
+export function buildIssueSearchArgs(title: string): string[] {
+  // Extract key terms from the title for search (passed as a single argv arg).
+  const searchQuery = title.slice(0, 100);
+  return [
+    "issue",
+    "list",
+    "--repo",
+    ISSUE_REPO,
+    "--search",
+    searchQuery,
+    "--state",
+    "open",
+    "--json",
+    "number,title,url",
+    "--limit",
+    "5",
+  ];
 }
 
 /**
@@ -103,15 +137,72 @@ export function searchExistingIssues(
   title: string
 ): { number: number; title: string; url: string }[] {
   try {
-    // Extract key terms from the title for search
-    const searchQuery = title.slice(0, 100);
-    const result = execSync(
-      `gh issue list --repo apsoai/cli --search "${searchQuery.replace(/"/g, '\\"')}" --state open --json number,title,url --limit 5`,
-      { encoding: "utf-8", timeout: 15_000 }
-    );
+    // execFile with an args array (shell: false). The title is passed as a
+    // distinct argv element, so it is never shell-evaluated.
+    const result = execFileSync("gh", buildIssueSearchArgs(title), {
+      encoding: "utf-8",
+      timeout: 15_000,
+    });
     return JSON.parse(result);
   } catch {
     return [];
+  }
+}
+
+/**
+ * Build the argv array for `gh issue create`.
+ *
+ * Pure function (no side effects) so it can be unit-tested. The title is
+ * returned as its own array element directly after `--title` and the body is
+ * passed via `--body-file <path>`. Nothing is concatenated into a shell string,
+ * so backticks / `$()` / quotes / newlines in the title are passed literally
+ * (no command substitution, no injection).
+ */
+export function buildIssueCreateArgs(
+  title: string,
+  bodyFilePath: string
+): string[] {
+  return [
+    "issue",
+    "create",
+    "--repo",
+    ISSUE_REPO,
+    "--title",
+    title,
+    "--body-file",
+    bodyFilePath,
+  ];
+}
+
+/**
+ * File a GitHub issue with an arbitrary title and body.
+ *
+ * The body is written to a temp file and passed via `--body-file`, and the
+ * title is passed as a discrete argv element via execFile (shell: false). The
+ * child's stdin is explicitly not inherited from the parent so it cannot
+ * consume / blank the body.
+ *
+ * Returns the URL of the created issue.
+ */
+export function fileIssue(title: string, body: string): string {
+  const bodyFilePath = path.join(
+    fs.mkdtempSync(path.join(os.tmpdir(), "apso-issue-")),
+    "body.md"
+  );
+  try {
+    fs.writeFileSync(bodyFilePath, body, "utf-8");
+
+    const result = execFileSync("gh", buildIssueCreateArgs(title, bodyFilePath), {
+      encoding: "utf-8",
+      timeout: 30_000,
+      // Do not pipe the parent's stdin into the child (the body is supplied via
+      // file). stdout/stderr are captured by execFileSync.
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    return result.trim();
+  } finally {
+    fs.rmSync(path.dirname(bodyFilePath), { recursive: true, force: true });
   }
 }
 
@@ -127,16 +218,7 @@ export function fileGitHubIssue(
   const title = buildIssueTitle(findings);
   const body = buildIssueBody(findings, ctx, pkg);
 
-  const result = execSync(
-    `gh issue create --repo apsoai/cli --title "${title.replace(/"/g, '\\"')}" --body-file -`,
-    {
-      input: body,
-      encoding: "utf-8",
-      timeout: 30_000,
-    }
-  );
-
-  return result.trim();
+  return fileIssue(title, body);
 }
 
 function loadCliVersion(): string {
