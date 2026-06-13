@@ -42,7 +42,7 @@ export default class Generate extends BaseCommand {
     const skipFormat = flags["skip-format"];
 
     const totalBuildStart = performance.now();
-    const { rootFolder, entities, relationshipMap, apiType, auth, language: configLanguage } = parseApsorc();
+    const { rootFolder, entities, relationshipMap, apiType, auth, emitEvents, language: configLanguage } = parseApsorc();
 
     // Resolve language: flag > .apsorc > prompt
     let language: TargetLanguage;
@@ -94,6 +94,7 @@ export default class Generate extends BaseCommand {
       entities,
       relationshipMap,
       auth,
+      emitEvents,
     };
 
     const generator = createGenerator(generatorConfig);
@@ -187,8 +188,20 @@ export default class Generate extends BaseCommand {
       await createFile(fullPath, file.content);
     }
 
+    // Generate domain-event spine (only when at least one entity opts in)
+    const domainEventFiles = await generator.generateDomainEvents(
+      entities,
+      lowerCaseApiType,
+      { emitEvents }
+    );
+    for (const file of domainEventFiles) {
+      const fullPath = path.join(autogenPath, file.path);
+      // eslint-disable-next-line no-await-in-loop
+      await createFile(fullPath, file.content);
+    }
+
     // Generate index module
-    const indexFiles = await generator.generateIndexModule(entities, lowerCaseApiType);
+    const indexFiles = await generator.generateIndexModule(entities, lowerCaseApiType, { emitEvents });
     for (const file of indexFiles) {
       const fullPath = path.join(autogenPath, file.path);
       // eslint-disable-next-line no-await-in-loop

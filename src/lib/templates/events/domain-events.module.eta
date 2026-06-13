@@ -1,0 +1,40 @@
+<%~ includeFile('../header.eta') %>
+
+import { Global, Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { DomainEvent } from './domain-event.entity';
+import { DomainEventSubscriber } from './domain-event.subscriber';
+import { DomainEventRelay } from './domain-event.relay';
+import {
+  DOMAIN_EVENT_MAPPER,
+  DefaultDomainEventMapper,
+} from './domain-event.mapper';
+
+/**
+ * DomainEventsModule wires the durable domain-event spine (transactional-outbox
+ * pattern, surfaced as generic domain events).
+ *
+ * - DomainEventSubscriber writes events in-transaction with state changes.
+ * - DomainEventRelay drains and delivers pending events (override
+ *   DomainEventRelay.publish()).
+ * - DOMAIN_EVENT_MAPPER controls event-type/payload semantics; override by
+ *   re-providing the token with your own DomainEventMapper.
+ *
+ * MULTI-DATASOURCE: @EventSubscriber() auto-registers on the default DataSource;
+ * for additional named DataSources, register this module (or the subscriber)
+ * per DataSource.
+ */
+@Global()
+@Module({
+  imports: [TypeOrmModule.forFeature([DomainEvent])],
+  providers: [
+    DomainEventSubscriber,
+    DomainEventRelay,
+    {
+      provide: DOMAIN_EVENT_MAPPER,
+      useClass: DefaultDomainEventMapper,
+    },
+  ],
+  exports: [DomainEventRelay, DOMAIN_EVENT_MAPPER],
+})
+export class DomainEventsModule {}

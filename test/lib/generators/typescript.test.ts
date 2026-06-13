@@ -293,3 +293,148 @@ describe("TypeScriptGenerator", () => {
     });
   });
 });
+
+describe("emitEvents / domain events (issue #79)", () => {
+  let generator: TypeScriptGenerator;
+
+  beforeAll(() => {
+    generator = new TypeScriptGenerator(createConfig([]));
+  });
+
+  test("entity with emitEvents:true generates the full domain-event spine", async () => {
+    const entity: Entity = {
+      name: "Product",
+      primaryKeyType: "serial",
+      emitEvents: true,
+      fields: [{ name: "title", type: "text" }],
+    };
+
+    const files = await generator.generateDomainEvents([entity], "rest", {});
+
+    // DomainEvent entity
+    const entityContent = findFileContent(files, "domain-event.entity");
+    expect(entityContent).toBeDefined();
+    expect(entityContent).toContain("@Entity('events')");
+    expect(entityContent).toContain("export class DomainEvent");
+    expect(entityContent).toContain("@PrimaryGeneratedColumn('uuid')");
+    expect(entityContent).toContain("@Column({ type: 'jsonb' })");
+    expect(entityContent).toContain("@Column({ type: 'varchar', default: 'pending' })");
+    expect(entityContent).toContain("@Column({ type: 'int', default: 0 })");
+    expect(entityContent).toContain("@CreateDateColumn({ type: 'timestamptz' })");
+    expect(entityContent).toContain("@Index(['status', 'created_at'])");
+    // No public artifact is named "outbox"
+    expect(entityContent).not.toMatch(/class\s+\w*Outbox/);
+
+    // Subscriber
+    const subscriberContent = findFileContent(files, "domain-event.subscriber");
+    expect(subscriberContent).toBeDefined();
+    expect(subscriberContent).toContain("@EventSubscriber()");
+    expect(subscriberContent).toContain("export class DomainEventSubscriber");
+    // imports the opted-in entity class
+    expect(subscriberContent).toContain("import { Product } from '../Product/Product.entity'");
+    // shares the active transaction via event.manager
+    expect(subscriberContent).toContain("event.manager");
+    // recursion guard against DomainEvent itself
+    expect(subscriberContent).toContain("target === DomainEvent");
+    // multi-datasource robust registration
+    expect(subscriberContent).toContain("dataSource?.subscribers?.push(this)");
+
+    // Mapper: interface + default + token
+    const mapperContent = findFileContent(files, "domain-event.mapper");
+    expect(mapperContent).toBeDefined();
+    expect(mapperContent).toContain("export const DOMAIN_EVENT_MAPPER");
+    expect(mapperContent).toContain("export interface DomainEventMapper");
+    expect(mapperContent).toContain("export class DefaultDomainEventMapper");
+
+    // Relay: publish() is the extension point that throws
+    const relayContent = findFileContent(files, "domain-event.relay");
+    expect(relayContent).toBeDefined();
+    expect(relayContent).toContain("export class DomainEventRelay");
+    expect(relayContent).toContain("processPending");
+    expect(relayContent).toContain(
+      "DomainEventRelay.publish() not implemented"
+    );
+    // commented-out scheduler example only — no real (uncommented) import of @nestjs/schedule
+    expect(relayContent).not.toMatch(/^\s*import .*@nestjs\/schedule/m);
+
+    // @Global() module
+    const moduleContent = findFileContent(files, "domain-events.module");
+    expect(moduleContent).toBeDefined();
+    expect(moduleContent).toContain("@Global()");
+    expect(moduleContent).toContain("export class DomainEventsModule");
+    expect(moduleContent).toContain("TypeOrmModule.forFeature([DomainEvent])");
+    expect(moduleContent).toContain("useClass: DefaultDomainEventMapper");
+
+    // barrel
+    const indexContent = findFileContent(files, "events/index");
+    expect(indexContent).toBeDefined();
+    expect(indexContent).toContain("./domain-events.module");
+  });
+
+  test("global emitEvents:true with per-entity opt-out excludes that entity", async () => {
+    const optedOut: Entity = {
+      name: "AuditLog",
+      emitEvents: false,
+      fields: [{ name: "msg", type: "text" }],
+    };
+    const noFlag: Entity = {
+      name: "Order",
+      fields: [{ name: "total", type: "integer" }],
+    };
+
+    const files = await generator.generateDomainEvents(
+      [optedOut, noFlag],
+      "rest",
+      { emitEvents: true }
+    );
+
+    const subscriberContent = findFileContent(files, "domain-event.subscriber");
+    expect(subscriberContent).toBeDefined();
+    // entity without the flag IS included (inherits global true)
+    expect(subscriberContent).toContain("import { Order }");
+    expect(subscriberContent).toContain("Order,");
+    // entity that opted out is NOT included
+    expect(subscriberContent).not.toContain("import { AuditLog }");
+  });
+
+  test("no entity opted in returns [] and index barrel omits DomainEventsModule", async () => {
+    const entity: Entity = {
+      name: "Widget",
+      fields: [{ name: "name", type: "text" }],
+    };
+
+    const files = await generator.generateDomainEvents([entity], "rest", {});
+    expect(files).toEqual([]);
+
+    const indexFiles = await generator.generateIndexModule([entity], "rest", {});
+    const indexContent = findFileContent(indexFiles, "index");
+    expect(indexContent).toBeDefined();
+    expect(indexContent).not.toContain("DomainEventsModule");
+  });
+
+  test("index barrel includes DomainEventsModule when an entity opts in", async () => {
+    const entity: Entity = {
+      name: "Widget",
+      emitEvents: true,
+      fields: [{ name: "name", type: "text" }],
+    };
+
+    const indexFiles = await generator.generateIndexModule([entity], "rest", {});
+    const indexContent = findFileContent(indexFiles, "index");
+    expect(indexContent).toBeDefined();
+    expect(indexContent).toContain("import { DomainEventsModule } from './events'");
+    expect(indexContent).toContain("DomainEventsModule,");
+  });
+
+  test("DomainEvent entity is excluded from emission via recursion guard", async () => {
+    const entity: Entity = {
+      name: "Product",
+      emitEvents: true,
+      fields: [{ name: "title", type: "text" }],
+    };
+    const files = await generator.generateDomainEvents([entity], "rest", {});
+    const subscriberContent = findFileContent(files, "domain-event.subscriber");
+    expect(subscriberContent).toContain("target === DomainEvent");
+    expect(subscriberContent).toContain("target === 'DomainEvent'");
+  });
+});

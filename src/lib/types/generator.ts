@@ -129,6 +129,12 @@ export interface GeneratorConfig {
   auth?: AuthConfig;
 
   /**
+   * Top-level default for the opt-in DomainEvent ("emitEvents") feature.
+   * Effective per-entity value is `entity.emitEvents ?? emitEvents ?? false`.
+   */
+  emitEvents?: boolean;
+
+  /**
    * Language-specific configuration options
    */
   languageConfig?: LanguageConfig;
@@ -285,7 +291,8 @@ export interface LanguageGenerator {
    */
   generateIndexModule(
     entities: Entity[],
-    apiType: string
+    apiType: string,
+    opts?: { emitEvents?: boolean }
   ): Promise<GeneratedFile[]>;
 
   /**
@@ -302,6 +309,16 @@ export interface LanguageGenerator {
   generateQueryUtils(
     entities: Entity[],
     apiType: string
+  ): Promise<GeneratedFile[]>;
+
+  /**
+   * Generate the durable DomainEvent spine for entities that opt in to
+   * `emitEvents`. Returns [] when no entity is opted in.
+   */
+  generateDomainEvents(
+    entities: Entity[],
+    apiType?: string,
+    opts?: { emitEvents?: boolean }
   ): Promise<GeneratedFile[]>;
 }
 

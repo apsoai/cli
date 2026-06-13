@@ -108,7 +108,8 @@ export abstract class BaseGenerator implements LanguageGenerator {
    */
   abstract generateIndexModule(
     entities: Entity[],
-    apiType: string
+    apiType: string,
+    opts?: { emitEvents?: boolean }
   ): Promise<GeneratedFile[]>;
 
   /**
@@ -126,6 +127,19 @@ export abstract class BaseGenerator implements LanguageGenerator {
   async generateQueryUtils(
     _entities: Entity[],
     _apiType: string
+  ): Promise<GeneratedFile[]> {
+    return [];
+  }
+
+  /**
+   * Generate the durable DomainEvent spine for entities that opt in to
+   * `emitEvents` (transactional-outbox pattern, generic domain-event naming).
+   * Default no-op. Override in language generators that support it.
+   */
+  async generateDomainEvents(
+    _entities: Entity[],
+    _apiType?: string,
+    _opts?: { emitEvents?: boolean }
   ): Promise<GeneratedFile[]> {
     return [];
   }

@@ -31,6 +31,7 @@ import {
   getScopedEntities,
   hasScopedEntities,
 } from "../guards";
+import { getEventEmittingEntities } from "../events";
 import {
   isDbSessionAuth,
   DB_SESSION_AUTH_DEFAULTS,
@@ -437,11 +438,15 @@ export class TypeScriptGenerator extends BaseGenerator {
 
   async generateIndexModule(
     entities: Entity[],
-    apiType: string
+    apiType: string,
+    opts?: { emitEvents?: boolean }
   ): Promise<GeneratedFile[]> {
+    const emitDomainEvents =
+      getEventEmittingEntities(entities, opts?.emitEvents).length > 0;
+
     const content = await this.renderTemplate(
       `./${apiType}/index-module-${apiType}`,
-      { entities }
+      { entities, emitDomainEvents }
     );
 
     return [
@@ -516,6 +521,78 @@ export class TypeScriptGenerator extends BaseGenerator {
       path: "guards/index.ts",
       content: indexContent,
     });
+
+    return files;
+  }
+
+  /**
+   * Generates the durable DomainEvent spine (transactional-outbox pattern,
+   * surfaced with generic domain-event naming) when at least one entity has
+   * opted in to `emitEvents`.
+   *
+   * Returns an empty array when no entity is opted in, so callers can skip
+   * wiring entirely.
+   *
+   * @param entities All entities from the configuration
+   * @param _apiType API type (unused; events are REST/Graphql agnostic)
+   * @param opts.emitEvents Top-level (global) default for emitEvents
+   */
+  async generateDomainEvents(
+    entities: Entity[],
+    _apiType?: string,
+    opts?: { emitEvents?: boolean }
+  ): Promise<GeneratedFile[]> {
+    const emittingEntities = getEventEmittingEntities(
+      entities,
+      opts?.emitEvents
+    );
+
+    if (emittingEntities.length === 0) {
+      return [];
+    }
+
+    const templateData = {
+      emittingEntities: emittingEntities.map((entity) => ({
+        name: entity.name,
+      })),
+      generatedAt: new Date().toISOString(),
+      generatedBy: "Apso CLI",
+    };
+
+    const files: GeneratedFile[] = [];
+
+    const targets: { template: string; path: string }[] = [
+      {
+        template: "./events/domain-event.entity.eta",
+        path: "events/domain-event.entity.ts",
+      },
+      {
+        template: "./events/domain-event.mapper.eta",
+        path: "events/domain-event.mapper.ts",
+      },
+      {
+        template: "./events/domain-event.subscriber.eta",
+        path: "events/domain-event.subscriber.ts",
+      },
+      {
+        template: "./events/domain-event.relay.eta",
+        path: "events/domain-event.relay.ts",
+      },
+      {
+        template: "./events/domain-events.module.eta",
+        path: "events/domain-events.module.ts",
+      },
+      {
+        template: "./events/index.eta",
+        path: "events/index.ts",
+      },
+    ];
+
+    for (const target of targets) {
+      // eslint-disable-next-line no-await-in-loop
+      const content = await this.renderTemplate(target.template, templateData);
+      files.push({ path: target.path, content });
+    }
 
     return files;
   }
