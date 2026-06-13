@@ -27,6 +27,7 @@ export const fieldTypeToColumnType: Record<string, string> = {
   date: "date",
   timestamp: "timestamp",
   timestamptz: "timestamptz",
+  datetime: "timestamp",
   time: "time",
   timetz: "timetz",
   json: "json",
@@ -66,6 +67,8 @@ const fieldTypeNormalizationMap: Record<string, string> = {
   "time with time zone": "timetz",
   "timestamp without time zone": "timestamp",
   "timestamp with time zone": "timestamptz",
+  // `datetime` is a user-facing alias for a naive timestamp (instant-in-time).
+  datetime: "timestamp",
 };
 
 /**
@@ -103,6 +106,7 @@ const typeToJsType: Record<string, string> = {
   date: "string",
   timestamp: "string",
   timestamptz: "string",
+  datetime: "string",
   timetz: "string",
   tsvector: "string",
   string: "string",

@@ -290,6 +290,24 @@ describe("checkFieldTypeMismatch", () => {
     expect(findings).toHaveLength(0);
   });
 
+  test("instant-in-time types (timestamptz, timestamp, datetime) pass", () => {
+    const ctx = baseCtx("", {
+      entities: [
+        {
+          name: "Event",
+          fields: [
+            { name: "capturedAt", type: "timestamptz", nullable: true },
+            { name: "occurredAt", type: "timestamp", nullable: false },
+            { name: "loggedAt", type: "datetime", nullable: true },
+          ],
+        },
+      ],
+    });
+
+    const findings = checkFieldTypeMismatch(ctx);
+    expect(findings).toHaveLength(0);
+  });
+
   test("unknown type errors", () => {
     const ctx = baseCtx("", {
       entities: [

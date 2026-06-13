@@ -1006,8 +1006,8 @@ function validateSchemaObject(schema: Record<string, unknown>): string[] {
 
   const validFieldTypes = [
     "text", "string", "varchar", "integer", "float", "decimal", "numeric",
-    "boolean", "date", "timestamp", "datetime", "uuid", "enum", "json",
-    "json-plain", "array",
+    "boolean", "date", "timestamptz", "timestamp", "datetime", "uuid", "enum",
+    "json", "json-plain", "array",
   ];
   const validRelTypes = ["OneToMany", "ManyToOne", "ManyToMany", "OneToOne"];
   const entityNames = new Set<string>();
