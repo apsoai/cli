@@ -42,7 +42,7 @@ export default class Generate extends BaseCommand {
     const skipFormat = flags["skip-format"];
 
     const totalBuildStart = performance.now();
-    const { rootFolder, entities, relationshipMap, apiType, auth, emitEvents, eventDelivery, language: configLanguage } = parseApsorc();
+    const { rootFolder, entities, relationshipMap, apiType, auth, emitEvents, language: configLanguage } = parseApsorc();
 
     // Resolve language: flag > .apsorc > prompt
     let language: TargetLanguage;
@@ -103,7 +103,6 @@ export default class Generate extends BaseCommand {
       relationshipMap,
       auth,
       emitEvents,
-      eventDelivery,
     };
 
     const generator = createGenerator(generatorConfig);
@@ -205,7 +204,7 @@ export default class Generate extends BaseCommand {
     const domainEventFiles = await generator.generateDomainEvents(
       entities,
       lowerCaseApiType,
-      { emitEvents, eventDelivery }
+      { emitEvents }
     );
     for (const file of domainEventFiles) {
       const fullPath = path.join(autogenPath, file.path);

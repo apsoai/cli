@@ -1,19 +1,16 @@
 <%~ includeFile('../../header.eta') %>
 
-import {
-  ClientProxy,
-  ClientProxyFactory,
-  Transport,
-} from '@nestjs/microservices';
-import { lastValueFrom } from 'rxjs';
 import { DomainEvent } from '../domain-event.entity';
 import { DeliveryDestination } from './delivery-destination';
 
 /**
  * KafkaDestination emits each domain event onto a Kafka topic using the
- * idiomatic @nestjs/microservices ClientProxy. The broker client is a normal
- * SERVICE dependency — run `npm install @nestjs/microservices kafkajs` in the
- * generated service (see events/EVENTS.env.example).
+ * idiomatic @nestjs/microservices ClientProxy.
+ *
+ * @nestjs/microservices, kafkajs and rxjs are loaded LAZILY (require) so they
+ * are only needed when this destination is actually activated at runtime
+ * (EVENTS_DESTINATION=kafka). Install them in the generated service:
+ * `npm install @nestjs/microservices kafkajs rxjs`.
  *
  * Env:
  *   EVENTS_KAFKA_BROKERS — comma-separated broker list (required)
@@ -23,10 +20,25 @@ export class KafkaDestination implements DeliveryDestination {
   readonly name = 'kafka';
 
   private readonly topic = process.env.EVENTS_KAFKA_TOPIC;
-  private client?: ClientProxy;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private client?: any;
   private connected = false;
 
-  private getClient(): ClientProxy {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private loadDep(pkg: string): any {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires, global-require, import/no-dynamic-require
+      return require(pkg);
+    } catch {
+      throw new Error(
+        "EVENTS_DESTINATION=kafka requires '@nestjs/microservices', 'kafkajs' " +
+          "and 'rxjs' — run `npm install @nestjs/microservices kafkajs rxjs`"
+      );
+    }
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private getClient(): any {
     if (!this.client) {
       const brokers = (process.env.EVENTS_KAFKA_BROKERS ?? '')
         .split(',')
@@ -35,6 +47,9 @@ export class KafkaDestination implements DeliveryDestination {
       if (brokers.length === 0) {
         throw new Error('EVENTS_KAFKA_BROKERS is not set');
       }
+      const { ClientProxyFactory, Transport } = this.loadDep(
+        '@nestjs/microservices'
+      );
       this.client = ClientProxyFactory.create({
         transport: Transport.KAFKA,
         options: { client: { brokers } },
@@ -47,6 +62,7 @@ export class KafkaDestination implements DeliveryDestination {
     if (!this.topic) {
       throw new Error('EVENTS_KAFKA_TOPIC is not set');
     }
+    const { lastValueFrom } = this.loadDep('rxjs');
     const client = this.getClient();
     if (!this.connected) {
       await client.connect();

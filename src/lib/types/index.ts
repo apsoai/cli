@@ -30,7 +30,6 @@ export {
 export {
   TargetLanguage,
   DeliveryDestinationName,
-  EventDeliveryConfig,
   GeneratedFile,
   ValidationResult,
   PythonLanguageConfig,

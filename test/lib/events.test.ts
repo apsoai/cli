@@ -4,7 +4,6 @@ import {
   isEmitEventsEnabled,
   getEventEmittingEntities,
   hasEventEmittingEntities,
-  resolveDeliveryDestinations,
 } from "../../src/lib/events";
 import { Entity } from "../../src/lib/types";
 
@@ -63,46 +62,6 @@ describe("emitEvents flag resolution (issue #79)", () => {
     test("false when none opt in", () => {
       expect(hasEventEmittingEntities([entity("A")])).toBe(false);
     });
-  });
-});
-
-describe("resolveDeliveryDestinations (issue #88)", () => {
-  test("returns [] when no eventDelivery", () => {
-    expect(resolveDeliveryDestinations()).toEqual([]);
-    expect(resolveDeliveryDestinations({})).toEqual([]);
-    expect(resolveDeliveryDestinations({ destinations: [] })).toEqual([]);
-  });
-
-  test("returns the configured set", () => {
-    expect(resolveDeliveryDestinations({ destinations: ["webhook"] })).toEqual([
-      "webhook",
-    ]);
-    expect(
-      resolveDeliveryDestinations({ destinations: ["kafka", "sqs"] })
-    ).toEqual(["kafka", "sqs"]);
-  });
-
-  test("normalizes to canonical order regardless of config order", () => {
-    expect(
-      resolveDeliveryDestinations({
-        destinations: ["eventbridge", "webhook", "sqs", "kafka"],
-      })
-    ).toEqual(["webhook", "kafka", "sqs", "eventbridge"]);
-  });
-
-  test("de-duplicates repeated entries", () => {
-    expect(
-      resolveDeliveryDestinations({
-        destinations: ["webhook", "webhook", "kafka"],
-      })
-    ).toEqual(["webhook", "kafka"]);
-  });
-
-  test("drops unknown destination names", () => {
-    const config = {
-      destinations: ["webhook", "bogus"],
-    } as unknown as Parameters<typeof resolveDeliveryDestinations>[0];
-    expect(resolveDeliveryDestinations(config)).toEqual(["webhook"]);
   });
 });
 

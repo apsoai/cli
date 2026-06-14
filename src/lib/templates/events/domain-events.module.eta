@@ -1,6 +1,6 @@
 <%~ includeFile('../header.eta') %>
 
-<% const hasDestinations = it.hasDestinations; %>import { Global, Module } from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { DomainEvent } from './domain-event.entity';
 import { DomainEventSubscriber } from './domain-event.subscriber';
@@ -9,21 +9,21 @@ import {
   DOMAIN_EVENT_MAPPER,
   DefaultDomainEventMapper,
 } from './domain-event.mapper';
-<% if (hasDestinations) { %>import {
+import {
   DOMAIN_EVENT_DESTINATIONS,
   buildDestinations,
 } from './destinations';
-<% } %>
 
 /**
  * DomainEventsModule wires the durable domain-event spine (transactional-outbox
  * pattern, surfaced as generic domain events).
  *
  * - DomainEventSubscriber writes events in-transaction with state changes.
- * - DomainEventRelay drains and delivers pending events (override
- *   DomainEventRelay.publish()).
+ * - DomainEventRelay drains and delivers pending events.
  * - DOMAIN_EVENT_MAPPER controls event-type/payload semantics; override by
  *   re-providing the token with your own DomainEventMapper.
+ * - DOMAIN_EVENT_DESTINATIONS is the set of ACTIVE delivery adapters, built from
+ *   the EVENTS_DESTINATION env var at runtime.
  *
  * MULTI-DATASOURCE: @EventSubscriber() auto-registers on the default DataSource;
  * for additional named DataSources, register this module (or the subscriber)
@@ -39,11 +39,11 @@ import {
       provide: DOMAIN_EVENT_MAPPER,
       useClass: DefaultDomainEventMapper,
     },
-<% if (hasDestinations) { %>    {
+    {
       provide: DOMAIN_EVENT_DESTINATIONS,
       useFactory: () => buildDestinations(),
     },
-<% } %>  ],
-  exports: [DomainEventRelay, DOMAIN_EVENT_MAPPER<% if (hasDestinations) { %>, DOMAIN_EVENT_DESTINATIONS<% } %>],
+  ],
+  exports: [DomainEventRelay, DOMAIN_EVENT_MAPPER, DOMAIN_EVENT_DESTINATIONS],
 })
 export class DomainEventsModule {}

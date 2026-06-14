@@ -351,14 +351,13 @@ describe("emitEvents / domain events (issue #79)", () => {
     expect(mapperContent).toContain("export interface DomainEventMapper");
     expect(mapperContent).toContain("export class DefaultDomainEventMapper");
 
-    // Relay: publish() is the extension point that throws
+    // Relay: drains pending and fans out to the active destinations; throws
+    // when none are configured at runtime.
     const relayContent = findFileContent(files, "domain-event.relay");
     expect(relayContent).toBeDefined();
     expect(relayContent).toContain("export class DomainEventRelay");
     expect(relayContent).toContain("processPending");
-    expect(relayContent).toContain(
-      "DomainEventRelay.publish() not implemented"
-    );
+    expect(relayContent).toContain("has no active destinations");
     // commented-out scheduler example only — no real (uncommented) import of @nestjs/schedule
     expect(relayContent).not.toMatch(/^\s*import .*@nestjs\/schedule/m);
 
@@ -457,11 +456,19 @@ describe("event delivery destinations (issue #88)", () => {
     fields: [{ name: "title", type: "text" }],
   };
 
-  test("webhook destination generates the seam, factory, adapter, and rewires relay/module", async () => {
-    const files = await generator.generateDomainEvents([optedIn], "rest", {
-      eventDelivery: { destinations: ["webhook"] },
-    });
+  test("generates the seam, factory, ALL adapters, and rewires relay/module", async () => {
+    const files = await generator.generateDomainEvents([optedIn], "rest", {});
     const filePaths = filePathsOf(files);
+
+    // Delivery is NOT configured in .apsorc — all adapters are always generated.
+    expect(filePaths).toContain(
+      "events/destinations/webhook.destination.ts"
+    );
+    expect(filePaths).toContain("events/destinations/kafka.destination.ts");
+    expect(filePaths).toContain("events/destinations/sqs.destination.ts");
+    expect(filePaths).toContain(
+      "events/destinations/eventbridge.destination.ts"
+    );
 
     // Seam interface + token
     const seam = findFileContent(files, "destinations/delivery-destination");
@@ -470,14 +477,44 @@ describe("event delivery destinations (issue #88)", () => {
       "export const DOMAIN_EVENT_DESTINATIONS = 'DOMAIN_EVENT_DESTINATIONS'"
     );
 
-    // Factory (destinations/index.ts) reads EVENTS_DESTINATION and builds
+    // Factory reads the runtime env var; no .apsorc / build-time config
     const factory = findFileContent(files, "destinations/index");
     expect(factory).toContain("export function buildDestinations()");
     expect(factory).toContain("process.env.EVENTS_DESTINATION");
     expect(factory).toContain("WebhookDestination");
-    expect(factory).toContain("is not generated; add it to .apsorc");
+    expect(factory).toContain("is not a known destination");
+    // No build-time delivery config: the old "add it to .apsorc and regenerate"
+    // error is gone.
+    expect(factory).not.toContain("is not generated");
 
-    // Webhook adapter with Standard Webhooks signing
+    // Relay delegates to destinations and documents MANDATORY dedupe
+    const relay = findFileContent(files, "domain-event.relay");
+    expect(relay).toContain("DOMAIN_EVENT_DESTINATIONS");
+    expect(relay).toContain("@Optional()");
+    expect(relay).toContain("this.destinations.map((d) => d.send(event))");
+    expect(relay).toContain("MANDATORY");
+    expect(relay).toContain("dedupe on `event.id`");
+    expect(relay).not.toContain("DomainEventRelay.publish() not implemented");
+    // Still throws when no destination is active at runtime
+    expect(relay).toContain("has no active destinations");
+
+    // Module provides + exports the destinations token
+    const moduleContent = findFileContent(files, "domain-events.module");
+    expect(moduleContent).toContain("DOMAIN_EVENT_DESTINATIONS");
+    expect(moduleContent).toContain("useFactory: () => buildDestinations()");
+
+    // Barrel re-exports destinations
+    const indexContent = findFileContent(files, "events/index");
+    expect(indexContent).toContain("export * from './destinations'");
+
+    // No multi-subscriber registry table anywhere
+    const all = files.map((f) => f.content).join("\n");
+    expect(all).not.toContain("WebhookEndpoint");
+    expect(all).not.toContain("subscriptions");
+  });
+
+  test("webhook adapter signs Standard Webhooks and needs no extra dependency", async () => {
+    const files = await generator.generateDomainEvents([optedIn], "rest", {});
     const webhook = findFileContent(files, "destinations/webhook.destination");
     expect(webhook).toContain("class WebhookDestination");
     expect(webhook).toContain("implements DeliveryDestination");
@@ -490,116 +527,47 @@ describe("event delivery destinations (issue #88)", () => {
     expect(webhook).toContain("EVENTS_WEBHOOK_URL");
     expect(webhook).toContain("EVENTS_WEBHOOK_SECRET");
     expect(webhook).toContain("if (!response.ok)");
+    // No broker SDK — just crypto + global fetch
+    expect(webhook).not.toContain("require(");
+  });
 
-    // Relay delegates to destinations
-    const relay = findFileContent(files, "domain-event.relay");
-    expect(relay).toContain("DOMAIN_EVENT_DESTINATIONS");
-    expect(relay).toContain("@Optional()");
-    expect(relay).toContain("this.destinations.map((d) => d.send(event))");
-    expect(relay).not.toContain(
-      "DomainEventRelay.publish() not implemented"
-    );
+  test("broker adapters lazy-load their SDKs (no static import)", async () => {
+    const files = await generator.generateDomainEvents([optedIn], "rest", {});
 
-    // Module provides the destinations token
-    const moduleContent = findFileContent(files, "domain-events.module");
-    expect(moduleContent).toContain("DOMAIN_EVENT_DESTINATIONS");
-    expect(moduleContent).toContain("useFactory: () => buildDestinations()");
+    const kafka = findFileContent(files, "destinations/kafka.destination");
+    expect(kafka).toContain("Transport.KAFKA");
+    expect(kafka).toContain("EVENTS_KAFKA_BROKERS");
+    expect(kafka).toContain("EVENTS_KAFKA_TOPIC");
+    // Lazy require, not a static top-level import
+    expect(kafka).toContain("require(pkg)");
+    expect(kafka).not.toContain("from '@nestjs/microservices'");
+    expect(kafka).toContain("npm install @nestjs/microservices kafkajs rxjs");
 
-    // Barrel re-exports destinations
-    const indexContent = findFileContent(files, "events/index");
-    expect(indexContent).toContain("export * from './destinations'");
+    const sqs = findFileContent(files, "destinations/sqs.destination");
+    expect(sqs).toContain("SendMessageCommand");
+    expect(sqs).toContain("EVENTS_SQS_QUEUE_URL");
+    expect(sqs).toContain("require('@aws-sdk/client-sqs')");
+    expect(sqs).not.toContain("from '@aws-sdk/client-sqs'");
+    expect(sqs).toContain("npm install @aws-sdk/client-sqs");
 
-    // .env.example documents the vars
+    const eb = findFileContent(files, "destinations/eventbridge.destination");
+    expect(eb).toContain("PutEventsCommand");
+    expect(eb).toContain("Source: 'apso.domain-events'");
+    expect(eb).toContain("EVENTS_EVENTBRIDGE_BUS");
+    expect(eb).toContain("require('@aws-sdk/client-eventbridge')");
+    expect(eb).not.toContain("from '@aws-sdk/client-eventbridge'");
+  });
+
+  test("EVENTS.env.example documents all destinations and install lines", async () => {
+    const files = await generator.generateDomainEvents([optedIn], "rest", {});
     const env = findFileContent(files, "EVENTS.env.example");
     expect(env).toContain("EVENTS_DESTINATION=webhook");
     expect(env).toContain("EVENTS_WEBHOOK_URL");
     expect(env).toContain("EVENTS_WEBHOOK_SECRET");
-
-    // No other adapters, and NO registry / WebhookEndpoint table
-    expect(filePaths).not.toContain(
-      "events/destinations/kafka.destination.ts"
-    );
-    expect(filePaths).not.toContain("events/destinations/sqs.destination.ts");
-    expect(filePaths).not.toContain(
-      "events/destinations/eventbridge.destination.ts"
-    );
-    const all = files.map((f) => f.content).join("\n");
-    expect(all).not.toContain("WebhookEndpoint");
-    expect(all).not.toContain("subscriptions");
-  });
-
-  test("kafka + sqs generates only those two adapters", async () => {
-    const files = await generator.generateDomainEvents([optedIn], "rest", {
-      eventDelivery: { destinations: ["kafka", "sqs"] },
-    });
-    const filePaths = filePathsOf(files);
-
-    expect(filePaths).toContain("events/destinations/kafka.destination.ts");
-    expect(filePaths).toContain("events/destinations/sqs.destination.ts");
-    expect(filePaths).not.toContain(
-      "events/destinations/webhook.destination.ts"
-    );
-    expect(filePaths).not.toContain(
-      "events/destinations/eventbridge.destination.ts"
-    );
-
-    const kafka = findFileContent(files, "destinations/kafka.destination");
-    expect(kafka).toContain("@nestjs/microservices");
-    expect(kafka).toContain("Transport.KAFKA");
-    expect(kafka).toContain("EVENTS_KAFKA_BROKERS");
-    expect(kafka).toContain("EVENTS_KAFKA_TOPIC");
-
-    const sqs = findFileContent(files, "destinations/sqs.destination");
-    expect(sqs).toContain("@aws-sdk/client-sqs");
-    expect(sqs).toContain("SendMessageCommand");
-    expect(sqs).toContain("EVENTS_SQS_QUEUE_URL");
-
-    // env.example lists install lines for the brokers
-    const env = findFileContent(files, "EVENTS.env.example");
-    expect(env).toContain("npm install @nestjs/microservices");
+    expect(env).toContain("EVENTS_KAFKA_BROKERS");
+    expect(env).toContain("EVENTS_SQS_QUEUE_URL");
+    expect(env).toContain("EVENTS_EVENTBRIDGE_BUS");
     expect(env).toContain("npm install @aws-sdk/client-sqs");
-  });
-
-  test("eventbridge generates its adapter with the apso source", async () => {
-    const files = await generator.generateDomainEvents([optedIn], "rest", {
-      eventDelivery: { destinations: ["eventbridge"] },
-    });
-    const eb = findFileContent(files, "destinations/eventbridge.destination");
-    expect(eb).toContain("@aws-sdk/client-eventbridge");
-    expect(eb).toContain("PutEventsCommand");
-    expect(eb).toContain("Source: 'apso.domain-events'");
-    expect(eb).toContain("EVENTS_EVENTBRIDGE_BUS");
-  });
-
-  test("no eventDelivery: no destinations dir, relay keeps #80 throw", async () => {
-    const files = await generator.generateDomainEvents([optedIn], "rest", {});
-    const filePaths = filePathsOf(files);
-
-    expect(
-      filePaths.some((p) => p.startsWith("events/destinations/"))
-    ).toBe(false);
-    expect(filePaths).not.toContain("events/EVENTS.env.example");
-
-    const relay = findFileContent(files, "domain-event.relay");
-    expect(relay).toContain("DomainEventRelay.publish() not implemented");
-    expect(relay).not.toContain("DOMAIN_EVENT_DESTINATIONS");
-
-    const moduleContent = findFileContent(files, "domain-events.module");
-    expect(moduleContent).not.toContain("DOMAIN_EVENT_DESTINATIONS");
-
-    const indexContent = findFileContent(files, "events/index");
-    expect(indexContent).not.toContain("export * from './destinations'");
-  });
-
-  test("empty destinations behaves like no eventDelivery", async () => {
-    const files = await generator.generateDomainEvents([optedIn], "rest", {
-      eventDelivery: { destinations: [] },
-    });
-    expect(
-      filePathsOf(files).some((p) => p.startsWith("events/destinations/"))
-    ).toBe(false);
-    const relay = findFileContent(files, "domain-event.relay");
-    expect(relay).toContain("DomainEventRelay.publish() not implemented");
   });
 
   test("destinations are not generated when no entity opts in", async () => {
@@ -607,9 +575,7 @@ describe("event delivery destinations (issue #88)", () => {
       name: "Widget",
       fields: [{ name: "name", type: "text" }],
     };
-    const files = await generator.generateDomainEvents([noOptIn], "rest", {
-      eventDelivery: { destinations: ["webhook"] },
-    });
+    const files = await generator.generateDomainEvents([noOptIn], "rest", {});
     expect(files).toEqual([]);
   });
 });

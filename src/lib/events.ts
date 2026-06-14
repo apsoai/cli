@@ -1,8 +1,11 @@
-import { Entity, DeliveryDestinationName, EventDeliveryConfig } from "./types";
+import { Entity, DeliveryDestinationName } from "./types";
 
 /**
  * The full, ordered set of supported delivery-destination adapter names.
- * Used to validate/normalize the `eventDelivery.destinations` config.
+ *
+ * All of these adapters are ALWAYS generated when domain events are enabled.
+ * Which one(s) are actually active is purely a runtime concern, selected via the
+ * `EVENTS_DESTINATION` env var — the generator does not care.
  */
 export const SUPPORTED_DELIVERY_DESTINATIONS: DeliveryDestinationName[] = [
   "webhook",
@@ -61,27 +64,5 @@ export function hasEventEmittingEntities(
 ): boolean {
   return entities.some((entity) =>
     isEmitEventsEnabled(entity, globalEmitEvents)
-  );
-}
-
-/**
- * Resolves the set of delivery-destination adapters to GENERATE for issue #88.
- *
- * Returns a de-duplicated, validated, order-stable list. Unknown destination
- * names are silently dropped (validation surfaces elsewhere); the canonical
- * order of {@link SUPPORTED_DELIVERY_DESTINATIONS} is preserved so generated
- * output is deterministic regardless of how the config orders entries.
- *
- * This is a pure, build-time concern: it decides which adapter FILES are
- * emitted. The runtime `EVENTS_DESTINATION` env var (a comma list) selects and
- * activates among the generated set at deploy time.
- */
-export function resolveDeliveryDestinations(
-  eventDelivery?: EventDeliveryConfig
-): DeliveryDestinationName[] {
-  const requested = eventDelivery?.destinations ?? [];
-  const requestedSet = new Set(requested);
-  return SUPPORTED_DELIVERY_DESTINATIONS.filter((name) =>
-    requestedSet.has(name)
   );
 }

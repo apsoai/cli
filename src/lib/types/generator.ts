@@ -10,28 +10,16 @@ export type TargetLanguage = "typescript" | "python" | "go";
 /**
  * Names of the supported event-delivery destination adapters.
  *
- * This is a BUILD-TIME scaffolding hint (which adapters to generate), distinct
- * from the runtime `EVENTS_DESTINATION` env var that selects/activates among the
- * generated set and supplies credentials.
+ * All of these adapters are ALWAYS generated when domain events are enabled;
+ * the active destination(s) are chosen purely at runtime via the
+ * `EVENTS_DESTINATION` env var (and per-destination credentials). Delivery is
+ * never configured in `.apsorc`.
  */
 export type DeliveryDestinationName =
   | "webhook"
   | "kafka"
   | "sqs"
   | "eventbridge";
-
-/**
- * Service-wide event-delivery configuration (issue #88).
- *
- * `destinations` lists which delivery adapters to GENERATE under
- * `autogen/events/destinations/`. Runtime selection of the active destination(s)
- * and credentials live in deployment env (`EVENTS_DESTINATION` + per-destination
- * vars), NOT in `.apsorc`.
- */
-export interface EventDeliveryConfig {
-  /** Which delivery adapters to generate. */
-  destinations?: DeliveryDestinationName[];
-}
 
 /**
  * Represents a file to be generated
@@ -159,12 +147,6 @@ export interface GeneratorConfig {
    * Effective per-entity value is `entity.emitEvents ?? emitEvents ?? false`.
    */
   emitEvents?: boolean;
-
-  /**
-   * Service-wide event-delivery configuration (issue #88). Selects which
-   * delivery adapters to GENERATE. Runtime activation/creds live in env.
-   */
-  eventDelivery?: EventDeliveryConfig;
 
   /**
    * Language-specific configuration options
@@ -350,7 +332,7 @@ export interface LanguageGenerator {
   generateDomainEvents(
     entities: Entity[],
     apiType?: string,
-    opts?: { emitEvents?: boolean; eventDelivery?: EventDeliveryConfig }
+    opts?: { emitEvents?: boolean }
   ): Promise<GeneratedFile[]>;
 }
 

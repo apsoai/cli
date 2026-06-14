@@ -1,7 +1,7 @@
 <%~ includeFile('../../header.eta') %>
 <%
-// Map each configured destination name to the adapter class + module that the
-// factory imports. Only the GENERATED adapters appear here.
+// Map each destination name to the adapter class + module the factory imports.
+// All supported adapters are always generated.
 const meta = {
   webhook: { className: 'WebhookDestination', module: './webhook.destination' },
   kafka: { className: 'KafkaDestination', module: './kafka.destination' },
@@ -23,9 +23,7 @@ export { DeliveryDestination, DOMAIN_EVENT_DESTINATIONS };
 <% destinations.forEach(function (name) { %>export { <%= meta[name].className %> } from '<%= meta[name].module %>';
 <% }); %>
 /**
- * Factory for every generated DeliveryDestination adapter, keyed by name.
- * Only the adapters listed in `.apsorc` `eventDelivery.destinations` (at build
- * time) appear here.
+ * Factory for every supported DeliveryDestination adapter, keyed by name.
  */
 const DESTINATION_FACTORIES: Record<string, () => DeliveryDestination> = {
 <% destinations.forEach(function (name) { %>  '<%= name %>': () => new <%= meta[name].className %>(),
@@ -33,15 +31,17 @@ const DESTINATION_FACTORIES: Record<string, () => DeliveryDestination> = {
 
 /**
  * Builds the ACTIVE set of destinations from the runtime `EVENTS_DESTINATION`
- * env var (comma-separated, trimmed). This is where deploy-time selection and
- * fan-out happen — independent of which adapters were generated.
+ * env var (comma-separated, trimmed). This is the ONLY place delivery is
+ * selected — there is no build-time/`.apsorc` delivery config. An empty
+ * EVENTS_DESTINATION means nothing is delivered (events stay `pending`).
  *
- * If `EVENTS_DESTINATION` names a destination that was NOT generated, this
- * throws a clear startup error: add it to `.apsorc` `eventDelivery.destinations`
- * and regenerate.
+ * Broker client libraries are loaded lazily inside each adapter, so a service
+ * only needs the dependency for the destination(s) it actually activates here.
  *
- * Delivery is at-least-once: the relay re-sends to ALL active destinations on
- * retry, so consumers should dedupe on `event.id`.
+ * Delivery is at-least-once and, with multiple active destinations, re-sends to
+ * ALL of them on retry — consumers MUST dedupe on `event.id`.
+ *
+ * An unknown EVENTS_DESTINATION value is a startup error.
  */
 export function buildDestinations(): DeliveryDestination[] {
   const raw = process.env.EVENTS_DESTINATION ?? '';
@@ -54,9 +54,8 @@ export function buildDestinations(): DeliveryDestination[] {
     const factory = DESTINATION_FACTORIES[name];
     if (!factory) {
       throw new Error(
-        `EVENTS_DESTINATION '${name}' is not generated; add it to .apsorc ` +
-          `eventDelivery.destinations and regenerate. Generated: ` +
-          `[${Object.keys(DESTINATION_FACTORIES).join(', ')}]`
+        `EVENTS_DESTINATION '${name}' is not a known destination. ` +
+          `Valid values: [${Object.keys(DESTINATION_FACTORIES).join(', ')}]`
       );
     }
     return factory();

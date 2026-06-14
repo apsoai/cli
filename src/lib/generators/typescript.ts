@@ -15,7 +15,6 @@ import {
   AuthConfig,
   Field,
   DeliveryDestinationName,
-  EventDeliveryConfig,
 } from "../types";
 // Utilities available for future use: createFile, withGeneratedMeta from "../utils/file-system"
 import { getFieldForTemplate, typeExistsInEntity, fieldToEnumType } from "../utils/field";
@@ -35,7 +34,7 @@ import {
 } from "../guards";
 import {
   getEventEmittingEntities,
-  resolveDeliveryDestinations,
+  SUPPORTED_DELIVERY_DESTINATIONS,
 } from "../events";
 import {
   isDbSessionAuth,
@@ -545,7 +544,7 @@ export class TypeScriptGenerator extends BaseGenerator {
   async generateDomainEvents(
     entities: Entity[],
     _apiType?: string,
-    opts?: { emitEvents?: boolean; eventDelivery?: EventDeliveryConfig }
+    opts?: { emitEvents?: boolean }
   ): Promise<GeneratedFile[]> {
     const emittingEntities = getEventEmittingEntities(
       entities,
@@ -556,23 +555,45 @@ export class TypeScriptGenerator extends BaseGenerator {
       return [];
     }
 
-    // Issue #88: which delivery adapters to GENERATE (build-time scaffolding
-    // hint). Only emitted when at least one entity opts in (above) AND a
-    // non-empty, valid destination set is configured.
-    const destinations = resolveDeliveryDestinations(opts?.eventDelivery);
-    const hasDestinations = destinations.length > 0;
+    // Delivery adapters for ALL supported destinations are generated whenever
+    // domain events are enabled. Which one(s) are active is a pure runtime
+    // concern (the EVENTS_DESTINATION env var), and broker SDKs are loaded
+    // lazily inside each adapter, so generating an unused adapter costs nothing
+    // — `.apsorc` says nothing about delivery.
+    const destinations = SUPPORTED_DELIVERY_DESTINATIONS;
 
     const templateData = {
       emittingEntities: emittingEntities.map((entity) => ({
         name: entity.name,
       })),
       destinations,
-      hasDestinations,
       generatedAt: new Date().toISOString(),
       generatedBy: "Apso CLI",
     };
 
     const files: GeneratedFile[] = [];
+
+    const destinationAdapterTemplates: Record<
+      DeliveryDestinationName,
+      { template: string; path: string }
+    > = {
+      webhook: {
+        template: "./events/destinations/webhook.destination.eta",
+        path: "events/destinations/webhook.destination.ts",
+      },
+      kafka: {
+        template: "./events/destinations/kafka.destination.eta",
+        path: "events/destinations/kafka.destination.ts",
+      },
+      sqs: {
+        template: "./events/destinations/sqs.destination.eta",
+        path: "events/destinations/sqs.destination.ts",
+      },
+      eventbridge: {
+        template: "./events/destinations/eventbridge.destination.eta",
+        path: "events/destinations/eventbridge.destination.ts",
+      },
+    };
 
     const targets: { template: string; path: string }[] = [
       {
@@ -596,53 +617,23 @@ export class TypeScriptGenerator extends BaseGenerator {
         path: "events/domain-events.module.ts",
       },
       {
+        template: "./events/destinations/delivery-destination.eta",
+        path: "events/destinations/delivery-destination.ts",
+      },
+      {
+        template: "./events/destinations/index.eta",
+        path: "events/destinations/index.ts",
+      },
+      ...destinations.map((destination) => destinationAdapterTemplates[destination]),
+      {
+        template: "./events/EVENTS.env.example.eta",
+        path: "events/EVENTS.env.example",
+      },
+      {
         template: "./events/index.eta",
         path: "events/index.ts",
       },
     ];
-
-    // Adapter file per configured destination (only the configured ones).
-    const destinationAdapterTemplates: Record<
-      DeliveryDestinationName,
-      { template: string; path: string }
-    > = {
-      webhook: {
-        template: "./events/destinations/webhook.destination.eta",
-        path: "events/destinations/webhook.destination.ts",
-      },
-      kafka: {
-        template: "./events/destinations/kafka.destination.eta",
-        path: "events/destinations/kafka.destination.ts",
-      },
-      sqs: {
-        template: "./events/destinations/sqs.destination.eta",
-        path: "events/destinations/sqs.destination.ts",
-      },
-      eventbridge: {
-        template: "./events/destinations/eventbridge.destination.eta",
-        path: "events/destinations/eventbridge.destination.ts",
-      },
-    };
-
-    if (hasDestinations) {
-      targets.push(
-        {
-          template: "./events/destinations/delivery-destination.eta",
-          path: "events/destinations/delivery-destination.ts",
-        },
-        {
-          template: "./events/destinations/index.eta",
-          path: "events/destinations/index.ts",
-        }
-      );
-      for (const destination of destinations) {
-        targets.push(destinationAdapterTemplates[destination]);
-      }
-      targets.push({
-        template: "./events/EVENTS.env.example.eta",
-        path: "events/EVENTS.env.example",
-      });
-    }
 
     for (const target of targets) {
       // eslint-disable-next-line no-await-in-loop

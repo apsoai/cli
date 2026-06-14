@@ -1,14 +1,14 @@
 <%~ includeFile('../header.eta') %>
 
-<% const hasDestinations = it.hasDestinations; %>import { Injectable, Logger<% if (hasDestinations) { %>, Inject, Optional<% } %> } from '@nestjs/common';
+import { Injectable, Logger, Inject, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { DomainEvent } from './domain-event.entity';
-<% if (hasDestinations) { %>import {
+import {
   DeliveryDestination,
   DOMAIN_EVENT_DESTINATIONS,
 } from './destinations';
-<% } %>
+
 /**
  * Maximum number of delivery attempts before an event is marked 'failed'.
  */
@@ -20,25 +20,29 @@ const MAX_ATTEMPTS = 5;
  * subscriber writes events transactionally, the relay publishes them
  * asynchronously with at-least-once semantics.
  *
-<% if (hasDestinations) { %> * DELIVERY: `publish()` fans each event out to every configured
- * DeliveryDestination (selected at runtime via EVENTS_DESTINATION). Any thrown
- * error bubbles so the relay retries — delivery is at-least-once and RE-SENDS to
- * ALL destinations on retry, so consumers must dedupe on `event.id`. You can
- * still override `publish()` to change this behavior.
-<% } else { %> * DELIVERY is the extension point: override `publish()` (see below) to send
- * events anywhere — webhooks, Kafka, SNS, an internal event bus, etc. The
- * generated code intentionally does NOT implement any specific transport.
-<% } %> */
+ * DELIVERY: `publish()` fans each event out to every ACTIVE DeliveryDestination
+ * (chosen at runtime via the EVENTS_DESTINATION env var). Any thrown error
+ * bubbles so the relay retries.
+ *
+ * DUPLICATES — IMPORTANT: delivery is tracked at the event grain (a single
+ * `events.status`), NOT per (event × destination). With MORE THAN ONE active
+ * destination, a failure in any one destination retries the WHOLE event, so the
+ * healthy destinations receive the event AGAIN on every retry. Consumer-side
+ * dedupe on `event.id` is therefore MANDATORY, not optional, whenever you run
+ * multiple destinations. (A single destination — the common case — never
+ * duplicates beyond ordinary at-least-once.) You can override `publish()` to
+ * change this behavior.
+ */
 @Injectable()
 export class DomainEventRelay {
   private readonly logger = new Logger(DomainEventRelay.name);
 
   constructor(
     @InjectRepository(DomainEvent)
-    private readonly events: Repository<DomainEvent><% if (hasDestinations) { %>,
+    private readonly events: Repository<DomainEvent>,
     @Optional()
     @Inject(DOMAIN_EVENT_DESTINATIONS)
-    private readonly destinations: DeliveryDestination[] = []<% } %>
+    private readonly destinations: DeliveryDestination[] = []
   ) {}
 
   /**
@@ -84,10 +88,11 @@ export class DomainEventRelay {
   /**
    * Deliver a single domain event.
    *
-<% if (hasDestinations) { %>   * Fans the event out to every configured DeliveryDestination. Any rejection
-   * bubbles so the relay retries (and re-sends to ALL destinations). Override to
-   * change delivery behavior. When no destinations are active (empty
-   * EVENTS_DESTINATION), this throws so misconfiguration surfaces.
+   * Fans the event out to every ACTIVE DeliveryDestination. Any rejection
+   * bubbles so the relay retries (and, with multiple destinations, re-sends to
+   * ALL of them — see the class doc on mandatory consumer-side dedupe). Override
+   * to change delivery behavior. When no destination is active (empty
+   * EVENTS_DESTINATION), this throws so the misconfiguration surfaces.
    */
   async publish(event: DomainEvent): Promise<void> {
     if (this.destinations?.length) {
@@ -100,16 +105,3 @@ export class DomainEventRelay {
     );
   }
 }
-<% } else { %>   * EXTENSION POINT — override (subclass or re-provide) this method to actually
-   * publish events to your transport of choice (webhooks, Kafka, SNS, internal
-   * bus, ...). On success the relay marks the event published; on a thrown error
-   * it retries up to MAX_ATTEMPTS and then marks it failed.
-   */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  async publish(event: DomainEvent): Promise<void> {
-    throw new Error(
-      'DomainEventRelay.publish() not implemented — override to deliver events'
-    );
-  }
-}
-<% } %>

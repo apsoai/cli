@@ -1115,17 +1115,17 @@ change, an app-overridable \`DomainEventMapper\` (event-type + payload), and a
 \`DomainEventRelay\` whose \`publish()\` you override to deliver events. The
 \`DomainEventsModule\` is wired into the generated module list automatically.
 
-## Event Delivery (eventDelivery)
-Optional top-level \`eventDelivery: { destinations: [...] }\` selects which
-delivery adapters to GENERATE under \`autogen/events/destinations/\`. Supported
-destinations: \`webhook\`, \`kafka\`, \`sqs\`, \`eventbridge\`. This is a build-time
-scaffolding hint (the dependency surface); the ACTIVE destination(s) and
-credentials are chosen at runtime via the \`EVENTS_DESTINATION\` env var
-(comma-separated for fan-out) plus per-destination env vars (documented in the
-generated \`events/EVENTS.env.example\`). Adapters are only generated when at
-least one entity opts in to \`emitEvents\` AND \`destinations\` is non-empty. The
-webhook adapter POSTs each event to ONE configured URL, signed in the Standard
-Webhooks format; it is NOT a multi-subscriber registry.
+## Event Delivery
+When \`emitEvents\` is enabled, delivery adapters for ALL supported destinations
+(\`webhook\`, \`kafka\`, \`sqs\`, \`eventbridge\`) are generated under
+\`autogen/events/destinations/\`. Delivery is NOT configured in \`.apsorc\` — the
+ACTIVE destination(s) and credentials are chosen entirely at runtime via the
+\`EVENTS_DESTINATION\` env var (comma-separated for fan-out) plus per-destination
+env vars (documented in the generated \`events/EVENTS.env.example\`). Broker
+client libraries are loaded lazily, so a service only needs the dependency for
+the destination it actually runs. The webhook adapter POSTs each event to ONE
+configured URL, signed in the Standard Webhooks format; it is NOT a
+multi-subscriber registry.
 
 ## Relationship Types
 - OneToMany: parent has many children
