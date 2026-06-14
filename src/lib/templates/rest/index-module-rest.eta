@@ -3,15 +3,9 @@
 <% it.entities.forEach((entity) => { %>
 import {<%= entity.name %>Module} from './<%= entity.name %>/<%= entity.name %>.module'
 <%}) %>
-<% if (it.emitDomainEvents) { %>
-import { DomainEventsModule } from './events'
-<% } %>
 
 export default [
 <% it.entities.forEach((entity) => { %>
 <%= entity.name %>Module,
 <%}) %>
-<% if (it.emitDomainEvents) { %>
-DomainEventsModule,
-<% } %>
 ]

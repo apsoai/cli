@@ -1,0 +1,23 @@
+<%~ includeFile('../header.eta') %>
+
+<% it.emittingEntities.forEach((entity) => { %>
+import { <%= entity.name %> } from '../<%= entity.name %>/<%= entity.name %>.entity';
+<%}) %>
+
+/**
+ * Schema-derived manifest of entities that opted in to domain-event emission
+ * (`.apsorc` `emitEvents`). The domain-event engine itself lives in the
+ * `@apso/domain-events` library and is wired by the `domain-events` skill;
+ * this file only declares WHICH entities participate.
+ */
+export const EVENT_EMITTING_ENTITIES = [
+<% it.emittingEntities.forEach((entity) => { %>
+  <%= entity.name %>,
+<%}) %>
+];
+
+export const EVENT_EMITTING_ENTITY_NAMES = [
+<% it.emittingEntities.forEach((entity) => { %>
+  '<%= entity.name %>',
+<%}) %>
+];

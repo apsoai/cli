@@ -3,9 +3,10 @@ import { Entity } from "./types";
 /**
  * Helpers for the opt-in DomainEvent ("emitEvents") feature.
  *
- * This implements the standard transactional-outbox pattern for durability, but
- * is surfaced with generic "domain event" naming (the user found "outbox"
- * unintuitive). No public artifact is named "outbox".
+ * Under the Apso Distribution Model the domain-event engine ships in the
+ * `@apso/domain-events` library (wired by the `domain-events` skill). The CLI
+ * only uses these helpers to compute which entities opted in, and emits a
+ * schema-derived manifest (`events/event-emitting.entities.ts`).
  *
  * Flag resolution: the effective per-entity value is
  *   `entity.emitEvents ?? globalEmitEvents ?? false`
@@ -41,7 +42,7 @@ export function getEventEmittingEntities(
 
 /**
  * Returns true when at least one entity has domain events enabled, meaning the
- * DomainEvent spine (entity, subscriber, mapper, relay, module) should be
+ * event-emitting manifest (`events/event-emitting.entities.ts`) should be
  * generated.
  */
 export function hasEventEmittingEntities(

@@ -132,8 +132,9 @@ export abstract class BaseGenerator implements LanguageGenerator {
   }
 
   /**
-   * Generate the durable DomainEvent spine for entities that opt in to
-   * `emitEvents` (transactional-outbox pattern, generic domain-event naming).
+   * Emit a schema-derived manifest of entities that opt in to `emitEvents`.
+   * The domain-event engine ships in the `@apso/domain-events` library (wired
+   * by the `domain-events` skill); the generator only declares participants.
    * Default no-op. Override in language generators that support it.
    */
   async generateDomainEvents(

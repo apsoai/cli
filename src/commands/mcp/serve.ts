@@ -1108,12 +1108,12 @@ state changes. A top-level \`emitEvents: true\` enables it for every entity; an
 individual entity can opt out with \`emitEvents: false\` (effective value is
 \`entity.emitEvents ?? <top-level emitEvents> ?? false\`).
 
-When at least one entity opts in, the generator emits a \`DomainEvent\` spine
-under \`autogen/events/\`: a \`DomainEvent\` entity (table \`events\`), a TypeORM
-\`DomainEventSubscriber\` that writes events in the SAME DB transaction as the
-change, an app-overridable \`DomainEventMapper\` (event-type + payload), and a
-\`DomainEventRelay\` whose \`publish()\` you override to deliver events. The
-\`DomainEventsModule\` is wired into the generated module list automatically.
+When at least one entity opts in, the generator emits a single schema-derived
+manifest at \`autogen/events/event-emitting.entities.ts\` exporting
+\`EVENT_EMITTING_ENTITIES\` (the opted-in entity classes) and
+\`EVENT_EMITTING_ENTITY_NAMES\`. The domain-event engine itself ships in the
+\`@apso/domain-events\` library and is wired by the \`domain-events\` skill; the
+CLI no longer generates the engine code.
 
 ## Relationship Types
 - OneToMany: parent has many children

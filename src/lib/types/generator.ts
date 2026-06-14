@@ -312,8 +312,8 @@ export interface LanguageGenerator {
   ): Promise<GeneratedFile[]>;
 
   /**
-   * Generate the durable DomainEvent spine for entities that opt in to
-   * `emitEvents`. Returns [] when no entity is opted in.
+   * Emit a schema-derived manifest of entities that opt in to `emitEvents`
+   * (engine lives in `@apso/domain-events`). Returns [] when none are opted in.
    */
   generateDomainEvents(
     entities: Entity[],
