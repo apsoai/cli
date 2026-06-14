@@ -24,6 +24,15 @@ When adding a capability, ask in order:
 3. **Is it a *decision* or *wiring* composing the other two?** → **Skill.** Installs the library + minimal wiring + captures choices. Must not hand-write engine code.
 4. **Config/secrets/business logic?** → the **app's**. Document it (e.g. `.env.example`); don't generate or vendor it.
 
+## `.apsorc` is the feature-control plane
+
+`.apsorc` doesn't just describe the data model — it's where the developer **signals intent**, and that intent drives both codegen *and* which libraries/skills get wired in:
+
+- `scopeBy` → signals tenant scoping; instructs what the generator adds.
+- `emitEvents` → signals which entities to emit domain events for; pulls in the `@apso/domain-events` library + the `domain-events` skill.
+
+For a **library feature**, the CLI's job is small and purely schema-derived: from the `.apsorc` signal it emits a **manifest** (e.g. the list of opted-in entity classes) that the library consumes — `DomainEventsModule.forRoot({ entities })`. The engine lives in the library, the wiring is the skill's, and the *on-switch* lives in `.apsorc`. So `.apsorc` flags are the feature toggles for capabilities, not the implementation of them.
+
 ## Why the CLI should generate *less*, not more
 
 - **The service template (`service-template-ts`) is cloned once and never updated** — anything engine-y placed there is frozen forever.
