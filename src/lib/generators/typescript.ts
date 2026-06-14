@@ -439,14 +439,11 @@ export class TypeScriptGenerator extends BaseGenerator {
   async generateIndexModule(
     entities: Entity[],
     apiType: string,
-    opts?: { emitEvents?: boolean }
+    _opts?: { emitEvents?: boolean }
   ): Promise<GeneratedFile[]> {
-    const emitDomainEvents =
-      getEventEmittingEntities(entities, opts?.emitEvents).length > 0;
-
     const content = await this.renderTemplate(
       `./${apiType}/index-module-${apiType}`,
-      { entities, emitDomainEvents }
+      { entities }
     );
 
     return [
@@ -526,9 +523,14 @@ export class TypeScriptGenerator extends BaseGenerator {
   }
 
   /**
-   * Generates the durable DomainEvent spine (transactional-outbox pattern,
-   * surfaced with generic domain-event naming) when at least one entity has
-   * opted in to `emitEvents`.
+   * Emits a schema-derived manifest of the entities that have opted in to
+   * domain-event emission (`.apsorc` `emitEvents`).
+   *
+   * Under the Apso Distribution Model the domain-event engine no longer ships
+   * as generated code; it lives in the `@apso/domain-events` library and is
+   * wired by the `domain-events` skill. The CLI's only responsibility is to
+   * declare WHICH entities participate, via a single generated file:
+   * `events/event-emitting.entities.ts`.
    *
    * Returns an empty array when no entity is opted in, so callers can skip
    * wiring entirely.
@@ -551,50 +553,21 @@ export class TypeScriptGenerator extends BaseGenerator {
       return [];
     }
 
-    const templateData = {
-      emittingEntities: emittingEntities.map((entity) => ({
-        name: entity.name,
-      })),
-      generatedAt: new Date().toISOString(),
-      generatedBy: "Apso CLI",
-    };
+    const content = await this.renderTemplate(
+      "./events/event-emitting.entities.eta",
+      {
+        emittingEntities: emittingEntities.map((entity) => ({
+          name: entity.name,
+        })),
+      }
+    );
 
-    const files: GeneratedFile[] = [];
-
-    const targets: { template: string; path: string }[] = [
+    return [
       {
-        template: "./events/domain-event.entity.eta",
-        path: "events/domain-event.entity.ts",
-      },
-      {
-        template: "./events/domain-event.mapper.eta",
-        path: "events/domain-event.mapper.ts",
-      },
-      {
-        template: "./events/domain-event.subscriber.eta",
-        path: "events/domain-event.subscriber.ts",
-      },
-      {
-        template: "./events/domain-event.relay.eta",
-        path: "events/domain-event.relay.ts",
-      },
-      {
-        template: "./events/domain-events.module.eta",
-        path: "events/domain-events.module.ts",
-      },
-      {
-        template: "./events/index.eta",
-        path: "events/index.ts",
+        path: "events/event-emitting.entities.ts",
+        content,
       },
     ];
-
-    for (const target of targets) {
-      // eslint-disable-next-line no-await-in-loop
-      const content = await this.renderTemplate(target.template, templateData);
-      files.push({ path: target.path, content });
-    }
-
-    return files;
   }
 
   /**

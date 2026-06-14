@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **Domain events (`emitEvents`) realigned to the Apso Distribution Model
+  (apsoai/cli#91).** The CLI no longer generates the domain-event engine
+  (`DomainEvent` entity, subscriber, mapper, relay, and `DomainEventsModule`)
+  into `autogen/events/`. Instead, when at least one entity opts in via
+  `emitEvents`, the generator emits a single schema-derived manifest at
+  `autogen/events/event-emitting.entities.ts` that exports
+  `EVENT_EMITTING_ENTITIES` (the opted-in entity classes) and
+  `EVENT_EMITTING_ENTITY_NAMES`. The runtime engine now ships in the
+  `@apso/domain-events` library (see apsoai/apso-packages#3) and is wired into
+  the application by the `domain-events` skill.
+
+### Migration
+- Replace the previously generated engine under `autogen/events/` by installing
+  `@apso/domain-events` and running the `domain-events` skill to wire the
+  library's `DomainEventsModule`. The `.apsorc` `emitEvents` flag (per-entity or
+  top-level default) is unchanged and now drives only the manifest.
+
 ## [0.8.3] - 2025-12-01
 
 ### Added
