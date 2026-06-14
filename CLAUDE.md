@@ -104,6 +104,16 @@ npm run pack         # Create tarballs for distribution
 - Python/FastAPI (in development)
 - Go/Gin (in development)
 
+## Architecture: Distribution Model (read before adding a new capability)
+
+Before generating new code, decide which **plane** a capability belongs to — most cross-cutting features should NOT be CLI codegen:
+
+- **Schema-derived** (entities/DTOs/controllers/modules) → the CLI generates it into `autogen/`.
+- **Stable engine/architecture patterns** (domain events, delivery, caching, idempotency…) → ship as a **versioned library** in [`apsoai/apso-packages`](https://github.com/apsoai/apso-packages), not codegen.
+- **Composition/wiring/recommended pattern** → an **Apso skill** (`apsoai/skills`) that installs + wires the pinned library.
+
+Full rationale and the decision rule: [`docs/distribution-model.md`](docs/distribution-model.md).
+
 ## Backlog
 
 ### Python Code Generation Bugs (High Priority)
