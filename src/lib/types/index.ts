@@ -29,6 +29,8 @@ export {
 } from "./auth";
 export {
   TargetLanguage,
+  DeliveryDestinationName,
+  EventDeliveryConfig,
   GeneratedFile,
   ValidationResult,
   PythonLanguageConfig,

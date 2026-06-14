@@ -1,0 +1,45 @@
+<%~ includeFile('../../header.eta') %>
+
+import {
+  EventBridgeClient,
+  PutEventsCommand,
+} from '@aws-sdk/client-eventbridge';
+import { DomainEvent } from '../domain-event.entity';
+import { DeliveryDestination } from './delivery-destination';
+
+/**
+ * EventBridgeDestination puts each domain event onto an Amazon EventBridge bus.
+ * The AWS SDK is a normal SERVICE dependency — run
+ * `npm install @aws-sdk/client-eventbridge` in the generated service (see
+ * events/EVENTS.env.example).
+ *
+ * Env:
+ *   AWS_REGION              — AWS region (required)
+ *   EVENTS_EVENTBRIDGE_BUS  — target event bus name (required)
+ */
+export class EventBridgeDestination implements DeliveryDestination {
+  readonly name = 'eventbridge';
+
+  private readonly busName = process.env.EVENTS_EVENTBRIDGE_BUS;
+  private readonly client = new EventBridgeClient({
+    region: process.env.AWS_REGION,
+  });
+
+  async send(event: DomainEvent): Promise<void> {
+    if (!this.busName) {
+      throw new Error('EVENTS_EVENTBRIDGE_BUS is not set');
+    }
+    await this.client.send(
+      new PutEventsCommand({
+        Entries: [
+          {
+            EventBusName: this.busName,
+            Source: 'apso.domain-events',
+            DetailType: event.type,
+            Detail: JSON.stringify(event),
+          },
+        ],
+      })
+    );
+  }
+}

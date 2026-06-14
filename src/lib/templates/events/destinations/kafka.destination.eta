@@ -1,0 +1,57 @@
+<%~ includeFile('../../header.eta') %>
+
+import {
+  ClientProxy,
+  ClientProxyFactory,
+  Transport,
+} from '@nestjs/microservices';
+import { lastValueFrom } from 'rxjs';
+import { DomainEvent } from '../domain-event.entity';
+import { DeliveryDestination } from './delivery-destination';
+
+/**
+ * KafkaDestination emits each domain event onto a Kafka topic using the
+ * idiomatic @nestjs/microservices ClientProxy. The broker client is a normal
+ * SERVICE dependency — run `npm install @nestjs/microservices kafkajs` in the
+ * generated service (see events/EVENTS.env.example).
+ *
+ * Env:
+ *   EVENTS_KAFKA_BROKERS — comma-separated broker list (required)
+ *   EVENTS_KAFKA_TOPIC   — topic to emit to (required)
+ */
+export class KafkaDestination implements DeliveryDestination {
+  readonly name = 'kafka';
+
+  private readonly topic = process.env.EVENTS_KAFKA_TOPIC;
+  private client?: ClientProxy;
+  private connected = false;
+
+  private getClient(): ClientProxy {
+    if (!this.client) {
+      const brokers = (process.env.EVENTS_KAFKA_BROKERS ?? '')
+        .split(',')
+        .map((broker) => broker.trim())
+        .filter(Boolean);
+      if (brokers.length === 0) {
+        throw new Error('EVENTS_KAFKA_BROKERS is not set');
+      }
+      this.client = ClientProxyFactory.create({
+        transport: Transport.KAFKA,
+        options: { client: { brokers } },
+      });
+    }
+    return this.client;
+  }
+
+  async send(event: DomainEvent): Promise<void> {
+    if (!this.topic) {
+      throw new Error('EVENTS_KAFKA_TOPIC is not set');
+    }
+    const client = this.getClient();
+    if (!this.connected) {
+      await client.connect();
+      this.connected = true;
+    }
+    await lastValueFrom(client.emit(this.topic, event));
+  }
+}

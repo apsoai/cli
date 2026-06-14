@@ -1,7 +1,9 @@
 <%~ includeFile('../header.eta') %>
 
-export * from './domain-event.entity';
+<% const hasDestinations = it.hasDestinations; %>export * from './domain-event.entity';
 export * from './domain-event.subscriber';
 export * from './domain-event.mapper';
 export * from './domain-event.relay';
 export * from './domain-events.module';
+<% if (hasDestinations) { %>export * from './destinations';
+<% } %>

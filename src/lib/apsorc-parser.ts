@@ -4,7 +4,7 @@ import rc from "rc";
 import { Entity } from "./types/entity";
 import { ApsorcRelationship, RelationshipMap } from "./types/relationship";
 import { AuthConfig } from "./types/auth";
-import { TargetLanguage } from "./types/generator";
+import { TargetLanguage, EventDeliveryConfig } from "./types/generator";
 import {
   parseRelationships,
   parseV1Relationships,
@@ -30,6 +30,11 @@ export type ApsorcType = {
    * its own `emitEvents: false`.
    */
   emitEvents?: boolean;
+  /**
+   * Service-wide event-delivery configuration (issue #88). Build-time hint for
+   * which delivery adapters to generate; runtime selection/creds live in env.
+   */
+  eventDelivery?: EventDeliveryConfig;
 };
 
 type ParsedApsorcData = {
@@ -45,6 +50,8 @@ type ParsedApsorc = {
   language?: TargetLanguage;
   /** Top-level default for the DomainEvent ("emitEvents") feature. */
   emitEvents?: boolean;
+  /** Service-wide event-delivery configuration (issue #88). */
+  eventDelivery?: EventDeliveryConfig;
 };
 
 export const parseApsorcV1 = (apsorc: ApsorcType): ParsedApsorcData => {
@@ -72,6 +79,9 @@ const parseRc = (): ApsorcType => {
   const auth = apsoConfig.auth as AuthConfig | undefined;
   const language = apsoConfig.language as TargetLanguage | undefined;
   const emitEvents = apsoConfig.emitEvents as boolean | undefined;
+  const eventDelivery = apsoConfig.eventDelivery as
+    | EventDeliveryConfig
+    | undefined;
 
   return {
     rootFolder,
@@ -82,6 +92,7 @@ const parseRc = (): ApsorcType => {
     auth,
     language,
     emitEvents,
+    eventDelivery,
   };
 };
 
@@ -106,6 +117,7 @@ export const parseApsorc = (): ParsedApsorc => {
           auth: apsoConfig.auth,
           language: apsoConfig.language,
           emitEvents: apsoConfig.emitEvents,
+          eventDelivery: apsoConfig.eventDelivery,
           ...parseApsorcV1(apsoConfig),
         };
         if (debug) {
@@ -131,6 +143,7 @@ export const parseApsorc = (): ParsedApsorc => {
           auth: apsoConfig.auth,
           language: apsoConfig.language,
           emitEvents: apsoConfig.emitEvents,
+          eventDelivery: apsoConfig.eventDelivery,
           ...(() => {
             const relStart = performance.now();
             const parsed = parseApsorcV2(apsoConfig);

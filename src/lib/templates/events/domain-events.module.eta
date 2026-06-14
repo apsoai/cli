@@ -1,6 +1,6 @@
 <%~ includeFile('../header.eta') %>
 
-import { Global, Module } from '@nestjs/common';
+<% const hasDestinations = it.hasDestinations; %>import { Global, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { DomainEvent } from './domain-event.entity';
 import { DomainEventSubscriber } from './domain-event.subscriber';
@@ -9,6 +9,11 @@ import {
   DOMAIN_EVENT_MAPPER,
   DefaultDomainEventMapper,
 } from './domain-event.mapper';
+<% if (hasDestinations) { %>import {
+  DOMAIN_EVENT_DESTINATIONS,
+  buildDestinations,
+} from './destinations';
+<% } %>
 
 /**
  * DomainEventsModule wires the durable domain-event spine (transactional-outbox
@@ -34,7 +39,11 @@ import {
       provide: DOMAIN_EVENT_MAPPER,
       useClass: DefaultDomainEventMapper,
     },
-  ],
-  exports: [DomainEventRelay, DOMAIN_EVENT_MAPPER],
+<% if (hasDestinations) { %>    {
+      provide: DOMAIN_EVENT_DESTINATIONS,
+      useFactory: () => buildDestinations(),
+    },
+<% } %>  ],
+  exports: [DomainEventRelay, DOMAIN_EVENT_MAPPER<% if (hasDestinations) { %>, DOMAIN_EVENT_DESTINATIONS<% } %>],
 })
 export class DomainEventsModule {}

@@ -1,0 +1,33 @@
+<%~ includeFile('../../header.eta') %>
+
+import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
+import { DomainEvent } from '../domain-event.entity';
+import { DeliveryDestination } from './delivery-destination';
+
+/**
+ * SqsDestination sends each domain event to an Amazon SQS queue. The AWS SDK is
+ * a normal SERVICE dependency — run `npm install @aws-sdk/client-sqs` in the
+ * generated service (see events/EVENTS.env.example).
+ *
+ * Env:
+ *   AWS_REGION           — AWS region (required)
+ *   EVENTS_SQS_QUEUE_URL — target queue URL (required)
+ */
+export class SqsDestination implements DeliveryDestination {
+  readonly name = 'sqs';
+
+  private readonly queueUrl = process.env.EVENTS_SQS_QUEUE_URL;
+  private readonly client = new SQSClient({ region: process.env.AWS_REGION });
+
+  async send(event: DomainEvent): Promise<void> {
+    if (!this.queueUrl) {
+      throw new Error('EVENTS_SQS_QUEUE_URL is not set');
+    }
+    await this.client.send(
+      new SendMessageCommand({
+        QueueUrl: this.queueUrl,
+        MessageBody: JSON.stringify(event),
+      })
+    );
+  }
+}

@@ -14,6 +14,8 @@ import {
   Entity,
   AuthConfig,
   Field,
+  DeliveryDestinationName,
+  EventDeliveryConfig,
 } from "../types";
 // Utilities available for future use: createFile, withGeneratedMeta from "../utils/file-system"
 import { getFieldForTemplate, typeExistsInEntity, fieldToEnumType } from "../utils/field";
@@ -31,7 +33,10 @@ import {
   getScopedEntities,
   hasScopedEntities,
 } from "../guards";
-import { getEventEmittingEntities } from "../events";
+import {
+  getEventEmittingEntities,
+  resolveDeliveryDestinations,
+} from "../events";
 import {
   isDbSessionAuth,
   DB_SESSION_AUTH_DEFAULTS,
@@ -540,7 +545,7 @@ export class TypeScriptGenerator extends BaseGenerator {
   async generateDomainEvents(
     entities: Entity[],
     _apiType?: string,
-    opts?: { emitEvents?: boolean }
+    opts?: { emitEvents?: boolean; eventDelivery?: EventDeliveryConfig }
   ): Promise<GeneratedFile[]> {
     const emittingEntities = getEventEmittingEntities(
       entities,
@@ -551,10 +556,18 @@ export class TypeScriptGenerator extends BaseGenerator {
       return [];
     }
 
+    // Issue #88: which delivery adapters to GENERATE (build-time scaffolding
+    // hint). Only emitted when at least one entity opts in (above) AND a
+    // non-empty, valid destination set is configured.
+    const destinations = resolveDeliveryDestinations(opts?.eventDelivery);
+    const hasDestinations = destinations.length > 0;
+
     const templateData = {
       emittingEntities: emittingEntities.map((entity) => ({
         name: entity.name,
       })),
+      destinations,
+      hasDestinations,
       generatedAt: new Date().toISOString(),
       generatedBy: "Apso CLI",
     };
@@ -587,6 +600,49 @@ export class TypeScriptGenerator extends BaseGenerator {
         path: "events/index.ts",
       },
     ];
+
+    // Adapter file per configured destination (only the configured ones).
+    const destinationAdapterTemplates: Record<
+      DeliveryDestinationName,
+      { template: string; path: string }
+    > = {
+      webhook: {
+        template: "./events/destinations/webhook.destination.eta",
+        path: "events/destinations/webhook.destination.ts",
+      },
+      kafka: {
+        template: "./events/destinations/kafka.destination.eta",
+        path: "events/destinations/kafka.destination.ts",
+      },
+      sqs: {
+        template: "./events/destinations/sqs.destination.eta",
+        path: "events/destinations/sqs.destination.ts",
+      },
+      eventbridge: {
+        template: "./events/destinations/eventbridge.destination.eta",
+        path: "events/destinations/eventbridge.destination.ts",
+      },
+    };
+
+    if (hasDestinations) {
+      targets.push(
+        {
+          template: "./events/destinations/delivery-destination.eta",
+          path: "events/destinations/delivery-destination.ts",
+        },
+        {
+          template: "./events/destinations/index.eta",
+          path: "events/destinations/index.ts",
+        }
+      );
+      for (const destination of destinations) {
+        targets.push(destinationAdapterTemplates[destination]);
+      }
+      targets.push({
+        template: "./events/EVENTS.env.example.eta",
+        path: "events/EVENTS.env.example",
+      });
+    }
 
     for (const target of targets) {
       // eslint-disable-next-line no-await-in-loop

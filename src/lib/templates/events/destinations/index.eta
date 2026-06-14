@@ -1,0 +1,64 @@
+<%~ includeFile('../../header.eta') %>
+<%
+// Map each configured destination name to the adapter class + module that the
+// factory imports. Only the GENERATED adapters appear here.
+const meta = {
+  webhook: { className: 'WebhookDestination', module: './webhook.destination' },
+  kafka: { className: 'KafkaDestination', module: './kafka.destination' },
+  sqs: { className: 'SqsDestination', module: './sqs.destination' },
+  eventbridge: {
+    className: 'EventBridgeDestination',
+    module: './eventbridge.destination',
+  },
+};
+const destinations = it.destinations || [];
+%>
+import {
+  DeliveryDestination,
+  DOMAIN_EVENT_DESTINATIONS,
+} from './delivery-destination';
+<% destinations.forEach(function (name) { %>import { <%= meta[name].className %> } from '<%= meta[name].module %>';
+<% }); %>
+export { DeliveryDestination, DOMAIN_EVENT_DESTINATIONS };
+<% destinations.forEach(function (name) { %>export { <%= meta[name].className %> } from '<%= meta[name].module %>';
+<% }); %>
+/**
+ * Factory for every generated DeliveryDestination adapter, keyed by name.
+ * Only the adapters listed in `.apsorc` `eventDelivery.destinations` (at build
+ * time) appear here.
+ */
+const DESTINATION_FACTORIES: Record<string, () => DeliveryDestination> = {
+<% destinations.forEach(function (name) { %>  '<%= name %>': () => new <%= meta[name].className %>(),
+<% }); %>};
+
+/**
+ * Builds the ACTIVE set of destinations from the runtime `EVENTS_DESTINATION`
+ * env var (comma-separated, trimmed). This is where deploy-time selection and
+ * fan-out happen — independent of which adapters were generated.
+ *
+ * If `EVENTS_DESTINATION` names a destination that was NOT generated, this
+ * throws a clear startup error: add it to `.apsorc` `eventDelivery.destinations`
+ * and regenerate.
+ *
+ * Delivery is at-least-once: the relay re-sends to ALL active destinations on
+ * retry, so consumers should dedupe on `event.id`.
+ */
+export function buildDestinations(): DeliveryDestination[] {
+  const raw = process.env.EVENTS_DESTINATION ?? '';
+  const names = raw
+    .split(',')
+    .map((name) => name.trim())
+    .filter(Boolean);
+
+  return names.map((name) => {
+    const factory = DESTINATION_FACTORIES[name];
+    if (!factory) {
+      throw new Error(
+        `EVENTS_DESTINATION '${name}' is not generated; add it to .apsorc ` +
+          `eventDelivery.destinations and regenerate. Generated: ` +
+          `[${Object.keys(DESTINATION_FACTORIES).join(', ')}]`
+      );
+    }
+    return factory();
+  });
+}
