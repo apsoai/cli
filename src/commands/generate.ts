@@ -140,12 +140,18 @@ export default class Generate extends BaseCommand {
       const entityBuildStart = performance.now();
       const entityRelationships = relationshipMap[entity.name] || [];
 
-      // Effective HTTP-controller flag (REST only): entity overrides the
-      // top-level default, which defaults to true. When false, the controller is
-      // neither generated nor wired into the module (a hand-written controller
-      // owns the route). GraphQL uses resolvers, so the flag doesn't apply there.
+      // Effective HTTP-controller flag (TypeScript REST only for now): entity
+      // overrides the top-level default, which defaults to true. When false, the
+      // controller is neither generated nor wired into the module (a hand-written
+      // controller owns the route). GraphQL uses resolvers, so the flag doesn't
+      // apply there. Python (FastAPI) and Go (Gin) wire routers differently and
+      // don't yet honor this flag — keep it a no-op for them (controllers always
+      // generated) so we never emit broken wiring (a skipped router still
+      // referenced by the index module). Tracked separately for Python/Go.
       const includeController =
-        lowerCaseApiType === "rest" ? (entity.http ?? http ?? true) : true;
+        language === "typescript" && lowerCaseApiType === "rest"
+          ? (entity.http ?? http ?? true)
+          : true;
       if (!includeController) {
         console.log(
           `[apso]   ${entity.name}: http=false — skipping generated controller`
