@@ -362,7 +362,7 @@ export class TypeScriptGenerator extends BaseGenerator {
   async generateModule(
     options: EntityGenerationOptions
   ): Promise<GeneratedFile[]> {
-    const { entity, apiType } = options;
+    const { entity, apiType, includeController = true } = options;
     const { name: entityName } = entity;
 
     const moduleName = `${entityName}Module`;
@@ -376,6 +376,7 @@ export class TypeScriptGenerator extends BaseGenerator {
       ctrlName,
       resolverName,
       entityName,
+      includeController,
     };
 
     const templatePath =

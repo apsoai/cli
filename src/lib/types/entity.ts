@@ -66,6 +66,28 @@ export interface Entity {
    */
   emitEvents?: boolean;
 
+  /**
+   * Whether to generate the HTTP controller for this entity. Defaults to true.
+   * When false, the generator still emits the entity, service, DTOs, and a module
+   * (with `TypeOrmModule.forFeature` + the service), but omits the controller —
+   * leaving the HTTP surface to a hand-written controller without a route
+   * collision with the generated CRUD.
+   *
+   * Per-framework behavior (the flag is generic, but only matters where a
+   * generated route can't be cleanly overridden):
+   * - **NestJS** and **Gin (Go)**: actually suppresses the controller/route —
+   *   these frameworks can't override a generated route (Nest controllers aren't
+   *   DI-swappable; Gin panics on duplicate paths). Implemented for NestJS;
+   *   Go is tracked separately.
+   * - **FastAPI**: effectively a **no-op** — FastAPI matches routes in
+   *   registration order, so an app overrides by registering its router ahead of
+   *   the generated `autogen_router` (no suppression needed).
+   *
+   * Resolution: the effective value is `entity.http ?? <global http> ?? true`, so
+   * controllers are on by default and opted out per entity (or globally).
+   */
+  http?: boolean;
+
   // only used for v1
   associations?: Association[];
 }

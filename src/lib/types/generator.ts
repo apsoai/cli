@@ -135,6 +135,12 @@ export interface GeneratorConfig {
   emitEvents?: boolean;
 
   /**
+   * Top-level default for HTTP controller generation.
+   * Effective per-entity value is `entity.http ?? http ?? true`.
+   */
+  http?: boolean;
+
+  /**
    * Language-specific configuration options
    */
   languageConfig?: LanguageConfig;
@@ -163,6 +169,12 @@ export interface EntityGenerationOptions {
    * API type being generated
    */
   apiType: string;
+
+  /**
+   * Whether the entity's HTTP controller is generated/wired. Defaults to true.
+   * When false, the module omits the controller (see Entity.http).
+   */
+  includeController?: boolean;
 }
 
 /**

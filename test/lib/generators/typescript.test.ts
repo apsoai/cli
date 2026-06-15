@@ -396,3 +396,56 @@ describe("emitEvents / domain events manifest (issue #91)", () => {
     expect(indexContent).toContain("WidgetModule");
   });
 });
+
+describe("http controller suppression (issue #93)", () => {
+  let generator: TypeScriptGenerator;
+
+  beforeAll(() => {
+    generator = new TypeScriptGenerator(createConfig([]));
+  });
+
+  const entity: Entity = {
+    name: "Product",
+    primaryKeyType: "serial",
+    fields: [{ name: "name", type: "text", nullable: false }],
+  };
+
+  test("default (http on): module wires the controller", async () => {
+    const files = await generator.generateModule({
+      entity,
+      relationships: [],
+      allEntities: [entity],
+      apiType: "rest",
+    });
+    const moduleContent = findFileContent(files, "Product.module");
+    expect(moduleContent).toBeDefined();
+    expect(moduleContent).toContain(
+      'import {ProductController} from "./Product.controller"'
+    );
+    expect(moduleContent).toContain("controllers: [ProductController]");
+    // data layer intact
+    expect(moduleContent).toContain("TypeOrmModule.forFeature([Product])");
+    expect(moduleContent).toContain("providers: [ProductService]");
+  });
+
+  test("http=false: module omits the controller but keeps entity/service wiring", async () => {
+    const files = await generator.generateModule({
+      entity,
+      relationships: [],
+      allEntities: [entity],
+      apiType: "rest",
+      includeController: false,
+    });
+    const moduleContent = findFileContent(files, "Product.module");
+    expect(moduleContent).toBeDefined();
+    // no controller import, no controllers array
+    expect(moduleContent).not.toContain("Product.controller");
+    expect(moduleContent).not.toContain("controllers:");
+    expect(moduleContent).not.toContain("ProductController");
+    // service + repository wiring preserved
+    expect(moduleContent).toContain("TypeOrmModule.forFeature([Product])");
+    expect(moduleContent).toContain("providers: [ProductService]");
+    expect(moduleContent).toContain("exports: [ProductService]");
+    expect(moduleContent).toContain("export class ProductModule");
+  });
+});
