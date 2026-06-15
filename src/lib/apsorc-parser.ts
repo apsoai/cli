@@ -30,6 +30,11 @@ export type ApsorcType = {
    * its own `emitEvents: false`.
    */
   emitEvents?: boolean;
+  /**
+   * Top-level default for HTTP controller generation. When false, no entity
+   * gets a generated controller unless it opts back in with `http: true`.
+   */
+  http?: boolean;
 };
 
 type ParsedApsorcData = {
@@ -45,6 +50,8 @@ type ParsedApsorc = {
   language?: TargetLanguage;
   /** Top-level default for the DomainEvent ("emitEvents") feature. */
   emitEvents?: boolean;
+  /** Top-level default for HTTP controller generation. */
+  http?: boolean;
 };
 
 export const parseApsorcV1 = (apsorc: ApsorcType): ParsedApsorcData => {
@@ -72,6 +79,7 @@ const parseRc = (): ApsorcType => {
   const auth = apsoConfig.auth as AuthConfig | undefined;
   const language = apsoConfig.language as TargetLanguage | undefined;
   const emitEvents = apsoConfig.emitEvents as boolean | undefined;
+  const http = apsoConfig.http as boolean | undefined;
 
   return {
     rootFolder,
@@ -82,6 +90,7 @@ const parseRc = (): ApsorcType => {
     auth,
     language,
     emitEvents,
+    http,
   };
 };
 
@@ -106,6 +115,7 @@ export const parseApsorc = (): ParsedApsorc => {
           auth: apsoConfig.auth,
           language: apsoConfig.language,
           emitEvents: apsoConfig.emitEvents,
+          http: apsoConfig.http,
           ...parseApsorcV1(apsoConfig),
         };
         if (debug) {
@@ -131,6 +141,7 @@ export const parseApsorc = (): ParsedApsorc => {
           auth: apsoConfig.auth,
           language: apsoConfig.language,
           emitEvents: apsoConfig.emitEvents,
+          http: apsoConfig.http,
           ...(() => {
             const relStart = performance.now();
             const parsed = parseApsorcV2(apsoConfig);

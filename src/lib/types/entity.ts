@@ -66,6 +66,18 @@ export interface Entity {
    */
   emitEvents?: boolean;
 
+  /**
+   * Whether to generate the HTTP controller for this entity. Defaults to true.
+   * When false, the generator still emits the entity, service, DTOs, and a module
+   * (with `TypeOrmModule.forFeature` + the service), but omits the controller —
+   * leaving the HTTP surface to a hand-written extension controller (no route
+   * collision with the generated CRUD).
+   *
+   * Resolution: the effective value is `entity.http ?? <global http> ?? true`, so
+   * controllers are on by default and opted out per entity (or globally).
+   */
+  http?: boolean;
+
   // only used for v1
   associations?: Association[];
 }

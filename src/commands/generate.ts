@@ -42,7 +42,7 @@ export default class Generate extends BaseCommand {
     const skipFormat = flags["skip-format"];
 
     const totalBuildStart = performance.now();
-    const { rootFolder, entities, relationshipMap, apiType, auth, emitEvents, language: configLanguage } = parseApsorc();
+    const { rootFolder, entities, relationshipMap, apiType, auth, emitEvents, http, language: configLanguage } = parseApsorc();
 
     // Resolve language: flag > .apsorc > prompt
     let language: TargetLanguage;
@@ -103,6 +103,7 @@ export default class Generate extends BaseCommand {
       relationshipMap,
       auth,
       emitEvents,
+      http,
     };
 
     const generator = createGenerator(generatorConfig);
@@ -139,8 +140,19 @@ export default class Generate extends BaseCommand {
       const entityBuildStart = performance.now();
       const entityRelationships = relationshipMap[entity.name] || [];
 
-      // eslint-disable-next-line no-await-in-loop
-      const allFiles = await Promise.all([
+      // Effective HTTP-controller flag (REST only): entity overrides the
+      // top-level default, which defaults to true. When false, the controller is
+      // neither generated nor wired into the module (a hand-written controller
+      // owns the route). GraphQL uses resolvers, so the flag doesn't apply there.
+      const includeController =
+        lowerCaseApiType === "rest" ? (entity.http ?? http ?? true) : true;
+      if (!includeController) {
+        console.log(
+          `[apso]   ${entity.name}: http=false — skipping generated controller`
+        );
+      }
+
+      const generationTasks = [
         generator.generateEntity({
           entity,
           relationships: entityRelationships,
@@ -160,20 +172,28 @@ export default class Generate extends BaseCommand {
           apiType: lowerCaseApiType,
           relationshipMap,
         }),
-        generator.generateController({
-          entity,
-          relationships: entityRelationships,
-          allEntities: entities,
-          apiType: lowerCaseApiType,
-          relationshipMap,
-        }),
         generator.generateModule({
           entity,
           relationships: entityRelationships,
           allEntities: entities,
           apiType: lowerCaseApiType,
+          includeController,
         }),
-      ]);
+      ];
+      if (includeController) {
+        generationTasks.push(
+          generator.generateController({
+            entity,
+            relationships: entityRelationships,
+            allEntities: entities,
+            apiType: lowerCaseApiType,
+            relationshipMap,
+          })
+        );
+      }
+
+      // eslint-disable-next-line no-await-in-loop
+      const allFiles = await Promise.all(generationTasks);
 
       // eslint-disable-next-line no-await-in-loop
       for (const files of allFiles) {
