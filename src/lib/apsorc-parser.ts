@@ -35,6 +35,12 @@ export type ApsorcType = {
    * gets a generated controller unless it opts back in with `http: true`.
    */
   http?: boolean;
+  /**
+   * Opt-out for the Apso commit co-author hook. When false, the CLI will not
+   * install the `prepare-commit-msg` hook that appends the Apso co-author
+   * trailer. Defaults to enabled.
+   */
+  coAuthor?: boolean;
 };
 
 type ParsedApsorcData = {
@@ -52,6 +58,8 @@ type ParsedApsorc = {
   emitEvents?: boolean;
   /** Top-level default for HTTP controller generation. */
   http?: boolean;
+  /** Opt-out for the Apso commit co-author hook (defaults to enabled). */
+  coAuthor?: boolean;
 };
 
 export const parseApsorcV1 = (apsorc: ApsorcType): ParsedApsorcData => {
@@ -80,6 +88,7 @@ const parseRc = (): ApsorcType => {
   const language = apsoConfig.language as TargetLanguage | undefined;
   const emitEvents = apsoConfig.emitEvents as boolean | undefined;
   const http = apsoConfig.http as boolean | undefined;
+  const coAuthor = apsoConfig.coAuthor as boolean | undefined;
 
   return {
     rootFolder,
@@ -91,6 +100,7 @@ const parseRc = (): ApsorcType => {
     language,
     emitEvents,
     http,
+    coAuthor,
   };
 };
 
@@ -116,6 +126,7 @@ export const parseApsorc = (): ParsedApsorc => {
           language: apsoConfig.language,
           emitEvents: apsoConfig.emitEvents,
           http: apsoConfig.http,
+          coAuthor: apsoConfig.coAuthor,
           ...parseApsorcV1(apsoConfig),
         };
         if (debug) {
@@ -142,6 +153,7 @@ export const parseApsorc = (): ParsedApsorc => {
           language: apsoConfig.language,
           emitEvents: apsoConfig.emitEvents,
           http: apsoConfig.http,
+          coAuthor: apsoConfig.coAuthor,
           ...(() => {
             const relStart = performance.now();
             const parsed = parseApsorcV2(apsoConfig);
