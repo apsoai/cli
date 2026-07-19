@@ -4,7 +4,14 @@ import shell from "shelljs";
 import { TargetLanguage } from "../types";
 
 export const TEMPLATE_REPOS: Record<TargetLanguage, string> = {
-  typescript: "https://github.com/apsoai/service-template-ts.git",
+  // NOTE: typescript intentionally points at the v1 template (@nestjsx/crud).
+  // service-template-ts depends on @apso/crud* packages that are not yet
+  // published to npm (file:../ refs), and the generators still emit
+  // @nestjsx/crud imports. Do not switch back to service-template-ts until:
+  //   1. @apso/crud* are published to npm
+  //   2. service-template-ts deps are converted to npm version refs
+  //   3. generators are ported to the @apso/crud API
+  typescript: "https://github.com/apsoai/service-template.git",
   python: "https://github.com/apsoai/service-template-python.git",
   go: "https://github.com/apsoai/service-template-go.git",
 };

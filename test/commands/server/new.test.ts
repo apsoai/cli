@@ -1,5 +1,6 @@
 import { expect } from "@jest/globals";
 import * as path from "path";
+import { TEMPLATE_REPOS } from "../../../src/lib/utils/template";
 
 // Test the PROJECT_NAME_PATTERN regex and validation logic
 const PROJECT_NAME_PATTERN = /^[A-Za-z][\w-]*$/;
@@ -105,15 +106,12 @@ describe("server new command", () => {
   });
 
   describe("TEMPLATE_REPOS mapping", () => {
-    const TEMPLATE_REPOS: Record<string, string> = {
-      typescript: "https://github.com/apsoai/service-template-ts.git",
-      python: "https://github.com/apsoai/service-template-python.git",
-      go: "https://github.com/apsoai/service-template-go.git",
-    };
-
+    // Imports the real mapping from src so this test fails if the URLs drift.
+    // typescript must stay on the v1 template until @apso/crud* are published
+    // and the generators are ported (see comment in src/lib/utils/template.ts).
     test("should have correct URL for TypeScript", () => {
       expect(TEMPLATE_REPOS.typescript).toBe(
-        "https://github.com/apsoai/service-template-ts.git"
+        "https://github.com/apsoai/service-template.git"
       );
     });
 
