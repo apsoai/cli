@@ -3,7 +3,7 @@ import BaseCommand from "../lib/base-command";
 import { credentials, projectLink } from "../lib/config";
 import { servicesApi, buildApi, githubApi } from "../lib/api/services";
 import { withUpgradeRetry } from "../lib/upgrade";
-import { uploadServiceCode } from "../lib/code-upload";
+import * as git from "../lib/git";
 import { parseApsorc } from "../lib/apsorc-parser";
 import { runMigrationSandbox } from "../lib/migrate/sandbox";
 import { createSpinner } from "../lib/utils/spinner";
@@ -175,22 +175,25 @@ export default class Deploy extends BaseCommand {
   }
 
   /**
-   * Upload the local scaffold to S3 and push it to the service's GitHub repo so
-   * the deploy has code to build. Connects a repo if none is linked yet.
+   * Push the local scaffold to the service's GitHub repo with the user's own
+   * git, and make sure the repo is connected to the service so the provisioner
+   * can clone it at deploy time. No code passes through Apso — we read the local
+   * git and push straight to GitHub.
    */
   private async syncCodeToGithub(
     service: Service,
     repoFlag: string | undefined,
     branch: string
   ): Promise<void> {
-    // 1. Upload the local project to the service's S3 code bucket.
-    this.log("Uploading code...");
-    const uploaded = await uploadServiceCode(service.id, process.cwd());
-    this.log(
-      `Uploaded ${uploaded.fileCount} files (${Math.round(uploaded.size / 1024)} KB).`
-    );
+    const cwd = process.cwd();
 
-    // 2. Require a GitHub connection.
+    if (!git.gitAvailable()) {
+      this.error("git is required to deploy. Install git and try again.");
+    }
+    git.initRepo(cwd);
+
+    // Pick the repo: prefer what the local project is already wired to, then the
+    // service's connected repo, then --repo, then ask.
     const conn = await githubApi.getConnection();
     if (!conn.connected || !conn.connectionId) {
       this.error(
@@ -198,19 +201,35 @@ export default class Deploy extends BaseCommand {
       );
     }
 
-    // 3. Ensure a repo is linked to the service.
-    let repoFullName = service.githubRepo || repoFlag;
+    let repoFullName =
+      git.localRepoFullName(cwd) || service.githubRepo || repoFlag;
     if (!repoFullName) {
       repoFullName = await this.promptRepoSelection(conn.connectionId);
     }
-    if (!service.githubRepo) {
+
+    // Connect the repo to the service (records ServiceRepository) unless the
+    // service is already linked to this exact repo.
+    if (service.githubRepo !== repoFullName) {
       this.log(`Connecting repository ${repoFullName}...`);
       await githubApi.connectRepo(service.id, conn.connectionId, repoFullName);
     }
 
-    // 4. Push the uploaded code from S3 to the repo.
-    this.log(`Pushing code to ${repoFullName}#${branch}...`);
-    await githubApi.push(service.id, conn.connectionId, { branch });
+    // Point the local repo at it and push with the user's git credentials.
+    git.setOrigin(cwd, git.httpsUrlFor(repoFullName));
+    const committed = git.commitAll(cwd, "Deploy via Apso CLI");
+    this.log(
+      committed
+        ? `Committed local changes; pushing to ${repoFullName}#${branch}...`
+        : `Pushing to ${repoFullName}#${branch}...`
+    );
+    try {
+      git.pushHead(cwd, branch);
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      this.error(
+        `git push to ${repoFullName} failed. Ensure you have push access and your git credentials are set up.\n${msg}`
+      );
+    }
   }
 
   /** Let the user pick one of their GitHub repos to deploy from. */
