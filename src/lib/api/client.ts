@@ -225,6 +225,15 @@ export async function apiRequest<T>(
     if (freshCreds) {
       requestHeaders.Authorization = `Bearer ${freshCreds.tokens.accessToken}`;
     }
+
+    // The BFF's workspace-scoped routes read the active workspace from an
+    // X-Workspace-Id header for Bearer clients (browsers use a signed cookie).
+    // Send it so `apso projects`, `apso deploy`, etc. resolve a workspace.
+    // Full resolution from `apso link` lands in a later phase; env override now.
+    const activeWorkspaceId = process.env.APSO_WORKSPACE_ID;
+    if (activeWorkspaceId && !requestHeaders["X-Workspace-Id"]) {
+      requestHeaders["X-Workspace-Id"] = activeWorkspaceId;
+    }
   }
 
   // Make request with retries

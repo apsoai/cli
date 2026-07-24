@@ -259,7 +259,10 @@ export interface SyncQueueFile {
  * Default values for global configuration
  */
 export const DEFAULT_GLOBAL_CONFIG: GlobalConfigFile = {
-  apiUrl: "https://api.apso.dev",
+  // The CLI talks to the BFF (the app's /api/* routes), not the internal
+  // backend on api.apso.dev. Override for staging with
+  // APSO_API_URL=https://app.staging.apso.cloud.
+  apiUrl: "https://app.apso.cloud",
   webUrl: "https://app.apso.cloud",
   verbose: false,
   noColor: false,
