@@ -247,17 +247,39 @@ export default class Generate extends BaseCommand {
     }
     generatedFileCount += indexFiles.length;
 
-    // Format generated files (TypeScript only).
-    // Run prettier directly against the generated output directory so we never
-    // reformat hand-written code elsewhere in the project tree (the project's
-    // `npm run format` script targets a broad glob like `{src,test}/**/*.ts`).
+    // Format generated files (TypeScript only) with Biome — bundled with the
+    // CLI and invoked directly, so it's a fast native pass (~ms) with no npx
+    // download and no dependence on the project having a formatter installed.
+    // Scoped to the autogen directory so we never touch hand-written code
+    // elsewhere in the project tree.
     if (language === "typescript" && !skipFormat && generatedFileCount > 0) {
       const formatStart = performance.now();
       console.log("[apso] Formatting generated files...");
-      const formatGlob = path.join(autogenPath, "**", "*.ts");
-      await this.runCommand("npx", ["prettier", "--write", formatGlob], true);
-      const formatTime = performance.now() - formatStart;
-      console.log(`[apso] Finished formatting in ${formatTime.toFixed(2)} ms`);
+      try {
+        const biomeBin = require.resolve("@biomejs/biome/bin/biome");
+        // Use the CLI's bundled Biome config: 2-space style (Biome defaults to
+        // tabs) and, critically, unsafeParameterDecoratorsEnabled so Biome can
+        // parse NestJS parameter decorators (@Body(), @ParsedRequest(), ...);
+        // without it Biome aborts with parse errors on the generated controllers.
+        const biomeConfigDir = path.join(__dirname, "..", "lib", "biome");
+        await this.runCommand(
+          "node",
+          [
+            biomeBin,
+            "format",
+            "--write",
+            `--config-path=${biomeConfigDir}`,
+            autogenPath,
+          ],
+          true
+        );
+        const formatTime = performance.now() - formatStart;
+        console.log(`[apso] Finished formatting in ${formatTime.toFixed(2)} ms`);
+      } catch (error: unknown) {
+        // Formatting is best-effort — never fail generation over it.
+        const msg = error instanceof Error ? error.message : String(error);
+        console.warn(`[apso] Skipped formatting (${msg})`);
+      }
     } else if (skipFormat) {
       console.log("[apso] Skipping formatting (--skip-format flag set)");
     } else if (generatedFileCount === 0) {
