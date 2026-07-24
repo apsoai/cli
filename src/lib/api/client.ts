@@ -14,7 +14,7 @@ import {
   ApiRequestOptions,
   TokenRefreshResponse,
 } from "./types";
-import { globalConfig, credentials } from "../config";
+import { globalConfig, credentials, projectLink } from "../config";
 
 /**
  * Default request timeout in milliseconds
@@ -228,11 +228,14 @@ export async function apiRequest<T>(
 
     // The BFF's workspace-scoped routes read the active workspace from an
     // X-Workspace-Id header for Bearer clients (browsers use a signed cookie).
-    // Send it so `apso projects`, `apso deploy`, etc. resolve a workspace.
-    // Full resolution from `apso link` lands in a later phase; env override now.
-    const activeWorkspaceId = process.env.APSO_WORKSPACE_ID;
-    if (activeWorkspaceId && !requestHeaders["X-Workspace-Id"]) {
-      requestHeaders["X-Workspace-Id"] = activeWorkspaceId;
+    // Resolve the active workspace id from, in order: an explicit header the
+    // caller passed, the APSO_WORKSPACE_ID env override, or the linked project.
+    if (!requestHeaders["X-Workspace-Id"]) {
+      const activeWorkspaceId =
+        process.env.APSO_WORKSPACE_ID || projectLink.read()?.workspaceId;
+      if (activeWorkspaceId) {
+        requestHeaders["X-Workspace-Id"] = String(activeWorkspaceId);
+      }
     }
   }
 

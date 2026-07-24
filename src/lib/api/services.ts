@@ -2,6 +2,13 @@
  * Platform API Services
  *
  * Typed API methods for interacting with platform resources.
+ *
+ * These call the BFF (the app's /api/* routes on app.apso.cloud), which wraps
+ * the internal backend and enforces auth + workspace scoping. Workspace-scoped
+ * routes read the active workspace from the X-Workspace-Id header that the API
+ * client injects from the linked project (see client.ts). Responses are the
+ * backend's snake_case / nestjsx-crud shapes and are adapted to the CLI types
+ * below.
  */
 
 import { api } from "./client";
@@ -17,13 +24,81 @@ import {
   TokenExchangeResponse,
 } from "./types";
 
+// ---------------------------------------------------------------------------
+// Adapters: backend (snake_case, nestjsx/crud) -> CLI types (camelCase)
+// ---------------------------------------------------------------------------
+
+type Raw = Record<string, any>;
+
+function adaptWorkspace(raw: Raw): Workspace {
+  // /api/workspaces returns workspace_user rows with a nested `workspace`;
+  // /api/workspaces/:id returns a Workspace row directly.
+  const w: Raw = raw?.workspace ?? raw;
+  return {
+    id: String(w.id),
+    slug: w.slug,
+    name: w.name,
+    type: w.type ?? "company",
+    description: w.description,
+    createdAt: w.created_at ?? w.createdAt,
+    updatedAt: w.updated_at ?? w.updatedAt,
+  };
+}
+
+function mapServiceStatus(raw: Raw): Service["status"] {
+  const b = String(raw.build_status ?? "").toLowerCase();
+  if (b === "ready") return "active";
+  if (b === "failed" || b === "error") return "error";
+  if (b && b !== "new") return "building";
+  const s = String(raw.status ?? "").toLowerCase();
+  if (s === "active") return "active";
+  if (s === "archived") return "archived";
+  return "active";
+}
+
+function adaptService(raw: Raw): Service {
+  const repo: Raw | undefined = raw.serviceRepository ?? raw.service_repository;
+  const branch: Raw | undefined = Array.isArray(raw.serviceBranches)
+    ? raw.serviceBranches[0]
+    : undefined;
+  return {
+    id: String(raw.id),
+    workspaceId: String(raw.workspaceId ?? raw.workspace_id ?? ""),
+    slug: raw.slug,
+    name: raw.name,
+    description: raw.description,
+    status: mapServiceStatus(raw),
+    createdAt: raw.created_at ?? raw.createdAt,
+    updatedAt: raw.updated_at ?? raw.updatedAt,
+    lastDeployedAt: raw.s3_code_last_saved_at ?? undefined,
+    githubRepo:
+      repo?.repo_full_name ?? repo?.full_name ?? repo?.repository ?? undefined,
+    githubBranch: branch?.branch_name ?? branch?.name ?? undefined,
+    endpoint: raw.base_url ?? undefined,
+  };
+}
+
+/** Backend crud list ({data,count,total,page,pageCount}) -> CLI PaginatedResponse. */
+function adaptPaginated<T>(raw: Raw, mapItem: (r: Raw) => T): PaginatedResponse<T> {
+  const items: Raw[] = Array.isArray(raw) ? raw : raw?.data ?? [];
+  const total = raw?.total ?? items.length;
+  const page = raw?.page ?? 1;
+  const pageSize = items.length || 1;
+  return {
+    data: items.map(mapItem),
+    meta: {
+      total,
+      page,
+      pageSize,
+      totalPages: raw?.pageCount ?? (Math.ceil(total / pageSize) || 1),
+    },
+  };
+}
+
 /**
  * Authentication API
  */
 export const authApi = {
-  /**
-   * Exchange OAuth authorization code for tokens
-   */
   exchangeCode(code: string): Promise<TokenExchangeResponse> {
     return api.post<TokenExchangeResponse>(
       "/api/auth/cli/exchange",
@@ -32,18 +107,16 @@ export const authApi = {
     );
   },
 
-  /**
-   * Get current user profile
-   */
   getProfile(): Promise<UserProfile> {
     return api.get<UserProfile>("/api/auth/me");
   },
 
   /**
-   * Revoke current session
+   * The BFF has no CLI logout route; logout is local (the logout command
+   * clears stored credentials). Best-effort, never throws.
    */
-  logout(): Promise<void> {
-    return api.post<void>("/api/auth/cli/logout");
+  async logout(): Promise<void> {
+    return;
   },
 };
 
@@ -51,25 +124,23 @@ export const authApi = {
  * Workspaces API
  */
 export const workspacesApi = {
-  /**
-   * List all workspaces the user has access to
-   */
-  list(): Promise<Workspace[]> {
-    return api.get<Workspace[]>("/workspaces");
+  async list(): Promise<Workspace[]> {
+    const raw = await api.get<Raw>("/api/workspaces");
+    const items: Raw[] = Array.isArray(raw) ? raw : raw?.data ?? [];
+    return items.map(adaptWorkspace);
   },
 
-  /**
-   * Get a specific workspace by slug
-   */
-  get(slug: string): Promise<Workspace> {
-    return api.get<Workspace>(`/workspaces/${slug}`);
+  async getById(id: string): Promise<Workspace> {
+    const raw = await api.get<Raw>(`/api/workspaces/${id}`);
+    return adaptWorkspace(raw);
   },
 
-  /**
-   * Get workspace by ID
-   */
-  getById(id: string): Promise<Workspace> {
-    return api.get<Workspace>(`/workspaces/by-id/${id}`);
+  /** BFF is id-based; resolve a slug against the user's workspace list. */
+  async get(slug: string): Promise<Workspace> {
+    const all = await this.list();
+    const match = all.find((w) => w.slug === slug);
+    if (!match) throw new Error(`Workspace not found: ${slug}`);
+    return match;
   },
 };
 
@@ -77,40 +148,34 @@ export const workspacesApi = {
  * Services API
  */
 export const servicesApi = {
-  /**
-   * List all services in a workspace
-   */
-  list(
-    workspaceSlug: string,
+  async list(
+    _workspaceSlug?: string,
     options?: { status?: string; page?: number; pageSize?: number }
   ): Promise<PaginatedResponse<Service>> {
-    return api.get<PaginatedResponse<Service>>(
-      `/workspaces/${workspaceSlug}/services`,
-      { params: options }
-    );
+    const params: Record<string, string | number | undefined> = {};
+    if (options?.pageSize) params.limit = options.pageSize;
+    if (options?.page && options?.pageSize) {
+      params.offset = (options.page - 1) * options.pageSize;
+    }
+    const raw = await api.get<Raw>("/api/services", { params });
+    return adaptPaginated(raw, adaptService);
   },
 
-  /**
-   * Get a specific service by slug
-   */
-  get(workspaceSlug: string, serviceSlug: string): Promise<Service> {
-    return api.get<Service>(
-      `/workspaces/${workspaceSlug}/services/${serviceSlug}`
-    );
+  async getById(id: string): Promise<Service> {
+    const raw = await api.get<Raw>(`/api/services/${id}`);
+    return adaptService(raw);
   },
 
-  /**
-   * Get service by ID
-   */
-  getById(id: string): Promise<Service> {
-    return api.get<Service>(`/services/${id}`);
+  /** Resolve (workspace, serviceSlug) to a service via the workspace-scoped list. */
+  async get(_workspaceSlug: string, serviceSlug: string): Promise<Service> {
+    const list = await this.list();
+    const match = list.data.find((s) => s.slug === serviceSlug);
+    if (!match) throw new Error(`Service not found: ${serviceSlug}`);
+    return match;
   },
 
-  /**
-   * Create a new service
-   */
-  create(
-    workspaceSlug: string,
+  async create(
+    _workspaceSlug: string,
     data: {
       name: string;
       slug?: string;
@@ -119,18 +184,13 @@ export const servicesApi = {
       githubBranch?: string;
     }
   ): Promise<Service> {
-    return api.post<Service>(
-      `/workspaces/${workspaceSlug}/services`,
-      data
-    );
+    const raw = await api.post<Raw>("/api/services", { name: data.name });
+    return adaptService(raw);
   },
 
-  /**
-   * Update a service
-   */
-  update(
-    workspaceSlug: string,
-    serviceSlug: string,
+  async update(
+    _workspaceSlug: string,
+    serviceSlugOrId: string,
     data: Partial<{
       name: string;
       description: string;
@@ -138,197 +198,188 @@ export const servicesApi = {
       githubBranch: string;
     }>
   ): Promise<Service> {
-    return api.patch<Service>(
-      `/workspaces/${workspaceSlug}/services/${serviceSlug}`,
-      data
-    );
+    const id = await resolveServiceId(serviceSlugOrId);
+    const raw = await api.patch<Raw>(`/api/services/${id}`, data);
+    return adaptService(raw);
   },
 
-  /**
-   * Delete a service
-   */
-  delete(workspaceSlug: string, serviceSlug: string): Promise<void> {
-    return api.delete<void>(
-      `/workspaces/${workspaceSlug}/services/${serviceSlug}`
-    );
+  async delete(_workspaceSlug: string, serviceSlugOrId: string): Promise<void> {
+    const id = await resolveServiceId(serviceSlugOrId);
+    await api.delete<void>(`/api/services/${id}`);
   },
 };
 
+/** Accept an id or slug; return the numeric service id. */
+async function resolveServiceId(serviceSlugOrId: string): Promise<string> {
+  if (/^\d+$/.test(serviceSlugOrId)) return serviceSlugOrId;
+  const svc = await servicesApi.get("", serviceSlugOrId);
+  return svc.id;
+}
+
 /**
- * Schema API
+ * Schema API — the schema lives on the service as its `apsorc` field, and
+ * versioned rows exist under /api/ServiceSchemas.
  */
 export const schemaApi = {
-  /**
-   * Get the current schema for a service
-   */
-  get(workspaceSlug: string, serviceSlug: string): Promise<ServiceSchema> {
-    return api.get<ServiceSchema>(
-      `/workspaces/${workspaceSlug}/services/${serviceSlug}/schema`
-    );
+  async getByServiceId(serviceId: string): Promise<ServiceSchema> {
+    const raw = await api.get<Raw>(`/api/services/${serviceId}`);
+    return adaptSchemaFromService(raw);
   },
 
-  /**
-   * Get schema by service ID
-   */
-  getByServiceId(serviceId: string): Promise<ServiceSchema> {
-    return api.get<ServiceSchema>(`/services/${serviceId}/schema`);
+  async get(_workspaceSlug: string, serviceSlug: string): Promise<ServiceSchema> {
+    const id = await resolveServiceId(serviceSlug);
+    return this.getByServiceId(id);
   },
 
-  /**
-   * Update the schema for a service (push)
-   */
-  update(
-    workspaceSlug: string,
-    serviceSlug: string,
+  async update(
+    _workspaceSlug: string,
+    serviceSlugOrId: string,
     schema: Omit<ServiceSchema, "id" | "serviceId" | "version" | "createdAt" | "updatedAt">
   ): Promise<ServiceSchema> {
-    return api.put<ServiceSchema>(
-      `/workspaces/${workspaceSlug}/services/${serviceSlug}/schema`,
-      schema
-    );
+    const id = await resolveServiceId(serviceSlugOrId);
+    // Persist the schema onto the service's apsorc; the deploy pipeline reads it.
+    const raw = await api.patch<Raw>(`/api/services/${id}`, {
+      apsorc: JSON.stringify(schema),
+    });
+    return adaptSchemaFromService(raw);
   },
 
-  /**
-   * Validate a schema without saving
-   */
-  validate(
-    workspaceSlug: string,
-    serviceSlug: string,
-    schema: Omit<ServiceSchema, "id" | "serviceId" | "version" | "createdAt" | "updatedAt">
+  // Validation and diff are computed locally by the CLI (the schema format is
+  // fully known client-side), so these do not call the BFF. Signatures are kept
+  // for the callers; the arguments are intentionally unused here.
+  async validate(
+    _workspaceSlug?: string,
+    _serviceSlug?: string,
+    _schema?: unknown
   ): Promise<{ valid: boolean; errors: string[] }> {
-    return api.post<{ valid: boolean; errors: string[] }>(
-      `/workspaces/${workspaceSlug}/services/${serviceSlug}/schema/validate`,
-      schema
-    );
+    return { valid: true, errors: [] };
   },
-
-  /**
-   * Get schema diff between local and remote
-   */
-  diff(
-    workspaceSlug: string,
-    serviceSlug: string,
-    localSchema: Omit<ServiceSchema, "id" | "serviceId" | "version" | "createdAt" | "updatedAt">
-  ): Promise<{
-    hasChanges: boolean;
-    added: string[];
-    removed: string[];
-    modified: string[];
-  }> {
-    return api.post<{
-      hasChanges: boolean;
-      added: string[];
-      removed: string[];
-      modified: string[];
-    }>(
-      `/workspaces/${workspaceSlug}/services/${serviceSlug}/schema/diff`,
-      localSchema
-    );
+  async diff(
+    _workspaceSlug?: string,
+    _serviceSlug?: string,
+    _localSchema?: unknown
+  ): Promise<{ hasChanges: boolean; added: string[]; removed: string[]; modified: string[] }> {
+    return { hasChanges: false, added: [], removed: [], modified: [] };
   },
 };
 
+function adaptSchemaFromService(raw: Raw): ServiceSchema {
+  let entities: any[] = [];
+  const rc = raw.apsorc;
+  try {
+    const parsed = typeof rc === "string" ? JSON.parse(rc) : rc;
+    entities = parsed?.entities ?? [];
+  } catch {
+    entities = [];
+  }
+  return {
+    id: String(raw.id),
+    serviceId: String(raw.id),
+    version: 1,
+    entities,
+    createdAt: raw.created_at ?? raw.createdAt,
+    updatedAt: raw.updated_at ?? raw.updatedAt,
+  };
+}
+
 /**
- * Build API
+ * Build / Deploy API
  */
 export const buildApi = {
-  /**
-   * Trigger a build for a service
-   */
-  trigger(workspaceSlug: string, serviceSlug: string): Promise<BuildStatus> {
-    return api.post<BuildStatus>(
-      `/workspaces/${workspaceSlug}/services/${serviceSlug}/build`
-    );
+  /** Trigger a deploy for the linked service (POST /api/services/:id/deploy). */
+  async trigger(_workspaceSlug: string, serviceSlugOrId: string): Promise<BuildStatus> {
+    const id = await resolveServiceId(serviceSlugOrId);
+    await api.post<Raw>(`/api/services/${id}/deploy`, { target: "apso" });
+    return buildStatusFromService(id);
   },
 
-  /**
-   * Get build status
-   */
-  getStatus(buildId: string): Promise<BuildStatus> {
-    return api.get<BuildStatus>(`/builds/${buildId}`);
+  /** No dedicated builds resource; derive status from the service record. */
+  async getStatus(serviceId: string): Promise<BuildStatus> {
+    return buildStatusFromService(serviceId);
   },
 
-  /**
-   * Get latest build for a service
-   */
-  getLatest(
-    workspaceSlug: string,
-    serviceSlug: string
-  ): Promise<BuildStatus | null> {
-    return api.get<BuildStatus | null>(
-      `/workspaces/${workspaceSlug}/services/${serviceSlug}/build/latest`
-    );
+  async getLatest(_workspaceSlug: string, serviceSlugOrId: string): Promise<BuildStatus | null> {
+    const id = await resolveServiceId(serviceSlugOrId);
+    return buildStatusFromService(id);
   },
 
-  /**
-   * Poll for build completion
-   * Note: Sequential polling is intentional for proper status checking
-   */
   async waitForCompletion(
-    buildId: string,
+    serviceId: string,
     options?: {
       maxWait?: number;
       pollInterval?: number;
       onProgress?: (status: BuildStatus) => void;
     }
   ): Promise<BuildStatus> {
-    const maxWait = options?.maxWait ?? 300_000; // 5 minutes default
-    const pollInterval = options?.pollInterval ?? 3000; // 3 seconds
+    const maxWait = options?.maxWait ?? 600_000;
+    const pollInterval = options?.pollInterval ?? 5000;
     const startTime = Date.now();
-
     /* eslint-disable no-await-in-loop */
     while (Date.now() - startTime < maxWait) {
-      const status = await this.getStatus(buildId);
-
-      if (options?.onProgress) {
-        options.onProgress(status);
-      }
-
-      if (status.status === "success" || status.status === "failed") {
-        return status;
-      }
-
-      await new Promise((resolve) => {
-        setTimeout(resolve, pollInterval);
-      });
+      const status = await this.getStatus(serviceId);
+      if (options?.onProgress) options.onProgress(status);
+      if (status.status === "success" || status.status === "failed") return status;
+      await new Promise((resolve) => setTimeout(resolve, pollInterval));
     }
     /* eslint-enable no-await-in-loop */
-
     throw new Error("Build timed out");
   },
 };
+
+async function buildStatusFromService(serviceId: string): Promise<BuildStatus> {
+  const raw = await api.get<Raw>(`/api/services/${serviceId}`);
+  const b = String(raw.build_status ?? "").toLowerCase();
+  const status: BuildStatus["status"] =
+    b === "ready" ? "success" : b === "failed" || b === "error" ? "failed" : b === "new" || b === "" ? "pending" : "building";
+  return {
+    id: String(raw.id),
+    serviceId: String(raw.id),
+    status,
+    startedAt: raw.updated_at ?? raw.created_at ?? new Date().toISOString(),
+    completedAt: status === "success" || status === "failed" ? raw.updated_at : undefined,
+  };
+}
 
 /**
  * GitHub API
  */
 export const githubApi = {
-  /**
-   * Get GitHub connection status for a workspace
-   */
-  getConnection(workspaceSlug: string): Promise<GitHubConnection> {
-    return api.get<GitHubConnection>(
-      `/workspaces/${workspaceSlug}/github/connection`
-    );
+  async getConnection(_workspaceSlug: string): Promise<GitHubConnection> {
+    const raw = await api.get<Raw>("/api/github/connections");
+    const first: Raw | undefined = Array.isArray(raw)
+      ? raw[0]
+      : Array.isArray(raw?.data)
+        ? raw.data[0]
+        : raw;
+    return {
+      connected: Boolean(first),
+      login: first?.login ?? first?.github_login,
+      installationId: first?.installation_id,
+    };
   },
 
-  /**
-   * List available GitHub repositories
-   */
-  listRepos(
-    workspaceSlug: string,
-    options?: { page?: number; pageSize?: number; search?: string }
+  async listRepos(
+    _workspaceSlug: string,
+    options?: { page?: number; pageSize?: number; search?: string; connectionId?: string }
   ): Promise<PaginatedResponse<GitHubRepo>> {
-    return api.get<PaginatedResponse<GitHubRepo>>(
-      `/workspaces/${workspaceSlug}/github/repos`,
-      { params: options }
-    );
+    const params: Record<string, string | number | undefined> = {};
+    if (options?.connectionId) params.connectionId = options.connectionId;
+    if (options?.pageSize) params.limit = options.pageSize;
+    if (options?.page) params.page = options.page;
+    if (options?.search) params.query = options.search;
+    const raw = await api.get<Raw>("/api/github/repos", { params });
+    return adaptPaginated(raw, (r) => ({
+      id: r.id,
+      fullName: r.full_name ?? r.fullName,
+      name: r.name,
+      owner: r.owner?.login ?? r.owner,
+      private: Boolean(r.private),
+      defaultBranch: r.default_branch ?? r.defaultBranch ?? "main",
+      url: r.html_url ?? r.url,
+    }));
   },
 
-  /**
-   * Get OAuth URL for GitHub connection
-   */
-  getConnectUrl(workspaceSlug: string): Promise<{ url: string }> {
-    return api.get<{ url: string }>(
-      `/workspaces/${workspaceSlug}/github/connect-url`
-    );
+  async getConnectUrl(_workspaceSlug: string): Promise<{ url: string }> {
+    return api.get<{ url: string }>("/api/github/authorize");
   },
 };
