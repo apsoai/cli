@@ -6,6 +6,7 @@ import BaseCommand from "../lib/base-command";
 import { credentials, projectLink } from "../lib/config";
 import { ProjectLinkFile } from "../lib/config/types";
 import { workspacesApi, servicesApi } from "../lib/api/services";
+import { withUpgradeRetry } from "../lib/upgrade";
 import { Workspace, Service } from "../lib/api/types";
 
 export default class Link extends BaseCommand {
@@ -132,9 +133,11 @@ export default class Link extends BaseCommand {
           },
         ]);
         this.log(`Creating service "${serviceName}"...`);
-        service = await servicesApi.create(workspace.slug, {
-          name: serviceName,
-        });
+        service = await withUpgradeRetry(() =>
+          servicesApi.create(workspace.slug, {
+            name: serviceName,
+          })
+        );
       }
     }
 

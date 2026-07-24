@@ -2,6 +2,7 @@ import { Flags } from "@oclif/core";
 import BaseCommand from "../lib/base-command";
 import { credentials, projectLink } from "../lib/config";
 import { servicesApi, buildApi } from "../lib/api/services";
+import { withUpgradeRetry } from "../lib/upgrade";
 import { parseApsorc } from "../lib/apsorc-parser";
 import { runMigrationSandbox } from "../lib/migrate/sandbox";
 import { createSpinner } from "../lib/utils/spinner";
@@ -119,7 +120,9 @@ export default class Deploy extends BaseCommand {
     }
 
     // Trigger build
-    const build = await buildApi.trigger(link.workspaceSlug, link.serviceSlug);
+    const build = await withUpgradeRetry(() =>
+      buildApi.trigger(link.workspaceSlug, link.serviceSlug)
+    );
     this.log(`Build started: ${build.id}`);
 
     if (flags["no-wait"]) {

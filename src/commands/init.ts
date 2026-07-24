@@ -8,6 +8,7 @@ import { TargetLanguage } from "../lib/types";
 import { credentials, projectLink } from "../lib/config";
 import { ProjectLinkFile } from "../lib/config/types";
 import { workspacesApi, servicesApi } from "../lib/api/services";
+import { withUpgradeRetry } from "../lib/upgrade";
 import { Workspace, Service } from "../lib/api/types";
 import {
   PROJECT_NAME_PATTERN,
@@ -257,9 +258,12 @@ export default class Init extends BaseCommand {
 
     // Create service on platform
     this.log(`Creating service "${projectName}" in workspace "${workspace.name}"...`);
-    const service = await servicesApi.create(workspace.slug, {
-      name: projectName,
-    });
+    const serviceName: string = projectName;
+    const service = await withUpgradeRetry(() =>
+      servicesApi.create(workspace.slug, {
+        name: serviceName,
+      })
+    );
 
     // Clone template
     cloneTemplate(projectPath, language!, this.log.bind(this));

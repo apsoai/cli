@@ -35,6 +35,11 @@ const BACKOFF_BASE_DELAY = 1000;
  * Custom error class for API errors
  */
 export class ApiClientError extends Error {
+  /** Machine code from the server (e.g. SERVICE_LIMIT_REACHED), when present. */
+  public code?: string;
+  /** Relative URL to send the user to resolve the error (e.g. an upgrade page). */
+  public upgradeUrl?: string;
+
   constructor(
     message: string,
     public statusCode: number,
@@ -49,6 +54,19 @@ export class ApiClientError extends Error {
    */
   isAuthError(): boolean {
     return this.statusCode === 401;
+  }
+
+  /**
+   * Check if error is an entitlement/plan limit that the user can resolve by
+   * upgrading (e.g. the free-tier service or deploy limit).
+   */
+  isLimitError(): boolean {
+    return (
+      this.statusCode === 403 &&
+      (this.code === "SERVICE_LIMIT_REACHED" ||
+        this.code === "LIMIT_REACHED" ||
+        Boolean(this.upgradeUrl))
+    );
   }
 
   /**
@@ -94,6 +112,43 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+/**
+ * Pull an entitlement/limit code + upgrade URL out of an error body. Handles
+ * both a flat body ({ code, upgradeUrl, message }) and the BFF's wrapped shape
+ * where the backend error is a JSON string in `.error`.
+ */
+function extractLimitInfo(errorData: unknown): {
+  code?: string;
+  upgradeUrl?: string;
+  message?: string;
+} {
+  const candidates: Record<string, unknown>[] = [];
+  if (errorData && typeof errorData === "object") {
+    const obj = errorData as Record<string, unknown>;
+    candidates.push(obj);
+    if (typeof obj.error === "string") {
+      try {
+        const parsed = JSON.parse(obj.error);
+        if (parsed && typeof parsed === "object") candidates.push(parsed);
+      } catch {
+        /* not JSON — ignore */
+      }
+    }
+  }
+  for (const c of candidates) {
+    const code = typeof c.code === "string" ? c.code : undefined;
+    const upgradeUrl = typeof c.upgradeUrl === "string" ? c.upgradeUrl : undefined;
+    if (code || upgradeUrl) {
+      return {
+        code,
+        upgradeUrl,
+        message: typeof c.message === "string" ? c.message : undefined,
+      };
+    }
+  }
+  return {};
 }
 
 /**
@@ -315,11 +370,15 @@ export async function apiRequest<T>(
       }
 
       // Client errors - don't retry
-      throw new ApiClientError(
-        errorData.message || "Request failed",
+      const limit = extractLimitInfo(errorData);
+      const clientError = new ApiClientError(
+        limit.message || errorData.message || "Request failed",
         response.status,
         errorData.details
       );
+      clientError.code = limit.code;
+      clientError.upgradeUrl = limit.upgradeUrl;
+      throw clientError;
     } catch (error) {
       if (error instanceof ApiClientError) {
         throw error;
