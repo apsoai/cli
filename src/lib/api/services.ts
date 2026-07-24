@@ -344,17 +344,15 @@ async function buildStatusFromService(serviceId: string): Promise<BuildStatus> {
  * GitHub API
  */
 export const githubApi = {
-  async getConnection(_workspaceSlug: string): Promise<GitHubConnection> {
+  async getConnection(_workspaceSlug?: string): Promise<GitHubConnection & { connectionId?: string }> {
     const raw = await api.get<Raw>("/api/github/connections");
-    const first: Raw | undefined = Array.isArray(raw)
-      ? raw[0]
-      : Array.isArray(raw?.data)
-        ? raw.data[0]
-        : raw;
+    const statuses: Raw[] = raw?.connectionStatuses ?? raw?.data ?? (Array.isArray(raw) ? raw : []);
+    const first = statuses[0];
     return {
       connected: Boolean(first),
-      login: first?.login ?? first?.github_login,
+      login: first?.login ?? first?.github_login ?? first?.account_login,
       installationId: first?.installation_id,
+      connectionId: first?.id ? String(first.id) : first?.connectionId,
     };
   },
 
@@ -381,5 +379,32 @@ export const githubApi = {
 
   async getConnectUrl(_workspaceSlug: string): Promise<{ url: string }> {
     return api.get<{ url: string }>("/api/github/authorize");
+  },
+
+  /** Link an existing GitHub repo to a service. */
+  async connectRepo(
+    serviceId: string,
+    connectionId: string,
+    repoFullName: string
+  ): Promise<Raw> {
+    return api.post<Raw>("/api/github/connect-repo", {
+      serviceId,
+      connectionId,
+      repoFullName,
+    });
+  },
+
+  /** Push the service's saved (S3) code to its connected GitHub repo. */
+  async push(
+    serviceId: string,
+    connectionId: string,
+    options?: { branch?: string; message?: string }
+  ): Promise<Raw> {
+    return api.post<Raw>("/api/github/push", {
+      serviceId,
+      connectionId,
+      branch: options?.branch ?? "main",
+      message: options?.message ?? "Update from Apso CLI",
+    });
   },
 };
