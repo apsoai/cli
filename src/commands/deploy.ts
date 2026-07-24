@@ -1,11 +1,13 @@
 import { Flags } from "@oclif/core";
 import BaseCommand from "../lib/base-command";
 import { credentials, projectLink } from "../lib/config";
-import { servicesApi, buildApi } from "../lib/api/services";
+import { servicesApi, buildApi, githubApi } from "../lib/api/services";
 import { withUpgradeRetry } from "../lib/upgrade";
+import { uploadServiceCode } from "../lib/code-upload";
 import { parseApsorc } from "../lib/apsorc-parser";
 import { runMigrationSandbox } from "../lib/migrate/sandbox";
 import { createSpinner } from "../lib/utils/spinner";
+import type { Service } from "../lib/api/types";
 
 export default class Deploy extends BaseCommand {
   static description = "Deploy the linked service";
@@ -30,6 +32,17 @@ export default class Deploy extends BaseCommand {
     "skip-migrate": Flags.boolean({
       description: "Skip local migration validation",
       default: false,
+    }),
+    "skip-push": Flags.boolean({
+      description: "Skip uploading + pushing code (redeploy current code)",
+      default: false,
+    }),
+    repo: Flags.string({
+      description: "GitHub repo (owner/name) to connect when none is linked yet",
+    }),
+    branch: Flags.string({
+      description: "Branch to push to",
+      default: "main",
     }),
   };
 
@@ -93,10 +106,16 @@ export default class Deploy extends BaseCommand {
       }
     }
 
+    // Sync local code to the connected GitHub repo (the deploy builds from it).
+    // Skip for redeploys of already-synced code.
+    if (!flags["skip-push"]) {
+      await this.syncCodeToGithub(service, flags.repo, flags.branch);
+    }
+
     // Determine source
-    if (service.githubRepo) {
+    if (service.githubRepo || flags.repo) {
       this.log(
-        `Deploying "${service.name}" from ${service.githubRepo}#${service.githubBranch || "main"}...`
+        `Deploying "${service.name}" from ${service.githubRepo || flags.repo}#${flags.branch}...`
       );
     } else {
       this.log(`Deploying "${service.name}" via Apso Platform...`);
@@ -153,5 +172,64 @@ export default class Deploy extends BaseCommand {
       this.log("Run 'apso logs' to view build logs.");
       this.exit(1);
     }
+  }
+
+  /**
+   * Upload the local scaffold to S3 and push it to the service's GitHub repo so
+   * the deploy has code to build. Connects a repo if none is linked yet.
+   */
+  private async syncCodeToGithub(
+    service: Service,
+    repoFlag: string | undefined,
+    branch: string
+  ): Promise<void> {
+    // 1. Upload the local project to the service's S3 code bucket.
+    this.log("Uploading code...");
+    const uploaded = await uploadServiceCode(service.id, process.cwd());
+    this.log(
+      `Uploaded ${uploaded.fileCount} files (${Math.round(uploaded.size / 1024)} KB).`
+    );
+
+    // 2. Require a GitHub connection.
+    const conn = await githubApi.getConnection();
+    if (!conn.connected || !conn.connectionId) {
+      this.error(
+        "GitHub is not connected. Run 'apso github connect' first, then re-run deploy."
+      );
+    }
+
+    // 3. Ensure a repo is linked to the service.
+    let repoFullName = service.githubRepo || repoFlag;
+    if (!repoFullName) {
+      repoFullName = await this.promptRepoSelection(conn.connectionId);
+    }
+    if (!service.githubRepo) {
+      this.log(`Connecting repository ${repoFullName}...`);
+      await githubApi.connectRepo(service.id, conn.connectionId, repoFullName);
+    }
+
+    // 4. Push the uploaded code from S3 to the repo.
+    this.log(`Pushing code to ${repoFullName}#${branch}...`);
+    await githubApi.push(service.id, conn.connectionId, { branch });
+  }
+
+  /** Let the user pick one of their GitHub repos to deploy from. */
+  private async promptRepoSelection(connectionId: string): Promise<string> {
+    const repos = await githubApi.listRepos("", { connectionId, pageSize: 100 });
+    if (!repos.data.length) {
+      this.error(
+        "No GitHub repositories available. Create one on GitHub (or pass --repo owner/name)."
+      );
+    }
+    const inquirer = await import("inquirer");
+    const { repo } = await inquirer.default.prompt<{ repo: string }>([
+      {
+        type: "list",
+        name: "repo",
+        message: "Select a GitHub repository to deploy from:",
+        choices: repos.data.map((r) => ({ name: r.fullName, value: r.fullName })),
+      },
+    ]);
+    return repo;
   }
 }
