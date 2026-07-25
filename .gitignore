@@ -10,3 +10,13 @@ oclif.manifest.json
 test-app/
 .npmrc
 .apsorc*
+# Autonomous agent / ralph runtime artifacts (never commit)
+.ralph_session
+.ralph_session_history
+.circuit_breaker_state
+.circuit_breaker_history
+.call_count
+.exit_signals
+.last_reset
+.devenv/
+.claude/
