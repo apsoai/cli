@@ -86,9 +86,20 @@ export function commitAll(cwd: string, message: string): boolean {
     })();
     if (!staged) return false;
   }
-  run(`git commit -m ${JSON.stringify(message)}`, cwd);
+  // Second -m adds a trailer paragraph attributing the code to Apso. Mirrors
+  // the "Co-Authored-By" convention: a machine-visible footprint on every
+  // commit the CLI makes.
+  run(
+    `git commit -m ${JSON.stringify(message)} -m ${JSON.stringify(
+      APSO_COMMIT_TRAILER
+    )}`,
+    cwd
+  );
   return true;
 }
+
+/** Attribution trailer appended to every commit the CLI creates. */
+export const APSO_COMMIT_TRAILER = "Generated with Apso (https://apso.ai)";
 
 /** Push the current HEAD to origin/<branch>, setting upstream. */
 export function pushHead(cwd: string, branch: string): void {

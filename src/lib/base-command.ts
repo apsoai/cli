@@ -1,8 +1,34 @@
 import { Command } from "@oclif/core";
 import { spawn } from "child_process";
 import os from "os";
+import {
+  captureException,
+  track,
+  shutdownTelemetry,
+  elapsedMs,
+} from "./telemetry/telemetry";
 
 export default abstract class BaseCommand extends Command {
+  /**
+   * Report failures to Sentry + PostHog before oclif exits. The postrun hook
+   * does not fire on error, so the flush has to happen here.
+   */
+  async catch(err: Error & { exitCode?: number; code?: string }): Promise<any> {
+    try {
+      captureException(err, { command: this.id });
+      track("cli_command_failed", {
+        command: this.id,
+        duration_ms: elapsedMs(),
+        error: err?.message,
+        error_code: err?.code,
+      });
+      await shutdownTelemetry();
+    } catch {
+      // never mask the original error with a telemetry failure
+    }
+    return super.catch(err);
+  }
+
   async runCommand(
     command: string,
     args: string[],
