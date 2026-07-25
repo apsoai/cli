@@ -37,9 +37,11 @@ import { <%= it.authConfig.accountUserEntity %> } from '../<%= it.authConfig.acc
  *
  * Usage:
  * 1. Import GuardsModule in your AppModule
- * 2. Guards are NOT enabled globally by default (for backward compatibility)
- * 3. To enable guards globally, uncomment the APP_GUARD providers below
- * 4. Or apply guards selectively using @UseGuards(AuthGuard, ScopeGuard) on controllers
+ * 2. Guards are ENABLED GLOBALLY BY DEFAULT (secure by default) because this
+ *    schema declares an auth model / scoped entities. Requests are authenticated
+ *    and tenant-scoped unless a route opts out with @Public().
+ * 3. Services with no auth model generate no guards and rely on the API Gateway
+ *    API key at the edge.
  *
 <% if (it.authConfig) { %>
  * AuthGuard:
@@ -88,18 +90,22 @@ import { <%= it.authConfig.accountUserEntity %> } from '../<%= it.authConfig.acc
 <% if (it.scopedEntities && it.scopedEntities.length > 0) { %>
     ScopeGuard,
 <% } %>
-    // UNCOMMENT BELOW TO ENABLE GLOBAL GUARDS
+    // Global guards are ENABLED BY DEFAULT (secure by default) whenever the
+    // schema declares an auth model / scoped entities. Services with NO auth
+    // config generate no guards at all and are protected at the edge by the
+    // API Gateway API key — so this does not conflict with that setup. Use the
+    // @Public() decorator to opt an individual route out of authentication.
 <% if (it.authConfig) { %>
-    // {
-    //   provide: APP_GUARD,
-    //   useClass: AuthGuard,
-    // },
+    {
+      provide: APP_GUARD,
+      useClass: AuthGuard,
+    },
 <% } %>
 <% if (it.scopedEntities && it.scopedEntities.length > 0) { %>
-    // {
-    //   provide: APP_GUARD,
-    //   useClass: ScopeGuard,
-    // },
+    {
+      provide: APP_GUARD,
+      useClass: ScopeGuard,
+    },
 <% } %>
   ],
   exports: [
