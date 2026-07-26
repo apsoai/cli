@@ -340,9 +340,9 @@ export default class Login extends BaseCommand {
       this.log(`Successfully logged in as ${tokenResponse.user.email}`);
       this.log("");
       this.log("Next steps:");
-      this.log("  apso whoami     - View your account info");
-      this.log("  apso services   - List your services");
-      this.log("  apso tui        - Launch interactive UI");
+      this.log("  apso use        - Select your workspace");
+      this.log("  apso whoami     - View your account + workspace");
+      this.log("  apso projects   - List services in a workspace");
     } catch (error) {
       if (error instanceof Error) {
         this.error(error.message);

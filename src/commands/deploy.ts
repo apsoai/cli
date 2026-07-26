@@ -61,7 +61,7 @@ export default class Deploy extends BaseCommand {
     }
 
     // Fetch service
-    const service = await servicesApi.get(link.workspaceSlug, link.serviceSlug);
+    const service = await servicesApi.get(link.workspaceId, link.serviceSlug);
 
     // Run migration sandbox (unless skipped)
     let migrationCount = 0;

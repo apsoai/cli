@@ -149,7 +149,7 @@ export const workspacesApi = {
  */
 export const servicesApi = {
   async list(
-    _workspaceSlug?: string,
+    workspaceId?: string | number,
     options?: { status?: string; page?: number; pageSize?: number }
   ): Promise<PaginatedResponse<Service>> {
     const params: Record<string, string | number | undefined> = {};
@@ -157,7 +157,13 @@ export const servicesApi = {
     if (options?.page && options?.pageSize) {
       params.offset = (options.page - 1) * options.pageSize;
     }
-    const raw = await api.get<Raw>("/api/services", { params });
+    // The BFF scopes /api/services by the NUMERIC workspace id in the
+    // X-Workspace-Id header (not the slug). Pass it explicitly so the call
+    // works even before a project is linked.
+    const headers = workspaceId
+      ? { "X-Workspace-Id": String(workspaceId) }
+      : undefined;
+    const raw = await api.get<Raw>("/api/services", { params, headers });
     return adaptPaginated(raw, adaptService);
   },
 
@@ -166,16 +172,16 @@ export const servicesApi = {
     return adaptService(raw);
   },
 
-  /** Resolve (workspace, serviceSlug) to a service via the workspace-scoped list. */
-  async get(_workspaceSlug: string, serviceSlug: string): Promise<Service> {
-    const list = await this.list();
+  /** Resolve (workspaceId, serviceSlug) to a service via the workspace-scoped list. */
+  async get(workspaceId: string, serviceSlug: string): Promise<Service> {
+    const list = await this.list(workspaceId);
     const match = list.data.find((s) => s.slug === serviceSlug);
     if (!match) throw new Error(`Service not found: ${serviceSlug}`);
     return match;
   },
 
   async create(
-    _workspaceSlug: string,
+    workspaceId: string,
     data: {
       name: string;
       slug?: string;
@@ -184,7 +190,14 @@ export const servicesApi = {
       githubBranch?: string;
     }
   ): Promise<Service> {
-    const raw = await api.post<Raw>("/api/services", { name: data.name });
+    const headers = workspaceId
+      ? { "X-Workspace-Id": String(workspaceId) }
+      : undefined;
+    const raw = await api.post<Raw>(
+      "/api/services",
+      { name: data.name },
+      { headers }
+    );
     return adaptService(raw);
   },
 

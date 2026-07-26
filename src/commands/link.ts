@@ -95,9 +95,9 @@ export default class Link extends BaseCommand {
     // Determine service
     let service: Service;
     if (flags.service) {
-      service = await servicesApi.get(workspace.slug, flags.service);
+      service = await servicesApi.get(workspace.id, flags.service);
     } else {
-      const servicesResponse = await servicesApi.list(workspace.slug);
+      const servicesResponse = await servicesApi.list(workspace.id);
       const services = servicesResponse.data;
 
       const choices = [
@@ -134,7 +134,7 @@ export default class Link extends BaseCommand {
         ]);
         this.log(`Creating service "${serviceName}"...`);
         service = await withUpgradeRetry(() =>
-          servicesApi.create(workspace.slug, {
+          servicesApi.create(workspace.id, {
             name: serviceName,
           })
         );

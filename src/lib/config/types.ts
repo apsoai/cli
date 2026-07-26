@@ -115,6 +115,14 @@ export interface GlobalConfigFile {
   defaultWorkspace?: string;
 
   /**
+   * Active workspace, set via `apso use`. The numeric id scopes API calls
+   * (X-Workspace-Id); slug/name are for display.
+   */
+  activeWorkspaceId?: string;
+  activeWorkspaceSlug?: string;
+  activeWorkspaceName?: string;
+
+  /**
    * Platform API base URL
    */
   apiUrl: string;

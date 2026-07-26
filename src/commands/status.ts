@@ -22,7 +22,7 @@ export default class Status extends BaseCommand {
     }
 
     // Fetch service
-    const service = await servicesApi.get(link.workspaceSlug, link.serviceSlug);
+    const service = await servicesApi.get(link.workspaceId, link.serviceSlug);
 
     this.log(`Service: ${service.name} (${service.slug})`);
     this.log(`Workspace: ${link.workspaceSlug}`);

@@ -287,7 +287,9 @@ export async function apiRequest<T>(
     // caller passed, the APSO_WORKSPACE_ID env override, or the linked project.
     if (!requestHeaders["X-Workspace-Id"]) {
       const activeWorkspaceId =
-        process.env.APSO_WORKSPACE_ID || projectLink.read()?.workspaceId;
+        process.env.APSO_WORKSPACE_ID ||
+        projectLink.read()?.workspaceId ||
+        globalConfig.read().activeWorkspaceId;
       if (activeWorkspaceId) {
         requestHeaders["X-Workspace-Id"] = String(activeWorkspaceId);
       }

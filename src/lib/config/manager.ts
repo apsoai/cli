@@ -97,6 +97,16 @@ export const globalConfig = {
       Object.assign(config, fileConfig);
     }
 
+    // Auto-migrate legacy apso.ai hosts written by an older CLI. Without this a
+    // saved config keeps pointing login/API at the retired app.apso.ai/
+    // api.apso.ai instead of the current apso.cloud defaults.
+    if (config.apiUrl && /(?:app|api)\.apso\.ai\b/.test(config.apiUrl)) {
+      config.apiUrl = DEFAULT_GLOBAL_CONFIG.apiUrl;
+    }
+    if (config.webUrl && /(?:app|api)\.apso\.ai\b/.test(config.webUrl)) {
+      config.webUrl = DEFAULT_GLOBAL_CONFIG.webUrl;
+    }
+
     // Override with environment variables
     if (process.env.APSO_API_URL) {
       config.apiUrl = process.env.APSO_API_URL;

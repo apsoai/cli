@@ -1,7 +1,7 @@
 import { Flags } from "@oclif/core";
 import inquirer from "inquirer";
 import BaseCommand from "../lib/base-command";
-import { credentials, projectLink } from "../lib/config";
+import { credentials, projectLink, globalConfig } from "../lib/config";
 import { workspacesApi, servicesApi } from "../lib/api/services";
 import { Workspace } from "../lib/api/types";
 
@@ -33,16 +33,26 @@ export default class Projects extends BaseCommand {
       this.error("Not logged in. Run 'apso login' first.");
     }
 
-    // Determine workspace
+    // Determine workspace. The BFF scopes services by the NUMERIC workspace id,
+    // so resolve slugs to an id before listing.
+    let workspaceId: string;
     let workspaceSlug: string;
 
     if (flags.workspace) {
-      workspaceSlug = flags.workspace;
+      const ws = await workspacesApi.get(flags.workspace);
+      workspaceId = String(ws.id);
+      workspaceSlug = ws.slug;
     } else {
-      // Try from existing link
+      // Prefer an existing link, then the active workspace set via `apso use`,
+      // and only prompt as a last resort.
       const link = projectLink.read();
+      const active = globalConfig.read();
       if (link) {
+        workspaceId = String(link.workspaceId);
         workspaceSlug = link.workspaceSlug;
+      } else if (active.activeWorkspaceId) {
+        workspaceId = active.activeWorkspaceId;
+        workspaceSlug = active.activeWorkspaceSlug || active.activeWorkspaceId;
       } else {
         // Prompt
         const workspaces = await workspacesApi.list();
@@ -62,12 +72,13 @@ export default class Projects extends BaseCommand {
             })),
           },
         ]);
+        workspaceId = String(response.workspace.id);
         workspaceSlug = response.workspace.slug;
       }
     }
 
-    // Fetch services
-    const servicesResponse = await servicesApi.list(workspaceSlug);
+    // Fetch services (scoped by numeric workspace id)
+    const servicesResponse = await servicesApi.list(workspaceId);
     const services = servicesResponse.data;
 
     if (services.length === 0) {

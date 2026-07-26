@@ -112,7 +112,7 @@ export default class Init extends BaseCommand {
     ]);
 
     // Select service
-    const servicesResponse = await servicesApi.list(workspace.slug);
+    const servicesResponse = await servicesApi.list(workspace.id);
     if (servicesResponse.data.length === 0) {
       this.error(
         `No services found in workspace "${workspace.name}". Create one first or choose "Create a new project".`
@@ -260,7 +260,7 @@ export default class Init extends BaseCommand {
     this.log(`Creating service "${projectName}" in workspace "${workspace.name}"...`);
     const serviceName: string = projectName;
     const service = await withUpgradeRetry(() =>
-      servicesApi.create(workspace.slug, {
+      servicesApi.create(workspace.id, {
         name: serviceName,
       })
     );

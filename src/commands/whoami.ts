@@ -89,11 +89,13 @@ export default class Whoami extends BaseCommand {
     if (link) {
       this.log(`  Workspace: ${link.workspaceSlug}`);
       this.log(`  Service:   ${link.serviceSlug}`);
-    } else if (config.defaultWorkspace) {
-      this.log(`  Workspace: ${config.defaultWorkspace} (default)`);
-      this.log("  Service:   None (run 'apso use <service>' to set)");
+    } else if (config.activeWorkspaceName || config.activeWorkspaceSlug) {
+      const name = config.activeWorkspaceName || config.activeWorkspaceSlug;
+      const slug = config.activeWorkspaceSlug;
+      this.log(`  Workspace: ${name}${slug ? ` (${slug})` : ""}`);
+      this.log("  Service:   None (run 'apso link' in a project to set)");
     } else {
-      this.log("  Workspace: None (run 'apso use <service>' to set)");
+      this.log("  Workspace: None (run 'apso use' to select one)");
       this.log("  Service:   None");
     }
     this.log("");
