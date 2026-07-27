@@ -31,8 +31,9 @@ export default class Use extends BaseCommand {
 
     const workspaces = await workspacesApi.list();
     if (workspaces.length === 0) {
+      const onboardingUrl = `${globalConfig.read().webUrl}/onboarding/workspace`;
       this.error(
-        "No workspaces found. Create one at https://app.apso.cloud first."
+        `You don't have a workspace yet. Workspaces are created in the Apso web app:\n  ${onboardingUrl}\nThen run 'apso use' again to select it.`
       );
     }
 

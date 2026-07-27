@@ -4,7 +4,7 @@ import * as crypto from "crypto";
 import { exec } from "child_process";
 import BaseCommand from "../lib/base-command";
 import { credentials, globalConfig } from "../lib/config";
-import { authApi } from "../lib/api/services";
+import { authApi, workspacesApi } from "../lib/api/services";
 
 /**
  * Open a URL in the default browser
@@ -339,10 +339,30 @@ export default class Login extends BaseCommand {
       this.log("");
       this.log(`Successfully logged in as ${tokenResponse.user.email}`);
       this.log("");
-      this.log("Next steps:");
-      this.log("  apso use        - Select your workspace");
-      this.log("  apso whoami     - View your account + workspace");
-      this.log("  apso projects   - List services in a workspace");
+
+      // Brand-new users have no workspace yet. Workspaces are created in the web
+      // app (not the CLI), so guide them there explicitly and offer to open it —
+      // otherwise a first-timer hits a bare "No workspaces found" later with no
+      // idea what to do.
+      const workspaces = await workspacesApi.list().catch(() => []);
+      if (workspaces.length === 0) {
+        const onboardingUrl = `${globalConfig.read().webUrl}/onboarding/workspace`;
+        this.log("You don't have a workspace yet.");
+        this.log("Workspaces are created in the Apso web app:");
+        this.log(`  ${onboardingUrl}`);
+        this.log("");
+        this.log("Opening it in your browser...");
+        await openBrowser(onboardingUrl).catch(() => {
+          this.log("(Could not open the browser — visit the URL above.)");
+        });
+        this.log("");
+        this.log("Once your workspace exists, run 'apso use' to select it.");
+      } else {
+        this.log("Next steps:");
+        this.log("  apso use        - Select your workspace");
+        this.log("  apso whoami     - View your account + workspace");
+        this.log("  apso projects   - List services in a workspace");
+      }
     } catch (error) {
       if (error instanceof Error) {
         this.error(error.message);
