@@ -11,6 +11,7 @@ import { exec } from "child_process";
 import inquirer from "inquirer";
 import { ApiClientError } from "./api/client";
 import { globalConfig } from "./config";
+import { isInteractive } from "./utils/interactive";
 
 /**
  * Open a URL in the default browser (best-effort).
@@ -80,6 +81,16 @@ export async function withUpgradeRetry<T>(action: () => Promise<T>): Promise<T> 
     return await action();
   } catch (error) {
     if (error instanceof ApiClientError && error.isLimitError()) {
+      // Headless (agent/CI): never open a browser or prompt — surface the limit
+      // as a clear error with the upgrade URL so the caller can act on it.
+      if (!isInteractive()) {
+        const upgradeUrl = `${globalConfig.read().webUrl}${
+          error.upgradeUrl || "/billing/upgrade"
+        }`;
+        throw new Error(
+          `${error.message || "Plan limit reached."} Upgrade at ${upgradeUrl}`
+        );
+      }
       const retry = await promptUpgrade(error);
       if (retry) {
         return action();

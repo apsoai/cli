@@ -3,11 +3,12 @@ import * as fs from "fs";
 import * as path from "path";
 import inquirer from "inquirer";
 import BaseCommand from "../lib/base-command";
-import { credentials, projectLink } from "../lib/config";
+import { credentials, projectLink, globalConfig } from "../lib/config";
 import { ProjectLinkFile } from "../lib/config/types";
 import { workspacesApi, servicesApi } from "../lib/api/services";
 import { withUpgradeRetry } from "../lib/upgrade";
 import { Workspace, Service } from "../lib/api/types";
+import { isInteractive, missingFlag } from "../lib/utils/interactive";
 
 export default class Link extends BaseCommand {
   static description = "Link this project to a platform service";
@@ -15,17 +16,22 @@ export default class Link extends BaseCommand {
   static examples = [
     `$ apso link`,
     `$ apso link --workspace my-team --service my-api`,
+    `$ apso link --workspace my-team --create my-new-api`,
     `$ apso link --force`,
   ];
 
   static flags = {
     workspace: Flags.string({
       char: "w",
-      description: "Workspace slug",
+      description: "Workspace slug (defaults to the active workspace)",
     }),
     service: Flags.string({
       char: "s",
-      description: "Service slug",
+      description: "Existing service slug to link",
+    }),
+    create: Flags.string({
+      char: "c",
+      description: "Create a new service with this name and link it",
     }),
     force: Flags.boolean({
       char: "f",
@@ -53,6 +59,13 @@ export default class Link extends BaseCommand {
     // Check if already linked
     if (projectLink.exists() && !flags.force) {
       const existing = projectLink.read();
+      if (!isInteractive()) {
+        this.error(
+          missingFlag(
+            `Already linked to ${existing?.workspaceSlug}/${existing?.serviceSlug}. Pass --force to overwrite.`
+          )
+        );
+      }
       const { confirm } = await inquirer.prompt<{ confirm: boolean }>([
         {
           type: "confirm",
@@ -67,15 +80,24 @@ export default class Link extends BaseCommand {
       }
     }
 
-    // Determine workspace
+    // Determine workspace: --workspace flag, then the active workspace, then a
+    // prompt (interactive only).
     let workspace: Workspace;
+    const active = globalConfig.read();
     if (flags.workspace) {
       workspace = await workspacesApi.get(flags.workspace);
+    } else if (active.activeWorkspaceSlug) {
+      workspace = await workspacesApi.get(active.activeWorkspaceSlug);
     } else {
       const workspaces = await workspacesApi.list();
       if (workspaces.length === 0) {
         this.error(
           "No workspaces found. Create a workspace at https://app.apso.cloud first."
+        );
+      }
+      if (!isInteractive()) {
+        this.error(
+          missingFlag("Pass --workspace <slug> or set one with 'apso use'.")
         );
       }
       const response = await inquirer.prompt<{ workspace: Workspace }>([
@@ -92,10 +114,22 @@ export default class Link extends BaseCommand {
       workspace = response.workspace;
     }
 
-    // Determine service
+    // Determine service: --service links an existing one, --create makes a new
+    // one, otherwise prompt (interactive only).
     let service: Service;
     if (flags.service) {
       service = await servicesApi.get(workspace.id, flags.service);
+    } else if (flags.create) {
+      this.log(`Creating service "${flags.create}"...`);
+      service = await withUpgradeRetry(() =>
+        servicesApi.create(workspace.id, { name: flags.create as string })
+      );
+    } else if (!isInteractive()) {
+      this.error(
+        missingFlag(
+          "Pass --service <slug> to link an existing service, or --create <name> to make a new one."
+        )
+      );
     } else {
       const servicesResponse = await servicesApi.list(workspace.id);
       const services = servicesResponse.data;
@@ -122,7 +156,6 @@ export default class Link extends BaseCommand {
       if (selectedService) {
         service = selectedService;
       } else {
-        // Create new service
         const { serviceName } = await inquirer.prompt<{ serviceName: string }>([
           {
             type: "input",

@@ -7,6 +7,7 @@ import * as git from "../lib/git";
 import { parseApsorc } from "../lib/apsorc-parser";
 import { runMigrationSandbox } from "../lib/migrate/sandbox";
 import { createSpinner } from "../lib/utils/spinner";
+import { isInteractive, missingFlag } from "../lib/utils/interactive";
 import type { Service } from "../lib/api/types";
 
 export default class Deploy extends BaseCommand {
@@ -123,6 +124,13 @@ export default class Deploy extends BaseCommand {
 
     // Confirmation
     if (!flags.yes && migrationCount > 0) {
+      if (!isInteractive()) {
+        this.error(
+          missingFlag(
+            `About to deploy ${migrationCount} migration statement(s). Pass --yes to proceed.`
+          )
+        );
+      }
       const inquirer = await import("inquirer");
       const { confirm } = await inquirer.default.prompt([
         {
