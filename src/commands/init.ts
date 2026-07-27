@@ -10,6 +10,8 @@ import { ProjectLinkFile } from "../lib/config/types";
 import { workspacesApi, servicesApi } from "../lib/api/services";
 import { withUpgradeRetry } from "../lib/upgrade";
 import { Workspace, Service } from "../lib/api/types";
+import { isInteractive, missingFlag } from "../lib/utils/interactive";
+import { globalConfig } from "../lib/config";
 import {
   PROJECT_NAME_PATTERN,
   cloneTemplate,
@@ -72,20 +74,33 @@ export default class Init extends BaseCommand {
     language?: string;
     "skip-platform": boolean;
   }): Promise<void> {
-    // Ask: create new or clone existing
-    const { action } = await inquirer.prompt<{
-      action: "create" | "clone";
-    }>([
-      {
-        type: "list",
-        name: "action",
-        message: "What would you like to do?",
-        choices: [
-          { name: "Create a new project", value: "create" },
-          { name: "Clone an existing project", value: "clone" },
-        ],
-      },
-    ]);
+    // Headless: init is the guided human path; require the essentials up-front so
+    // no prompt is reached. Agents should prefer 'apso generate' + 'apso link --create'.
+    if (!isInteractive() && (!flags.name || !flags.language)) {
+      this.error(
+        missingFlag(
+          "apso init needs --name and --language non-interactively (or use 'apso generate' + 'apso link --create')."
+        )
+      );
+    }
+
+    // Ask: create new or clone existing. Headless: default to "create" (the
+    // scaffold path); requires --name/--language, which createNew enforces.
+    let action: "create" | "clone" = "create";
+    if (isInteractive()) {
+      const answer = await inquirer.prompt<{ action: "create" | "clone" }>([
+        {
+          type: "list",
+          name: "action",
+          message: "What would you like to do?",
+          choices: [
+            { name: "Create a new project", value: "create" },
+            { name: "Clone an existing project", value: "clone" },
+          ],
+        },
+      ]);
+      action = answer.action;
+    }
 
     await (action === "clone" ? this.cloneExisting() : this.createNew(flags));
   }
@@ -236,7 +251,8 @@ export default class Init extends BaseCommand {
       this.error("Invalid project name: path traversal detected");
     }
 
-    // Select workspace
+    // Select workspace: active workspace (apso use), else prompt (interactive),
+    // else error headless.
     const workspaces = await workspacesApi.list();
     if (workspaces.length === 0) {
       this.error(
@@ -244,23 +260,39 @@ export default class Init extends BaseCommand {
       );
     }
 
-    const { workspace } = await inquirer.prompt<{ workspace: Workspace }>([
-      {
-        type: "list",
-        name: "workspace",
-        message: "Select a workspace:",
-        choices: workspaces.map((ws) => ({
-          name: `${ws.name} (${ws.slug})`,
-          value: ws,
-        })),
-      },
-    ]);
+    const activeSlug = globalConfig.read().activeWorkspaceSlug;
+    let workspace: Workspace | undefined = activeSlug
+      ? workspaces.find((w) => w.slug === activeSlug)
+      : undefined;
+    if (!workspace) {
+      if (!isInteractive()) {
+        this.error(
+          missingFlag("Set a workspace first with 'apso use <slug>'.")
+        );
+      }
+      const answer = await inquirer.prompt<{ workspace: Workspace }>([
+        {
+          type: "list",
+          name: "workspace",
+          message: "Select a workspace:",
+          choices: workspaces.map((ws) => ({
+            name: `${ws.name} (${ws.slug})`,
+            value: ws,
+          })),
+        },
+      ]);
+      workspace = answer.workspace;
+    }
+    if (!workspace) {
+      throw new Error("No workspace selected.");
+    }
+    const ws: Workspace = workspace;
 
     // Create service on platform
-    this.log(`Creating service "${projectName}" in workspace "${workspace.name}"...`);
+    this.log(`Creating service "${projectName}" in workspace "${ws.name}"...`);
     const serviceName: string = projectName;
     const service = await withUpgradeRetry(() =>
-      servicesApi.create(workspace.id, {
+      servicesApi.create(ws.id, {
         name: serviceName,
       })
     );
@@ -285,6 +317,14 @@ export default class Init extends BaseCommand {
     this.log(`Language: ${language}`);
     this.log(
       `Linked to workspace "${workspace.name}" / service "${service.name}"`
+    );
+    this.log("");
+    this.log("Next steps:");
+    this.log(`  cd ${projectName}`);
+    this.log("  # edit .apsorc to shape your schema, then:");
+    this.log("  apso generate            # scaffold code from the schema");
+    this.log(
+      "  apso deploy              # ship it (prompts to connect GitHub if needed)"
     );
   }
 

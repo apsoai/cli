@@ -202,11 +202,38 @@ export default class Deploy extends BaseCommand {
 
     // Pick the repo: prefer what the local project is already wired to, then the
     // service's connected repo, then --repo, then ask.
-    const conn = await githubApi.getConnection();
+    let conn = await githubApi.getConnection();
     if (!conn.connected || !conn.connectionId) {
-      this.error(
-        "GitHub is not connected. Run 'apso github connect' first, then re-run deploy."
-      );
+      // Connecting GitHub is a browser OAuth flow a machine can't complete.
+      // Headless: fail with instructions. Interactive: offer to launch it now
+      // (opens the browser), wait for the human, then continue the deploy.
+      if (!isInteractive()) {
+        this.error(
+          "GitHub is not connected. Run 'apso github connect' first, then re-run deploy."
+        );
+      }
+      const inquirer = await import("inquirer");
+      const { connectNow } = await inquirer.default.prompt([
+        {
+          type: "confirm",
+          name: "connectNow",
+          message:
+            "GitHub is not connected (required to push code). Connect now? This opens your browser.",
+          default: true,
+        },
+      ]);
+      if (!connectNow) {
+        this.error(
+          "GitHub connection is required to deploy. Run 'apso github connect' when ready, then re-run deploy."
+        );
+      }
+      await this.config.runCommand("github:connect", []);
+      conn = await githubApi.getConnection();
+      if (!conn.connected || !conn.connectionId) {
+        this.error(
+          "GitHub still isn't connected. Complete 'apso github connect' and re-run deploy."
+        );
+      }
     }
 
     let repoFullName =
