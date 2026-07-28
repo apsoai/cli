@@ -8,6 +8,7 @@ import { parseApsorc } from "../lib/apsorc-parser";
 import { runMigrationSandbox } from "../lib/migrate/sandbox";
 import { createSpinner } from "../lib/utils/spinner";
 import { isInteractive, missingFlag } from "../lib/utils/interactive";
+import { serverSidePush } from "../lib/deploy/server-push";
 import type { Service } from "../lib/api/types";
 
 export default class Deploy extends BaseCommand {
@@ -44,6 +45,11 @@ export default class Deploy extends BaseCommand {
     branch: Flags.string({
       description: "Branch to push to",
       default: "main",
+    }),
+    "local-git": Flags.boolean({
+      description:
+        "Push using your local git instead of the platform (needs local GitHub auth)",
+      default: false,
     }),
   };
 
@@ -110,7 +116,12 @@ export default class Deploy extends BaseCommand {
     // Sync local code to the connected GitHub repo (the deploy builds from it).
     // Skip for redeploys of already-synced code.
     if (!flags["skip-push"]) {
-      await this.syncCodeToGithub(service, flags.repo, flags.branch);
+      await this.syncCodeToGithub(
+        service,
+        flags.repo,
+        flags.branch,
+        flags["local-git"]
+      );
     }
 
     // Determine source
@@ -191,14 +202,21 @@ export default class Deploy extends BaseCommand {
   private async syncCodeToGithub(
     service: Service,
     repoFlag: string | undefined,
-    branch: string
+    branch: string,
+    useLocalGit: boolean
   ): Promise<void> {
     const cwd = process.cwd();
 
-    if (!git.gitAvailable()) {
-      this.error("git is required to deploy. Install git and try again.");
+    // --local-git needs git + a local repo. The default server-side push reads
+    // the files directly and pushes through the platform, so neither is needed.
+    if (useLocalGit) {
+      if (!git.gitAvailable()) {
+        this.error(
+          "git is required for --local-git. Install git, or drop --local-git."
+        );
+      }
+      git.initRepo(cwd);
     }
-    git.initRepo(cwd);
 
     // Pick the repo: prefer what the local project is already wired to, then the
     // service's connected repo, then --repo, then ask.
@@ -236,8 +254,10 @@ export default class Deploy extends BaseCommand {
       }
     }
 
-    let repoFullName =
-      git.localRepoFullName(cwd) || service.githubRepo || repoFlag;
+    // Only read the local git remote when git is present (a bare machine using
+    // the server-side push may not have git at all).
+    const localRepo = git.gitAvailable() ? git.localRepoFullName(cwd) : "";
+    let repoFullName = localRepo || service.githubRepo || repoFlag;
     if (!repoFullName) {
       repoFullName = await this.resolveRepo(conn.connectionId, service);
     }
@@ -249,21 +269,44 @@ export default class Deploy extends BaseCommand {
       await githubApi.connectRepo(service.id, conn.connectionId, repoFullName);
     }
 
-    // Point the local repo at it and push with the user's git credentials.
-    git.setOrigin(cwd, git.httpsUrlFor(repoFullName));
-    const committed = git.commitAll(cwd, "Deploy via Apso CLI");
-    this.log(
-      committed
-        ? `Committed local changes; pushing to ${repoFullName}#${branch}...`
-        : `Pushing to ${repoFullName}#${branch}...`
-    );
-    try {
-      git.pushHead(cwd, branch);
-    } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : String(error);
-      this.error(
-        `git push to ${repoFullName} failed. Ensure you have push access and your git credentials are set up.\n${msg}`
+    if (useLocalGit) {
+      // Push with the user's local git credentials.
+      git.setOrigin(cwd, git.httpsUrlFor(repoFullName));
+      const committed = git.commitAll(cwd, "Deploy via Apso CLI");
+      this.log(
+        committed
+          ? `Committed local changes; pushing to ${repoFullName}#${branch}...`
+          : `Pushing to ${repoFullName}#${branch}...`
       );
+      try {
+        git.pushHead(cwd, branch);
+      } catch (error: unknown) {
+        const msg = error instanceof Error ? error.message : String(error);
+        this.error(
+          `git push to ${repoFullName} failed. Ensure you have push access and your git credentials are set up.\n${msg}`
+        );
+      }
+    } else {
+      // Default: upload the project and push through the Apso GitHub connection.
+      // No local git or gh required.
+      this.log(
+        `Uploading code and pushing to ${repoFullName}#${branch} via your Apso GitHub connection...`
+      );
+      try {
+        await serverSidePush({
+          cwd,
+          serviceId: service.id,
+          connectionId: conn.connectionId,
+          branch,
+          message: "Deploy via Apso CLI",
+        });
+        this.log(`Pushed to ${repoFullName}#${branch}.`);
+      } catch (error: unknown) {
+        const msg = error instanceof Error ? error.message : String(error);
+        this.error(
+          `Push failed: ${msg}\nRetry, or use --local-git to push with your local git instead.`
+        );
+      }
     }
   }
 

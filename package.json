@@ -32,6 +32,7 @@
     "@oclif/plugin-plugins": "^3",
     "@oclif/plugin-warn-if-update-available": "^2.1.1",
     "@sentry/node": "^10.68.0",
+    "adm-zip": "^0.6.0",
     "debug": "^4.3.4",
     "eta": "^2.0.0",
     "inquirer": "^8.2.7",
@@ -47,6 +48,7 @@
   "devDependencies": {
     "@jest/globals": "^29.5.0",
     "@oclif/test": "^2.4.7",
+    "@types/adm-zip": "^0.5.8",
     "@types/chai": "^4",
     "@types/inquirer": "^8.2.12",
     "@types/mocha": "^10",

@@ -449,3 +449,18 @@ export const githubApi = {
     });
   },
 };
+
+/**
+ * Service code API — used for the server-side deploy (upload the project zip to
+ * S3; the backend then pushes it to the repo, so no local git is required).
+ */
+export const codeApi = {
+  /** Presigned S3 PUT URL to upload the service's code zip. */
+  async getUploadUrl(
+    serviceId: string
+  ): Promise<{ url: string; bucket?: string; key?: string }> {
+    return api.get<{ url: string; bucket?: string; key?: string }>(
+      `/api/services/${serviceId}/code/upload-url`
+    );
+  },
+};

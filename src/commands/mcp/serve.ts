@@ -7,6 +7,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import BaseCommand from "../../lib/base-command";
+import { track, captureException } from "../../lib/telemetry/telemetry";
 import { parseApsorc, findConfigPath } from "../../lib/apsorc-parser";
 import {
   createGenerator,
@@ -48,11 +49,55 @@ export default class McpServe extends BaseCommand {
       version: "0.10.2",
     });
 
+    // Emit a PostHog event per MCP tool call so agent usage of the server shows
+    // up in the same analytics as the CLI. Wrapping server.tool once covers all
+    // tools without touching each handler.
+    this.instrumentTools(server);
+
     this.registerTools(server);
     this.registerResources(server);
 
     const transport = new StdioServerTransport();
     await server.connect(transport);
+  }
+
+  /** Wrap every registered tool handler with usage telemetry. */
+  private instrumentTools(server: McpServer): void {
+    const original = server.tool.bind(server) as (
+      ...a: unknown[]
+    ) => unknown;
+    (server as unknown as { tool: (...a: unknown[]) => unknown }).tool = (
+      ...args: unknown[]
+    ) => {
+      const name = String(args[0]);
+      const lastIndex = args.length - 1;
+      const handler = args[lastIndex];
+      if (typeof handler === "function") {
+        const orig = handler as (...h: unknown[]) => Promise<unknown>;
+        args[lastIndex] = async (...hArgs: unknown[]) => {
+          const start = Date.now();
+          try {
+            const result = await orig(...hArgs);
+            track("mcp_tool_called", {
+              tool: name,
+              success: true,
+              duration_ms: Date.now() - start,
+            });
+            return result;
+          } catch (error) {
+            track("mcp_tool_called", {
+              tool: name,
+              success: false,
+              duration_ms: Date.now() - start,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            captureException(error, { mcp_tool: name });
+            throw error;
+          }
+        };
+      }
+      return original(...args);
+    };
   }
 
   private registerTools(server: McpServer): void {
