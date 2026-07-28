@@ -134,12 +134,17 @@ export default class Link extends BaseCommand {
       const servicesResponse = await servicesApi.list(workspace.id);
       const services = servicesResponse.data;
 
+      // "+ Create new service" first so it's always visible, not buried under a
+      // long list of existing services.
+      const serviceChoices = services.map((svc) => ({
+        name: `${svc.name} (${svc.slug})`,
+        value: svc,
+      }));
       const choices = [
-        ...services.map((svc) => ({
-          name: `${svc.name} (${svc.slug})`,
-          value: svc,
-        })),
         { name: "+ Create new service", value: null },
+        ...(serviceChoices.length > 0
+          ? [new inquirer.Separator(), ...serviceChoices]
+          : []),
       ];
 
       const { selectedService } = await inquirer.prompt<{
