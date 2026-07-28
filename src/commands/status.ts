@@ -1,6 +1,6 @@
 import BaseCommand from "../lib/base-command";
 import { credentials, projectLink } from "../lib/config";
-import { servicesApi, buildApi } from "../lib/api/services";
+import { servicesApi, buildApi, githubApi } from "../lib/api/services";
 
 export default class Status extends BaseCommand {
   static description = "Show the current service and latest build status";
@@ -27,7 +27,20 @@ export default class Status extends BaseCommand {
     this.log(`Service: ${service.name} (${service.slug})`);
     this.log(`Workspace: ${link.workspaceSlug}`);
     this.log(`Status: ${service.status}`);
-    this.log(`GitHub: ${service.githubRepo || "not connected"}`);
+    // Distinguish the account-level GitHub connection from this service's repo:
+    // "GitHub: not connected" was misleading when the account WAS connected but
+    // the service had no repo yet (the repo is created on the first deploy).
+    const conn = await githubApi
+      .getConnection()
+      .catch(() => ({ connected: false }));
+    this.log(
+      `GitHub account: ${
+        conn.connected ? "connected" : "not connected (run 'apso github connect')"
+      }`
+    );
+    this.log(
+      `Repo: ${service.githubRepo || "none yet (created on first deploy)"}`
+    );
     if (service.endpoint) {
       this.log(`Endpoint: ${service.endpoint}`);
     }
