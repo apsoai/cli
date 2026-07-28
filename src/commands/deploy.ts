@@ -239,7 +239,7 @@ export default class Deploy extends BaseCommand {
     let repoFullName =
       git.localRepoFullName(cwd) || service.githubRepo || repoFlag;
     if (!repoFullName) {
-      repoFullName = await this.promptRepoSelection(conn.connectionId);
+      repoFullName = await this.resolveRepo(conn.connectionId, service);
     }
 
     // Connect the repo to the service (records ServiceRepository) unless the
@@ -267,23 +267,54 @@ export default class Deploy extends BaseCommand {
     }
   }
 
-  /** Let the user pick one of their GitHub repos to deploy from. */
-  private async promptRepoSelection(connectionId: string): Promise<string> {
-    const repos = await githubApi.listRepos("", { connectionId, pageSize: 100 });
-    if (!repos.data.length) {
-      this.error(
-        "No GitHub repositories available. Create one on GitHub (or pass --repo owner/name)."
-      );
+  /**
+   * Decide which GitHub repo to deploy to. No local git or `gh` needed to make
+   * one — we create it through the user's Apso GitHub connection. Headless (or
+   * when the account has no repos) auto-creates a repo named after the service;
+   * interactive offers "create new" first, then existing repos.
+   */
+  private async resolveRepo(
+    connectionId: string,
+    service: Service
+  ): Promise<string> {
+    const repoName = (service.name || service.slug).trim();
+    const repos = await githubApi
+      .listRepos("", { connectionId, pageSize: 100 })
+      .catch(() => ({ data: [] as { fullName: string }[] }));
+
+    // Headless, or nothing to pick from: create a repo for this service.
+    if (!isInteractive() || repos.data.length === 0) {
+      this.log(`Creating GitHub repository "${repoName}"...`);
+      const created = await githubApi.createRepo(connectionId, repoName, {
+        autoInit: false,
+      });
+      this.log(`Created ${created.fullName}`);
+      return created.fullName;
     }
+
+    // Interactive with existing repos: "create new" first, then the list.
     const inquirer = await import("inquirer");
+    const CREATE = " create";
     const { repo } = await inquirer.default.prompt<{ repo: string }>([
       {
         type: "list",
         name: "repo",
-        message: "Select a GitHub repository to deploy from:",
-        choices: repos.data.map((r) => ({ name: r.fullName, value: r.fullName })),
+        message: "Deploy to which GitHub repository?",
+        choices: [
+          { name: `+ Create new repo "${repoName}"`, value: CREATE },
+          new inquirer.default.Separator(),
+          ...repos.data.map((r) => ({ name: r.fullName, value: r.fullName })),
+        ],
       },
     ]);
+    if (repo === CREATE) {
+      this.log(`Creating GitHub repository "${repoName}"...`);
+      const created = await githubApi.createRepo(connectionId, repoName, {
+        autoInit: false,
+      });
+      this.log(`Created ${created.fullName}`);
+      return created.fullName;
+    }
     return repo;
   }
 }

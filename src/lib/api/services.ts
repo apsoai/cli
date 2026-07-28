@@ -394,6 +394,34 @@ export const githubApi = {
     return api.get<{ url: string }>("/api/github/authorize");
   },
 
+  /**
+   * Create a new GitHub repo for a service via the user's connection (no local
+   * git or gh required). autoInit=false leaves it empty so the deploy's first
+   * push becomes the initial commit.
+   */
+  async createRepo(
+    connectionId: string,
+    serviceName: string,
+    options?: { private?: boolean; autoInit?: boolean }
+  ): Promise<GitHubRepo> {
+    const raw = await api.post<Raw>("/api/github/repos", {
+      connectionId,
+      serviceName,
+      isPrivate: options?.private ?? true,
+      autoInit: options?.autoInit ?? false,
+    });
+    const r = raw?.repository ?? raw?.data ?? raw;
+    return {
+      id: r.id,
+      fullName: r.full_name ?? r.fullName ?? r.name,
+      name: r.name,
+      owner: r.owner?.login ?? r.owner,
+      private: Boolean(r.private),
+      defaultBranch: r.default_branch ?? r.defaultBranch ?? "main",
+      url: r.html_url ?? r.url,
+    };
+  },
+
   /** Link an existing GitHub repo to a service. */
   async connectRepo(
     serviceId: string,
