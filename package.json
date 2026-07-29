@@ -41,7 +41,7 @@
     "posthog-node": "^5.21.2",
     "rc": "^1.2.8",
     "shelljs": "^0.8.5",
-    "typeorm": "^0.3.20",
+    "typeorm": "^0.3.31",
     "typeorm-pglite": "^0.3.4",
     "zod": "^4.4.3"
   },
