@@ -450,12 +450,18 @@ ${downStatements}
 
   async generateIndexModule(
     entities: Entity[],
-    _apiType: string
+    _apiType: string,
+    opts?: { emitEvents?: boolean; http?: boolean }
   ): Promise<GeneratedFile[]> {
+    // Effective HTTP flag per entity (entity override > top-level default >
+    // true). When false we skip the handler + route registration but keep the
+    // service and model, matching the handler suppression in generate.ts.
+    // See apsoai/cli#95.
     const entitiesData = entities.map((entity) => ({
       name: entity.name,
       camelName: camelCase(entity.name),
       kebabName: kebabCase(entity.name),
+      http: entity.http ?? opts?.http ?? true,
     }));
 
     const content = await this.renderTemplate("./index-module", {

@@ -495,6 +495,63 @@ describe("GoGenerator", () => {
       const content = files[0].content;
       expect(content).toContain("package routes");
     });
+
+    describe("http flag suppression (cli#95)", () => {
+      test("http:false skips handler + route registration but keeps service and model", async () => {
+        const entities: Entity[] = [
+          { name: "User", http: false, fields: [{ name: "email", type: "text" }] },
+          { name: "Post", fields: [{ name: "title", type: "text" }] },
+        ];
+
+        const files = await generator.generateIndexModule(entities, "rest");
+        const routes = files.find((f) => f.path === "routes/routes.go")!.content;
+        const registry = files.find((f) => f.path === "models/registry.go")!.content;
+
+        // User is suppressed from all handler/route wiring
+        expect(routes).not.toContain("UserHandler");
+        expect(routes).not.toContain("NewUserHandler");
+        // Post keeps its route registration (local var is camelCase)
+        expect(routes).toContain("postHandler.RegisterRoutes(r)");
+        expect(routes).toContain("handlers.NewPostHandler");
+        // User service is still wired (model + service are always generated)
+        expect(routes).toContain("UserService");
+        expect(routes).toContain("NewUserService(db)");
+        // User model is still registered for AutoMigrate
+        expect(registry).toContain("&User{}");
+        expect(registry).toContain("&Post{}");
+      });
+
+      test("all entities http:false drops the unused handlers import", async () => {
+        const entities: Entity[] = [
+          { name: "User", http: false, fields: [{ name: "email", type: "text" }] },
+        ];
+
+        const files = await generator.generateIndexModule(entities, "rest");
+        const routes = files.find((f) => f.path === "routes/routes.go")!.content;
+
+        expect(routes).not.toContain('"app/autogen/handlers"');
+        expect(routes).toContain('"app/autogen/services"');
+        // no handler construction or route registration at all
+        expect(routes).not.toContain("handlers.New");
+        expect(routes).not.toContain(".RegisterRoutes");
+      });
+
+      test("top-level http default is honored via opts, entity override wins", async () => {
+        const entities: Entity[] = [
+          { name: "User", fields: [{ name: "email", type: "text" }] },
+          { name: "Post", http: true, fields: [{ name: "title", type: "text" }] },
+        ];
+
+        // default http:false suppresses User; Post overrides back to true
+        const files = await generator.generateIndexModule(entities, "rest", {
+          http: false,
+        });
+        const routes = files.find((f) => f.path === "routes/routes.go")!.content;
+
+        expect(routes).not.toContain("UserHandler");
+        expect(routes).toContain("postHandler.RegisterRoutes(r)");
+      });
+    });
   });
 
   describe("validation", () => {
