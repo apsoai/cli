@@ -146,6 +146,18 @@ export interface GlobalConfigFile {
    * Disable telemetry
    */
   telemetryDisabled: boolean;
+
+  /**
+   * Anonymous install id (random UUID) for opt-out CLI telemetry. Generated
+   * once on first run and persisted here. Not derived from any machine
+   * identifier; carries no PII.
+   */
+  installId?: string;
+
+  /**
+   * Whether the first-run telemetry transparency notice has been shown.
+   */
+  telemetryNoticeShown: boolean;
 }
 
 /**
@@ -275,6 +287,7 @@ export const DEFAULT_GLOBAL_CONFIG: GlobalConfigFile = {
   verbose: false,
   noColor: false,
   telemetryDisabled: false,
+  telemetryNoticeShown: false,
 };
 
 /**
