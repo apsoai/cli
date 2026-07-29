@@ -21,6 +21,7 @@ import {
   getRelationshipsForImport,
 } from "../utils/relationships";
 import { snakeCase, camelCase, pascalCase, kebabCase } from "../utils/casing";
+import { getEventEmittingEntities } from "../events";
 import pluralize from "pluralize";
 
 /**
@@ -491,6 +492,52 @@ ${modelRefs}
       {
         path: "models/registry.go",
         content: registryContent,
+      },
+    ];
+  }
+
+  /**
+   * Emits a schema-derived manifest of the entities that opted in to
+   * domain-event emission (`.apsorc` `emitEvents`), mirroring the TypeScript
+   * generator. See apsoai/cli#82.
+   *
+   * Per the Apso Distribution Model the domain-event engine (the transactional
+   * GORM hook/callback, mapper, relay, delivery) is NOT generated here; it
+   * ships as a versioned library wired by the `domain-events` skill. The CLI's
+   * only job is to declare WHICH entities participate, via a single generated
+   * file: `events/event_emitting_entities.go`.
+   *
+   * Returns an empty array when no entity is opted in.
+   *
+   * Resolution mirrors TS: `entity.emitEvents ?? <top-level emitEvents> ?? false`.
+   */
+  async generateDomainEvents(
+    entities: Entity[],
+    _apiType?: string,
+    opts?: { emitEvents?: boolean }
+  ): Promise<GeneratedFile[]> {
+    const emittingEntities = getEventEmittingEntities(
+      entities,
+      opts?.emitEvents
+    );
+
+    if (emittingEntities.length === 0) {
+      return [];
+    }
+
+    const content = await this.renderTemplate(
+      "./events/event-emitting-entities",
+      {
+        emittingEntities: emittingEntities.map((entity) => ({
+          name: entity.name,
+        })),
+      }
+    );
+
+    return [
+      {
+        path: "events/event_emitting_entities.go",
+        content,
       },
     ];
   }
