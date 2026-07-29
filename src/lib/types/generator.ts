@@ -304,7 +304,7 @@ export interface LanguageGenerator {
   generateIndexModule(
     entities: Entity[],
     apiType: string,
-    opts?: { emitEvents?: boolean }
+    opts?: { emitEvents?: boolean; http?: boolean }
   ): Promise<GeneratedFile[]>;
 
   /**

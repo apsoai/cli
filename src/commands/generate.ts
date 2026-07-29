@@ -140,21 +140,36 @@ export default class Generate extends BaseCommand {
       const entityBuildStart = performance.now();
       const entityRelationships = relationshipMap[entity.name] || [];
 
-      // Effective HTTP-controller flag (TypeScript REST only for now): entity
-      // overrides the top-level default, which defaults to true. When false, the
-      // controller is neither generated nor wired into the module (a hand-written
-      // controller owns the route). GraphQL uses resolvers, so the flag doesn't
-      // apply there. Python (FastAPI) and Go (Gin) wire routers differently and
-      // don't yet honor this flag — keep it a no-op for them (controllers always
-      // generated) so we never emit broken wiring (a skipped router still
-      // referenced by the index module). Tracked separately for Python/Go.
-      const includeController =
-        language === "typescript" && lowerCaseApiType === "rest"
-          ? (entity.http ?? http ?? true)
-          : true;
-      if (!includeController) {
+      // Effective HTTP flag: entity overrides the top-level default, which
+      // defaults to true. GraphQL uses resolvers, so the flag doesn't apply
+      // there. The flag only does real suppression where a generated route
+      // can't be cleanly overridden without removing it (see apsoai/cli#95):
+      //   - TypeScript (NestJS): suppress the controller + its module wiring.
+      //   - Go (Gin): suppress the handler + its route registration (Gin
+      //     panics on a duplicate method+path, so overriding needs removal).
+      //   - Python (FastAPI): NO-OP. FastAPI matches in registration order, so
+      //     a hand-written APIRouter included before autogen_router in main.py
+      //     shadows the generated route without removing it. We only emit an
+      //     informational notice pointing at that pattern.
+      const effectiveHttp = entity.http ?? http ?? true;
+      const httpSuppressible =
+        (language === "typescript" || language === "go") &&
+        lowerCaseApiType === "rest";
+      const includeController = httpSuppressible ? effectiveHttp : true;
+      if (httpSuppressible && !includeController) {
+        const artifact = language === "go" ? "handler + routes" : "controller";
         console.log(
-          `[apso]   ${entity.name}: http=false — skipping generated controller`
+          `[apso]   ${entity.name}: http=false — skipping generated ${artifact}`
+        );
+      } else if (
+        language === "python" &&
+        lowerCaseApiType === "rest" &&
+        effectiveHttp === false
+      ) {
+        console.log(
+          `[apso]   ${entity.name}: http=false is a no-op for FastAPI — to replace a ` +
+            `generated route, include your own APIRouter before autogen_router in main.py ` +
+            `(first match wins). See the custom-endpoints skill.`
         );
       }
 
@@ -239,7 +254,7 @@ export default class Generate extends BaseCommand {
     }
 
     // Generate index module
-    const indexFiles = await generator.generateIndexModule(entities, lowerCaseApiType, { emitEvents });
+    const indexFiles = await generator.generateIndexModule(entities, lowerCaseApiType, { emitEvents, http });
     for (const file of indexFiles) {
       const fullPath = path.join(autogenPath, file.path);
       // eslint-disable-next-line no-await-in-loop
