@@ -1,0 +1,38 @@
+name: scaffold smoke test
+
+# Scaffolds a fresh project with the CLI and compiles it (apsoai/cli#101).
+#
+# Intentionally NOT a pull_request gate: the TypeScript template currently
+# references unpublished @apso/crud packages (file:../apso-crud), so a fresh
+# scaffold does not yet install/compile. Wiring this to pull_request would red
+# every PR until the template target is resolved (see cli#99 / publishing
+# @apso/crud). Run it on demand (or weekly) to verify once that lands, then
+# flip the trigger to pull_request to make it a real gate.
+on:
+  workflow_dispatch:
+    inputs:
+      language:
+        description: "Template language to scaffold"
+        required: false
+        default: "typescript"
+  schedule:
+    # Mondays 06:00 UTC — a low-noise heartbeat, does not block PRs.
+    - cron: "0 6 * * 1"
+
+jobs:
+  scaffold-and-compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@mavric"
+
+      - name: Scaffold and compile
+        run: bash scripts/scaffold-smoke.sh "${{ github.event.inputs.language || 'typescript' }}"

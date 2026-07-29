@@ -81,10 +81,37 @@ export default class Dev extends BaseCommand {
   /**
    * TypeScript: run `npm run dev` which reads DATABASE_TYPE from .env.
    * PGlite is handled natively by the NestJS app -- no sidecar needed.
+   *
+   * Prefer the `dev` script, but fall back to `start:dev` for templates that
+   * only define the latter (e.g. the v1 service template). See apsoai/cli#102.
    */
   private async runTypeScript(): Promise<void> {
-    this.log("Starting TypeScript dev server...");
-    await this.spawnAndWait("npm", ["run", "dev"]);
+    const script = this.resolveNpmScript(["dev", "start:dev"]);
+    if (!script) {
+      this.error(
+        'No "dev" or "start:dev" script found in package.json.\n' +
+          "Make sure you are in an Apso TypeScript project root."
+      );
+    }
+    this.log(`Starting TypeScript dev server (npm run ${script})...`);
+    await this.spawnAndWait("npm", ["run", script]);
+  }
+
+  /**
+   * Return the first script from `candidates` that exists in the local
+   * package.json. If package.json is missing or unparseable, fall back to the
+   * first candidate so behavior is unchanged when we cannot inspect it.
+   */
+  private resolveNpmScript(candidates: string[]): string | undefined {
+    const pkgPath = path.resolve("package.json");
+    if (!fs.existsSync(pkgPath)) return candidates[0];
+    try {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+      const scripts = (pkg.scripts || {}) as Record<string, unknown>;
+      return candidates.find((c) => typeof scripts[c] === "string");
+    } catch {
+      return candidates[0];
+    }
   }
 
   /**

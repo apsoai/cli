@@ -50,6 +50,34 @@ export function cloneTemplate(
   }
 
   shell.rm("-rf", path.join(projectPath, ".git"));
+
+  ensureEnvFile(projectPath, log);
+}
+
+/**
+ * Ensure the scaffolded project has a `.env` file.
+ *
+ * Templates ship `.env.local` (and `.env.example`) but the NestJS env loader
+ * reads `.env` by default, so a fresh scaffold would silently ignore the
+ * shipped values and run on built-in defaults (wrong port, wrong database).
+ * Copy `.env.local` (preferred) or `.env.example` to `.env` when no `.env`
+ * exists yet. See apsoai/cli#103.
+ */
+export function ensureEnvFile(
+  projectPath: string,
+  log: (msg: string) => void
+): void {
+  const envPath = path.join(projectPath, ".env");
+  if (fs.existsSync(envPath)) return;
+
+  for (const source of [".env.local", ".env.example"]) {
+    const sourcePath = path.join(projectPath, source);
+    if (fs.existsSync(sourcePath)) {
+      fs.copyFileSync(sourcePath, envPath);
+      log(`Created .env from ${source}`);
+      return;
+    }
+  }
 }
 
 /**
