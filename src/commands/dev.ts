@@ -106,7 +106,8 @@ export default class Dev extends BaseCommand {
     const pkgPath = path.resolve("package.json");
     if (!fs.existsSync(pkgPath)) return candidates[0];
     try {
-      const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+      // eslint-disable-next-line unicorn/prefer-json-parse-buffer -- JSON.parse's TS type requires a string, not a Buffer
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
       const scripts = (pkg.scripts || {}) as Record<string, unknown>;
       return candidates.find((c) => typeof scripts[c] === "string");
     } catch {

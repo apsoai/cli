@@ -14,7 +14,12 @@
           "auth_provider",
           "skip_format",
           "skip_migrate",
-          "is_email"
+          "is_email",
+          "cli_version",
+          "node_version",
+          "duration_ms",
+          "error_code",
+          "mcp_tool"
         ]
       }
     ],

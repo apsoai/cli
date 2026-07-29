@@ -75,7 +75,8 @@ export default class Use extends BaseCommand {
 
     // Show what's in the workspace so the next step is obvious.
     try {
-      const services = (await servicesApi.list(ws.id)).data;
+      const listed = await servicesApi.list(ws.id);
+      const services = listed.data;
       this.log("");
       if (services.length > 0) {
         this.log("  Services:");

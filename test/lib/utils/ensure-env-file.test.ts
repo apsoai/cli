@@ -4,7 +4,7 @@ import * as os from "os";
 import * as path from "path";
 import { ensureEnvFile } from "../../../src/lib/utils/template";
 
-const noop = (): void => {};
+const noop = (): void => { /* no-op logger for tests */ };
 
 function tmpProject(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "apso-env-test-"));

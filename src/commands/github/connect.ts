@@ -20,7 +20,10 @@ function openBrowser(url: string): Promise<void> {
   });
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const sleep = (ms: number) =>
+  new Promise((r) => {
+    setTimeout(r, ms);
+  });
 
 /**
  * `apso github connect` — walk the user through connecting their GitHub

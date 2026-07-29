@@ -124,6 +124,7 @@ export default class Link extends BaseCommand {
       service = await withUpgradeRetry(() =>
         servicesApi.create(workspace.id, { name: flags.create as string })
       );
+      // eslint-disable-next-line no-negated-condition -- clearer as a non-interactive guard in this else-if chain
     } else if (!isInteractive()) {
       this.error(
         missingFlag(

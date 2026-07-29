@@ -27,7 +27,7 @@ export default class Update extends BaseCommand {
     try {
       latest = execSync("npm view @apso/cli version", {
         encoding: "utf-8",
-        timeout: 15000,
+        timeout: 15_000,
       }).trim();
     } catch {
       this.warn("Could not reach npm to check for the latest version.");
@@ -52,7 +52,7 @@ export default class Update extends BaseCommand {
 
     // Pick the upgrade command based on how the CLI was installed.
     const installRoot = `${this.config.root || ""} ${process.execPath}`;
-    const isBrew = /(?:Cellar|homebrew|\/opt\/homebrew)/i.test(installRoot);
+    const isBrew = /cellar|homebrew|\/opt\/homebrew/i.test(installRoot);
     const cmd = isBrew
       ? "brew upgrade apsoai/tap/apso"
       : "npm install -g @apso/cli@latest";

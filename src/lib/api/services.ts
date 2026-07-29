@@ -83,9 +83,9 @@ function adaptPaginated<T>(raw: Raw, mapItem: (r: Raw) => T): PaginatedResponse<
   const items: Raw[] = Array.isArray(raw) ? raw : raw?.data ?? [];
   const total = raw?.total ?? items.length;
   const page = raw?.page ?? 1;
-  const pageSize = items.length || 1;
+  const pageSize = items.length > 0 ? items.length : 1;
   return {
-    data: items.map(mapItem),
+    data: items.map((item) => mapItem(item)),
     meta: {
       total,
       page,
@@ -116,7 +116,7 @@ export const authApi = {
    * clears stored credentials). Best-effort, never throws.
    */
   async logout(): Promise<void> {
-    return;
+    // no-op: logout clears local credentials elsewhere; best-effort, never throws.
   },
 };
 
@@ -127,7 +127,7 @@ export const workspacesApi = {
   async list(): Promise<Workspace[]> {
     const raw = await api.get<Raw>("/api/workspaces");
     const items: Raw[] = Array.isArray(raw) ? raw : raw?.data ?? [];
-    return items.map(adaptWorkspace);
+    return items.map((workspace) => adaptWorkspace(workspace));
   },
 
   async getById(id: string): Promise<Workspace> {
@@ -332,7 +332,9 @@ export const buildApi = {
       const status = await this.getStatus(serviceId);
       if (options?.onProgress) options.onProgress(status);
       if (status.status === "success" || status.status === "failed") return status;
-      await new Promise((resolve) => setTimeout(resolve, pollInterval));
+      await new Promise((resolve) => {
+        setTimeout(resolve, pollInterval);
+      });
     }
     /* eslint-enable no-await-in-loop */
     throw new Error("Build timed out");

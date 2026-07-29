@@ -56,7 +56,7 @@ function isDisabled(telemetryDisabled: boolean): boolean {
   if (process.env.APSO_TELEMETRY === "0" || process.env.APSO_TELEMETRY === "false")
     return true;
   if (process.env.APSO_TELEMETRY_DISABLED === "1") return true;
-  return !!telemetryDisabled;
+  return Boolean(telemetryDisabled);
 }
 
 /** Stable, non-PII fallback id (only used if the config write fails). */
@@ -102,7 +102,7 @@ export function initTelemetry(): void {
     noticePending = !cfg.telemetryNoticeShown;
 
     const creds = credentials.read();
-    authenticatedUser = !!creds?.user?.id;
+    authenticatedUser = Boolean(creds?.user?.id);
     distinctId = creds?.user?.id || getOrCreateInstallId(cfg.installId);
 
     posthog = new PostHog(

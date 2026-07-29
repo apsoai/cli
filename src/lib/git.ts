@@ -51,7 +51,7 @@ export function getOriginUrl(cwd: string): string | null {
 /** Parse `owner/repo` from an https or ssh GitHub remote URL. */
 export function parseRepoFullName(url: string | null): string | null {
   if (!url) return null;
-  const m = url.match(/github\.com[:/]([^/]+)\/(.+?)(?:\.git)?\/?$/i);
+  const m = url.match(/github\.com[/:]([^/]+)\/(.+?)(?:\.git)?\/?$/i);
   return m ? `${m[1]}/${m[2]}` : null;
 }
 
