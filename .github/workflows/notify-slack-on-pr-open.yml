@@ -4,6 +4,9 @@ on:
   pull_request:
     types: [opened, reopened]
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -20,4 +23,4 @@ jobs:
         PULL_REQUEST_REPO: ${{ github.event.pull_request.head.repo.name }}
         PULL_REQUEST_TITLE : ${{ github.event.pull_request.title }}
         PULL_REQUEST_URL : ${{ github.event.pull_request.html_url }}
-      uses: salesforcecli/github-workflows/.github/actions/prNotification@main
+      uses: salesforcecli/github-workflows/.github/actions/prNotification@5bb4ac8bb990c61c3e8cc9f2eb1c058a791b3884 # main @ 2026-07

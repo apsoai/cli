@@ -7,6 +7,8 @@ on:
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # bump commit, push tags, create GitHub releases
     steps:
     - uses: actions/checkout@v3
       with:
@@ -26,7 +28,7 @@ jobs:
 
     - name: Bump version and tag
       id: bump_version
-      uses: phips28/gh-action-bump-version@master
+      uses: phips28/gh-action-bump-version@fdad52b3b3bbe8fad96b8ca18c56127a96f603db # v11.0.7
       with:
         tag-prefix: 'v'  # Set this to 'v' if you want your tags like 'v1.0.0'
       env:
@@ -78,7 +80,6 @@ jobs:
     - name: Setup NPM Authentication
       run: |
         echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > ~/.npmrc
-        cat ~/.npmrc
       env:
         NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN }}
     
