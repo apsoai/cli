@@ -187,8 +187,8 @@ export class TypeScriptGenerator extends BaseGenerator {
       nestedJoinsStream
     );
     nestedJoinsStream.end();
-    await new Promise((resolve) => {
-      nestedJoinsStream.on("finish", resolve);
+    await new Promise<void>((resolve) => {
+      nestedJoinsStream.on("finish", () => resolve());
     });
 
     const svcName = `${entityName}Service`;
