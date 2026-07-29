@@ -93,7 +93,9 @@ function buildEntityClasses(
 
   for (const entityDef of entities) {
     const className = entityDef.name;
-    const tableName = snakeCase(entityDef.name);
+    // Honor an explicit per-entity `table` override so local migration tests
+    // match the generated entity's table name. See apsoai/cli#98.
+    const tableName = entityDef.table || snakeCase(entityDef.name);
 
     const EntityClass = { [className]: class {} }[className];
     typeorm.Entity(tableName)(EntityClass);

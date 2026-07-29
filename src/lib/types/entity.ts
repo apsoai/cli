@@ -31,6 +31,12 @@ export interface ScopeOptions {
 
 export interface Entity {
   name: string;
+  /**
+   * Explicit database table name. When set, it overrides the default table
+   * name derived from `name` (snake_case). Use it to avoid SQL reserved words
+   * (e.g. an entity `Order` deriving to the reserved word `order`).
+   */
+  table?: string;
   /* eslint-disable-next-line  camelcase */
   created_at?: boolean;
   /* eslint-disable-next-line  camelcase */
