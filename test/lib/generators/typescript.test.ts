@@ -448,4 +448,64 @@ describe("http controller suppression (issue #93)", () => {
     expect(moduleContent).toContain("exports: [ProductService]");
     expect(moduleContent).toContain("export class ProductModule");
   });
+
+  describe("table name override (cli#98)", () => {
+    test("honors an explicit per-entity table override", async () => {
+      const entity: Entity = {
+        name: "Order",
+        table: "order_record",
+        primaryKeyType: "uuid",
+        fields: [{ name: "total", type: "integer", nullable: false }],
+      };
+
+      const files = await generator.generateEntity({
+        entity,
+        relationships: [],
+        allEntities: [entity],
+        apiType: "rest",
+      });
+
+      const entityContent = findFileContent(files, "Order.entity");
+      expect(entityContent).toBeDefined();
+      expect(entityContent).toContain("@Entity('order_record')");
+      // must NOT fall back to the reserved-word snake_case name
+      expect(entityContent).not.toContain("@Entity('order')");
+    });
+
+    test("falls back to snake_case of the name when no override is set", async () => {
+      const entity: Entity = {
+        name: "Order",
+        primaryKeyType: "uuid",
+        fields: [{ name: "total", type: "integer", nullable: false }],
+      };
+
+      const files = await generator.generateEntity({
+        entity,
+        relationships: [],
+        allEntities: [entity],
+        apiType: "rest",
+      });
+
+      const entityContent = findFileContent(files, "Order.entity");
+      expect(entityContent).toContain("@Entity('order')");
+    });
+
+    test("compound names still snake_case correctly without an override", async () => {
+      const entity: Entity = {
+        name: "OrderItem",
+        primaryKeyType: "uuid",
+        fields: [{ name: "quantity", type: "integer", nullable: false }],
+      };
+
+      const files = await generator.generateEntity({
+        entity,
+        relationships: [],
+        allEntities: [entity],
+        apiType: "rest",
+      });
+
+      const entityContent = findFileContent(files, "OrderItem.entity");
+      expect(entityContent).toContain("@Entity('order_item')");
+    });
+  });
 });
