@@ -17,6 +17,7 @@ import {
   cloneTemplate,
   initGitRepo,
 } from "../lib/utils/template";
+import { installCoAuthorHook } from "../lib/utils/git-hooks";
 
 export default class Init extends BaseCommand {
   static description = "Create a new Apso project or clone an existing one";
@@ -187,6 +188,8 @@ export default class Init extends BaseCommand {
       linkedAt: new Date().toISOString(),
     };
     projectLink.write(link, projectPath);
+
+    this.installCoAuthorHook(projectPath);
 
     this.log(`\nProject cloned to ${projectPath}`);
     this.log(
@@ -399,10 +402,34 @@ export default class Init extends BaseCommand {
     );
   }
 
+  /**
+   * Best-effort install of the Apso commit co-author hook. Never throws, never
+   * fails the command. No `.apsorc` may exist yet at init time, so we only
+   * respect the `APSO_NO_COAUTHOR=1` env opt-out (handled inside the installer).
+   */
+  private installCoAuthorHook(projectPath: string): void {
+    try {
+      const result = installCoAuthorHook(projectPath);
+      if (result.installed) {
+        this.log("[apso] Commit co-author hook installed (.apso/hooks)");
+      } else if (result.reason === "custom-hookspath") {
+        this.log(
+          "[apso] A custom git core.hooksPath is already configured (e.g. husky), so the Apso co-author hook was not installed.\n" +
+            "[apso] To credit Apso on commits that include generated files, add this trailer to your existing prepare-commit-msg hook when the staged diff touches an `autogen/` path:\n" +
+            '[apso]   git interpret-trailers --in-place --if-exists addIfDifferent --trailer "Co-authored-by: Apso <bot@apso.ai>" "$1"'
+        );
+      }
+    } catch {
+      // Never let hook installation fail init.
+    }
+  }
+
   private async postSetup(
     projectPath: string,
     language: TargetLanguage
   ): Promise<void> {
+    this.installCoAuthorHook(projectPath);
+
     switch (language) {
       case "typescript": {
         if (shell.which("npm")) {
