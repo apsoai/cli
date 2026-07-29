@@ -305,4 +305,71 @@ describe("PythonGenerator", () => {
       expect(result.warnings.some(w => w.includes("bytea") && w.includes("not be fully supported"))).toBe(true);
     });
   });
+
+  describe("emitEvents / domain events manifest (cli#81)", () => {
+    test("entity with emitEvents:true emits a single event-emitting manifest", async () => {
+      const entity: Entity = {
+        name: "Product",
+        emitEvents: true,
+        fields: [{ name: "title", type: "text" }],
+      };
+
+      const files = await generator.generateDomainEvents([entity], "rest", {});
+
+      // Exactly one file: the schema-derived manifest.
+      expect(files).toHaveLength(1);
+      expect(files[0].path).toBe("events/event_emitting_entities.py");
+
+      const content = files[0].content;
+      // Imports the opted-in model class using the Python convention.
+      expect(content).toContain("from ..models.product import Product");
+      // Exports the manifest of classes and names.
+      expect(content).toContain("EVENT_EMITTING_ENTITIES = [");
+      expect(content).toContain("Product,");
+      expect(content).toContain("EVENT_EMITTING_ENTITY_NAMES = [");
+      expect(content).toContain('"Product",');
+
+      // No engine code is generated (engine lives in the library).
+      expect(content).not.toContain("class DomainEvent");
+      expect(content).not.toContain("before_flush");
+      expect(content).not.toContain("SessionEvents");
+    });
+
+    test("manifest lists exactly the opted-in entities (global default with opt-out)", async () => {
+      const optedOut: Entity = {
+        name: "AuditLog",
+        emitEvents: false,
+        fields: [{ name: "msg", type: "text" }],
+      };
+      const noFlag: Entity = {
+        name: "Order",
+        fields: [{ name: "total", type: "integer" }],
+      };
+
+      const files = await generator.generateDomainEvents(
+        [optedOut, noFlag],
+        "rest",
+        { emitEvents: true }
+      );
+
+      expect(files).toHaveLength(1);
+      const content = files[0].content;
+      // entity without the flag IS included (inherits global true)
+      expect(content).toContain("from ..models.order import Order");
+      expect(content).toContain("Order,");
+      expect(content).toContain('"Order",');
+      // entity that opted out is NOT included
+      expect(content).not.toContain("AuditLog");
+    });
+
+    test("no entity opted in returns []", async () => {
+      const entity: Entity = {
+        name: "Product",
+        fields: [{ name: "title", type: "text" }],
+      };
+
+      const files = await generator.generateDomainEvents([entity], "rest", {});
+      expect(files).toEqual([]);
+    });
+  });
 });

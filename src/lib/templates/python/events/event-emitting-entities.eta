@@ -1,0 +1,22 @@
+<%~ includeFile('../header.eta') %>
+<% it.emittingEntities.forEach((entity) => { %>
+from ..models.<%= entity.name.toLowerCase() %> import <%= entity.name %>
+<% }) %>
+
+# Schema-derived manifest of entities that opted in to domain-event emission
+# (`.apsorc` `emitEvents`). The domain-event engine itself (the transactional
+# SQLAlchemy session hook, mapper, relay, and delivery) is NOT generated here;
+# it ships as a versioned library wired by the `domain-events` skill. This file
+# only declares WHICH entities participate, mirroring the TypeScript manifest.
+
+EVENT_EMITTING_ENTITIES = [
+<% it.emittingEntities.forEach((entity) => { %>
+    <%= entity.name %>,
+<% }) %>
+]
+
+EVENT_EMITTING_ENTITY_NAMES = [
+<% it.emittingEntities.forEach((entity) => { %>
+    "<%= entity.name %>",
+<% }) %>
+]
