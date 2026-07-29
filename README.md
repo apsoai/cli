@@ -314,7 +314,7 @@ apso config reset                  # Reset to defaults
 | `webUrl` | string | Platform web URL |
 | `verbose` | boolean | Enable verbose output |
 | `noColor` | boolean | Disable colored output |
-| `telemetryDisabled` | boolean | Opt out of anonymous telemetry |
+| `telemetryDisabled` | boolean | Opt out of anonymous telemetry (or `apso config set telemetry off`) |
 | `defaultWorkspace` | string | Default workspace slug |
 
 Boolean values accept `true`/`false` or `1`/`0`.
@@ -327,6 +327,7 @@ Environment variables override config file values:
 | `APSO_WEB_URL` | `webUrl` |
 | `APSO_DEBUG=true` | `verbose` |
 | `NO_COLOR` or `APSO_NO_COLOR=true` | `noColor` |
+| `APSO_TELEMETRY=0` / `DO_NOT_TRACK=1` | `telemetryDisabled` |
 
 ### `apso schema`
 
@@ -347,6 +348,32 @@ These options work with any command:
 apso [command] --help       # Show command help
 apso [command] --version    # Show CLI version
 ```
+
+## Telemetry & privacy
+
+The CLI sends anonymous usage data so we can see which commands are used and
+prioritize accordingly. It is opt-out and carries no personal data.
+
+**What is collected:** command name (`generate`, `init`, `deploy`, …), CLI
+version, OS and architecture, Node version, command duration and success, and
+an anonymous install id (a random UUID stored in your CLI config — not derived
+from any machine identifier). If you are logged in, events attribute to your
+Apso account, the same as the web app.
+
+**What is never collected:** your source code, your `.apsorc` or schema
+contents, file paths, environment variable values, or any other file contents.
+
+**Opt out** any of these ways:
+
+```bash
+apso config set telemetry off     # persisted in your CLI config
+export APSO_TELEMETRY=0            # per-shell
+export DO_NOT_TRACK=1             # honors the consoledonottrack.com standard
+```
+
+On first run the CLI prints a one-time notice pointing at these opt-outs.
+See [`docs/telemetry.md`](docs/telemetry.md) for full detail. Aggregate
+public download stats (npm/PyPI) are available via `node scripts/usage-stats.mjs`.
 
 ## Supported languages
 

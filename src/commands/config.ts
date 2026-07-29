@@ -25,6 +25,18 @@ function parseBoolean(value: string): boolean | null {
   return null;
 }
 
+/**
+ * Parse the friendly `telemetry on|off` value into the underlying
+ * `telemetryDisabled` boolean. `off` (opt out) => disabled = true.
+ * Accepts on/off, enabled/disabled, and true/false/1/0.
+ */
+function parseTelemetryToggle(value: string): boolean | null {
+  const lower = value.toLowerCase();
+  if (["off", "false", "0", "disabled", "no"].includes(lower)) return true;
+  if (["on", "true", "1", "enabled", "yes"].includes(lower)) return false;
+  return null;
+}
+
 export default class Config extends BaseCommand {
   static description = "View or modify CLI configuration";
 
@@ -32,6 +44,7 @@ export default class Config extends BaseCommand {
     `$ apso config`,
     `$ apso config get apiUrl`,
     `$ apso config set verbose true`,
+    `$ apso config set telemetry off`,
     `$ apso config reset`,
   ];
 
@@ -75,6 +88,11 @@ export default class Config extends BaseCommand {
       if (!key) {
         this.error("Usage: apso config get <key>");
       }
+      // Friendly read-alias: `telemetry` reports on/off from telemetryDisabled.
+      if (key === "telemetry") {
+        this.log(globalConfig.read().telemetryDisabled ? "off" : "on");
+        return;
+      }
       if (!VALID_KEYS.includes(key as keyof GlobalConfigFile)) {
         this.error(
           `Unknown key: ${key}\nValid keys: ${VALID_KEYS.join(", ")}`
@@ -92,6 +110,18 @@ export default class Config extends BaseCommand {
       if (!key || value === undefined) {
         this.error("Usage: apso config set <key> <value>");
       }
+
+      // Friendly write-alias: `telemetry on|off` maps to telemetryDisabled.
+      if (key === "telemetry") {
+        const disabled = parseTelemetryToggle(value);
+        if (disabled === null) {
+          this.error(`Invalid telemetry value: ${value}. Use on or off.`);
+        }
+        globalConfig.set("telemetryDisabled", disabled as any);
+        this.log(`telemetry = ${disabled ? "off" : "on"}`);
+        return;
+      }
+
       if (!VALID_KEYS.includes(key as keyof GlobalConfigFile)) {
         this.error(
           `Unknown key: ${key}\nValid keys: ${VALID_KEYS.join(", ")}`

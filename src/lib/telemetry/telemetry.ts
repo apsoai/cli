@@ -3,9 +3,14 @@
  *
  * Wired to the same Apso systems the web app and build engine use so CLI usage
  * shows up in the same funnels. Fully opt-out:
- *   - `apso config set telemetryDisabled true`
- *   - env DO_NOT_TRACK=1  (honors the console.dev standard)
- *   - env APSO_TELEMETRY_DISABLED=1
+ *   - `apso config set telemetry off` (or `telemetryDisabled true`)
+ *   - env APSO_TELEMETRY=0
+ *   - env DO_NOT_TRACK=1  (honors the consoledonottrack.com standard)
+ *   - env APSO_TELEMETRY_DISABLED=1  (legacy alias)
+ *
+ * The anonymous id is a random UUID persisted in the CLI config (`installId`),
+ * never derived from any machine identifier. No code, schema, or file contents
+ * are ever collected.
  *
  * Everything here is best-effort and MUST NOT throw or block a command. All
  * public functions swallow their own errors. The PostHog project keys and the
@@ -14,7 +19,7 @@
  */
 import { PostHog } from "posthog-node";
 import * as Sentry from "@sentry/node";
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import os from "os";
 import { globalConfig, credentials } from "../config";
 
@@ -38,21 +43,42 @@ try {
 let posthog: PostHog | null = null;
 let enabled = false;
 let sentryOn = false;
+let authenticatedUser = false;
 let distinctId = "cli-anonymous";
 let environment: "production" | "staging" = "production";
 let startedAt = Date.now();
+let noticePending = false;
 
 function isDisabled(telemetryDisabled: boolean): boolean {
   if (process.env.DO_NOT_TRACK === "1" || process.env.DO_NOT_TRACK === "true")
+    return true;
+  // Canonical opt-out env var (issue #96); APSO_TELEMETRY_DISABLED is a legacy alias.
+  if (process.env.APSO_TELEMETRY === "0" || process.env.APSO_TELEMETRY === "false")
     return true;
   if (process.env.APSO_TELEMETRY_DISABLED === "1") return true;
   return !!telemetryDisabled;
 }
 
-/** Stable, non-PII fallback id for logged-out users (no username, no MAC). */
+/** Stable, non-PII fallback id (only used if the config write fails). */
 function anonMachineId(): string {
   const seed = `${os.hostname()}|${os.platform()}|${os.arch()}`;
   return "cli_" + createHash("sha256").update(seed).digest("hex").slice(0, 20);
+}
+
+/**
+ * Read (or lazily create + persist) the anonymous install id: a random UUID
+ * stored in the CLI config. Not derived from any machine identifier. Falls
+ * back to a stable hashed id only if the config can't be written.
+ */
+function getOrCreateInstallId(currentInstallId?: string): string {
+  if (currentInstallId) return currentInstallId;
+  const id = randomUUID();
+  try {
+    globalConfig.write({ installId: id });
+    return id;
+  } catch {
+    return anonMachineId();
+  }
 }
 
 /**
@@ -72,8 +98,12 @@ export function initTelemetry(): void {
       ? "staging"
       : "production";
 
+    // Show the transparency notice once, on the first enabled run.
+    noticePending = !cfg.telemetryNoticeShown;
+
     const creds = credentials.read();
-    distinctId = creds?.user?.id || anonMachineId();
+    authenticatedUser = !!creds?.user?.id;
+    distinctId = creds?.user?.id || getOrCreateInstallId(cfg.installId);
 
     posthog = new PostHog(
       environment === "staging" ? POSTHOG_KEY_STAGING : POSTHOG_KEY_PROD,
@@ -111,8 +141,35 @@ function commonProps(): Record<string, unknown> {
     os: os.platform(),
     arch: os.arch(),
     node_version: process.version,
-    authenticated: distinctId !== anonMachineId() && !distinctId.startsWith("cli_"),
+    authenticated: authenticatedUser,
   };
+}
+
+/**
+ * The one-time transparency notice text (issue #96). Printed to stderr by the
+ * init hook so it never pollutes stdout / piped output.
+ */
+export const FIRST_RUN_NOTICE =
+  "Apso collects anonymous usage data (command name, CLI version, OS) to improve the tool.\n" +
+  "No code, schema, file contents, or personal data is collected.\n" +
+  "Opt out any time: apso config set telemetry off  (or APSO_TELEMETRY=0, or DO_NOT_TRACK=1)";
+
+/**
+ * True once per install: telemetry is enabled and the notice hasn't been shown
+ * yet. The init hook prints the notice and then calls markFirstRunNoticeShown().
+ */
+export function shouldShowFirstRunNotice(): boolean {
+  return enabled && noticePending;
+}
+
+/** Persist that the transparency notice has been shown. Best-effort. */
+export function markFirstRunNoticeShown(): void {
+  noticePending = false;
+  try {
+    globalConfig.write({ telemetryNoticeShown: true });
+  } catch {
+    // ignore — worst case the notice shows again next run
+  }
 }
 
 /** Emit a PostHog event. No-op when disabled. */
@@ -161,4 +218,4 @@ export async function shutdownTelemetry(): Promise<void> {
   }
 }
 
-export const __testing = { isDisabled, anonMachineId };
+export const __testing = { isDisabled, anonMachineId, getOrCreateInstallId };
