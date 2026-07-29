@@ -1,0 +1,21 @@
+<%~ includeFile('../header.eta') %>
+package events
+
+import "app/autogen/models"
+
+// Schema-derived manifest of entities that opted in to domain-event emission
+// (.apsorc `emitEvents`). The domain-event engine itself (the transactional
+// GORM hook/callback, mapper, relay, and delivery) is NOT generated here; it
+// ships as a versioned library wired by the `domain-events` skill. This file
+// only declares WHICH entities participate, mirroring the TypeScript manifest.
+
+// EventEmittingModels are the opted-in model instances (for the engine to
+// register GORM hooks/callbacks against).
+var EventEmittingModels = []interface{}{
+<% it.emittingEntities.forEach((entity) => { %>	models.<%= entity.name %>{},
+<% }) %>}
+
+// EventEmittingEntityNames are the opted-in entity names.
+var EventEmittingEntityNames = []string{
+<% it.emittingEntities.forEach((entity) => { %>	"<%= entity.name %>",
+<% }) %>}
