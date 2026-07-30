@@ -2,8 +2,13 @@
 
 from .query import (
     parse_query_params,
+    parse_nestjsx_params,
+    parse_postgrest_params,
+    detect_dialect,
     QueryBuilder,
     QueryOptions,
+    QueryGroup,
+    QueryParseError,
     PaginatedResult,
     ParsedFilter,
     ParsedSort,
@@ -12,8 +17,13 @@ from .query import (
 
 __all__ = [
     "parse_query_params",
+    "parse_nestjsx_params",
+    "parse_postgrest_params",
+    "detect_dialect",
     "QueryBuilder",
     "QueryOptions",
+    "QueryGroup",
+    "QueryParseError",
     "PaginatedResult",
     "ParsedFilter",
     "ParsedSort",

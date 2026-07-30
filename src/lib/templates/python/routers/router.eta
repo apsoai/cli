@@ -1,7 +1,9 @@
 <%~ includeFile('../header.eta', it) %>
 
-from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from typing import List, Optional, Union
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -14,7 +16,7 @@ from ..schemas.<%= it.entityName.toLowerCase() %> import (
     <%= it.entityName %>List,
 )
 from ..services.<%= it.entityName.toLowerCase() %> import <%= it.entityName %>Service
-from ..utils.query import parse_query_params
+from ..utils.query import parse_query_params, QueryParseError
 
 router = APIRouter(
     prefix="/<%= it.pluralEntityName.toLowerCase() %>",
@@ -24,27 +26,67 @@ router = APIRouter(
 
 @router.get(
     "",
-    response_model=<%= it.entityName %>List,
     summary="Retrieve multiple <%= it.pluralEntityName %>",
+    response_model=Union[<%= it.entityName %>List, List[<%= it.entityName %>Schema]],
 )
 async def get_many(
     request: Request,
     db: AsyncSession = Depends(get_db),
-) -> <%= it.entityName %>List:
+    x_crud_dialect: Optional[str] = Header(default=None, alias="X-Crud-Dialect"),
+):
     """
-    Retrieve a paginated list of <%= it.pluralEntityName %>.
+    Retrieve <%= it.pluralEntityName %> under either query dialect.
 
-    Supports query parameters:
+    Dialect is chosen by the `X-Crud-Dialect` header (postgrest|nestjsx), else
+    inferred from the param shape (parity with the TypeScript services).
+
+    nestjsx (default) — envelope response {data,count,total,page,pageCount}:
     - filter=field||$operator||value (repeatable)
     - or=field||$operator||value (repeatable)
     - sort=field,ASC (repeatable)
     - fields=field1,field2
     - join=relation (repeatable)
     - limit=25&page=1
+
+    postgrest — bare JSON array response:
+    - select=col,alias:col,rel(cols)
+    - col=op.value filters (eq/neq/gt/gte/lt/lte/like/ilike/in/is, not.<op>)
+    - or=(...) / and=(...) logical groups
+    - order=col.asc|desc[.nullsfirst|nullslast]
+    - limit=..&offset=.. (windows the bare array)
     """
     service = <%= it.entityName %>Service(db)
-    options = parse_query_params(request.query_params)
-    result = await service.get_many(options)
+    try:
+        options = parse_query_params(request.query_params, x_crud_dialect)
+    except QueryParseError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+
+    if options.dialect == "postgrest":
+        # PostgREST always returns a bare JSON array (never the envelope), even
+        # when limit/offset are present.
+        try:
+            rows = await service.get_many_list(options)
+        except QueryParseError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            )
+        payload = [
+            r if isinstance(r, dict) else <%= it.entityName %>Schema.model_validate(r)
+            for r in rows
+        ]
+        return JSONResponse(content=jsonable_encoder(payload))
+
+    try:
+        result = await service.get_many(options)
+    except QueryParseError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
 
     return <%= it.entityName %>List(
         data=result.data,
