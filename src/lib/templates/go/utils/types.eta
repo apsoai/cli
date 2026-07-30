@@ -13,6 +13,9 @@ type ParsedFilter struct {
 type ParsedSort struct {
 	Field     string
 	Direction string // "ASC" or "DESC"
+	// Nulls is the optional PostgREST null-ordering hint: "" (default),
+	// "NULLS FIRST", or "NULLS LAST". Only populated by the PostgREST dialect.
+	Nulls string
 }
 
 // ParsedJoin represents a relation to eager-load.
@@ -20,6 +23,28 @@ type ParsedJoin struct {
 	Relation string
 	Fields   []string // nil means load all fields
 }
+
+// FilterGroup is a nested boolean combination of conditions, used by the
+// PostgREST dialect to model ?or=(...) / ?and=(...) logical combinators
+// (apso #56). Conjunction is "OR" or "AND". A branch is either a leaf
+// ParsedFilter or a nested FilterGroup; exactly one is set per branch.
+type FilterGroup struct {
+	Conjunction string // "OR" or "AND"
+	Filters     []ParsedFilter
+	Groups      []FilterGroup
+}
+
+// Dialect identifies which query-param convention a request used.
+type Dialect string
+
+const (
+	// DialectNestjsx is the incumbent nestjsx/crud dialect
+	// (fields/filter/join/sort/s/or/per_page).
+	DialectNestjsx Dialect = "nestjsx"
+	// DialectPostgrest is the PostgREST/Supabase dialect
+	// (select/order, col=op.value, or=()/and=()).
+	DialectPostgrest Dialect = "postgrest"
+)
 
 // QueryOptions holds the parsed query parameters for list endpoints.
 type QueryOptions struct {
@@ -30,6 +55,24 @@ type QueryOptions struct {
 	Joins     []ParsedJoin
 	Limit     int
 	Page      int
+
+	// Dialect is the detected request dialect. Defaults to DialectNestjsx so
+	// existing (nestjsx) requests are byte-identical.
+	Dialect Dialect
+
+	// Groups holds PostgREST ?or=()/?and=() logical combinators (apso #56).
+	// Each group is ANDed with the flat Filters. Only used by the PostgREST
+	// dialect.
+	Groups []FilterGroup
+
+	// Offset is the PostgREST ?offset= row skip. -1 means "not supplied".
+	// The nestjsx dialect derives its offset from Page instead.
+	Offset int
+
+	// Bare requests a bare JSON array response (no {data,count,...} envelope).
+	// The PostgREST dialect always returns a bare array (apso #58); nestjsx
+	// keeps its envelope.
+	Bare bool
 }
 
 // PaginatedResult is the standard paginated response envelope.
@@ -44,7 +87,9 @@ type PaginatedResult struct {
 // DefaultQueryOptions returns options with default pagination values.
 func DefaultQueryOptions() QueryOptions {
 	return QueryOptions{
-		Limit: 25,
-		Page:  1,
+		Limit:   25,
+		Page:    1,
+		Dialect: DialectNestjsx,
+		Offset:  -1,
 	}
 }

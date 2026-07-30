@@ -51,14 +51,48 @@ func (h *<%= it.entityName %>Handler) RegisterRoutes(r *gin.RouterGroup) {
 // @Param        join     query    string  false  "Join: relation or relation||field1,field2 (repeatable)"
 // @Param        limit    query    int     false  "Page size (max 200)"  default(25)
 // @Param        page     query    int     false  "Page number"          default(1)
+// @Param        select   query    string  false  "PostgREST projection: col,alias:col"
+// @Param        order    query    string  false  "PostgREST order: col.asc|desc[.nullsfirst|nullslast]"
+// @Param        offset   query    int     false  "PostgREST row offset (bare-array response)"
 // @Success      200  {object}  dto.<%= it.entityName %>PaginatedResponse
+// @Failure      400  {object}  map[string]string
 // @Failure      500  {object}  map[string]string
 // @Router       /<%= it.kebabPluralName %> [get]
+//
+// Dual-dialect: the nestjsx dialect (filter/sort/join/fields/or) returns the
+// {data,count,total,page,pageCount} envelope; the PostgREST dialect
+// (select/order/col=op.value/or=()/and=()) returns a bare JSON array. The
+// dialect is chosen by the X-Crud-Dialect header or the query-param shape.
 func (h *<%= it.entityName %>Handler) FindAll(c *gin.Context) {
-	opts := utils.ParseQueryParams(c.Request.URL.Query())
+	opts, err := utils.ParseQuery(c.Request.URL.Query(), c.GetHeader("X-Crud-Dialect"))
+	if err != nil {
+		// A malformed dialect request (bad header, ambiguous mix, bad operator)
+		// is a client error, not a 500 (apso #60).
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// PostgREST dialect => bare JSON array (no envelope) — apso #58.
+	if opts.Bare {
+		rows, err := h.service.FindAllBare(c.Request.Context(), opts)
+		if err != nil {
+			if qe, ok := utils.AsQueryError(err); ok {
+				c.JSON(http.StatusBadRequest, gin.H{"error": qe.Error()})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, rows)
+		return
+	}
 
 	result, err := h.service.FindAll(c.Request.Context(), opts)
 	if err != nil {
+		if qe, ok := utils.AsQueryError(err); ok {
+			c.JSON(http.StatusBadRequest, gin.H{"error": qe.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
