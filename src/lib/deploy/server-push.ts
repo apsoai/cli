@@ -13,12 +13,26 @@ const EXCLUDE_DIRS = new Set([
   "coverage",
 ]);
 
-/** Zip the project source into a buffer, skipping build/vcs/dependency dirs. */
+/**
+ * Never push local secrets to the repo. `.env` and `.env.*` (e.g. `.env.local`)
+ * routinely hold DB passwords and session secrets; `.env.example` is the one
+ * env file that is meant to be committed. The backend injects real production
+ * env at runtime, so these are never needed in the pushed code.
+ */
+function isSecretEnvFile(basename: string): boolean {
+  if (basename === ".env.example" || basename === ".env.sample") return false;
+  return basename === ".env" || basename.startsWith(".env.");
+}
+
+/** Zip the project source into a buffer, skipping build/vcs/dependency/secret files. */
 export function zipProject(cwd: string): Buffer {
   const zip = new AdmZip();
   zip.addLocalFolder(cwd, "", (filename: string) => {
     const parts = filename.split(path.sep);
-    return !parts.some((p) => EXCLUDE_DIRS.has(p));
+    if (parts.some((p) => EXCLUDE_DIRS.has(p))) return false;
+    const base = parts[parts.length - 1];
+    if (isSecretEnvFile(base)) return false;
+    return true;
   });
   return zip.toBuffer();
 }
@@ -48,6 +62,12 @@ export async function serverSidePush(opts: {
       `Code upload failed (${res.status}). ${await res.text().catch(() => "")}`
     );
   }
+
+  // Record the S3 metadata (bucket/key/version) on the service row. The
+  // presigned PUT lands the zip in S3 but does NOT persist where it went; the
+  // backend push reads s3_code_key from the DB, so without this it fails with
+  // "No S3 code found". Same three-step flow the browser upload uses.
+  await codeApi.finalize(opts.serviceId);
 
   await githubApi.push(opts.serviceId, opts.connectionId, {
     branch: opts.branch,

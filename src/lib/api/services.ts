@@ -465,4 +465,19 @@ export const codeApi = {
       `/api/services/${serviceId}/code/upload-url`
     );
   },
+
+  /**
+   * Record S3 metadata after the presigned PUT completes. Without this the
+   * service row's s3_code_key stays null and a server-side push fails with
+   * "No S3 code found". Mirrors the browser upload flow (upload-url -> PUT ->
+   * finalize).
+   */
+  async finalize(
+    serviceId: string
+  ): Promise<{ success: boolean; version?: string; size?: number }> {
+    return api.post<{ success: boolean; version?: string; size?: number }>(
+      `/api/services/${serviceId}/code/finalize`,
+      {}
+    );
+  },
 };

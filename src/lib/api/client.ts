@@ -362,8 +362,16 @@ export async function apiRequest<T>(
 
       // Handle server errors with retry
       if (response.status >= 500) {
+        // The BFF returns its message in `.error`; the backend uses `.message`.
+        const errObj = errorData as unknown as Record<string, unknown>;
+        const serverMsg =
+          errorData.message ||
+          (typeof errObj.error === "string"
+            ? (errObj.error as string)
+            : undefined) ||
+          "Server error";
         lastError = new ApiClientError(
-          errorData.message || "Server error",
+          serverMsg,
           response.status,
           errorData.details
         );
