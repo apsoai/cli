@@ -206,6 +206,9 @@ export class GoGenerator extends BaseGenerator {
       createPrimaryKey,
       primaryKeyType,
       snakeCasedName: snakeCase(name),
+      // Honor an explicit per-entity `table` override; otherwise derive from
+      // the entity name. See apsoai/cli#107 (Python/Go parity with #98).
+      tableName: entity.table || snakeCase(name),
       createdAt,
       updatedAt,
       pluralizedName: camelCase(pluralize(name)),
