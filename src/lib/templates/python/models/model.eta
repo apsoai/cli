@@ -25,10 +25,10 @@ if TYPE_CHECKING:
 
 <% /* Generate ManyToMany junction tables */ %>
 <% it.associations.filter(a => a.type === 'ManyToMany' && a.joinTable).forEach((assoc) => { %>
-<%= assoc.joinTableName || `${it.snakeCasedName}_${assoc.name.toLowerCase()}` %> = Table(
-    "<%= assoc.joinTableName || `${it.snakeCasedName}_${assoc.name.toLowerCase()}` %>",
+<%= assoc.joinTableName || `${it.tableName}_${assoc.name.toLowerCase()}` %> = Table(
+    "<%= assoc.joinTableName || `${it.tableName}_${assoc.name.toLowerCase()}` %>",
     Base.metadata,
-    Column("<%= assoc.joinColumnName || `${it.snakeCasedName}_id` %>", <% if (it.primaryKeyType === 'uuid') { %>PGUUID(as_uuid=True)<% } else { %>Integer<% } %>, ForeignKey("<%= it.snakeCasedName %>.id"), primary_key=True),
+    Column("<%= assoc.joinColumnName || `${it.tableName}_id` %>", <% if (it.primaryKeyType === 'uuid') { %>PGUUID(as_uuid=True)<% } else { %>Integer<% } %>, ForeignKey("<%= it.tableName %>.id"), primary_key=True),
     Column("<%= assoc.inverseJoinColumnName || `${assoc.name.toLowerCase()}_id` %>", <% if (assoc.referencedEntityPrimaryKeyType === 'uuid') { %>PGUUID(as_uuid=True)<% } else { %>Integer<% } %>, ForeignKey("<%= assoc.name.toLowerCase() %>.id"), primary_key=True),
 )
 <% }) %>
@@ -37,13 +37,13 @@ class <%= it.name %>(Base):
     """
     SQLAlchemy model for <%= it.name %>
     """
-    __tablename__ = "<%= it.snakeCasedName %>"
+    __tablename__ = "<%= it.tableName %>"
 
 <% /* Generate table arguments for indexes and unique constraints */ %>
 <% if ((it.indexes && it.indexes.length > 0) || (it.uniques && it.uniques.length > 0)) { %>
     __table_args__ = (
 <% it.indexes.forEach((index) => { %>
-        Index("<%= index.name || `idx_${it.snakeCasedName}_${index.fields.join('_')}` %>", <%~ index.fields.map(f => `"${f}"`).join(', ') %><% if (index.unique) { %>, unique=True<% } %>),
+        Index("<%= index.name || `idx_${it.tableName}_${index.fields.join('_')}` %>", <%~ index.fields.map(f => `"${f}"`).join(', ') %><% if (index.unique) { %>, unique=True<% } %>),
 <% }) %>
 <% it.uniques.forEach((unique) => { %>
         UniqueConstraint(<%~ unique.fields.map(f => `"${f}"`).join(', ') %><% if (unique.name) { %>, name="<%= unique.name %>"<% } %>),
@@ -105,7 +105,7 @@ columnsToProcess.forEach((field) => { -%>
 <% } else if (assoc.type === 'ManyToMany') { %>
     <%= assoc.pluralizedRelationshipName %>: Mapped[List["<%= assoc.name %>"]] = relationship(
         "<%= assoc.name %>",
-        secondary=<%= assoc.joinTableName || `${it.snakeCasedName}_${assoc.name.toLowerCase()}` %>,
+        secondary=<%= assoc.joinTableName || `${it.tableName}_${assoc.name.toLowerCase()}` %>,
         <% if (assoc.biDirectional) { %>back_populates="<%= assoc.inverseSidePropertyName %>",<% } %>
         lazy="selectin"
     )

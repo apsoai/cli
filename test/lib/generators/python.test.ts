@@ -73,6 +73,46 @@ describe("PythonGenerator", () => {
     });
   });
 
+  describe("table name override (cli#107)", () => {
+    test("honors an explicit per-entity table override", async () => {
+      const entity: Entity = {
+        name: "Order",
+        table: "order_record",
+        fields: [{ name: "total", type: "integer", nullable: false }],
+      };
+
+      const files = await generator.generateEntity({
+        entity,
+        relationships: [],
+        allEntities: [entity],
+        apiType: "rest",
+      });
+
+      const modelContent = findFileContent(files, "order.py");
+      expect(modelContent).toBeDefined();
+      expect(modelContent).toContain('__tablename__ = "order_record"');
+      // must NOT fall back to the reserved-word snake_case name
+      expect(modelContent).not.toContain('__tablename__ = "order"');
+    });
+
+    test("falls back to snake_case of the name when no override is set", async () => {
+      const entity: Entity = {
+        name: "Order",
+        fields: [{ name: "total", type: "integer", nullable: false }],
+      };
+
+      const files = await generator.generateEntity({
+        entity,
+        relationships: [],
+        allEntities: [entity],
+        apiType: "rest",
+      });
+
+      const modelContent = findFileContent(files, "order.py");
+      expect(modelContent).toContain('__tablename__ = "order"');
+    });
+  });
+
   describe("default value handling", () => {
     test("string defaults render without HTML encoding", async () => {
       const entity: Entity = {
