@@ -6,7 +6,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Type, TypeVar
 
-from sqlalchemy import Boolean, Date, DateTime, Float, Integer, Numeric, asc, desc, func, or_
+from sqlalchemy import Boolean, Date, DateTime, Float, Integer, Numeric, and_, asc, desc, func, not_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql import Select, select
@@ -16,6 +16,15 @@ T = TypeVar("T")
 MAX_LIMIT = 200
 DEFAULT_LIMIT = 25
 DEFAULT_PAGE = 1
+
+
+class QueryParseError(Exception):
+    """Raised when a query cannot be parsed.
+
+    The generated router maps this to an HTTP 400 (Bad Request), mirroring the
+    PostgREST/@apso/crud contract where a malformed query or an unknown filter
+    column is a client error, not a 500 (apsoai #60).
+    """
 
 
 # ---------------------------------------------------------------------------
@@ -33,12 +42,25 @@ class ParsedFilter:
 class ParsedSort:
     field: str
     direction: str  # "ASC" or "DESC"
+    nulls: Optional[str] = None  # "NULLS FIRST" | "NULLS LAST" | None
 
 
 @dataclass
 class ParsedJoin:
     relation: str
     fields: Optional[List[str]] = None
+
+
+@dataclass
+class QueryGroup:
+    """A logical group of conditions/nested groups (PostgREST or=()/and=())."""
+
+    operator: str  # "$or" or "$and"
+    conditions: List["QueryNode"] = field(default_factory=list)
+
+
+# A node in the search tree is either a leaf filter or a nested group.
+QueryNode = Any  # ParsedFilter | QueryGroup
 
 
 @dataclass
@@ -50,6 +72,17 @@ class QueryOptions:
     joins: List[ParsedJoin] = field(default_factory=list)
     limit: int = DEFAULT_LIMIT
     page: int = DEFAULT_PAGE
+    # PostgREST additions. `dialect` selects the response shape and pagination
+    # semantics; nestjsx is the incumbent default and is byte-identical to
+    # before this field existed.
+    dialect: str = "nestjsx"  # "nestjsx" | "postgrest"
+    offset: Optional[int] = None
+    groups: List[QueryGroup] = field(default_factory=list)
+    field_aliases: Dict[str, str] = field(default_factory=dict)
+    # True when the raw query asked for pagination windowing (limit/offset).
+    # Used by the postgrest path to window the bare array.
+    limit_present: bool = False
+    offset_present: bool = False
 
 
 @dataclass
@@ -112,6 +145,8 @@ def _apply_operator(model: Any, field_name: str, op: str, value: str) -> Any:
         "$ends": lambda: col.like(f"%{value}"),
         "$cont": lambda: col.like(f"%{value}%"),
         "$excl": lambda: ~col.like(f"%{value}%"),
+        "$like": lambda: col.like(value),
+        "$ilike": lambda: col.ilike(value),
         "$in": lambda: col.in_(_coerce_list(col, _split_value(value))),
         "$notin": lambda: ~col.in_(_coerce_list(col, _split_value(value))),
         "$isnull": lambda: col.is_(None),
@@ -139,7 +174,7 @@ def _split_value(value: str) -> List[str]:
 
 
 # ---------------------------------------------------------------------------
-# Parser
+# nestjsx parser (incumbent — unchanged behavior)
 # ---------------------------------------------------------------------------
 
 def _parse_filter_param(raw: str) -> Optional[ParsedFilter]:
@@ -175,12 +210,12 @@ def _parse_join_param(raw: str) -> ParsedJoin:
     return ParsedJoin(relation=relation, fields=fields)
 
 
-def parse_query_params(params: Any) -> QueryOptions:
+def parse_nestjsx_params(params: Any) -> QueryOptions:
     """
-    Parse Starlette/FastAPI QueryParams into QueryOptions.
+    Parse Starlette/FastAPI QueryParams into QueryOptions (nestjsx dialect).
     Supports repeated keys via getlist().
     """
-    opts = QueryOptions()
+    opts = QueryOptions(dialect="nestjsx")
 
     # Filters
     for raw in params.getlist("filter"):
@@ -228,6 +263,438 @@ def parse_query_params(params: Any) -> QueryOptions:
 
 
 # ---------------------------------------------------------------------------
+# Dialect detection (mirrors @apso/crud dialect.ts)
+# ---------------------------------------------------------------------------
+
+# Query keys that only the nestjsx dialect uses.
+_NESTJSX_KEYS = frozenset(["fields", "filter", "or", "join", "sort", "s", "per_page"])
+
+# Query keys that only the PostgREST dialect uses.
+_POSTGREST_KEYS = frozenset(["select", "order"])
+
+# Keys shared by both dialects — never a signal either way.
+_NEUTRAL_KEYS = frozenset(["limit", "offset", "page", "cache"])
+
+# Keys the PostgREST parser reserves (not column filters).
+_POSTGREST_RESERVED = frozenset(["select", "order", "limit", "offset", "and", "or"])
+
+# PostgREST operator prefixes. The detector only needs to recognize the SHAPE
+# (`op.` / `not.op.`); unknown operators are rejected by the parser (400).
+_POSTGREST_OPS = frozenset([
+    "eq", "neq", "gt", "gte", "lt", "lte", "like", "ilike", "match", "imatch",
+    "in", "is", "isdistinct", "fts", "plfts", "phfts", "wfts", "cs", "cd",
+    "ov", "sl", "sr", "nxr", "nxl", "adj",
+])
+
+
+def _looks_like_postgrest_value(val: str) -> bool:
+    """True when a bare param value is a PostgREST `op.value` / `not.op.value`."""
+    if not isinstance(val, str):
+        return False
+    head = val
+    if head.startswith("not."):
+        head = head[4:]
+    dot = head.find(".")
+    if dot == -1:
+        return False
+    return head[:dot].lower() in _POSTGREST_OPS
+
+
+def detect_dialect(query_keys_and_values: Any, dialect_header: Optional[str]) -> str:
+    """
+    Decide which dialect parses this request.
+
+    Precedence (matches @apso/crud dialect.ts):
+      1. X-Crud-Dialect header (postgrest|nestjsx) always wins; any other
+         value is a 400.
+      2. Param-shape: nestjsx-only keys vs PostgREST-only keys / bare
+         col=op.value; neutral keys (limit/offset/page/cache) signal neither.
+      3. Both families present => 400 (refuse to guess).
+      4. Only PostgREST signals => postgrest.
+      5. Otherwise (nestjsx signals, neutral-only, or empty) => nestjsx.
+
+    `query_keys_and_values` is any Starlette QueryParams-like object exposing
+    .keys() and .get()/getlist().
+    """
+    # 1. Explicit header override.
+    if dialect_header is not None and str(dialect_header).strip() != "":
+        h = str(dialect_header).strip().lower()
+        if h in ("postgrest", "nestjsx"):
+            return h
+        raise QueryParseError(
+            f"Invalid X-Crud-Dialect header '{dialect_header}' "
+            "(expected 'postgrest' or 'nestjsx')."
+        )
+
+    # 2. Param-shape signals.
+    nestjsx = False
+    postgrest = False
+    for key in _iter_keys(query_keys_and_values):
+        if key in _NESTJSX_KEYS:
+            nestjsx = True
+        elif key in _POSTGREST_KEYS:
+            postgrest = True
+        elif key in _NEUTRAL_KEYS:
+            continue
+        else:
+            val = _first_value(query_keys_and_values, key)
+            if _looks_like_postgrest_value(val):
+                postgrest = True
+
+    # 3. Genuine collision — refuse to guess.
+    if nestjsx and postgrest:
+        raise QueryParseError(
+            "Ambiguous query: it mixes nestjsx params (fields/filter/join/sort/s/or) "
+            "with PostgREST params (select/order or col=op.value). Send a single "
+            "dialect, or set the 'X-Crud-Dialect' header to force one."
+        )
+
+    # 4/5. One family, or neutral-only/empty (default to nestjsx).
+    return "postgrest" if postgrest else "nestjsx"
+
+
+def _iter_keys(params: Any) -> List[str]:
+    try:
+        return list(dict.fromkeys(params.keys()))
+    except AttributeError:
+        return list(params or [])
+
+
+def _first_value(params: Any, key: str) -> Any:
+    getter = getattr(params, "get", None)
+    if callable(getter):
+        return params.get(key)
+    try:
+        return params[key]
+    except (KeyError, TypeError):
+        return None
+
+
+# ---------------------------------------------------------------------------
+# PostgREST parser (mirrors @apso/postgrest-request postgrest-parser.ts)
+# ---------------------------------------------------------------------------
+
+# PostgREST operator -> @apso/SQLAlchemy operator. Core set only; cs/cd/ov/fts
+# are deferred (apsoai #54) and rejected clearly.
+_PG_OP_MAP: Dict[str, str] = {
+    "eq": "$eq",
+    "neq": "$ne",
+    "gt": "$gt",
+    "gte": "$gte",
+    "lt": "$lt",
+    "lte": "$lte",
+    "like": "$like",
+    "ilike": "$ilike",
+    "in": "$in",
+}
+
+# not.<op> -> the negated operator, where a direct negation exists.
+_PG_NOT_MAP: Dict[str, str] = {
+    "eq": "$ne",
+    "neq": "$eq",
+    "in": "$notin",
+    "like": "$excl",
+    "ilike": "$exclL",
+}
+
+# Operators recognized by PostgREST but deliberately deferred here.
+_PG_DEFERRED_OPS = frozenset([
+    "cs", "cd", "ov", "fts", "plfts", "phfts", "wfts", "match", "imatch",
+    "isdistinct", "sl", "sr", "nxr", "nxl", "adj",
+])
+
+
+def _split_top_level(s: str) -> List[str]:
+    """Split on commas that are NOT inside parentheses (nested embeds/groups)."""
+    out: List[str] = []
+    depth = 0
+    cur = ""
+    for ch in s:
+        if ch == "(":
+            depth += 1
+            cur += ch
+        elif ch == ")":
+            depth -= 1
+            cur += ch
+        elif ch == "," and depth == 0:
+            out.append(cur)
+            cur = ""
+        else:
+            cur += ch
+    if cur.strip() != "":
+        out.append(cur)
+    return out
+
+
+def _parse_pg_select(select_raw: Optional[str], opts: QueryOptions) -> None:
+    """
+    ?select=col1,alias:col2,rel(col,...)
+
+    Plain columns become opts.fields; `alias:col` records an output-key rename
+    (#57); embeds `rel(...)` become ParsedJoin eager loads. `col::type` casts
+    and `!inner`/`!left` join-type hints are stripped (the allowlist governs
+    access). `*` selects everything (no explicit field list).
+    """
+    if not isinstance(select_raw, str) or select_raw.strip() == "":
+        return
+    fields: List[str] = []
+    for raw in _split_top_level(select_raw):
+        tok = raw.strip()
+        if tok == "":
+            continue
+        open_i = tok.find("(")
+        if open_i == -1:
+            no_cast = tok.split("::")[0]
+            parts = no_cast.split(":")
+            col = parts[-1].strip()
+            if col in ("*", ""):
+                continue
+            fields.append(col)
+            if len(parts) > 1:
+                alias = parts[0].strip()
+                if alias and alias != col:
+                    opts.field_aliases[col] = alias
+        else:
+            head = tok[:open_i]
+            rel_part = head.split(":")[-1] if ":" in head else head
+            rel = rel_part.split("!")[0].strip()
+            if not rel:
+                raise QueryParseError(f"Invalid embed in select: {tok}")
+            # Embedded resources map to eager-loaded relations (selectinload).
+            # Embedded column projection / embedded filters are deferred; the
+            # embed simply loads the full relation, matching a nestjsx join
+            # with no column list.
+            opts.joins.append(ParsedJoin(relation=rel, fields=None))
+    if fields:
+        opts.fields = fields
+
+
+def _parse_pg_order(order_raw: Optional[str], opts: QueryOptions) -> None:
+    """?order=col.asc|desc[.nullsfirst|nullslast],col2..."""
+    if order_raw is None:
+        return
+    for raw in _split_top_level(str(order_raw)):
+        t = raw.strip()
+        if not t:
+            continue
+        if "(" in t:
+            raise QueryParseError(
+                f"Embedded order '{t}' is not supported (embeds are deferred)."
+            )
+        parts = t.split(".")
+        field_name = parts[0]
+        if not field_name:
+            continue
+        direction = "ASC"
+        nulls: Optional[str] = None
+        for mod in parts[1:]:
+            m = mod.lower()
+            if m == "asc":
+                direction = "ASC"
+            elif m == "desc":
+                direction = "DESC"
+            elif m == "nullsfirst":
+                nulls = "NULLS FIRST"
+            elif m == "nullslast":
+                nulls = "NULLS LAST"
+            else:
+                raise QueryParseError(f"Invalid order modifier: {mod}")
+        opts.sorts.append(ParsedSort(field=field_name, direction=direction, nulls=nulls))
+
+
+def _parse_in_list(rest: str) -> str:
+    """Normalize `in.(1,2,3)` / `in.("a,b",c)` to a comma-joined value string
+    consumed by the shared $in operator (which re-splits on comma)."""
+    inner = rest.strip()
+    if inner.startswith("(") and inner.endswith(")"):
+        inner = inner[1:-1]
+    if inner == "":
+        return ""
+    out: List[str] = []
+    cur = ""
+    quoted = False
+    for ch in inner:
+        if ch == '"':
+            quoted = not quoted
+            continue
+        if ch == "," and not quoted:
+            out.append(cur.strip())
+            cur = ""
+            continue
+        cur += ch
+    out.append(cur.strip())
+    return ",".join(out)
+
+
+def _parse_pg_condition(field_name: str, spec: str) -> ParsedFilter:
+    """Parse `op.value` (or `not.op.value`) for a column into a ParsedFilter."""
+    dot = spec.find(".")
+    if dot == -1:
+        raise QueryParseError(
+            f"Invalid filter for '{field_name}': expected op.value"
+        )
+    op = spec[:dot]
+    rest = spec[dot + 1:]
+    negated = False
+
+    if op == "not":
+        negated = True
+        dot2 = rest.find(".")
+        if dot2 == -1:
+            raise QueryParseError(f"Invalid 'not' filter for '{field_name}'")
+        op = rest[:dot2]
+        rest = rest[dot2 + 1:]
+
+    if op in _PG_DEFERRED_OPS:
+        raise QueryParseError(
+            f"PostgREST operator '{op}' is not supported yet "
+            f"(deferred: cs/cd/ov/fts and range operators)."
+        )
+
+    # is.null / is.true / is.false (is.unknown => null)
+    if op == "is":
+        lit = rest.lower()
+        if lit in ("null", "unknown"):
+            return ParsedFilter(
+                field=field_name,
+                operator="$notnull" if negated else "$isnull",
+                value="",
+            )
+        if lit in ("true", "false"):
+            return ParsedFilter(
+                field=field_name,
+                operator="$ne" if negated else "$eq",
+                value="true" if lit == "true" else "false",
+            )
+        raise QueryParseError(f"Invalid 'is' value for '{field_name}': {rest}")
+
+    if op == "in":
+        return ParsedFilter(
+            field=field_name,
+            operator="$notin" if negated else "$in",
+            value=_parse_in_list(rest),
+        )
+
+    if op in ("like", "ilike"):
+        # PostgREST uses * as the % wildcard.
+        pattern = rest.replace("*", "%")
+        operator = _PG_NOT_MAP[op] if negated else _PG_OP_MAP[op]
+        return ParsedFilter(field=field_name, operator=operator, value=pattern)
+
+    mapped = _PG_NOT_MAP.get(op) if negated else _PG_OP_MAP.get(op)
+    if not mapped:
+        raise QueryParseError(
+            f"Unsupported PostgREST operator '{op}' for '{field_name}'"
+        )
+    return ParsedFilter(field=field_name, operator=mapped, value=rest)
+
+
+def _parse_pg_logical(raw: str, operator: str) -> QueryGroup:
+    """?or=(c1,c2) / ?and=(c1,c2), with nested or(...)/and(...) groups (#56)."""
+    label = "or" if operator == "$or" else "and"
+    trimmed = raw.strip()
+    if not (trimmed.startswith("(") and trimmed.endswith(")")):
+        raise QueryParseError(
+            f"Invalid {label}= group: expected {label}=(cond,cond,...)"
+        )
+    parts = [p.strip() for p in _split_top_level(trimmed[1:-1]) if p.strip()]
+    if not parts:
+        raise QueryParseError(f"Empty {label}= group")
+    conditions: List[QueryNode] = []
+    for part in parts:
+        if part.startswith("or("):
+            conditions.append(_parse_pg_logical(part[2:], "$or"))
+        elif part.startswith("and("):
+            conditions.append(_parse_pg_logical(part[3:], "$and"))
+        else:
+            dot = part.find(".")
+            if dot == -1:
+                raise QueryParseError(
+                    f"Invalid condition in {label}= group: {part}"
+                )
+            conditions.append(
+                _parse_pg_condition(part[:dot], part[dot + 1:])
+            )
+    return QueryGroup(operator=operator, conditions=conditions)
+
+
+def parse_postgrest_params(params: Any) -> QueryOptions:
+    """Parse Starlette/FastAPI QueryParams into QueryOptions (PostgREST dialect)."""
+    opts = QueryOptions(dialect="postgrest")
+
+    _parse_pg_select(_first_value(params, "select"), opts)
+    _parse_pg_order(_first_value(params, "order"), opts)
+
+    # or=()/and=() logical groups (ANDed with the column filters).
+    or_raw = _first_value(params, "or")
+    if or_raw is not None:
+        opts.groups.append(_parse_pg_logical(str(or_raw), "$or"))
+    and_raw = _first_value(params, "and")
+    if and_raw is not None:
+        opts.groups.append(_parse_pg_logical(str(and_raw), "$and"))
+
+    # Every non-reserved key is a column filter: ?column=op.value
+    for key in _iter_keys(params):
+        if key in _POSTGREST_RESERVED:
+            continue
+        for v in _values_for_key(params, key):
+            # Embedded filters (`rel.col=op.value`) are deferred: the Python
+            # join path uses selectinload (separate SELECT) and cannot push a
+            # predicate into a JOIN ON clause. Reject dotted filter columns
+            # rather than silently ignoring them.
+            if "." in key:
+                raise QueryParseError(
+                    f"Embedded filter '{key}' is not supported yet "
+                    "(embedded resource filtering is deferred)."
+                )
+            opts.filters.append(_parse_pg_condition(key, str(v)))
+
+    # Pagination: limit / offset. PostgREST has no `page`.
+    limit_raw = _first_value(params, "limit")
+    if limit_raw is not None:
+        try:
+            opts.limit = min(int(limit_raw), MAX_LIMIT)
+            opts.limit_present = True
+        except (ValueError, TypeError):
+            raise QueryParseError("Invalid limit")
+    offset_raw = _first_value(params, "offset")
+    if offset_raw is not None:
+        try:
+            opts.offset = int(offset_raw)
+            opts.offset_present = True
+        except (ValueError, TypeError):
+            raise QueryParseError("Invalid offset")
+
+    return opts
+
+
+def _values_for_key(params: Any, key: str) -> List[Any]:
+    getlist = getattr(params, "getlist", None)
+    if callable(getlist):
+        return list(params.getlist(key))
+    val = _first_value(params, key)
+    return [] if val is None else [val]
+
+
+# ---------------------------------------------------------------------------
+# Unified entrypoint
+# ---------------------------------------------------------------------------
+
+def parse_query_params(params: Any, dialect_header: Optional[str] = None) -> QueryOptions:
+    """
+    Parse query params under the detected dialect.
+
+    Back-compatible: called with just `params` (no header) and a nestjsx-shaped
+    query, it behaves exactly as before. Pass the `X-Crud-Dialect` header to
+    force a dialect; otherwise the dialect is detected from the param shape.
+    """
+    dialect = detect_dialect(params, dialect_header)
+    if dialect == "postgrest":
+        return parse_postgrest_params(params)
+    return parse_nestjsx_params(params)
+
+
+# ---------------------------------------------------------------------------
 # Query builder
 # ---------------------------------------------------------------------------
 
@@ -238,83 +705,121 @@ class QueryBuilder:
         self.model = model
         self.db = db
 
-    async def get_many(self, options: QueryOptions) -> PaginatedResult:
-        query = select(self.model)
+    # -- shared predicate builders ----------------------------------------
 
-        # AND filters
+    def _filter_expr(self, f: ParsedFilter) -> Any:
+        col = getattr(self.model, f.field, None)
+        if col is None and self._is_postgrest_unknown(f.field):
+            # PostgREST answers an unknown column with a 400, not a silent drop
+            # (apsoai #60). nestjsx keeps its historical drop-on-unknown.
+            raise QueryParseError(f"Unknown column '{f.field}' in query")
+        return _apply_operator(self.model, f.field, f.operator, f.value)
+
+    # Set per get_many call so _filter_expr can decide drop-vs-400.
+    _postgrest_mode = False
+
+    def _is_postgrest_unknown(self, field_name: str) -> bool:
+        return self._postgrest_mode and getattr(self.model, field_name, None) is None
+
+    def _group_expr(self, group: QueryGroup) -> Any:
+        exprs = []
+        for node in group.conditions:
+            if isinstance(node, QueryGroup):
+                sub = self._group_expr(node)
+            else:
+                sub = self._filter_expr(node)
+            if sub is not None:
+                exprs.append(sub)
+        if not exprs:
+            return None
+        return or_(*exprs) if group.operator == "$or" else and_(*exprs)
+
+    def _where_clauses(self, options: QueryOptions) -> List[Any]:
+        clauses: List[Any] = []
         for f in options.filters:
-            expr = _apply_operator(self.model, f.field, f.operator, f.value)
+            expr = self._filter_expr(f)
             if expr is not None:
-                query = query.where(expr)
-
-        # OR filters
+                clauses.append(expr)
         if options.or_filters:
-            or_exprs = []
-            for f in options.or_filters:
-                expr = _apply_operator(self.model, f.field, f.operator, f.value)
-                if expr is not None:
-                    or_exprs.append(expr)
+            or_exprs = [
+                e for e in (self._filter_expr(f) for f in options.or_filters)
+                if e is not None
+            ]
             if or_exprs:
-                query = query.where(or_(*or_exprs))
+                clauses.append(or_(*or_exprs))
+        for group in options.groups:
+            expr = self._group_expr(group)
+            if expr is not None:
+                clauses.append(expr)
+        return clauses
 
-        # Field selection
+    def _apply_sorts(self, query: Select, options: QueryOptions) -> Select:
+        applied = False
+        for s in options.sorts:
+            col = getattr(self.model, s.field, None)
+            if col is None:
+                if self._postgrest_mode:
+                    raise QueryParseError(f"Unknown column '{s.field}' in query")
+                continue
+            order_col = desc(col) if s.direction == "DESC" else asc(col)
+            if s.nulls == "NULLS FIRST":
+                order_col = order_col.nulls_first()
+            elif s.nulls == "NULLS LAST":
+                order_col = order_col.nulls_last()
+            query = query.order_by(order_col)
+            applied = True
+        if not applied:
+            query = query.order_by(self.model.id)
+        return query
+
+    def _base_query(self, options: QueryOptions) -> Select:
+        # Field selection replaces the column list; otherwise select the model.
         if options.fields:
             cols = []
             for name in options.fields:
                 col = getattr(self.model, name, None)
+                if col is None and self._postgrest_mode:
+                    raise QueryParseError(f"Unknown column '{name}' in query")
                 if col is not None:
                     cols.append(col)
             if cols:
-                query = select(*cols).select_from(self.model)
-                # Re-apply filters on the column-select query
-                for f in options.filters:
-                    expr = _apply_operator(self.model, f.field, f.operator, f.value)
-                    if expr is not None:
-                        query = query.where(expr)
-                if options.or_filters:
-                    or_exprs_2 = []
-                    for f in options.or_filters:
-                        expr = _apply_operator(self.model, f.field, f.operator, f.value)
-                        if expr is not None:
-                            or_exprs_2.append(expr)
-                    if or_exprs_2:
-                        query = query.where(or_(*or_exprs_2))
+                query: Select = select(*cols).select_from(self.model)
+            else:
+                query = select(self.model)
+        else:
+            query = select(self.model)
 
-        # Sorting
-        for s in options.sorts:
-            col = getattr(self.model, s.field, None)
-            if col is not None:
-                query = query.order_by(
-                    desc(col) if s.direction == "DESC" else asc(col)
-                )
-        if not options.sorts:
-            query = query.order_by(self.model.id)
+        for clause in self._where_clauses(options):
+            query = query.where(clause)
 
-        # Joins (eager loading)
+        query = self._apply_sorts(query, options)
+
         for j in options.joins:
             rel = getattr(self.model, j.relation, None)
             if rel is not None:
                 query = query.options(selectinload(rel))
+        return query
 
-        # Count (before pagination)
-        count_query = select(func.count()).select_from(self.model)
-        for f in options.filters:
-            expr = _apply_operator(self.model, f.field, f.operator, f.value)
-            if expr is not None:
-                count_query = count_query.where(expr)
-        if options.or_filters:
-            or_exprs_count = []
-            for f in options.or_filters:
-                expr = _apply_operator(self.model, f.field, f.operator, f.value)
-                if expr is not None:
-                    or_exprs_count.append(expr)
-            if or_exprs_count:
-                count_query = count_query.where(or_(*or_exprs_count))
+    def _count_query(self, options: QueryOptions) -> Select:
+        count_query: Select = select(func.count()).select_from(self.model)
+        for clause in self._where_clauses(options):
+            count_query = count_query.where(clause)
+        return count_query
 
+    # -- public API --------------------------------------------------------
+
+    async def get_many(self, options: QueryOptions) -> PaginatedResult:
+        """
+        nestjsx dialect: paginated {data,count,total,page,pageCount} envelope.
+        Unchanged from the pre-dialect behavior.
+        """
+        self._postgrest_mode = False
+        query = self._base_query(options)
+
+        count_query = self._count_query(options)
         total_result = await self.db.execute(count_query)
         total = total_result.scalar() or 0
 
-        # Pagination
         offset = (options.page - 1) * options.limit
         query = query.offset(offset).limit(options.limit)
 
@@ -330,6 +835,54 @@ class QueryBuilder:
             page=options.page,
             page_count=page_count,
         )
+
+    async def get_many_list(self, options: QueryOptions) -> List[Any]:
+        """
+        PostgREST dialect: return a BARE JSON array (no envelope), even when
+        limit/offset are present — limit/offset just window the array (#58).
+        An unknown filter/select/order column raises QueryParseError -> 400
+        (#60), instead of a silent drop or a 500.
+        """
+        self._postgrest_mode = True
+        try:
+            query = self._base_query(options)
+
+            if options.offset is not None:
+                query = query.offset(options.offset)
+            if options.limit_present:
+                query = query.limit(options.limit)
+
+            result = await self.db.execute(query)
+            items = list(result.scalars().all())
+            return self._apply_field_aliases(items, options)
+        finally:
+            self._postgrest_mode = False
+
+    def _apply_field_aliases(self, items: List[Any], options: QueryOptions) -> List[Any]:
+        """
+        PostgREST `select=alias:column` renames the OUTPUT key (#57). When a
+        column projection is in play, rows come back as SQLAlchemy Row objects;
+        map them to dicts with renamed keys. Without aliases, rows pass through
+        unchanged (the router serializes ORM instances as usual).
+        """
+        aliases = options.field_aliases
+        if not aliases:
+            return items
+        out: List[Any] = []
+        for row in items:
+            mapping = getattr(row, "_mapping", None)
+            if mapping is not None:
+                out.append({aliases.get(k, k): v for k, v in mapping.items()})
+            elif isinstance(row, dict):
+                out.append({aliases.get(k, k): v for k, v in row.items()})
+            else:
+                # ORM instance: rename attributes onto a plain dict.
+                renamed: Dict[str, Any] = {}
+                for col, alias in aliases.items():
+                    if hasattr(row, col):
+                        renamed[alias] = getattr(row, col)
+                out.append(renamed if renamed else row)
+        return out
 
     async def get_one(
         self,
