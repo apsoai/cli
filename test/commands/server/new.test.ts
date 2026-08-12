@@ -1,5 +1,6 @@
 import { expect } from "@jest/globals";
 import * as path from "path";
+import { TEMPLATE_REFS } from "../../../src/lib/utils/template";
 
 // Test the PROJECT_NAME_PATTERN regex and validation logic
 const PROJECT_NAME_PATTERN = /^[A-Za-z][\w-]*$/;
@@ -141,9 +142,6 @@ describe("server new command", () => {
   });
 
   describe("TEMPLATE_REFS pinning", () => {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { TEMPLATE_REFS } = require("../../../src/lib/utils/template");
-
     test("pins the TypeScript template to the dual-dialect tag", () => {
       expect(TEMPLATE_REFS.typescript).toBe("v2.0.0");
     });
