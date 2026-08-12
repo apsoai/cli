@@ -1,7 +1,7 @@
 <%~ includeFile('./header.eta') %>
 
 import { Controller, Body } from "@nestjs/common";
-import { Crud, CrudController, Override, ParsedRequest, CrudRequest, ParsedBody, CreateManyDto } from '@nestjsx/crud';
+import { Crud, CrudController, Override, ParsedRequest, CrudRequest, ParsedBody, CreateManyDto } from '@apso/crud';
 import { ApiTags, ApiResponse, ApiOperation, ApiBody } from '@nestjs/swagger';
 import {<%= it.entityName %>, <%= it.entityName %>Create, <%= it.entityName %>Update} from './dtos/<%= it.entityName%>.dto'
 import {<%= it.svcName %>} from './<%= it.entityName %>.service';

@@ -293,7 +293,7 @@ export class ScopeGuard implements CanActivate {
       if (scope.direct) {
         const scopeValue = this.getScopeValue(request, scope.contextKey);
         if (scopeValue) {
-          // Add filter for @nestjsx/crud
+          // Add filter for @apso/crud
           request.query[`filter.${scope.field}`] = `$eq:${scopeValue}`;
         }
       }

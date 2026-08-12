@@ -21,7 +21,7 @@ import { Type } from 'class-transformer';
 
 import { ObjectType, Field, Int, GraphQLISODateTime, ID } from '@nestjs/graphql';
 import { JSONResolver } from 'graphql-scalars';
-import { CrudValidationGroups } from '@nestjsx/crud';
+import { CrudValidationGroups } from '@apso/crud';
 <% if (it.importEnums) { %>
 import * as enums from '../../enums';
 <% } %>

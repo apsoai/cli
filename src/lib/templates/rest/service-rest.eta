@@ -2,9 +2,9 @@
 
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { TypeOrmCrudService } from "@nestjsx/crud-typeorm";
-import { QueryOptions, CrudRequest } from '@nestjsx/crud';
-import { ParsedRequestParams } from '@nestjsx/crud-request';
+import { TypeOrmCrudService } from "@apso/crud-typeorm";
+import { QueryOptions, CrudRequest } from '@apso/crud';
+import { ParsedRequestParams } from '@apso/crud-request';
 import { Repository, DeepPartial } from 'typeorm';
 
 import {<%= it.entityName %>} from './<%= it.entityName%>.entity'

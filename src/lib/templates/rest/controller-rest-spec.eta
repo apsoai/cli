@@ -4,7 +4,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import {<%= it.entityName %>, <%= it.entityName %>Create} from './dtos/<%= it.entityName%>.dto'
 import {<%= it.ctrlName %>} from "./<%= it.entityName %>.controller";
 import {<%= it.svcName %>} from "./<%= it.entityName %>.service";
-import { CrudRequest } from '@nestjsx/crud';
+import { CrudRequest } from '@apso/crud';
 
 const baseRequest: CrudRequest = {
   parsed: {
