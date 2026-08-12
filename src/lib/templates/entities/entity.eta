@@ -37,7 +37,7 @@ import {
    import { JSONResolver } from 'graphql-scalars';
 <% } %>
 import { Type } from 'class-transformer';
-import { CrudValidationGroups } from '@nestjsx/crud';
+import { CrudValidationGroups } from '@apso/crud';
 <% if (it.importEnums) { %>
 import * as enums from '../enums';
 <% } %>

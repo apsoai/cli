@@ -9,6 +9,19 @@ export const TEMPLATE_REPOS: Record<TargetLanguage, string> = {
   go: "https://github.com/apsoai/service-template-go.git",
 };
 
+/**
+ * Git ref (tag or branch) to clone for each template. Pinning to a tag makes
+ * the CLI-version-to-template pairing explicit instead of a date cutoff on
+ * template main. v2.0.0 is the first TS template revision on published
+ * @apso/crud ^1.0.1 (dual-dialect: nestjsx + PostgREST); the Python and Go
+ * template repos are untagged and don't carry the dialect work.
+ */
+export const TEMPLATE_REFS: Record<TargetLanguage, string> = {
+  typescript: "v2.0.0",
+  python: "main",
+  go: "main",
+};
+
 export const PROJECT_NAME_PATTERN = /^[A-Za-z][\w-]*$/;
 
 /**
@@ -21,7 +34,8 @@ export function cloneTemplate(
   log: (msg: string) => void
 ): void {
   const repoUrl = TEMPLATE_REPOS[language];
-  log(`Cloning ${language} service template...`);
+  const templateRef = TEMPLATE_REFS[language];
+  log(`Cloning ${language} service template (${templateRef})...`);
 
   if (fs.existsSync(projectPath)) {
     throw new Error(`Directory already exists: ${projectPath}`);
@@ -36,7 +50,7 @@ export function cloneTemplate(
   }
 
   const cloneResult = shell.exec(
-    `git clone --depth=1 --branch=main "${repoUrl}" "${projectPath}"`,
+    `git clone --depth=1 --branch="${templateRef}" "${repoUrl}" "${projectPath}"`,
     { silent: true }
   );
 
@@ -45,7 +59,7 @@ export function cloneTemplate(
     throw new Error(
       `Failed to clone the template repository from GitHub.\n` +
         `Error Output:\n${cloneResult.stderr}\n\n` +
-        `Please check your network connection and ensure the repository exists at ${repoUrl}`
+        `Please check your network connection and ensure ref "${templateRef}" exists at ${repoUrl}`
     );
   }
 

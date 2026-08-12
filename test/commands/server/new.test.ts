@@ -1,5 +1,6 @@
 import { expect } from "@jest/globals";
 import * as path from "path";
+import { TEMPLATE_REFS } from "../../../src/lib/utils/template";
 
 // Test the PROJECT_NAME_PATTERN regex and validation logic
 const PROJECT_NAME_PATTERN = /^[A-Za-z][\w-]*$/;
@@ -137,6 +138,20 @@ describe("server new command", () => {
       for (const url of Object.values(TEMPLATE_REPOS)) {
         expect(url).toMatch(/^https:\/\/github\.com\/[\w-]+\/[\w-]+\.git$/);
       }
+    });
+  });
+
+  describe("TEMPLATE_REFS pinning", () => {
+    test("pins the TypeScript template to the dual-dialect tag", () => {
+      expect(TEMPLATE_REFS.typescript).toBe("v2.0.0");
+    });
+
+    test("has a ref for every supported language", () => {
+      expect(Object.keys(TEMPLATE_REFS).sort()).toEqual([
+        "go",
+        "python",
+        "typescript",
+      ]);
     });
   });
 
