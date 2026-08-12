@@ -140,6 +140,23 @@ describe("server new command", () => {
     });
   });
 
+  describe("TEMPLATE_REFS pinning", () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { TEMPLATE_REFS } = require("../../../src/lib/utils/template");
+
+    test("pins the TypeScript template to the dual-dialect tag", () => {
+      expect(TEMPLATE_REFS.typescript).toBe("v2.0.0");
+    });
+
+    test("has a ref for every supported language", () => {
+      expect(Object.keys(TEMPLATE_REFS).sort()).toEqual([
+        "go",
+        "python",
+        "typescript",
+      ]);
+    });
+  });
+
   describe("path traversal prevention", () => {
     test("should allow normal project names", () => {
       expect(isPathSafe("myproject", "/home/user")).toBe(true);
