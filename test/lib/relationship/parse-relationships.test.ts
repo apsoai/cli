@@ -58,6 +58,13 @@ describe("test parseRelationships", () => {
           referenceName: "WorkspaceUser",
           inverseReferenceName: "User",
         },
+        {
+          type: "OneToMany",
+          name: "Application",
+          biDirectional: true,
+          referenceName: "Application",
+          inverseReferenceName: "owner",
+        },
       ],
       WorkspaceUser: [
         {
@@ -120,8 +127,10 @@ describe("test parseRelationships", () => {
           name: "User",
           referenceName: "owner",
           nullable: false,
+          biDirectional: true,
           index: false,
-          inverseReferenceName: undefined,
+          cascadeDelete: false,
+          inverseReferenceName: "Application",
         },
       ],
       ApplicationService: [
@@ -154,16 +163,20 @@ describe("test parseRelationships", () => {
           name: "InfrastructureStack",
           referenceName: "networkStack",
           nullable: true,
+          biDirectional: true,
           index: false,
-          inverseReferenceName: undefined,
+          cascadeDelete: false,
+          inverseReferenceName: "ApplicationService",
         },
         {
           type: "ManyToOne",
           name: "InfrastructureStack",
           referenceName: "databaseStack",
           nullable: true,
+          biDirectional: true,
           index: false,
-          inverseReferenceName: undefined,
+          cascadeDelete: false,
+          inverseReferenceName: "ApplicationService",
         },
       ],
       ApplicationServiceApiKey: [
@@ -192,12 +205,25 @@ describe("test parseRelationships", () => {
       ],
       InfrastructureStack: [
         {
+          type: "OneToMany",
+          name: "ApplicationService",
+          biDirectional: true,
+          referenceName: "ApplicationService",
+          inverseReferenceName: "networkStack",
+        },
+        {
+          type: "OneToMany",
+          name: "ApplicationService",
+          biDirectional: true,
+          referenceName: "ApplicationService",
+          inverseReferenceName: "databaseStack",
+        },
+        {
           type: "ManyToOne",
           name: "InfrastructureStack",
           referenceName: "networkStack",
           nullable: true,
           index: false,
-          inverseReferenceName: undefined,
         },
       ],
     };
@@ -277,13 +303,64 @@ describe("test parseOneToMany", () => {
 });
 
 describe("test parseManyToOne", () => {
-  test("ManyToOne returns one relationship", () => {
+  test("ManyToOne returns both sides (bidirectional by default)", () => {
     const relationship: ApsorcRelationship = {
       from: "ApplicationService",
       to: "InfrastructureStack",
       type: "ManyToOne",
       to_name: "networkStack",
       nullable: true,
+    };
+    const expectedResult: { [key: string]: Relationship[] } = {
+      ApplicationService: [
+        {
+          name: "InfrastructureStack",
+          type: "ManyToOne",
+          nullable: true,
+          biDirectional: true,
+          index: false,
+          cascadeDelete: false,
+          referenceName: "networkStack",
+          inverseReferenceName: "ApplicationService",
+        },
+      ],
+      InfrastructureStack: [
+        {
+          name: "ApplicationService",
+          type: "OneToMany",
+          biDirectional: true,
+          referenceName: "ApplicationService",
+          inverseReferenceName: "networkStack",
+        },
+      ],
+    };
+    const result = parseManytoOne(relationship);
+    expect(result).toEqual(expectedResult);
+  });
+
+  test("ManyToOne returns both sides with index", () => {
+    const relationship: ApsorcRelationship = {
+      from: "ApplicationService",
+      to: "InfrastructureStack",
+      type: "ManyToOne",
+      to_name: "networkStack",
+      nullable: true,
+      index: true,
+    };
+    const result = parseManytoOne(relationship);
+    expect(result.ApplicationService[0].index).toBe(true);
+    expect(result.ApplicationService[0].biDirectional).toBe(true);
+    expect(result.InfrastructureStack[0].type).toBe("OneToMany");
+  });
+
+  test("ManyToOne with bi_directional false keeps the old unidirectional shape", () => {
+    const relationship: ApsorcRelationship = {
+      from: "ApplicationService",
+      to: "InfrastructureStack",
+      type: "ManyToOne",
+      to_name: "networkStack",
+      nullable: true,
+      bi_directional: false,
     };
     const expectedResult: { [key: string]: Relationship[] } = {
       ApplicationService: [
@@ -293,30 +370,6 @@ describe("test parseManyToOne", () => {
           nullable: true,
           referenceName: "networkStack",
           index: false,
-        },
-      ],
-    };
-    const result = parseManytoOne(relationship);
-    expect(result).toEqual(expectedResult);
-  });
-
-  test("ManyToOne returns one relationship with index", () => {
-    const relationship: ApsorcRelationship = {
-      from: "ApplicationService",
-      to: "InfrastructureStack",
-      type: "ManyToOne",
-      to_name: "networkStack",
-      nullable: true,
-      index: true,
-    };
-    const expectedResult: { [key: string]: Relationship[] } = {
-      ApplicationService: [
-        {
-          name: "InfrastructureStack",
-          type: "ManyToOne",
-          nullable: true,
-          referenceName: "networkStack",
-          index: true,
         },
       ],
     };
