@@ -44,22 +44,57 @@ export const parseOneToMany = (
 
 /**
  * Parses a ManyToOne relationship definition.
- * These are treated as unidirectional from the .apsorc definition.
- * Only generates the configuration for the 'from' side.
+ * Bidirectional by default, mirroring parseOneToMany with from/to swapped:
+ * the target entity gets the inverse OneToMany collection (and with it the
+ * controller join allowlist), so `Authors?join=books` works no matter which
+ * direction the .apsorc declared the relationship in.
+ * Set `bi_directional: false` to keep the old FK-only unidirectional shape.
+ * Self-referencing relationships stay unidirectional (both sides would
+ * collide on the same RelationshipMap key).
  * @param relationship The .apsorc relationship definition.
- * @returns A RelationshipMap containing only the entry for the 'from' side.
+ * @returns A RelationshipMap with entries for both sides (or just 'from' when unidirectional).
  */
 export const parseManytoOne = (
   relationship: ApsorcRelationship
 ): RelationshipMap => {
+  const unidirectional =
+    relationship.bi_directional === false ||
+    relationship.from === relationship.to;
+
+  if (unidirectional) {
+    return {
+      [relationship.from]: [
+        {
+          name: relationship.to,
+          type: "ManyToOne",
+          referenceName: relationship.to_name || null,
+          nullable: relationship.nullable || false,
+          index: relationship.index || false,
+        },
+      ],
+    };
+  }
+
   return {
     [relationship.from]: [
       {
         name: relationship.to,
         type: "ManyToOne",
-        referenceName: relationship.to_name || null,
         nullable: relationship.nullable || false,
+        biDirectional: true,
         index: relationship.index || false,
+        cascadeDelete: relationship.cascadeDelete || false,
+        referenceName: relationship.to_name || relationship.to,
+        inverseReferenceName: relationship.from,
+      },
+    ],
+    [relationship.to]: [
+      {
+        name: relationship.from,
+        type: "OneToMany",
+        biDirectional: true,
+        referenceName: relationship.from,
+        inverseReferenceName: relationship.to_name || relationship.to,
       },
     ],
   };
@@ -321,18 +356,54 @@ export const parseRelationship = (
         ],
       };
     }
-    case "ManyToOne":
+    case "ManyToOne": {
+      // Bidirectional by default, mirroring the OneToMany case with the roles
+      // swapped: the target entity gets the inverse OneToMany collection (and
+      // with it the controller join allowlist), so the collection-side embed
+      // works no matter which direction .apsorc declared the relationship in.
+      // `bi_directional: false` keeps the old FK-only shape; self-references
+      // stay unidirectional (both sides would collide on the same map key).
+      const manySideRefName = relationship.to_name || relationship.to;
+      if (
+        relationship.bi_directional === false ||
+        relationship.from === relationship.to
+      ) {
+        return {
+          [relationship.from]: [
+            {
+              name: relationship.to,
+              type: "ManyToOne",
+              referenceName: manySideRefName,
+              nullable: relationship.nullable || false,
+              index: relationship.index || false,
+            },
+          ],
+        };
+      }
       return {
         [relationship.from]: [
           {
             name: relationship.to,
             type: "ManyToOne",
-            referenceName: relationship.to_name || relationship.to,
             nullable: relationship.nullable || false,
+            biDirectional: true,
             index: relationship.index || false,
+            cascadeDelete: relationship.cascadeDelete || false,
+            referenceName: manySideRefName,
+            inverseReferenceName: relationship.from,
+          },
+        ],
+        [relationship.to]: [
+          {
+            name: relationship.from,
+            type: "OneToMany",
+            biDirectional: true,
+            referenceName: relationship.from,
+            inverseReferenceName: manySideRefName,
           },
         ],
       };
+    }
     case "OneToOne": {
       const inverseOnetoOneDef = allRelationships.find(
         (def) =>
