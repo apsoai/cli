@@ -1,4 +1,8 @@
 import { expect, describe, test, beforeAll } from "@jest/globals";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
+import { execFileSync } from "child_process";
 import { GoGenerator } from "../../../src/lib/generators/go";
 import { GeneratorConfig, Entity, Relationship } from "../../../src/lib/types";
 
@@ -676,5 +680,260 @@ describe("GoGenerator", () => {
       const files = await generator.generateDomainEvents([entity], "rest", {});
       expect(files).toEqual([]);
     });
+  });
+
+  // ---------------------------------------------------------------------------
+  // PostgREST / Supabase query dialect (parity with TS #36/#56-#60)
+  // ---------------------------------------------------------------------------
+  describe("PostgREST dialect query util", () => {
+    let query: string;
+    let types: string;
+
+    beforeAll(async () => {
+      const files = await generator.generateQueryUtils([], "rest");
+      query = findFileContent(files, "query.go")!;
+      types = findFileContent(files, "types.go")!;
+    });
+
+    test("emits dialect detection with header precedence", () => {
+      expect(query).toContain("func DetectDialect(");
+      expect(query).toContain("X-Crud-Dialect");
+      expect(query).toContain("DialectPostgrest");
+      expect(query).toContain("DialectNestjsx");
+      // ambiguous mixed-dialect query is a client error
+      expect(query).toContain("Ambiguous query");
+      // param-shape signal keys
+      expect(query).toContain("postgrestOpRe");
+    });
+
+    test("emits the full PostgREST operator map (eq..in) and not.<op>", () => {
+      for (const op of [
+        "eq", "neq", "gt", "gte", "lt", "lte", "like", "ilike", "in",
+      ]) {
+        expect(query).toContain(`"${op}":`);
+      }
+      expect(query).toContain("postgrestNotMap");
+      // is.null / is.true handling
+      expect(query).toContain(`case "is":`);
+      expect(query).toContain("$isnull");
+      expect(query).toContain("$notnull");
+    });
+
+    test("rejects deferred operators (cs/cd/ov/fts) clearly", () => {
+      expect(query).toContain("deferredPostgrestOps");
+      for (const op of ["cs", "cd", "ov", "fts"]) {
+        expect(query).toContain(`"${op}": true`);
+      }
+      expect(query).toContain("not yet supported");
+    });
+
+    test("like/ilike translate * wildcard to % and apply verbatim", () => {
+      expect(query).toContain(`strings.ReplaceAll(rest, "*", "%")`);
+      expect(query).toContain(`case "$like":`);
+      expect(query).toContain(`case "$ilike":`);
+      expect(query).toContain("ILIKE");
+    });
+
+    test("parses or=()/and=() logical groups (#56)", () => {
+      expect(query).toContain("parsePostgrestGroup");
+      expect(query).toContain("FilterGroup");
+      expect(query).toContain("buildGroupExpr");
+    });
+
+    test("select alias rename => col AS alias (#57)", () => {
+      expect(query).toContain("parsePostgrestSelect");
+      expect(query).toContain(`"%s AS %s"`);
+    });
+
+    test("order carries nullsfirst/nullslast", () => {
+      expect(query).toContain("parsePostgrestOrder");
+      expect(query).toContain("NULLS FIRST");
+      expect(query).toContain("NULLS LAST");
+    });
+
+    test("bare-array response + offset windowing (#58)", () => {
+      expect(query).toContain("opts.Bare = true");
+      expect(query).toContain("opts.Offset");
+      expect(types).toContain("Bare bool");
+      expect(types).toContain("Offset int");
+    });
+
+    test("unknown column on postgrest path is a *QueryError => 400 (#60)", () => {
+      expect(query).toContain("type QueryError struct");
+      expect(query).toContain("func AsQueryError(");
+      expect(query).toContain(`queryErr("Unknown column '%s' in query"`);
+    });
+
+    test("nestjsx ParseQueryParams remains available and unchanged in shape", () => {
+      // The incumbent entry point still exists and delegates to the nestjsx parser.
+      expect(query).toContain("func ParseQueryParams(params url.Values) QueryOptions");
+      expect(query).toContain("func parseNestjsxParams(");
+      // The nestjsx filter/or/sort parsing is preserved.
+      expect(query).toContain(`params["filter"]`);
+      expect(query).toContain(`params["or"]`);
+      expect(query).toContain(`params["sort"]`);
+    });
+  });
+
+  describe("PostgREST dialect handler + service wiring", () => {
+    const entity: Entity = {
+      name: "Widget",
+      fields: [
+        { name: "name", type: "text" },
+        { name: "count", type: "integer" },
+      ],
+    };
+
+    test("handler threads header + query into ParseQuery and 400s on error", async () => {
+      const files = await generator.generateController({
+        entity,
+        relationships: [],
+        allEntities: [entity],
+        apiType: "rest",
+        relationshipMap: {},
+      });
+      const content = files[0].content;
+      expect(content).toContain(
+        `utils.ParseQuery(c.Request.URL.Query(), c.GetHeader("X-Crud-Dialect"))`
+      );
+      expect(content).toContain("http.StatusBadRequest");
+      // bare-array branch for postgrest
+      expect(content).toContain("opts.Bare");
+      expect(content).toContain("FindAllBare");
+      expect(content).toContain("utils.AsQueryError");
+    });
+
+    test("service emits FindAllBare returning a bare slice and propagating query errors", async () => {
+      const files = await generator.generateService({
+        entity,
+        relationships: [],
+        allEntities: [entity],
+        apiType: "rest",
+        relationshipMap: {},
+      });
+      const content = files[0].content;
+      expect(content).toContain(
+        "func (s *WidgetService) FindAllBare(ctx context.Context, opts utils.QueryOptions) ([]dto.WidgetResponse, error)"
+      );
+      expect(content).toContain("utils.ApplyQueryE(");
+    });
+  });
+
+  // Real go-toolchain compile check: generate a full sample service and build
+  // it. Skipped automatically when `go` is not on PATH.
+  describe("generated Go compiles (go build)", () => {
+    const goAvailable = (() => {
+      try {
+        execFileSync("go", ["version"], { stdio: "ignore" });
+        return true;
+      } catch {
+        return false;
+      }
+    })();
+
+    const maybe = goAvailable ? test : test.skip;
+
+    maybe(
+      "sample service module builds cleanly with the postgrest dialect",
+      async () => {
+        const entity: Entity = {
+          name: "Product",
+          created_at: true,
+          updated_at: true,
+          fields: [
+            { name: "name", type: "text" },
+            { name: "price", type: "float" },
+            { name: "active", type: "boolean" },
+          ],
+        };
+        const entities = [entity];
+
+        const files: { path: string; content: string }[] = [];
+        files.push(
+          ...(await generator.generateQueryUtils(entities, "rest"))
+        );
+        files.push(
+          ...(await generator.generateEntity({
+            entity,
+            relationships: [],
+            allEntities: entities,
+            apiType: "rest",
+          }))
+        );
+        files.push(
+          ...(await generator.generateDto({
+            entity,
+            relationships: [],
+            allEntities: entities,
+            apiType: "rest",
+          }))
+        );
+        files.push(
+          ...(await generator.generateService({
+            entity,
+            relationships: [],
+            allEntities: entities,
+            apiType: "rest",
+            relationshipMap: {},
+          }))
+        );
+        files.push(
+          ...(await generator.generateController({
+            entity,
+            relationships: [],
+            allEntities: entities,
+            apiType: "rest",
+            relationshipMap: {},
+          }))
+        );
+        files.push(
+          ...(await generator.generateIndexModule(entities, "rest"))
+        );
+
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), "apso-go-build-"));
+        try {
+          const base = path.join(dir, "autogen");
+          for (const f of files) {
+            const full = path.join(base, f.path);
+            fs.mkdirSync(path.dirname(full), { recursive: true });
+            fs.writeFileSync(full, f.content);
+          }
+
+          // go.mod with the module path the templates import ("app/autogen/...").
+          fs.writeFileSync(
+            path.join(dir, "go.mod"),
+            [
+              "module app",
+              "",
+              "go 1.21",
+              "",
+              "require (",
+              "\tgithub.com/gin-gonic/gin v1.9.1",
+              "\tgithub.com/go-playground/validator/v10 v10.14.0",
+              "\tgorm.io/gorm v1.25.2",
+              ")",
+              "",
+            ].join("\n")
+          );
+
+          const env = {
+            ...process.env,
+            GOFLAGS: "-mod=mod",
+            GOPROXY: process.env.GOPROXY || "https://proxy.golang.org,direct",
+          };
+          // Resolve deps then compile. If the network is unavailable this
+          // throws and the test fails loudly (no silent skip).
+          execFileSync("go", ["mod", "tidy"], { cwd: dir, env, stdio: "pipe" });
+          execFileSync("go", ["build", "./..."], {
+            cwd: dir,
+            env,
+            stdio: "pipe",
+          });
+        } finally {
+          fs.rmSync(dir, { recursive: true, force: true });
+        }
+      },
+      180_000
+    );
   });
 });

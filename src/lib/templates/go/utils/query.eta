@@ -3,9 +3,11 @@
 package utils
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -18,9 +20,137 @@ const (
 	DefaultPage  = 1
 )
 
-// ParseQueryParams parses standard query parameters from a url.Values map
-// into a QueryOptions struct.
+// ErrQuery is a client-facing (HTTP 400) query error. The generated handler
+// maps any *QueryError to a 400 response so a malformed dialect request never
+// surfaces as a 500 (apso #60).
+type QueryError struct{ Msg string }
+
+func (e *QueryError) Error() string { return e.Msg }
+
+func queryErr(format string, a ...interface{}) *QueryError {
+	return &QueryError{Msg: fmt.Sprintf(format, a...)}
+}
+
+// AsQueryError reports whether err is a client-facing *QueryError.
+func AsQueryError(err error) (*QueryError, bool) {
+	var qe *QueryError
+	if errors.As(err, &qe) {
+		return qe, true
+	}
+	return nil, false
+}
+
+// ---------------------------------------------------------------------------
+// Dialect detection (mirrors @apso/crud dialect.ts).
+//
+// Precedence:
+//  1. X-Crud-Dialect header — explicit, always wins (postgrest|nestjsx else 400).
+//  2. Param-shape signals:
+//       - nestjsx-only keys: fields, filter, or, join, sort, s, per_page
+//       - PostgREST-only keys: select, order
+//       - a bare `col=op.value` param (value matches a PostgREST operator)
+//         is a PostgREST signal
+//       - limit/offset/page/cache are dialect-neutral (shared)
+//  3. Both families present => 400 (do NOT guess).
+//  4. Only PostgREST signals => postgrest.
+//  5. Otherwise (nestjsx signals, neutral-only, or empty) => nestjsx (incumbent).
+// ---------------------------------------------------------------------------
+
+var nestjsxKeys = map[string]bool{
+	"fields": true, "filter": true, "or": true,
+	"join": true, "sort": true, "s": true, "per_page": true,
+}
+
+var postgrestKeys = map[string]bool{"select": true, "order": true}
+
+var neutralKeys = map[string]bool{
+	"limit": true, "offset": true, "page": true, "cache": true,
+}
+
+// postgrestOpRe recognizes the SHAPE of a bare PostgREST column filter value:
+// `op.value` or `not.op.value`. Unknown operators are rejected later by the
+// parser; detection only needs to recognize the shape.
+var postgrestOpRe = regexp.MustCompile(
+	`(?i)^(not\.)?(eq|neq|gt|gte|lt|lte|like|ilike|match|imatch|in|is|isdistinct|fts|plfts|phfts|wfts|cs|cd|ov|sl|sr|nxr|nxl|adj)\.`,
+)
+
+// DetectDialect picks the dialect for a request from the X-Crud-Dialect header
+// and the query param shape. Returns a *QueryError (400) on an invalid header
+// or an ambiguous mixed-dialect query.
+func DetectDialect(params url.Values, dialectHeader string) (Dialect, error) {
+	// 1. Explicit header override — always wins.
+	if h := strings.TrimSpace(strings.ToLower(dialectHeader)); h != "" {
+		switch h {
+		case "postgrest":
+			return DialectPostgrest, nil
+		case "nestjsx":
+			return DialectNestjsx, nil
+		default:
+			return DialectNestjsx, queryErr(
+				"Invalid X-Crud-Dialect header '%s' (expected 'postgrest' or 'nestjsx').",
+				dialectHeader,
+			)
+		}
+	}
+
+	// 2. Param-shape signals.
+	nestjsx := false
+	postgrest := false
+	for key, vals := range params {
+		switch {
+		case nestjsxKeys[key]:
+			nestjsx = true
+		case postgrestKeys[key]:
+			postgrest = true
+		case neutralKeys[key]:
+			continue
+		default:
+			// A bare `col=op.value` is the only bare-param dialect signal.
+			if len(vals) > 0 && postgrestOpRe.MatchString(vals[0]) {
+				postgrest = true
+			}
+		}
+	}
+
+	// 3. Genuine collision — refuse to guess.
+	if nestjsx && postgrest {
+		return DialectNestjsx, queryErr(
+			"Ambiguous query: it mixes nestjsx params (fields/filter/join/sort/s/or) " +
+				"with PostgREST params (select/order or col=op.value). Send a single " +
+				"dialect, or set the 'X-Crud-Dialect' header to force one.",
+		)
+	}
+
+	// 4/5. One family, or neutral-only/empty (default to the incumbent nestjsx).
+	if postgrest {
+		return DialectPostgrest, nil
+	}
+	return DialectNestjsx, nil
+}
+
+// ParseQueryParams parses standard (nestjsx) query parameters from a url.Values
+// map into a QueryOptions struct. Retained for backward compatibility; the
+// generated handler calls ParseQuery (dialect-aware) instead.
 func ParseQueryParams(params url.Values) QueryOptions {
+	return parseNestjsxParams(params)
+}
+
+// ParseQuery detects the request dialect from the X-Crud-Dialect header and the
+// query param shape, then parses with the matching parser. On a bad header or
+// an ambiguous mixed-dialect query it returns a *QueryError (400).
+func ParseQuery(params url.Values, dialectHeader string) (QueryOptions, error) {
+	dialect, err := DetectDialect(params, dialectHeader)
+	if err != nil {
+		return DefaultQueryOptions(), err
+	}
+	if dialect == DialectPostgrest {
+		return parsePostgrestParams(params)
+	}
+	return parseNestjsxParams(params), nil
+}
+
+// parseNestjsxParams parses the incumbent nestjsx/crud query convention.
+func parseNestjsxParams(params url.Values) QueryOptions {
 	opts := DefaultQueryOptions()
 
 	// Filters: ?filter=field||$op||value (repeatable)
@@ -80,21 +210,456 @@ func ParseQueryParams(params url.Values) QueryOptions {
 	return opts
 }
 
+// ---------------------------------------------------------------------------
+// PostgREST parser (mirrors @apso/postgrest-request postgrest-parser.ts).
+//
+// Supported surface (apso #36/#56-#60):
+//   - select=a,b            column projection (+ alias:col rename #57)
+//   - col=op.value          filters: eq/neq/gt/gte/lt/lte/like/ilike/in/is
+//                           and not.<op>
+//   - or=(...) / and=(...)  logical combinators (#56)
+//   - order=col.asc|desc[.nullsfirst|nullslast]
+//   - limit / offset        pagination -> bare JSON array response (#58)
+//
+// Deferred (apso #54), rejected clearly: cs, cd, ov, fts and other advanced
+// operators. Resource embedding (select=rel(cols)) columns are parsed as a
+// join preload where the Go path supports it; embedded ON-clause filters are
+// NOT applied here (the GORM Preload path has no embed-level predicate) — an
+// `rel.col=` filter is treated as a root filter. See the PR notes.
+// ---------------------------------------------------------------------------
+
+// postgrestReserved are query keys that are NOT column filters.
+var postgrestReserved = map[string]bool{
+	"select": true, "order": true, "limit": true,
+	"offset": true, "and": true, "or": true, "cache": true, "page": true,
+}
+
+// postgrestOpMap maps a PostgREST operator to the internal $-operator the GORM
+// applyOperator switch understands.
+var postgrestOpMap = map[string]string{
+	"eq": "$eq", "neq": "$ne", "gt": "$gt", "gte": "$gte",
+	"lt": "$lt", "lte": "$lte", "like": "$like", "ilike": "$ilike",
+	"in": "$in",
+}
+
+// postgrestNotMap maps not.<op> to the negated internal operator. The
+// like/ilike negations use the postgrest-specific $nlike/$nilike operators,
+// which apply the pattern verbatim (the wildcards are already `*`->`%`
+// translated by the parser) rather than the nestjsx $excl/$exclL which wrap the
+// value in %...%.
+var postgrestNotMap = map[string]string{
+	"eq": "$ne", "neq": "$eq", "in": "$notin",
+	"like": "$nlike", "ilike": "$nilike",
+}
+
+// deferredPostgrestOps are recognized-but-unsupported operators (apso #54).
+var deferredPostgrestOps = map[string]bool{
+	"cs": true, "cd": true, "ov": true, "fts": true, "plfts": true,
+	"phfts": true, "wfts": true, "match": true, "imatch": true,
+	"isdistinct": true, "sl": true, "sr": true, "nxr": true,
+	"nxl": true, "adj": true,
+}
+
+func parsePostgrestParams(params url.Values) (QueryOptions, error) {
+	opts := DefaultQueryOptions()
+	opts.Dialect = DialectPostgrest
+
+	// select=a,b (+ alias:col rename)
+	if sel := params.Get("select"); sel != "" {
+		fields, joins, err := parsePostgrestSelect(sel)
+		if err != nil {
+			return opts, err
+		}
+		opts.Fields = fields
+		opts.Joins = joins
+	}
+
+	// order=col.dir[.nullsX],...
+	if ord := params.Get("order"); ord != "" {
+		sorts, err := parsePostgrestOrder(ord)
+		if err != nil {
+			return opts, err
+		}
+		opts.Sorts = sorts
+	}
+
+	// limit / offset. Presence of either => bare array response (#58).
+	if limitRaw := params.Get("limit"); limitRaw != "" {
+		v, err := strconv.Atoi(limitRaw)
+		if err != nil {
+			return opts, queryErr("Invalid limit '%s'", limitRaw)
+		}
+		if v > MaxLimit {
+			v = MaxLimit
+		}
+		if v > 0 {
+			opts.Limit = v
+		}
+	}
+	if offsetRaw := params.Get("offset"); offsetRaw != "" {
+		v, err := strconv.Atoi(offsetRaw)
+		if err != nil {
+			return opts, queryErr("Invalid offset '%s'", offsetRaw)
+		}
+		if v < 0 {
+			v = 0
+		}
+		opts.Offset = v
+	}
+	// PostgREST always returns a bare JSON array, regardless of limit/offset.
+	opts.Bare = true
+
+	// or=(...) / and=(...) logical combinators (#56).
+	if raw := params.Get("or"); raw != "" {
+		g, err := parsePostgrestGroup(raw, "OR")
+		if err != nil {
+			return opts, err
+		}
+		opts.Groups = append(opts.Groups, g)
+	}
+	if raw := params.Get("and"); raw != "" {
+		g, err := parsePostgrestGroup(raw, "AND")
+		if err != nil {
+			return opts, err
+		}
+		opts.Groups = append(opts.Groups, g)
+	}
+
+	// Column filters: every non-reserved key is `col=op.value`.
+	for key, vals := range params {
+		if postgrestReserved[key] {
+			continue
+		}
+		for _, v := range vals {
+			f, err := parsePostgrestCondition(key, v)
+			if err != nil {
+				return opts, err
+			}
+			opts.Filters = append(opts.Filters, *f)
+		}
+	}
+
+	return opts, nil
+}
+
+// parsePostgrestSelect parses select=col,alias:col,rel(cols). Plain columns
+// (with optional `alias:col` rename #57 and `::cast` stripped) become the field
+// list; `rel(...)` embeds become join preloads.
+func parsePostgrestSelect(sel string) ([]string, []ParsedJoin, error) {
+	var fields []string
+	var joins []ParsedJoin
+	for _, raw := range splitTopLevel(sel) {
+		tok := strings.TrimSpace(raw)
+		if tok == "" {
+			continue
+		}
+		open := strings.IndexByte(tok, '(')
+		if open == -1 {
+			// plain column: drop `::type` cast, take column from `alias:col`.
+			noCast := strings.SplitN(tok, "::", 2)[0]
+			parts := strings.Split(noCast, ":")
+			col := strings.TrimSpace(parts[len(parts)-1])
+			if col == "*" || col == "" {
+				continue
+			}
+			if len(parts) > 1 {
+				alias := strings.TrimSpace(parts[0])
+				if alias != "" && alias != col {
+					// `col AS alias` output rename (#57).
+					fields = append(fields, fmt.Sprintf("%s AS %s", col, alias))
+					continue
+				}
+			}
+			fields = append(fields, col)
+		} else {
+			// embed: `[alias:]relation[!hint](innerSelect)`
+			head := tok[:open]
+			relPart := head
+			if strings.Contains(head, ":") {
+				hp := strings.Split(head, ":")
+				relPart = hp[len(hp)-1]
+			}
+			rel := strings.TrimSpace(strings.Split(relPart, "!")[0])
+			if rel == "" {
+				return nil, nil, queryErr("Invalid embed in select: %s", tok)
+			}
+			inner := ""
+			if close := strings.LastIndexByte(tok, ')'); close > open {
+				inner = tok[open+1 : close]
+			}
+			j := ParsedJoin{Relation: rel}
+			for _, sub := range splitTopLevel(inner) {
+				c := strings.TrimSpace(sub)
+				if c == "" || c == "*" || strings.Contains(c, "(") {
+					continue
+				}
+				c = strings.SplitN(c, "::", 2)[0]
+				sp := strings.Split(c, ":")
+				j.Fields = append(j.Fields, strings.TrimSpace(sp[len(sp)-1]))
+			}
+			joins = append(joins, j)
+		}
+	}
+	return fields, joins, nil
+}
+
+// parsePostgrestOrder parses order=col.dir[.nullsfirst|nullslast],... .
+func parsePostgrestOrder(order string) ([]ParsedSort, error) {
+	var sorts []ParsedSort
+	for _, raw := range splitTopLevel(order) {
+		t := strings.TrimSpace(raw)
+		if t == "" {
+			continue
+		}
+		parts := strings.Split(t, ".")
+		field := strings.TrimSpace(parts[0])
+		if field == "" {
+			continue
+		}
+		dir := "ASC"
+		nulls := ""
+		for _, mod := range parts[1:] {
+			switch strings.ToLower(strings.TrimSpace(mod)) {
+			case "asc":
+				dir = "ASC"
+			case "desc":
+				dir = "DESC"
+			case "nullsfirst":
+				nulls = "NULLS FIRST"
+			case "nullslast":
+				nulls = "NULLS LAST"
+			case "":
+				// tolerate stray dot
+			default:
+				return nil, queryErr("Invalid order modifier: %s", mod)
+			}
+		}
+		sorts = append(sorts, ParsedSort{Field: field, Direction: dir, Nulls: nulls})
+	}
+	return sorts, nil
+}
+
+// parsePostgrestGroup parses an or=(...)/and=(...) group. Each branch is a
+// `col.op.value` condition or a nested or(...)/and(...) group.
+func parsePostgrestGroup(raw, conj string) (FilterGroup, error) {
+	label := "or"
+	if conj == "AND" {
+		label = "and"
+	}
+	trimmed := strings.TrimSpace(raw)
+	if !(strings.HasPrefix(trimmed, "(") && strings.HasSuffix(trimmed, ")")) {
+		return FilterGroup{}, queryErr("Invalid %s= group: expected %s=(cond,cond,...)", label, label)
+	}
+	inner := trimmed[1 : len(trimmed)-1]
+	group := FilterGroup{Conjunction: conj}
+	branches := splitTopLevel(inner)
+	nonEmpty := 0
+	for _, b := range branches {
+		part := strings.TrimSpace(b)
+		if part == "" {
+			continue
+		}
+		nonEmpty++
+		switch {
+		case strings.HasPrefix(part, "or("):
+			sub, err := parsePostgrestGroup(part[2:], "OR")
+			if err != nil {
+				return FilterGroup{}, err
+			}
+			group.Groups = append(group.Groups, sub)
+		case strings.HasPrefix(part, "and("):
+			sub, err := parsePostgrestGroup(part[3:], "AND")
+			if err != nil {
+				return FilterGroup{}, err
+			}
+			group.Groups = append(group.Groups, sub)
+		default:
+			dot := strings.IndexByte(part, '.')
+			if dot == -1 {
+				return FilterGroup{}, queryErr("Invalid condition in %s= group: %s", label, part)
+			}
+			f, err := parsePostgrestCondition(part[:dot], part[dot+1:])
+			if err != nil {
+				return FilterGroup{}, err
+			}
+			group.Filters = append(group.Filters, *f)
+		}
+	}
+	if nonEmpty == 0 {
+		return FilterGroup{}, queryErr("Empty %s= group", label)
+	}
+	return group, nil
+}
+
+// parsePostgrestCondition parses `op.value` (or `not.op.value`) for a column
+// into a ParsedFilter with an internal $-operator. `like`/`ilike` translate the
+// PostgREST `*` wildcard to SQL `%`.
+func parsePostgrestCondition(field, spec string) (*ParsedFilter, error) {
+	dot := strings.IndexByte(spec, '.')
+	if dot == -1 {
+		return nil, queryErr("Invalid filter for '%s': expected op.value", field)
+	}
+	op := spec[:dot]
+	rest := spec[dot+1:]
+	negated := false
+	if op == "not" {
+		negated = true
+		dot2 := strings.IndexByte(rest, '.')
+		if dot2 == -1 {
+			return nil, queryErr("Invalid 'not' filter for '%s'", field)
+		}
+		op = rest[:dot2]
+		rest = rest[dot2+1:]
+	}
+
+	if deferredPostgrestOps[op] {
+		return nil, queryErr(
+			"PostgREST operator '%s' is not yet supported (deferred). "+
+				"Supported: eq, neq, gt, gte, lt, lte, like, ilike, in, is (and not.<op>).",
+			op,
+		)
+	}
+
+	switch op {
+	case "is":
+		lit := strings.ToLower(rest)
+		switch lit {
+		case "null", "unknown":
+			operator := "$isnull"
+			if negated {
+				operator = "$notnull"
+			}
+			return &ParsedFilter{Field: field, Operator: operator, Value: ""}, nil
+		case "true", "false":
+			operator := "$eq"
+			if negated {
+				operator = "$ne"
+			}
+			return &ParsedFilter{Field: field, Operator: operator, Value: lit}, nil
+		default:
+			return nil, queryErr("Invalid 'is' value for '%s': %s", field, rest)
+		}
+	case "in":
+		operator := "$in"
+		if negated {
+			operator = "$notin"
+		}
+		return &ParsedFilter{Field: field, Operator: operator, Value: parsePostgrestInList(rest)}, nil
+	case "like", "ilike":
+		var operator string
+		if negated {
+			operator = postgrestNotMap[op]
+		} else {
+			operator = postgrestOpMap[op]
+		}
+		// PostgREST uses `*` as the % wildcard.
+		return &ParsedFilter{Field: field, Operator: operator, Value: strings.ReplaceAll(rest, "*", "%")}, nil
+	}
+
+	var operator string
+	if negated {
+		operator = postgrestNotMap[op]
+	} else {
+		operator = postgrestOpMap[op]
+	}
+	if operator == "" {
+		return nil, queryErr("Unsupported PostgREST operator '%s' for '%s'", op, field)
+	}
+	return &ParsedFilter{Field: field, Operator: operator, Value: rest}, nil
+}
+
+// parsePostgrestInList parses in.(1,2,3) / in.("a,b",c) into a comma-joined
+// value string (the internal $in operator re-splits on comma via splitValue).
+func parsePostgrestInList(rest string) string {
+	inner := strings.TrimSpace(rest)
+	if strings.HasPrefix(inner, "(") && strings.HasSuffix(inner, ")") {
+		inner = inner[1 : len(inner)-1]
+	}
+	if inner == "" {
+		return ""
+	}
+	var out []string
+	var cur strings.Builder
+	quoted := false
+	for _, ch := range inner {
+		switch {
+		case ch == '"':
+			quoted = !quoted
+		case ch == ',' && !quoted:
+			out = append(out, strings.TrimSpace(cur.String()))
+			cur.Reset()
+		default:
+			cur.WriteRune(ch)
+		}
+	}
+	out = append(out, strings.TrimSpace(cur.String()))
+	return strings.Join(out, ",")
+}
+
+// splitTopLevel splits on commas that are NOT inside parentheses.
+func splitTopLevel(s string) []string {
+	var out []string
+	depth := 0
+	var cur strings.Builder
+	for _, ch := range s {
+		switch ch {
+		case '(':
+			depth++
+			cur.WriteRune(ch)
+		case ')':
+			depth--
+			cur.WriteRune(ch)
+		case ',':
+			if depth == 0 {
+				out = append(out, cur.String())
+				cur.Reset()
+			} else {
+				cur.WriteRune(ch)
+			}
+		default:
+			cur.WriteRune(ch)
+		}
+	}
+	if strings.TrimSpace(cur.String()) != "" {
+		out = append(out, cur.String())
+	}
+	return out
+}
+
 // ApplyQuery applies filters, sorts, and pagination from QueryOptions to a
 // GORM query. The allowedFields map restricts which column names can be used
 // in filters and sorts to prevent injection.
 func ApplyQuery(db *gorm.DB, opts QueryOptions, allowedFields map[string]bool) (*gorm.DB, int64, int) {
+	q, total, pageCount, _ := ApplyQueryE(db, opts, allowedFields)
+	return q, total, pageCount
+}
+
+// ApplyQueryE is the dialect-aware form of ApplyQuery. It behaves identically to
+// ApplyQuery for the nestjsx dialect (and never returns an error there). For the
+// PostgREST dialect it enforces the postgrest semantics:
+//   - an unknown filter/sort/select column is a client error (*QueryError, 400)
+//     rather than a silently-dropped clause (apso #60);
+//   - ?or=()/?and=() groups are applied (apso #56);
+//   - order carries NULLS FIRST/LAST;
+//   - limit/offset window a BARE array — no COUNT round-trip (apso #58), and
+//     total/pageCount are returned as 0/1 (the handler ignores them for the
+//     bare response).
+func ApplyQueryE(db *gorm.DB, opts QueryOptions, allowedFields map[string]bool) (*gorm.DB, int64, int, error) {
 	query := db
+	postgrest := opts.Dialect == DialectPostgrest
 
 	// AND filters
 	for _, f := range opts.Filters {
 		if !allowedFields[f.Field] {
+			if postgrest {
+				return query, 0, 1, queryErr("Unknown column '%s' in query", f.Field)
+			}
 			continue
 		}
 		query = applyOperator(query, f.Field, f.Operator, f.Value, false)
 	}
 
-	// OR filters
+	// OR filters (nestjsx flat OR).
 	if len(opts.OrFilters) > 0 {
 		query = query.Where(func(tx *gorm.DB) *gorm.DB {
 			first := true
@@ -113,29 +678,58 @@ func ApplyQuery(db *gorm.DB, opts QueryOptions, allowedFields map[string]bool) (
 		}(db.Session(&gorm.Session{NewDB: true})))
 	}
 
-	// Count before pagination
+	// PostgREST ?or=()/?and=() logical groups (#56). Each group is ANDed with
+	// the flat filters above.
+	for _, g := range opts.Groups {
+		expr, err := buildGroupExpr(db, g, allowedFields)
+		if err != nil {
+			return query, 0, 1, err
+		}
+		if expr != nil {
+			query = query.Where(expr)
+		}
+	}
+
+	// Count before pagination — skipped for the bare (PostgREST) response,
+	// which never emits a total (#58).
 	var total int64
-	countQuery := query.Session(&gorm.Session{})
-	countQuery.Count(&total)
+	if !opts.Bare {
+		countQuery := query.Session(&gorm.Session{})
+		countQuery.Count(&total)
+	}
 
 	// Sorting
 	for _, s := range opts.Sorts {
 		if !allowedFields[s.Field] {
+			if postgrest {
+				return query, 0, 1, queryErr("Unknown column '%s' in order", s.Field)
+			}
 			continue
 		}
 		dir := "ASC"
 		if strings.EqualFold(s.Direction, "DESC") {
 			dir = "DESC"
 		}
-		query = query.Order(fmt.Sprintf("%s %s", s.Field, dir))
+		clause := fmt.Sprintf("%s %s", s.Field, dir)
+		if s.Nulls != "" {
+			clause = fmt.Sprintf("%s %s", clause, s.Nulls)
+		}
+		query = query.Order(clause)
 	}
 
-	// Field selection
+	// Field selection. PostgREST select may carry a `col AS alias` rename (#57);
+	// the allowlist check uses the underlying column, the SELECT keeps the alias.
 	if len(opts.Fields) > 0 {
 		var safe []string
 		for _, f := range opts.Fields {
-			if allowedFields[f] {
+			col := f
+			if i := strings.Index(strings.ToUpper(f), " AS "); i != -1 {
+				col = strings.TrimSpace(f[:i])
+			}
+			if allowedFields[col] {
 				safe = append(safe, f)
+			} else if postgrest {
+				return query, 0, 1, queryErr("Unknown column '%s' in select", col)
 			}
 		}
 		if len(safe) > 0 {
@@ -149,6 +743,15 @@ func ApplyQuery(db *gorm.DB, opts QueryOptions, allowedFields map[string]bool) (
 	}
 
 	// Pagination
+	if postgrest {
+		// PostgREST: LIMIT + explicit OFFSET row skip, windowing the bare array.
+		if opts.Offset > 0 {
+			query = query.Offset(opts.Offset)
+		}
+		query = query.Limit(opts.Limit)
+		return query, 0, 1, nil
+	}
+
 	offset := (opts.Page - 1) * opts.Limit
 	query = query.Offset(offset).Limit(opts.Limit)
 
@@ -157,7 +760,48 @@ func ApplyQuery(db *gorm.DB, opts QueryOptions, allowedFields map[string]bool) (
 		pageCount = 1
 	}
 
-	return query, total, pageCount
+	return query, total, pageCount, nil
+}
+
+// buildGroupExpr turns a PostgREST FilterGroup into a nested GORM expression
+// (a *gorm.DB usable as a Where argument). Unknown columns are a client error
+// (400). Returns nil when the group produced no applicable condition.
+func buildGroupExpr(db *gorm.DB, g FilterGroup, allowedFields map[string]bool) (*gorm.DB, error) {
+	useOr := g.Conjunction == "OR"
+	tx := db.Session(&gorm.Session{NewDB: true})
+	applied := false
+
+	add := func(cond *gorm.DB) {
+		if !applied {
+			tx = tx.Where(cond)
+			applied = true
+		} else if useOr {
+			tx = tx.Or(cond)
+		} else {
+			tx = tx.Where(cond)
+		}
+	}
+
+	for _, f := range g.Filters {
+		if !allowedFields[f.Field] {
+			return nil, queryErr("Unknown column '%s' in query", f.Field)
+		}
+		leaf := applyOperator(db.Session(&gorm.Session{NewDB: true}), f.Field, f.Operator, f.Value, false)
+		add(leaf)
+	}
+	for _, sub := range g.Groups {
+		expr, err := buildGroupExpr(db, sub, allowedFields)
+		if err != nil {
+			return nil, err
+		}
+		if expr != nil {
+			add(expr)
+		}
+	}
+	if !applied {
+		return nil, nil
+	}
+	return tx, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -245,6 +889,16 @@ func applyOperator(query *gorm.DB, field, op, value string, useOr bool) *gorm.DB
 		return where(fmt.Sprintf("%s LIKE ?", field), "%"+value+"%")
 	case "$excl":
 		return where(fmt.Sprintf("%s NOT LIKE ?", field), "%"+value+"%")
+	case "$like":
+		// PostgREST like: the pattern is applied verbatim (wildcards already
+		// translated from * to %).
+		return where(fmt.Sprintf("%s LIKE ?", field), value)
+	case "$ilike":
+		return where(fmt.Sprintf("%s ILIKE ?", field), value)
+	case "$nlike":
+		return where(fmt.Sprintf("%s NOT LIKE ?", field), value)
+	case "$nilike":
+		return where(fmt.Sprintf("%s NOT ILIKE ?", field), value)
 	case "$in":
 		return where(fmt.Sprintf("%s IN ?", field), coerceValues(splitValue(value)))
 	case "$notin":

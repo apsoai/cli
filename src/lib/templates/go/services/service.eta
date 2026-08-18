@@ -39,6 +39,7 @@ func New<%= it.entityName %>Service(db *gorm.DB) *<%= it.entityName %>Service {
 }
 
 // FindAll retrieves a paginated list of <%= it.pluralName %> with filtering, sorting, and joins.
+// Used by the nestjsx dialect ({data,count,total,page,pageCount} envelope).
 func (s *<%= it.entityName %>Service) FindAll(ctx context.Context, opts utils.QueryOptions) (*dto.<%= it.entityName %>PaginatedResponse, error) {
 	var items []models.<%= it.entityName %>
 
@@ -47,7 +48,10 @@ func (s *<%= it.entityName %>Service) FindAll(ctx context.Context, opts utils.Qu
 	query = query.Preload("<%= assoc.referenceName || assoc.name %>")
 <% }) %>
 
-	query, total, pageCount := utils.ApplyQuery(query, opts, AllowedFields<%= it.entityName %>)
+	query, total, pageCount, err := utils.ApplyQueryE(query, opts, AllowedFields<%= it.entityName %>)
+	if err != nil {
+		return nil, err
+	}
 
 	if err := query.Find(&items).Error; err != nil {
 		return nil, err
@@ -65,6 +69,34 @@ func (s *<%= it.entityName %>Service) FindAll(ctx context.Context, opts utils.Qu
 		Page:      opts.Page,
 		PageCount: pageCount,
 	}, nil
+}
+
+// FindAllBare retrieves <%= it.pluralName %> as a bare slice (no pagination
+// envelope), used by the PostgREST dialect (apso #58). An unknown filter/sort/
+// select column surfaces as a *utils.QueryError so the handler answers 400
+// rather than 500 (apso #60).
+func (s *<%= it.entityName %>Service) FindAllBare(ctx context.Context, opts utils.QueryOptions) ([]dto.<%= it.entityName %>Response, error) {
+	var items []models.<%= it.entityName %>
+
+	query := s.db.WithContext(ctx).Model(&models.<%= it.entityName %>{})
+<% it.associations.filter(a => a.eager).forEach((assoc) => { %>
+	query = query.Preload("<%= assoc.referenceName || assoc.name %>")
+<% }) %>
+
+	query, _, _, err := utils.ApplyQueryE(query, opts, AllowedFields<%= it.entityName %>)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := query.Find(&items).Error; err != nil {
+		return nil, err
+	}
+
+	response := make([]dto.<%= it.entityName %>Response, len(items))
+	for i, item := range items {
+		response[i] = s.toResponse(&item)
+	}
+	return response, nil
 }
 
 // FindOne retrieves a single <%= it.entityName %> by ID
