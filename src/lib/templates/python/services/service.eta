@@ -21,8 +21,15 @@ class <%= it.entityName %>Service:
     async def get_many(self, options: QueryOptions) -> PaginatedResult:
         """
         Retrieve a paginated list of <%= it.pluralEntityName %> with filtering, sorting, and joins.
+        (nestjsx dialect — {data,count,total,page,pageCount} envelope.)
         """
         return await self._qb.get_many(options)
+
+    async def get_many_list(self, options: QueryOptions) -> List[Any]:
+        """
+        Retrieve <%= it.pluralEntityName %> as a bare list (PostgREST dialect).
+        """
+        return await self._qb.get_many_list(options)
 
     async def get_one(
         self,

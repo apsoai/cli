@@ -306,6 +306,140 @@ describe("PythonGenerator", () => {
     });
   });
 
+  describe("PostgREST/Supabase dialect (parity with TS #36/#56-#60)", () => {
+    test("query utils emit both dialect parsers and detection", async () => {
+      const files = await generator.generateQueryUtils([], "rest");
+      const query = findFileContent(files, "query.py");
+      expect(query).toBeDefined();
+
+      // Both parser paths + the unified entrypoint exist.
+      expect(query).toContain("def parse_nestjsx_params");
+      expect(query).toContain("def parse_postgrest_params");
+      expect(query).toContain("def detect_dialect");
+      expect(query).toContain("def parse_query_params");
+      // Unified entrypoint takes the X-Crud-Dialect header.
+      expect(query).toContain("def parse_query_params(params: Any, dialect_header");
+    });
+
+    test("dialect detection mirrors dialect.ts key sets", async () => {
+      const files = await generator.generateQueryUtils([], "rest");
+      const query = findFileContent(files, "query.py")!;
+
+      // nestjsx-only, postgrest-only, neutral key sets.
+      expect(query).toContain('_NESTJSX_KEYS = frozenset(["fields", "filter", "or", "join", "sort", "s", "per_page"])');
+      expect(query).toContain('_POSTGREST_KEYS = frozenset(["select", "order"])');
+      expect(query).toContain('_NEUTRAL_KEYS = frozenset(["limit", "offset", "page", "cache"])');
+      // Header wins; invalid header is a parse error (=> 400 in the router).
+      expect(query).toContain("Invalid X-Crud-Dialect header");
+      // Both families present => refuse to guess.
+      expect(query).toContain("Ambiguous query:");
+    });
+
+    test("postgrest operator mapping matches the TS core", async () => {
+      const files = await generator.generateQueryUtils([], "rest");
+      const query = findFileContent(files, "query.py")!;
+
+      // Core operator map (eq/neq/gt/gte/lt/lte/like/ilike/in).
+      expect(query).toContain('"eq": "$eq"');
+      expect(query).toContain('"neq": "$ne"');
+      expect(query).toContain('"gte": "$gte"');
+      expect(query).toContain('"like": "$like"');
+      expect(query).toContain('"ilike": "$ilike"');
+      expect(query).toContain('"in": "$in"');
+      // not.<op> negation map.
+      expect(query).toContain("_PG_NOT_MAP");
+      // is.null / is.true handling.
+      expect(query).toContain('if op == "is"');
+      // * -> % wildcard for like/ilike.
+      expect(query).toContain('rest.replace("*", "%")');
+    });
+
+    test("or=()/and=() groups and order/nulls are parsed", async () => {
+      const files = await generator.generateQueryUtils([], "rest");
+      const query = findFileContent(files, "query.py")!;
+
+      expect(query).toContain("def _parse_pg_logical");
+      expect(query).toContain("def _parse_pg_order");
+      expect(query).toContain('"NULLS FIRST"');
+      expect(query).toContain('"NULLS LAST"');
+      // select alias rename (#57).
+      expect(query).toContain("field_aliases");
+    });
+
+    test("deferred operators (cs/cd/ov/fts) are rejected, not silently accepted", async () => {
+      const files = await generator.generateQueryUtils([], "rest");
+      const query = findFileContent(files, "query.py")!;
+
+      expect(query).toContain("_PG_DEFERRED_OPS");
+      expect(query).toContain('"cs"');
+      expect(query).toContain('"fts"');
+      expect(query).toContain("is not supported yet");
+    });
+
+    test("bare-array pagination (#58) and unknown-column 400 (#60)", async () => {
+      const files = await generator.generateQueryUtils([], "rest");
+      const query = findFileContent(files, "query.py")!;
+
+      // PostgREST path returns a bare list; nestjsx keeps the envelope.
+      expect(query).toContain("async def get_many_list");
+      expect(query).toContain("async def get_many");
+      // Unknown column => QueryParseError (mapped to 400 in the router).
+      expect(query).toContain("Unknown column '");
+      expect(query).toContain("class QueryParseError");
+    });
+
+    test("router detects dialect and shapes the response", async () => {
+      const widget: Entity = { name: "Widget", fields: [{ name: "title", type: "text" }] };
+      const files = await generator.generateController({
+        entity: widget,
+        relationships: [],
+        relationshipMap: {},
+        allEntities: [widget],
+        apiType: "rest",
+      });
+      const router = findFileContent(files, "widget.py");
+      expect(router).toBeDefined();
+
+      // Reads the header, passes it to the parser.
+      expect(router).toContain('alias="X-Crud-Dialect"');
+      expect(router).toContain("parse_query_params(request.query_params, x_crud_dialect)");
+      // postgrest branch returns a bare JSON array; nestjsx keeps the envelope.
+      expect(router).toContain('if options.dialect == "postgrest"');
+      expect(router).toContain("get_many_list");
+      expect(router).toContain("JSONResponse");
+      expect(router).toContain("WidgetList(");
+      // Parse errors => 400.
+      expect(router).toContain("HTTP_400_BAD_REQUEST");
+      expect(router).toContain("QueryParseError");
+    });
+
+    test("service exposes both envelope and bare-list retrieval", async () => {
+      const widget: Entity = { name: "Widget", fields: [{ name: "title", type: "text" }] };
+      const files = await generator.generateService({
+        entity: widget,
+        relationships: [],
+        relationshipMap: {},
+        allEntities: [widget],
+        apiType: "rest",
+      });
+      const service = findFileContent(files, "widget.py");
+      expect(service).toBeDefined();
+      expect(service).toContain("async def get_many(");
+      expect(service).toContain("async def get_many_list(");
+    });
+
+    test("nestjsx parser surface is preserved (byte-compatible entry points)", async () => {
+      const files = await generator.generateQueryUtils([], "rest");
+      const query = findFileContent(files, "query.py")!;
+
+      // The original nestjsx helpers and pipe-delimited filter format remain.
+      expect(query).toContain('parts = raw.split("||")');
+      expect(query).toContain("def _parse_filter_param");
+      expect(query).toContain("def _parse_sort_param");
+      expect(query).toContain("def _parse_join_param");
+    });
+  });
+
   describe("emitEvents / domain events manifest (cli#81)", () => {
     test("entity with emitEvents:true emits a single event-emitting manifest", async () => {
       const entity: Entity = {
