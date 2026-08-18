@@ -9,6 +9,7 @@ import {
 } from "../lib";
 import { TargetLanguage, GeneratorConfig } from "../lib/types";
 import BaseCommand from "../lib/base-command";
+import { isInteractive, missingFlag } from "../lib/utils/interactive";
 import { performance } from "perf_hooks";
 import { createFile } from "../lib/utils/file-system";
 import { installCoAuthorHook } from "../lib/utils/git-hooks";
@@ -53,6 +54,15 @@ export default class Generate extends BaseCommand {
       language = configLanguage;
       console.log(`[apso] Using language from .apsorc: ${language}`);
     } else {
+      // Headless (CI / no TTY / APSO_NONINTERACTIVE): never block on a prompt.
+      // Fail fast and name the flag so the caller can retry deterministically.
+      if (!isInteractive()) {
+        this.error(
+          missingFlag(
+            'Pass --language <typescript|python|go> or set "language" in .apsorc.'
+          )
+        );
+      }
       const implementedLanguages = getImplementedLanguages();
       const { selectedLanguage } = await inquirer.prompt<{ selectedLanguage: TargetLanguage }>([
         {
