@@ -2022,11 +2022,12 @@
       }
     },
     "node_modules/@oclif/plugin-help": {
-      "version": "5.2.9",
-      "resolved": "https://registry.npmjs.org/@oclif/plugin-help/-/plugin-help-5.2.9.tgz",
-      "integrity": "sha512-0J3oowPURZJ4Dn1p1WpQ46E4+CoV20KTn1cvsNiDl6Hmbw+qoljKQnArJJzNFeZQxWo4R7/S42PrzKJTVYh68Q==",
+      "version": "5.2.20",
+      "resolved": "https://registry.npmjs.org/@oclif/plugin-help/-/plugin-help-5.2.20.tgz",
+      "integrity": "sha512-u+GXX/KAGL9S10LxAwNUaWdzbEBARJ92ogmM7g3gDVud2HioCmvWQCDohNRVZ9GYV9oKwZ/M8xwd6a1d95rEKQ==",
+      "license": "MIT",
       "dependencies": {
-        "@oclif/core": "^2.8.0"
+        "@oclif/core": "^2.15.0"
       },
       "engines": {
         "node": ">=12.0.0"
