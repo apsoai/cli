@@ -66,6 +66,45 @@ export function cloneTemplate(
   shell.rm("-rf", path.join(projectPath, ".git"));
 
   ensureEnvFile(projectPath, log);
+  stampApsorcLanguage(projectPath, language, log);
+}
+
+/**
+ * Stamp the chosen language into the scaffolded `.apsorc`.
+ *
+ * `apso generate` resolves its target language as flag > .apsorc > prompt.
+ * The TypeScript template (pinned at v2.0.0) ships an `.apsorc` without a
+ * `language` field, so a bare `apso generate` right after `apso init` fell
+ * through to the interactive prompt — which errors in non-TTY contexts
+ * (this is what kept the weekly scaffold-smoke workflow red). Recording the
+ * language `init` was given makes the scaffold self-describing.
+ *
+ * Best-effort: leaves an existing `language` value alone and skips files it
+ * cannot parse as JSON.
+ */
+export function stampApsorcLanguage(
+  projectPath: string,
+  language: TargetLanguage,
+  log: (msg: string) => void
+): void {
+  const apsorcPath = path.join(projectPath, ".apsorc");
+  if (!fs.existsSync(apsorcPath)) return;
+
+  try {
+    const raw = fs.readFileSync(apsorcPath, "utf-8");
+    const config = JSON.parse(raw) as { language?: string };
+    if (config.language) return;
+    config.language = language;
+    const indent = raw.match(/^([\t ]+)"/m)?.[1] ?? "  ";
+    fs.writeFileSync(
+      apsorcPath,
+      `${JSON.stringify(config, null, indent)}\n`
+    );
+    log(`Recorded "language": "${language}" in .apsorc`);
+  } catch {
+    // .apsorc may use a format we don't fully parse (e.g. comments) —
+    // leave it untouched rather than risk mangling the user's schema file.
+  }
 }
 
 /**

@@ -1,20 +1,15 @@
 name: scaffold smoke test
 
-# Scaffolds a fresh project with the CLI and compiles it (apsoai/cli#101).
+# Scaffolds a fresh project with the CLI, generates code from a seeded
+# entity, and compiles the result — one leg per language (apsoai/cli#101).
 #
-# Intentionally NOT a pull_request gate: the TypeScript template currently
-# references unpublished @apso/crud packages (file:../apso-crud), so a fresh
-# scaffold does not yet install/compile. Wiring this to pull_request would red
-# every PR until the template target is resolved (see cli#99 / publishing
-# @apso/crud). Run it on demand (or weekly) to verify once that lands, then
-# flip the trigger to pull_request to make it a real gate.
+# Intentionally NOT a pull_request gate yet: each leg clones its service
+# template repo and installs dependencies from the network, so template-side
+# breakage would red unrelated CLI PRs. Weekly + on-demand keeps it a
+# low-noise heartbeat; consider flipping to pull_request once the legs have
+# a stable green streak.
 on:
   workflow_dispatch:
-    inputs:
-      language:
-        description: "Template language to scaffold"
-        required: false
-        default: "typescript"
   schedule:
     # Mondays 06:00 UTC — a low-noise heartbeat, does not block PRs.
     - cron: "0 6 * * 1"
@@ -22,6 +17,14 @@ on:
 jobs:
   scaffold-and-compile:
     runs-on: ubuntu-latest
+    strategy:
+      # One leg per language: this workflow is the only regression net for
+      # the Python and Go generators, so a red leg in one language must not
+      # cancel the others.
+      fail-fast: false
+      matrix:
+        language: [typescript, python, go]
+    name: scaffold-and-compile (${{ matrix.language }})
     steps:
       - uses: actions/checkout@v4
         with:
@@ -34,5 +37,17 @@ jobs:
           registry-url: "https://npm.pkg.github.com"
           scope: "@mavric"
 
+      - name: Setup Go
+        if: matrix.language == 'go'
+        uses: actions/setup-go@v5
+        with:
+          go-version: "stable"
+
+      - name: Setup Python
+        if: matrix.language == 'python'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Scaffold and compile
-        run: bash scripts/scaffold-smoke.sh "${{ github.event.inputs.language || 'typescript' }}"
+        run: bash scripts/scaffold-smoke.sh "${{ matrix.language }}"
