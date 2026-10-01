@@ -18,6 +18,10 @@
           "cli_version",
           "node_version",
           "duration_ms",
+          "user_error",
+          "workspace_id",
+          "workspace_slug",
+          "service_id",
           "error_code",
           "mcp_tool"
         ]

@@ -14,6 +14,6 @@ describe("isUserError", () => {
   test("unexpected exceptions are not", () => {
     expect(isUserError(new Error("ENOENT: no such file"))).toBe(false);
     expect(isUserError(new TypeError("cannot read properties of undefined"))).toBe(false);
-    expect(isUserError(undefined)).toBe(false);
+    expect(isUserError(null)).toBe(false);
   });
 });

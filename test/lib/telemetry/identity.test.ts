@@ -24,6 +24,8 @@ jest.mock("../../../src/lib/config", () => ({
 function load() {
   let mod: any;
   jest.isolateModules(() => {
+    // isolateModules needs a fresh require per test (ts-jest resolves the .ts).
+    // eslint-disable-next-line node/no-missing-require
     mod = require("../../../src/lib/telemetry/telemetry");
   });
   mod.initTelemetry();
