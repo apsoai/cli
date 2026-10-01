@@ -8,19 +8,34 @@ import {
   elapsedMs,
 } from "./telemetry/telemetry";
 
+/** True for errors oclif raised deliberately (this.error, this.exit, parse errors). */
+export function isUserError(err: unknown): boolean {
+  return Boolean(err && typeof err === "object" && "oclif" in err);
+}
+
 export default abstract class BaseCommand extends Command {
   /**
    * Report failures to Sentry + PostHog before oclif exits. The postrun hook
    * does not fire on error, so the flush has to happen here.
    */
-  async catch(err: Error & { exitCode?: number; code?: string }): Promise<any> {
+  async catch(
+    err: Error & { exitCode?: number; code?: string; oclif?: { exit?: number } }
+  ): Promise<any> {
     try {
-      captureException(err, { command: this.id });
+      // oclif marks errors it raised on purpose (this.error, this.exit, flag
+      // and arg parse failures) with an `oclif` property. Those are messages
+      // we chose to show the user, e.g. "No entity named X", not crashes, so
+      // they go to PostHog only. Everything else is a real bug for Sentry.
+      const userError = isUserError(err);
+      if (!userError) {
+        captureException(err, { command: this.id });
+      }
       track("cli_command_failed", {
         command: this.id,
         duration_ms: elapsedMs(),
         error: err?.message,
         error_code: err?.code,
+        user_error: userError,
       });
       await shutdownTelemetry();
     } catch {

@@ -158,6 +158,11 @@ export interface GlobalConfigFile {
    * Whether the first-run telemetry transparency notice has been shown.
    */
   telemetryNoticeShown: boolean;
+
+  /**
+   * User id this install's anonymous telemetry id was last aliased to.
+   */
+  telemetryAliasedUserId?: string;
 }
 
 /**
