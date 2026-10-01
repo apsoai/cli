@@ -21,7 +21,7 @@ import { PostHog } from "posthog-node";
 import * as Sentry from "@sentry/node";
 import { createHash, randomUUID } from "crypto";
 import os from "os";
-import { globalConfig, credentials } from "../config";
+import { globalConfig, credentials, projectLink } from "../config";
 
 // Public ingestion keys (same tokens the browser/build-engine ship, per env).
 const POSTHOG_KEY_PROD = "phc_Es9UUMw8pOs7Bs21b5PhfC5Qdo94GpYVv8MfdrG12LC";
@@ -45,6 +45,9 @@ let enabled = false;
 let sentryOn = false;
 let authenticatedUser = false;
 let distinctId = "cli-anonymous";
+let workspaceId: string | undefined;
+let workspaceSlug: string | undefined;
+let serviceId: string | undefined;
 let environment: "production" | "staging" = "production";
 let startedAt = Date.now();
 let noticePending = false;
@@ -103,18 +106,36 @@ export function initTelemetry(): void {
 
     const creds = credentials.read();
     authenticatedUser = Boolean(creds?.user?.id);
-    distinctId = creds?.user?.id || getOrCreateInstallId(cfg.installId);
+    const installId = getOrCreateInstallId(cfg.installId);
+    // Logged in: the Apso user id (the same distinct id the web app uses), so
+    // CLI and app activity land on one person. No email or name is sent.
+    distinctId = creds?.user?.id ? String(creds.user.id) : installId;
+
+    // Workspace context: the linked project (.apso/link.json) wins, else the
+    // workspace chosen with `apso use`.
+    let link: ReturnType<typeof projectLink.read> = null;
+    try {
+      link = projectLink.read();
+    } catch {
+      link = null;
+    }
+    workspaceId = link?.workspaceId || cfg.activeWorkspaceId || undefined;
+    workspaceSlug = link?.workspaceSlug || cfg.activeWorkspaceSlug || undefined;
+    serviceId = link?.serviceId || undefined;
 
     posthog = new PostHog(
       environment === "staging" ? POSTHOG_KEY_STAGING : POSTHOG_KEY_PROD,
       { host: POSTHOG_HOST, flushAt: 1, flushInterval: 0 }
     );
-    if (creds?.user?.email) {
-      // Attach identity so CLI events attribute to the same person as the app.
-      posthog.identify({
-        distinctId,
-        properties: { email: creds.user.email, name: creds.user.name },
-      });
+    // First run after login: merge this install's earlier anonymous events
+    // into the user, once per user.
+    if (authenticatedUser && installId !== distinctId && cfg.telemetryAliasedUserId !== distinctId) {
+      posthog.alias({ distinctId, alias: installId });
+      try {
+        globalConfig.write({ telemetryAliasedUserId: distinctId });
+      } catch {
+        // ignore — worst case we alias again next run
+      }
     }
 
     const dsn = process.env.APSO_CLI_SENTRY_DSN || SENTRY_DSN_DEFAULT;
@@ -125,8 +146,10 @@ export function initTelemetry(): void {
         release: `apso-cli@${cliVersion}`,
         tracesSampleRate: 0,
       });
-      Sentry.setUser({ id: distinctId, email: creds?.user?.email });
+      Sentry.setUser({ id: distinctId });
       Sentry.setTag("cli_version", cliVersion);
+      if (workspaceId) Sentry.setTag("workspace_id", workspaceId);
+      if (serviceId) Sentry.setTag("service_id", serviceId);
       sentryOn = true;
     }
   } catch {
@@ -142,6 +165,9 @@ function commonProps(): Record<string, unknown> {
     arch: os.arch(),
     node_version: process.version,
     authenticated: authenticatedUser,
+    ...(workspaceId ? { workspace_id: workspaceId } : {}),
+    ...(workspaceSlug ? { workspace_slug: workspaceSlug } : {}),
+    ...(serviceId ? { service_id: serviceId } : {}),
   };
 }
 
@@ -150,8 +176,9 @@ function commonProps(): Record<string, unknown> {
  * init hook so it never pollutes stdout / piped output.
  */
 export const FIRST_RUN_NOTICE =
-  "Apso collects anonymous usage data (command name, CLI version, OS) to improve the tool.\n" +
-  "No code, schema, file contents, or personal data is collected.\n" +
+  "Apso collects usage data (command name, CLI version, OS) to improve the tool. When you're\n" +
+  "logged in, it's tied to your Apso account id and workspace id. No email, code, schema, or\n" +
+  "file contents are collected.\n" +
   "Opt out any time: apso config set telemetry off  (or APSO_TELEMETRY=0, or DO_NOT_TRACK=1)";
 
 /**
@@ -180,6 +207,8 @@ export function track(event: string, properties: Record<string, unknown> = {}): 
       distinctId,
       event,
       properties: { ...commonProps(), ...properties },
+      // PostHog group analytics: roll activity up per workspace.
+      ...(workspaceId ? { groups: { workspace: workspaceId } } : {}),
     });
   } catch {
     // never break a command over telemetry
