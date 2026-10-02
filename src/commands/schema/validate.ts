@@ -2,7 +2,8 @@ import { Flags } from "@oclif/core";
 import BaseCommand from "../../lib/base-command";
 import { credentials, projectLink } from "../../lib/config";
 import { schemaApi } from "../../lib/api/services";
-import { parseApsorc } from "../../lib/apsorc-parser";
+import { formatLintReport, lintSchema } from "@apso/schema-tools";
+import { parseApsorc, readApsorcFile } from "../../lib/apsorc-parser";
 import { apsorcToServiceSchema } from "../../lib/utils/schema-convert";
 
 export default class SchemaValidate extends BaseCommand {
@@ -22,6 +23,27 @@ export default class SchemaValidate extends BaseCommand {
 
   async run(): Promise<void> {
     const { flags } = await this.parse(SchemaValidate);
+
+    // Lint first so every issue is listed, not just the first one parseApsorc throws on
+    let file;
+    try {
+      file = readApsorcFile();
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      this.error(`Failed to read .apsorc: ${msg}`);
+    }
+    if (file.apsorc.version === 2) {
+      const lint = lintSchema(file.apsorc);
+      if (lint.issues.length > 0) {
+        this.log(formatLintReport(lint));
+        this.log("");
+      }
+      if (lint.errorCount > 0) {
+        this.error(
+          `Validation failed with ${lint.errorCount} lint error(s). Run "apso schema lint --fix" to apply the safe fixes.`
+        );
+      }
+    }
 
     // Parse .apsorc
     let parsed;

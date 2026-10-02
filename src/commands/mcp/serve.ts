@@ -25,6 +25,7 @@ import {
 } from "../../lib/doctor/runner";
 import { createFile } from "../../lib/utils/file-system";
 import { apsorcToServiceSchema } from "../../lib/utils/schema-convert";
+import { registerSchemaTools } from "../../lib/mcp-schema-tools";
 import { performance } from "perf_hooks";
 
 export default class McpServe extends BaseCommand {
@@ -101,6 +102,11 @@ export default class McpServe extends BaseCommand {
   }
 
   private registerTools(server: McpServer): void {
+    // ── granular schema edits (@apso/schema-tools) ─────────────────
+    // get_schema, describe_entity, add_entity, add_field, rename_field, ...
+    // on the project's .apsorc, each linted before it is written.
+    registerSchemaTools(server);
+
     // ── design_schema ──────────────────────────────────────────────
     server.tool(
       "design_schema",
