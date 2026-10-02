@@ -9,6 +9,7 @@
       "version": "0.38.4",
       "license": "Apache-2.0",
       "dependencies": {
+        "@apso/schema-lint": "file:vendor/apso-schema-lint-0.1.0.tgz",
         "@biomejs/biome": "^1.9.4",
         "@electric-sql/pglite": "^0.2.17",
         "@modelcontextprotocol/sdk": "^1.29.0",
@@ -146,6 +147,15 @@
       "resolved": "https://registry.npmjs.org/ms/-/ms-2.1.3.tgz",
       "integrity": "sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==",
       "license": "MIT"
+    },
+    "node_modules/@apso/schema-lint": {
+      "version": "0.1.0",
+      "resolved": "file:vendor/apso-schema-lint-0.1.0.tgz",
+      "integrity": "sha512-3ms2zEYFjc+zXKmnE+Aa38CmMrUgHBMn+NY0XuOK9+UrSJzmTVjLUtJIajRwTtGi41kLAxPEDihZOE5LqROp6w==",
+      "license": "Apache-2.0",
+      "dependencies": {
+        "pluralize": "^8.0.0"
+      }
     },
     "node_modules/@babel/code-frame": {
       "version": "7.21.4",
