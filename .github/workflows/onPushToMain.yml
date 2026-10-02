@@ -9,6 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write # bump commit, push tags, create GitHub releases
+      id-token: write # npm trusted publishing (OIDC), no NODE_AUTH_TOKEN
     steps:
     - uses: actions/checkout@v3
       with:
@@ -77,19 +78,25 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Setup NPM Authentication
-      run: |
-        echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > ~/.npmrc
-      env:
-        NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN }}
-    
+    # Trusted publishing: npm exchanges this workflow's GitHub OIDC token for a
+    # short-lived publish credential. No long-lived npm token to expire.
+    # Configured on npmjs.com: @apso/cli > Settings > Trusted Publisher
+    # (GitHub Actions, apsoai/cli, onPushToMain.yml).
+    # Build stays on Node 18 (what CI tests); publish needs npm >= 11.5.1,
+    # which needs Node 22.
+    - name: Setup Node.js for publish
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+        registry-url: 'https://registry.npmjs.org/'
+
+    - name: Upgrade npm for trusted publishing
+      run: npm install -g npm@11
+
+    # Fails the run on error. It used to continue-on-error, which hid an
+    # expired token for weeks (0.38.0 never reached npm).
     - name: Publish to npm
-      continue-on-error: true
-      run: |
-        npm config set access public
-        npm publish
-      env:
-        NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN }}
+      run: npm publish --access public
 
     - name: Build standalone tarballs
       if: steps.bump_version.outputs.newTag != ''
