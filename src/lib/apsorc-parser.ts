@@ -74,7 +74,7 @@ export const parseApsorcV1 = (apsorc: ApsorcType): ParsedApsorcData => {
 };
 
 /** Valid in TypeScript, Python and Go, so every target language compiles it. */
-const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const IDENTIFIER = /^[A-Z_a-z]\w*$/;
 
 /**
  * A name in .apsorc that would generate code that does not compile. `code`
