@@ -81,7 +81,8 @@ jobs:
     # Trusted publishing: npm exchanges this workflow's GitHub OIDC token for a
     # short-lived publish credential. No long-lived npm token to expire.
     # Configured on npmjs.com: @apso/cli > Settings > Trusted Publisher
-    # (GitHub Actions, apsoai/cli, onPushToMain.yml).
+    # (GitHub Actions, apsoai/cli, onPushToMain.yml, environment blank,
+    # "Allow npm publish" checked; without it only `npm stage publish` works).
     # Build stays on Node 18 (what CI tests); publish needs npm >= 11.5.1,
     # which needs Node 22.
     # No registry-url: with it, setup-node writes an .npmrc that sends the
