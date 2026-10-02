@@ -9,7 +9,7 @@
       "version": "0.38.4",
       "license": "Apache-2.0",
       "dependencies": {
-        "@apso/schema-tools": "file:vendor/apso-schema-tools-0.1.0.tgz",
+        "@apso/schema-tools": "^0.1.0",
         "@biomejs/biome": "^1.9.4",
         "@electric-sql/pglite": "^0.2.17",
         "@modelcontextprotocol/sdk": "^1.29.0",
@@ -150,7 +150,7 @@
     },
     "node_modules/@apso/schema-tools": {
       "version": "0.1.0",
-      "resolved": "file:vendor/apso-schema-tools-0.1.0.tgz",
+      "resolved": "https://registry.npmjs.org/@apso/schema-tools/-/schema-tools-0.1.0.tgz",
       "integrity": "sha512-c/vvsyo+ZMxq4DK4V1UlP3N/De9ijTfcAM/9VrZHmLxeA6JiXx3J+baSBAseffBBTUeNYDp4D/c4iLz8CcCePw==",
       "license": "Apache-2.0",
       "dependencies": {

@@ -10,7 +10,7 @@ import {
   parseV1Relationships,
 } from "./utils/relationships";
 import { performance } from "perf_hooks";
-// TODO(schema-tools): "@apso/schema-tools" is installed from vendor/apso-schema-tools-0.1.0.tgz
+// @apso/schema-tools is published on npm (apsoai/apso-packages).
 // until the package is published to npm; then switch package.json to "^0.1.0" and delete vendor/.
 import { lintSchema } from "@apso/schema-tools";
 
