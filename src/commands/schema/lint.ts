@@ -1,7 +1,7 @@
 import { Flags } from "@oclif/core";
 import * as fs from "fs";
 import * as path from "path";
-import { fixSchema, formatLintReport, LintIssue, lintSchema, LintResult } from "@apso/schema-lint";
+import { fixSchema, formatLintReport, LintIssue, lintSchema, LintResult } from "@apso/schema-tools";
 import BaseCommand from "../../lib/base-command";
 import { createBackup } from "../../lib/config";
 import { ApsorcType, readApsorcFile } from "../../lib/apsorc-parser";

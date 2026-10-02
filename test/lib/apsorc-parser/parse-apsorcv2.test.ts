@@ -443,9 +443,9 @@ describe("test parseApsorcV2", () => {
   });
 });
 
-// The rules live in @apso/schema-lint (shared with apso-client-v2); its
+// The rules live in @apso/schema-tools (shared with apso-client-v2); its
 // fixtures cover each rule. Here: parseApsorcV2 refuses on any lint error.
-describe("codegen naming errors (@apso/schema-lint)", () => {
+describe("codegen naming errors (@apso/schema-tools)", () => {
   const notes = {
     version: 2,
     entities: [

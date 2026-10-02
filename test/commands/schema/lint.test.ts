@@ -37,6 +37,7 @@ describe("apso schema lint", () => {
     const { result, fixed, backupPath } = lintApsorc(configPath, apsorc, true);
     expect(result.errorCount).toBe(0);
     expect(fixed.map((i) => i.rule)).toEqual(["FIELD_RELATIONSHIP_COLLISION"]);
+    // eslint-disable-next-line unicorn/prefer-json-parse-buffer -- JSON.parse's TS type requires a string
     const saved = JSON.parse(fs.readFileSync(configPath, "utf8"));
     expect(saved.entities[0].fields[0].name).toBe("notes_text");
     expect(saved.relationships).toEqual(apsorc.relationships);

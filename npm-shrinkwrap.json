@@ -9,7 +9,7 @@
       "version": "0.38.4",
       "license": "Apache-2.0",
       "dependencies": {
-        "@apso/schema-lint": "file:vendor/apso-schema-lint-0.1.0.tgz",
+        "@apso/schema-tools": "file:vendor/apso-schema-tools-0.1.0.tgz",
         "@biomejs/biome": "^1.9.4",
         "@electric-sql/pglite": "^0.2.17",
         "@modelcontextprotocol/sdk": "^1.29.0",
@@ -148,10 +148,10 @@
       "integrity": "sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==",
       "license": "MIT"
     },
-    "node_modules/@apso/schema-lint": {
+    "node_modules/@apso/schema-tools": {
       "version": "0.1.0",
-      "resolved": "file:vendor/apso-schema-lint-0.1.0.tgz",
-      "integrity": "sha512-3ms2zEYFjc+zXKmnE+Aa38CmMrUgHBMn+NY0XuOK9+UrSJzmTVjLUtJIajRwTtGi41kLAxPEDihZOE5LqROp6w==",
+      "resolved": "file:vendor/apso-schema-tools-0.1.0.tgz",
+      "integrity": "sha512-c/vvsyo+ZMxq4DK4V1UlP3N/De9ijTfcAM/9VrZHmLxeA6JiXx3J+baSBAseffBBTUeNYDp4D/c4iLz8CcCePw==",
       "license": "Apache-2.0",
       "dependencies": {
         "pluralize": "^8.0.0"

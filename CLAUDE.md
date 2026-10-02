@@ -27,7 +27,7 @@ apso dev               # Start local dev server via Docker Compose
 # Schema
 apso migrate           # Test schema migrations locally (PGlite sandbox)
 apso schema validate   # Validate local .apsorc (includes lint)
-apso schema lint       # Lint .apsorc with @apso/schema-lint (--fix, --json)
+apso schema lint       # Lint .apsorc with @apso/schema-tools (--fix, --json)
 apso schema diff       # Diff local vs remote schema
 apso schema push       # Push local schema to platform
 apso schema pull       # Pull remote schema to local .apsorc

@@ -10,9 +10,9 @@ import {
   parseV1Relationships,
 } from "./utils/relationships";
 import { performance } from "perf_hooks";
-// TODO(schema-lint): "@apso/schema-lint" is installed from vendor/apso-schema-lint-0.1.0.tgz
+// TODO(schema-tools): "@apso/schema-tools" is installed from vendor/apso-schema-tools-0.1.0.tgz
 // until the package is published to npm; then switch package.json to "^0.1.0" and delete vendor/.
-import { lintSchema } from "@apso/schema-lint";
+import { lintSchema } from "@apso/schema-tools";
 
 export enum ApiType {
   Graphql = "graphql",
@@ -76,7 +76,7 @@ export const parseApsorcV1 = (apsorc: ApsorcType): ParsedApsorcData => {
 
 /**
  * A schema problem that would make `apso generate` emit code that does not
- * compile. `code` is the @apso/schema-lint rule id (FIELD_RELATIONSHIP_COLLISION,
+ * compile. `code` is the @apso/schema-tools rule id (FIELD_RELATIONSHIP_COLLISION,
  * DUPLICATE_FIELD_NAME, ...), the same codes the apso-client-v2 validator used.
  */
 export class ApsorcNamingError extends Error {
@@ -92,7 +92,7 @@ export class ApsorcNamingError extends Error {
 }
 
 /**
- * Throws an ApsorcNamingError for the first @apso/schema-lint error, e.g. a
+ * Throws an ApsorcNamingError for the first @apso/schema-tools error, e.g. a
  * text field `notes` on Contact plus Note ManyToOne Contact, whose inverse
  * side is `notes: Note[]` on Contact (TS2300 Duplicate identifier). The client
  * schema builder runs the same rules, so a schema that passes there passes here.

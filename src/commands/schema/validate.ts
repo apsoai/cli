@@ -2,7 +2,7 @@ import { Flags } from "@oclif/core";
 import BaseCommand from "../../lib/base-command";
 import { credentials, projectLink } from "../../lib/config";
 import { schemaApi } from "../../lib/api/services";
-import { formatLintReport, lintSchema } from "@apso/schema-lint";
+import { formatLintReport, lintSchema } from "@apso/schema-tools";
 import { parseApsorc, readApsorcFile } from "../../lib/apsorc-parser";
 import { apsorcToServiceSchema } from "../../lib/utils/schema-convert";
 
