@@ -84,11 +84,13 @@ jobs:
     # (GitHub Actions, apsoai/cli, onPushToMain.yml).
     # Build stays on Node 18 (what CI tests); publish needs npm >= 11.5.1,
     # which needs Node 22.
+    # No registry-url: with it, setup-node writes an .npmrc that sends the
+    # NODE_AUTH_TOKEN placeholder (XXXXX-...) as the auth token, and npm then
+    # publishes with that instead of OIDC (E404).
     - name: Setup Node.js for publish
       uses: actions/setup-node@v4
       with:
         node-version: '22'
-        registry-url: 'https://registry.npmjs.org/'
 
     - name: Upgrade npm for trusted publishing
       run: npm install -g npm@11
@@ -96,7 +98,12 @@ jobs:
     # Fails the run on error. It used to continue-on-error, which hid an
     # expired token for weeks (0.38.0 never reached npm).
     - name: Publish to npm
-      run: npm publish --access public
+      run: |
+        npm --version
+        npm publish --access public --loglevel verbose
+      env:
+        NODE_AUTH_TOKEN: ''
+        NPM_CONFIG_USERCONFIG: /tmp/empty-npmrc
 
     - name: Build standalone tarballs
       if: steps.bump_version.outputs.newTag != ''
