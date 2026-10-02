@@ -57,6 +57,17 @@ Add to your MCP configuration:
 | `start_dev_server` | Start local dev environment via Docker Compose |
 | `deploy_api` | Deploy to the Apso platform |
 
+**Schema edit tools** (from `@apso/schema-tools`) change the project's `.apsorc` one step at a time. Each write is linted with the rules `apso generate` enforces; a change that would add a lint error is rejected and the file is left as it was.
+
+| Tool | Description |
+|------|-------------|
+| `get_schema`, `describe_entity` | Read the schema outline, or one entity and its relationships |
+| `add_entity`, `rename_entity`, `remove_entity` | Entities (relationships and foreign key indexes follow renames and removals) |
+| `add_field`, `update_field`, `rename_field`, `remove_field` | Fields (indexes and uniques follow renames and removals) |
+| `add_relationship`, `remove_relationship` | Relationships |
+| `add_index` | Index or unique index |
+| `lint_schema` | Lint report |
+
 **Available resources:**
 
 | Resource | URI | Description |
