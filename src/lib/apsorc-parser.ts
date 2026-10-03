@@ -79,6 +79,9 @@ export const parseApsorcV1 = (apsorc: ApsorcType): ParsedApsorcData => {
  * DUPLICATE_FIELD_NAME, ...), the same codes the apso-client-v2 validator used.
  */
 export class ApsorcNamingError extends Error {
+  /** A problem in the user's .apsorc, not a CLI bug: PostHog only, never Sentry. */
+  readonly userError = true;
+
   constructor(
     message: string,
     public code: string,
