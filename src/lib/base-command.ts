@@ -8,9 +8,14 @@ import {
   elapsedMs,
 } from "./telemetry/telemetry";
 
-/** True for errors oclif raised deliberately (this.error, this.exit, parse errors). */
+/**
+ * True for errors oclif raised deliberately (this.error, this.exit, parse
+ * errors) and for errors that mark themselves `userError` (problems in the
+ * user's input, such as an .apsorc that would not compile).
+ */
 export function isUserError(err: unknown): boolean {
-  return Boolean(err && typeof err === "object" && "oclif" in err);
+  if (!err || typeof err !== "object") return false;
+  return "oclif" in err || (err as { userError?: unknown }).userError === true;
 }
 
 export default abstract class BaseCommand extends Command {
