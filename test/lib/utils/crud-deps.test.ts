@@ -12,6 +12,7 @@ function projectWith(pkg: object): string {
   return dir;
 }
 const readPkg = (dir: string) =>
+  // eslint-disable-next-line unicorn/prefer-json-parse-buffer -- JSON.parse's TS type requires a string
   JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"));
 
 describe("ensureCrudDeps", () => {
@@ -50,6 +51,7 @@ describe("ensureCrudDeps", () => {
 describe("generated TypeScript imports", () => {
   test("only import @apso packages listed in APSO_CRUD_DEPS", async () => {
     const rc = JSON.parse(
+      // eslint-disable-next-line unicorn/prefer-json-parse-buffer -- JSON.parse's TS type requires a string
       fs.readFileSync(path.join(__dirname, "../../fixtures/inventory-multi-fk.apsorc"), "utf8")
     );
     const { entities, relationshipMap } = parseApsorcV2(rc);
@@ -62,6 +64,7 @@ describe("generated TypeScript imports", () => {
     });
 
     const files = [];
+    /* eslint-disable no-await-in-loop -- generated in order, like generate.ts */
     for (const entity of entities) {
       const args = {
         entity,
@@ -78,7 +81,8 @@ describe("generated TypeScript imports", () => {
         ...(await generator.generateModule({ ...args, includeController: true }))
       );
     }
-    files.push(...(await generator.generateGuards(entities, undefined)));
+    /* eslint-enable no-await-in-loop */
+    files.push(...(await generator.generateGuards(entities)));
 
     const imported = new Set<string>();
     for (const f of files) {
