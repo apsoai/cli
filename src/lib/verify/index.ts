@@ -242,12 +242,14 @@ export async function verifyMigration(
   try {
     if (!done(await buildBaseline(projectDir, baselineApsorc, dataDir, cliBin)))
       return { ok: false, steps };
-    if (!skipBuild && !done(step("build", await build(projectDir))))
-      return { ok: false, steps };
-
     const compiled = path
       .join("dist", path.relative("src", migrationFile))
       .replace(/\.ts$/, ".js");
+    // --skip-build still builds when the migration isn't compiled yet.
+    const needsBuild =
+      !skipBuild || !fs.existsSync(path.join(projectDir, compiled));
+    if (needsBuild && !done(step("build", await build(projectDir))))
+      return { ok: false, steps };
     const migrate = await run(
       process.execPath,
       ["-e", RUN_ONE_MIGRATION, compiled],
