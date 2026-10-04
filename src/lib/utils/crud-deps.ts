@@ -25,20 +25,37 @@ export const APSO_CRUD_DEPS: Record<string, string> = {
  * @returns {string[]} Names added (empty when nothing changed or no package.json).
  */
 export function ensureCrudDeps(projectDir: string): string[] {
+  return addMissingDeps(projectDir, APSO_CRUD_DEPS);
+}
+
+/**
+ * Add the given dependencies to package.json where it doesn't declare them.
+ *
+ * @param {string} projectDir - Directory holding the project's package.json.
+ * @param {Record<string, string>} deps - Package names and version ranges.
+ * @returns {string[]} Names added (empty when nothing changed or no package.json).
+ */
+export function addMissingDeps(
+  projectDir: string,
+  deps: Record<string, string>
+): string[] {
   const pkgPath = path.join(projectDir, "package.json");
   if (!fs.existsSync(pkgPath)) return [];
 
   const raw = fs.readFileSync(pkgPath, "utf8");
   const pkg = JSON.parse(raw);
   const declared = { ...pkg.devDependencies, ...pkg.dependencies };
-  const missing = Object.keys(APSO_CRUD_DEPS).filter((name) => !declared[name]);
+  const missing = Object.keys(deps).filter((name) => !declared[name]);
   if (missing.length === 0) return [];
 
   pkg.dependencies = pkg.dependencies ?? {};
-  for (const name of missing) pkg.dependencies[name] = APSO_CRUD_DEPS[name];
+  for (const name of missing) pkg.dependencies[name] = deps[name];
   pkg.dependencies = Object.fromEntries(
     Object.entries(pkg.dependencies).sort(([a], [b]) => a.localeCompare(b))
   );
-  fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + (raw.endsWith("\n") ? "\n" : ""));
+  fs.writeFileSync(
+    pkgPath,
+    JSON.stringify(pkg, null, 2) + (raw.endsWith("\n") ? "\n" : "")
+  );
   return missing;
 }

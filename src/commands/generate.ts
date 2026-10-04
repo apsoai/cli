@@ -14,6 +14,7 @@ import { performance } from "perf_hooks";
 import { createFile } from "../lib/utils/file-system";
 import { installCoAuthorHook } from "../lib/utils/git-hooks";
 import { ensureCrudDeps } from "../lib/utils/crud-deps";
+import { upgradeOrmConfigForPglite } from "../lib/utils/pglite-upgrade";
 
 export default class Generate extends BaseCommand {
   static description = "Generate code from .apsorc schema";
@@ -321,6 +322,12 @@ export default class Generate extends BaseCommand {
       if (added.length > 0) {
         console.log(
           `[apso] Added ${added.join(", ")} to package.json (the generated code imports them). Run npm install before building.`
+        );
+      }
+      // The pre-deploy checks run on PGlite; give a stock v1 config support.
+      if (upgradeOrmConfigForPglite(process.cwd())) {
+        console.log(
+          "[apso] Updated src/orm.config.ts so `apso migrate verify` and `apso test smoke` can run on a local PGlite database. Run npm install before building."
         );
       }
     }
