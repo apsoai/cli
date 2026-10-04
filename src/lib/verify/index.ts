@@ -202,7 +202,8 @@ export async function verifyMigration(
   projectDir: string,
   baselineApsorc: string,
   migrationFile: string,
-  cliBin: string
+  cliBin: string,
+  skipBuild = false
 ): Promise<CheckResult> {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "apso-pglite-"));
   const steps: Step[] = [];
@@ -213,7 +214,7 @@ export async function verifyMigration(
   try {
     if (!done(await buildBaseline(projectDir, baselineApsorc, dataDir, cliBin)))
       return { ok: false, steps };
-    if (!done(step("build", await build(projectDir))))
+    if (!skipBuild && !done(step("build", await build(projectDir))))
       return { ok: false, steps };
 
     const compiled = path
@@ -252,12 +253,15 @@ const freePort = () =>
 const get = (url: string) =>
   new Promise<{ status: number; body: string }>((resolve) => {
     http
-      .get(url, (res) => {
+      .get(url, { timeout: 15_000 }, (res) => {
         let body = "";
         res.on("data", (d) => {
           body += d;
         });
         res.on("end", () => resolve({ status: res.statusCode ?? 0, body }));
+      })
+      .on("timeout", function (this: http.ClientRequest) {
+        this.destroy(new Error("No response within 15s"));
       })
       .on("error", (e) => resolve({ status: 0, body: e.message }));
   });
@@ -271,7 +275,7 @@ const get = (url: string) =>
 export async function smokeTest(
   projectDir: string,
   entityNames: string[],
-  timeoutMs = 60_000
+  { skipBuild = false, timeoutMs = 60_000 } = {}
 ): Promise<CheckResult> {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "apso-pglite-"));
   const steps: Step[] = [];
@@ -281,7 +285,7 @@ export async function smokeTest(
   };
   let server: ReturnType<typeof spawn> | undefined;
   try {
-    if (!done(step("build", await build(projectDir))))
+    if (!skipBuild && !done(step("build", await build(projectDir))))
       return { ok: false, steps };
     if (
       !done(
