@@ -24,7 +24,14 @@ jobs:
       fail-fast: false
       matrix:
         language: [typescript, python, go]
-    name: scaffold-and-compile (${{ matrix.language }})
+        # Empty default so the include below adds a 4th leg instead of
+        # attaching the fixture to the existing typescript leg.
+        fixture: [""]
+        include:
+          # Multi-FK prod schema that once failed the in-browser build.
+          - language: typescript
+            fixture: test/fixtures/inventory-multi-fk.apsorc
+    name: scaffold-and-compile (${{ matrix.language }}${{ matrix.fixture && ' + fixture' || '' }})
     steps:
       - uses: actions/checkout@v4
         with:
@@ -50,4 +57,6 @@ jobs:
           python-version: "3.12"
 
       - name: Scaffold and compile
+        env:
+          APSORC_FIXTURE: ${{ matrix.fixture }}
         run: bash scripts/scaffold-smoke.sh "${{ matrix.language }}"

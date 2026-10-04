@@ -13,6 +13,7 @@ import { isInteractive, missingFlag } from "../lib/utils/interactive";
 import { performance } from "perf_hooks";
 import { createFile } from "../lib/utils/file-system";
 import { installCoAuthorHook } from "../lib/utils/git-hooks";
+import { ensureCrudDeps } from "../lib/utils/crud-deps";
 
 export default class Generate extends BaseCommand {
   static description = "Generate code from .apsorc schema";
@@ -310,6 +311,18 @@ export default class Generate extends BaseCommand {
       console.log("[apso] Skipping formatting (--skip-format flag set)");
     } else if (generatedFileCount === 0) {
       console.log("[apso] Skipping formatting (no files were generated)");
+    }
+
+    // Generated TS code imports @apso/crud*. Projects from the v1 template
+    // (@nestjsx/crud) don't declare those, and every entity then fails to
+    // compile with TS2307. Declare them so the next install picks them up.
+    if (language === "typescript" && generatedFileCount > 0) {
+      const added = ensureCrudDeps(process.cwd());
+      if (added.length > 0) {
+        console.log(
+          `[apso] Added ${added.join(", ")} to package.json (the generated code imports them). Run npm install before building.`
+        );
+      }
     }
 
     const totalBuildTime = performance.now() - totalBuildStart;
