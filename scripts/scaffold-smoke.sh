@@ -67,6 +67,20 @@ case "$LANGUAGE" in
     # setting rootDir to src, which trips TS6059 under a bare tsc run. rootDir
     # only shapes emit layout and this is --noEmit, so widening it is safe.
     npx tsc --noEmit --rootDir .
+    echo "==> Smoke testing the endpoints on PGlite"
+    "$CLI_ROOT/bin/run" test smoke
+    echo "==> Generating and verifying a migration for an added field"
+    cp .apsorc "$WORKDIR/deployed.apsorc"
+    node -e '
+      const fs = require("fs");
+      const rc = JSON.parse(fs.readFileSync(".apsorc", "utf8"));
+      rc.entities[0].fields.push({ name: "note", type: "text", nullable: true });
+      fs.writeFileSync(".apsorc", JSON.stringify(rc, null, 2) + "\n");
+    '
+    "$CLI_ROOT/bin/run" generate
+    "$CLI_ROOT/bin/run" migrate generate --baseline "$WORKDIR/deployed.apsorc"
+    MIGRATION="$(ls src/migrations/*-SchemaUpdate-migration.ts)"
+    "$CLI_ROOT/bin/run" migrate verify --baseline "$WORKDIR/deployed.apsorc" --migration "$MIGRATION"
     ;;
   go)
     echo "==> Resolving scaffolded project dependencies"
