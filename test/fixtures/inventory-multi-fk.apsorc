@@ -1,0 +1,799 @@
+{
+  "version": 2,
+  "rootFolder": "src",
+  "apiType": "Rest",
+  "entities": [
+    {
+      "name": "Product",
+      "fields": [
+        {
+          "name": "name",
+          "type": "varchar",
+          "nullable": false
+        },
+        {
+          "name": "sku",
+          "type": "varchar",
+          "isIndex": true,
+          "isUnique": true,
+          "nullable": false
+        },
+        {
+          "name": "barcode",
+          "type": "varchar",
+          "isIndex": true,
+          "isUnique": true,
+          "nullable": true
+        },
+        {
+          "name": "description",
+          "type": "text",
+          "nullable": true
+        },
+        {
+          "name": "category",
+          "type": "varchar",
+          "isIndex": true,
+          "nullable": true
+        },
+        {
+          "name": "unit_of_measure",
+          "type": "varchar",
+          "nullable": false
+        },
+        {
+          "name": "reorder_point",
+          "type": "integer",
+          "default": 0,
+          "nullable": false
+        },
+        {
+          "name": "reorder_quantity",
+          "type": "integer",
+          "default": 0,
+          "nullable": false
+        }
+      ],
+      "indexes": [
+        {
+          "fields": [
+            "sku"
+          ],
+          "unique": true
+        },
+        {
+          "fields": [
+            "barcode"
+          ],
+          "unique": true
+        },
+        {
+          "fields": [
+            "category"
+          ],
+          "unique": false
+        },
+        {
+          "fields": [
+            "name"
+          ],
+          "unique": false
+        }
+      ],
+      "uniques": [
+        {
+          "name": "unique_product_sku",
+          "fields": [
+            "sku"
+          ]
+        },
+        {
+          "name": "unique_product_barcode",
+          "fields": [
+            "barcode"
+          ]
+        }
+      ],
+      "created_at": true,
+      "updated_at": true
+    },
+    {
+      "name": "Warehouse",
+      "fields": [
+        {
+          "name": "name",
+          "type": "varchar",
+          "isIndex": true,
+          "nullable": false
+        },
+        {
+          "name": "address",
+          "type": "varchar",
+          "nullable": false
+        },
+        {
+          "name": "city",
+          "type": "varchar",
+          "isIndex": true,
+          "nullable": false
+        },
+        {
+          "name": "state",
+          "type": "varchar",
+          "nullable": false
+        },
+        {
+          "name": "postal_code",
+          "type": "varchar",
+          "nullable": false
+        },
+        {
+          "name": "country",
+          "type": "varchar",
+          "nullable": false
+        },
+        {
+          "name": "capacity",
+          "type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "manager_name",
+          "type": "varchar",
+          "nullable": true
+        },
+        {
+          "name": "manager_email",
+          "type": "varchar",
+          "isIndex": true,
+          "isUnique": true,
+          "nullable": true
+        }
+      ],
+      "indexes": [
+        {
+          "fields": [
+            "name"
+          ],
+          "unique": false
+        },
+        {
+          "fields": [
+            "city"
+          ],
+          "unique": false
+        },
+        {
+          "fields": [
+            "manager_email"
+          ],
+          "unique": false
+        },
+        {
+          "fields": [
+            "manager_email"
+          ],
+          "unique": true
+        }
+      ],
+      "uniques": [
+        {
+          "name": "unique_warehouse_manager_email",
+          "fields": [
+            "manager_email"
+          ]
+        }
+      ],
+      "created_at": true,
+      "updated_at": true
+    },
+    {
+      "name": "Supplier",
+      "fields": [
+        {
+          "name": "company_name",
+          "type": "varchar",
+          "isIndex": true,
+          "nullable": false
+        },
+        {
+          "name": "contact_person",
+          "type": "varchar",
+          "nullable": false
+        },
+        {
+          "name": "email",
+          "type": "varchar",
+          "isIndex": true,
+          "isUnique": true,
+          "nullable": false
+        },
+        {
+          "name": "phone",
+          "type": "varchar",
+          "nullable": true
+        },
+        {
+          "name": "payment_terms",
+          "type": "varchar",
+          "nullable": false
+        },
+        {
+          "name": "lead_time_days",
+          "type": "integer",
+          "default": 0,
+          "nullable": false
+        }
+      ],
+      "indexes": [
+        {
+          "fields": [
+            "company_name"
+          ],
+          "unique": false
+        },
+        {
+          "fields": [
+            "email"
+          ],
+          "unique": true
+        }
+      ],
+      "uniques": [
+        {
+          "name": "unique_supplier_email",
+          "fields": [
+            "email"
+          ]
+        }
+      ],
+      "created_at": true,
+      "updated_at": true
+    },
+    {
+      "name": "InventoryLevel",
+      "fields": [
+        {
+          "name": "quantity_on_hand",
+          "type": "integer",
+          "default": 0,
+          "nullable": false
+        },
+        {
+          "name": "quantity_reserved",
+          "type": "integer",
+          "default": 0,
+          "nullable": false
+        },
+        {
+          "name": "quantity_available",
+          "type": "integer",
+          "default": 0,
+          "nullable": false
+        },
+        {
+          "name": "last_counted_date",
+          "type": "timestamptz",
+          "nullable": true
+        },
+        {
+          "name": "recount_required",
+          "type": "boolean",
+          "default": false,
+          "nullable": false
+        }
+      ],
+      "indexes": [
+        {
+          "fields": [
+            "quantity_available"
+          ],
+          "unique": false
+        },
+        {
+          "fields": [
+            "last_counted_date"
+          ],
+          "unique": false
+        }
+      ],
+      "uniques": [],
+      "created_at": true,
+      "updated_at": true
+    },
+    {
+      "name": "PurchaseOrder",
+      "fields": [
+        {
+          "name": "order_number",
+          "type": "varchar",
+          "isIndex": true,
+          "isUnique": true,
+          "nullable": false
+        },
+        {
+          "name": "order_date",
+          "type": "timestamptz",
+          "isIndex": true,
+          "nullable": false
+        },
+        {
+          "name": "expected_delivery_date",
+          "type": "timestamptz",
+          "isIndex": true,
+          "nullable": false
+        },
+        {
+          "name": "status",
+          "type": "enum",
+          "values": [
+            "draft",
+            "sent",
+            "partial",
+            "received",
+            "cancelled"
+          ],
+          "isIndex": true,
+          "nullable": false
+        },
+        {
+          "name": "total_amount",
+          "type": "numeric",
+          "nullable": false
+        },
+        {
+          "name": "notes",
+          "type": "text",
+          "nullable": true
+        }
+      ],
+      "indexes": [
+        {
+          "fields": [
+            "order_number"
+          ],
+          "unique": true
+        },
+        {
+          "fields": [
+            "order_date"
+          ],
+          "unique": false
+        },
+        {
+          "fields": [
+            "expected_delivery_date"
+          ],
+          "unique": false
+        },
+        {
+          "fields": [
+            "status"
+          ],
+          "unique": false
+        }
+      ],
+      "uniques": [
+        {
+          "name": "unique_purchase_order_number",
+          "fields": [
+            "order_number"
+          ]
+        }
+      ],
+      "created_at": true,
+      "updated_at": true
+    },
+    {
+      "name": "StockMovement",
+      "fields": [
+        {
+          "name": "movement_type",
+          "type": "enum",
+          "values": [
+            "received",
+            "sold",
+            "transferred",
+            "adjusted",
+            "damaged"
+          ],
+          "isIndex": true,
+          "nullable": false
+        },
+        {
+          "name": "quantity",
+          "type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "movement_date",
+          "type": "timestamptz",
+          "isIndex": true,
+          "nullable": false
+        },
+        {
+          "name": "reference_document_id",
+          "type": "varchar",
+          "isIndex": true,
+          "nullable": true
+        },
+        {
+          "name": "reference_document_type",
+          "type": "enum",
+          "values": [
+            "purchase_order",
+            "stock_transfer",
+            "inventory_count",
+            "manual"
+          ],
+          "isIndex": true,
+          "nullable": false
+        },
+        {
+          "name": "notes",
+          "type": "text",
+          "nullable": true
+        }
+      ],
+      "indexes": [
+        {
+          "fields": [
+            "movement_type"
+          ],
+          "unique": false
+        },
+        {
+          "fields": [
+            "movement_date"
+          ],
+          "unique": false
+        },
+        {
+          "fields": [
+            "reference_document_id"
+          ],
+          "unique": false
+        },
+        {
+          "fields": [
+            "reference_document_type"
+          ],
+          "unique": false
+        },
+        {
+          "fields": [
+            "movement_type",
+            "movement_date"
+          ],
+          "unique": false
+        }
+      ],
+      "uniques": [],
+      "created_at": true,
+      "updated_at": true
+    },
+    {
+      "name": "StockTransfer",
+      "fields": [
+        {
+          "name": "transfer_number",
+          "type": "varchar",
+          "isIndex": true,
+          "isUnique": true,
+          "nullable": false
+        },
+        {
+          "name": "transfer_date",
+          "type": "timestamptz",
+          "isIndex": true,
+          "nullable": false
+        },
+        {
+          "name": "expected_arrival_date",
+          "type": "timestamptz",
+          "isIndex": true,
+          "nullable": false
+        },
+        {
+          "name": "status",
+          "type": "enum",
+          "values": [
+            "pending",
+            "in_transit",
+            "received",
+            "cancelled"
+          ],
+          "isIndex": true,
+          "nullable": false
+        },
+        {
+          "name": "shipping_method",
+          "type": "varchar",
+          "nullable": false
+        },
+        {
+          "name": "tracking_number",
+          "type": "varchar",
+          "isIndex": true,
+          "nullable": true
+        },
+        {
+          "name": "notes",
+          "type": "text",
+          "nullable": true
+        }
+      ],
+      "indexes": [
+        {
+          "fields": [
+            "transfer_number"
+          ],
+          "unique": true
+        },
+        {
+          "fields": [
+            "transfer_date"
+          ],
+          "unique": false
+        },
+        {
+          "fields": [
+            "expected_arrival_date"
+          ],
+          "unique": false
+        },
+        {
+          "fields": [
+            "status"
+          ],
+          "unique": false
+        },
+        {
+          "fields": [
+            "tracking_number"
+          ],
+          "unique": false
+        }
+      ],
+      "uniques": [
+        {
+          "name": "unique_stock_transfer_number",
+          "fields": [
+            "transfer_number"
+          ]
+        }
+      ],
+      "created_at": true,
+      "updated_at": true
+    },
+    {
+      "name": "InventoryCount",
+      "fields": [
+        {
+          "name": "count_date",
+          "type": "timestamptz",
+          "isIndex": true,
+          "nullable": false
+        },
+        {
+          "name": "count_status",
+          "type": "enum",
+          "values": [
+            "pending",
+            "in_progress",
+            "completed",
+            "approved"
+          ],
+          "isIndex": true,
+          "nullable": false
+        },
+        {
+          "name": "discrepancy_count",
+          "type": "integer",
+          "default": 0,
+          "nullable": false
+        },
+        {
+          "name": "adjustment_approved",
+          "type": "boolean",
+          "default": false,
+          "nullable": false
+        },
+        {
+          "name": "approval_date",
+          "type": "timestamptz",
+          "nullable": true
+        },
+        {
+          "name": "approved_by",
+          "type": "varchar",
+          "nullable": true
+        }
+      ],
+      "indexes": [
+        {
+          "fields": [
+            "count_date"
+          ],
+          "unique": false
+        },
+        {
+          "fields": [
+            "count_status"
+          ],
+          "unique": false
+        },
+        {
+          "fields": [
+            "approval_date"
+          ],
+          "unique": false
+        }
+      ],
+      "uniques": [],
+      "created_at": true,
+      "updated_at": true
+    },
+    {
+      "name": "Alert",
+      "fields": [
+        {
+          "name": "alert_type",
+          "type": "enum",
+          "values": [
+            "low_stock",
+            "reorder_trigger",
+            "overstock",
+            "expiration"
+          ],
+          "isIndex": true,
+          "nullable": false
+        },
+        {
+          "name": "severity",
+          "type": "enum",
+          "values": [
+            "info",
+            "warning",
+            "critical"
+          ],
+          "isIndex": true,
+          "nullable": false
+        },
+        {
+          "name": "triggered_date",
+          "type": "timestamptz",
+          "isIndex": true,
+          "nullable": false
+        },
+        {
+          "name": "resolved_date",
+          "type": "timestamptz",
+          "isIndex": true,
+          "nullable": true
+        },
+        {
+          "name": "is_resolved",
+          "type": "boolean",
+          "values": [],
+          "default": false,
+          "nullable": false
+        },
+        {
+          "name": "message",
+          "type": "text",
+          "nullable": false
+        }
+      ],
+      "indexes": [
+        {
+          "fields": [
+            "alert_type"
+          ],
+          "unique": false
+        },
+        {
+          "fields": [
+            "severity"
+          ],
+          "unique": false
+        },
+        {
+          "fields": [
+            "triggered_date"
+          ],
+          "unique": false
+        },
+        {
+          "fields": [
+            "resolved_date"
+          ],
+          "unique": false
+        },
+        {
+          "fields": [
+            "is_resolved"
+          ],
+          "unique": false
+        },
+        {
+          "fields": [
+            "alert_type",
+            "severity"
+          ],
+          "unique": false
+        }
+      ],
+      "uniques": [],
+      "created_at": true,
+      "updated_at": true
+    }
+  ],
+  "relationships": [
+    {
+      "to": "Product",
+      "from": "InventoryLevel",
+      "type": "ManyToOne"
+    },
+    {
+      "to": "Warehouse",
+      "from": "InventoryLevel",
+      "type": "ManyToOne"
+    },
+    {
+      "to": "Supplier",
+      "from": "PurchaseOrder",
+      "type": "ManyToOne"
+    },
+    {
+      "to": "Product",
+      "from": "StockMovement",
+      "type": "ManyToOne"
+    },
+    {
+      "to": "Warehouse",
+      "from": "StockMovement",
+      "type": "ManyToOne"
+    },
+    {
+      "to": "Warehouse",
+      "from": "StockTransfer",
+      "type": "ManyToOne"
+    },
+    {
+      "to": "Warehouse",
+      "from": "InventoryCount",
+      "type": "ManyToOne"
+    },
+    {
+      "to": "Product",
+      "from": "Alert",
+      "type": "ManyToOne"
+    },
+    {
+      "to": "Warehouse",
+      "from": "Alert",
+      "type": "ManyToOne"
+    },
+    {
+      "to": "PurchaseOrder",
+      "from": "StockMovement",
+      "type": "ManyToOne"
+    },
+    {
+      "to": "StockTransfer",
+      "from": "StockMovement",
+      "type": "ManyToOne"
+    },
+    {
+      "to": "Product",
+      "from": "StockTransfer",
+      "type": "ManyToOne"
+    },
+    {
+      "from": "StockMovement",
+      "to": "InventoryCount",
+      "type": "ManyToOne"
+    }
+  ]
+}

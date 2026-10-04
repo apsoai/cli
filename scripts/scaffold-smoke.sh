@@ -13,6 +13,7 @@
 #
 # Exit non-zero on the first failure so CI surfaces a broken scaffold.
 # Run locally: bash scripts/scaffold-smoke.sh [typescript|python|go]
+# Optional: APSORC_FIXTURE=test/fixtures/<file>.apsorc to generate from a fixture.
 set -euo pipefail
 
 LANGUAGE="${1:-typescript}"
@@ -31,7 +32,17 @@ cd "$WORKDIR"
 "$CLI_ROOT/bin/run" init --name smoke-app --language "$LANGUAGE" --skip-platform
 cd smoke-app
 
-if [ -f .apsorc ]; then
+if [ -n "${APSORC_FIXTURE:-}" ]; then
+  # A real-world schema (e.g. test/fixtures/inventory-multi-fk.apsorc: 9
+  # entities, 13 relationships, several FKs to the same entity) instead of
+  # the one-entity seed below.
+  echo "==> Using fixture schema $APSORC_FIXTURE"
+  cp "$CLI_ROOT/$APSORC_FIXTURE" .apsorc
+  "$CLI_ROOT/bin/run" generate --language "$LANGUAGE" || {
+    echo "FAIL: apso generate errored on $APSORC_FIXTURE"
+    exit 1
+  }
+elif [ -f .apsorc ]; then
   # Templates ship with "entities": [] and every generator rejects an empty
   # entity list, so seed one small entity. This also turns the run into a real
   # codegen check: the generated files must compile below.
