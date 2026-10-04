@@ -10,6 +10,10 @@ export default class TestSmoke extends BaseCommand {
   static examples = [`$ apso test smoke`];
 
   static flags = {
+    "skip-build": Flags.boolean({
+      description: "Use the existing dist/ build instead of building first",
+      default: false,
+    }),
     json: Flags.boolean({
       description: "Print the result as JSON",
       default: false,
@@ -21,7 +25,9 @@ export default class TestSmoke extends BaseCommand {
     const { entities, auth } = parseApsorc();
     // With auth configured every entity route needs a session, so only /health is checked.
     const names = auth ? [] : entities.map((e) => e.name);
-    const result = await smokeTest(process.cwd(), names);
+    const result = await smokeTest(process.cwd(), names, {
+      skipBuild: flags["skip-build"],
+    });
     report(
       (s) => this.log(s),
       result,

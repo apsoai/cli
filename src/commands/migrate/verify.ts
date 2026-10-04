@@ -20,6 +20,10 @@ export default class MigrateVerify extends BaseCommand {
       description: "The migration file to run",
       required: true,
     }),
+    "skip-build": Flags.boolean({
+      description: "Use the existing dist/ build instead of building first",
+      default: false,
+    }),
     json: Flags.boolean({
       description: "Print the result as JSON",
       default: false,
@@ -32,7 +36,8 @@ export default class MigrateVerify extends BaseCommand {
       process.cwd(),
       path.resolve(flags.baseline),
       flags.migration,
-      cliBinPath(this.config.root)
+      cliBinPath(this.config.root),
+      flags["skip-build"]
     );
     report(
       (s) => this.log(s),
