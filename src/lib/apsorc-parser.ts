@@ -107,18 +107,58 @@ export const assertCodegenSafeNames = (
   if (!error) return;
   const more = issues.filter((issue) => issue.severity === "error").length - 1;
   throw new ApsorcNamingError(
-    `${error.message}${more > 0 ? ` (${more} more error${more === 1 ? "" : "s"})` : ""} Run "apso schema lint" to see every issue, or "apso schema lint --fix" to apply the safe fixes.`,
+    `${error.message}${
+      more > 0 ? ` (${more} more error${more === 1 ? "" : "s"})` : ""
+    } Run "apso schema lint" to see every issue, or "apso schema lint --fix" to apply the safe fixes.`,
     error.rule,
     error.entity || "",
     error.field
   );
 };
 
+const columns = (fields: string[]) => fields.join(",");
+
+/**
+ * Drop indexes the database cannot create alongside another. TypeORM names an
+ * index from its table and columns only, so a plain and a unique index on the
+ * same columns get one name and the second CREATE fails, rolling back the
+ * schema (prod svc 52: Warehouse.manager_email). The unique index also serves
+ * lookups, so it is kept; exact duplicates are dropped too.
+ *
+ * @param {Entity} entity - An entity from .apsorc.
+ * @returns {Entity} The entity, with a filtered copy of its indexes when needed.
+ */
+export const dedupeIndexes = (entity: Entity): Entity => {
+  if (!entity.indexes?.length) return entity;
+  const uniqueColumns = new Set(
+    entity.indexes
+      .filter((index) => index.unique)
+      .map((index) => columns(index.fields))
+  );
+  const seen = new Set<string>();
+  const indexes = entity.indexes.filter((index) => {
+    const key = `${columns(index.fields)}|${index.unique ? "unique" : ""}`;
+    if (
+      seen.has(key) ||
+      (!index.unique && uniqueColumns.has(columns(index.fields)))
+    )
+      return false;
+    seen.add(key);
+    return true;
+  });
+  return indexes.length === entity.indexes.length
+    ? entity
+    : { ...entity, indexes };
+};
+
 export const parseApsorcV2 = (apsorc: ApsorcType): ParsedApsorcData => {
   const { entities, relationships: apsoRelationships } = apsorc;
   assertCodegenSafeNames(apsorc);
   const relationshipMap = parseRelationships(apsoRelationships);
-  return { entities, relationshipMap };
+  return {
+    entities: entities.map((entity) => dedupeIndexes(entity)),
+    relationshipMap,
+  };
 };
 
 const parseRc = (): ApsorcType => {
@@ -231,12 +271,18 @@ export const parseApsorc = (): ParsedApsorc => {
  * @returns The absolute path to the .apsorc file, or null if not found.
  */
 /** Reads the .apsorc file itself (not rc-merged), for commands that rewrite it. */
-export const readApsorcFile = (): { configPath: string; apsorc: ApsorcType } => {
+export const readApsorcFile = (): {
+  configPath: string;
+  apsorc: ApsorcType;
+} => {
   const configPath = findConfigPath();
   if (!configPath) {
     throw new Error("No .apsorc found in this directory or any parent.");
   }
-  return { configPath, apsorc: JSON.parse(fs.readFileSync(configPath).toString()) };
+  return {
+    configPath,
+    apsorc: JSON.parse(fs.readFileSync(configPath).toString()),
+  };
 };
 
 export const findConfigPath = (): string | null => {
