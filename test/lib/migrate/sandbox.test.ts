@@ -6,6 +6,7 @@ import {
   runMigrationSandbox,
   applyMigration,
   resetSandbox,
+  detectRenameCandidates,
 } from "../../../src/lib/migrate/sandbox";
 import { readSnapshot } from "../../../src/lib/migrate/snapshot";
 import { EntityGeneratorInput } from "../../../src/lib/migrate/entity-generator";
@@ -275,5 +276,95 @@ describe("resetSandbox", () => {
     resetSandbox(tmpDir);
 
     expect(fs.existsSync(sandboxDir)).toBe(false);
+  });
+});
+
+const userWith = (fields: { name: string; type: string; nullable?: boolean }[]): EntityGeneratorInput => ({
+  entities: [{ name: "User", primaryKeyType: "serial", fields: fields as any }],
+  relationshipMap: {},
+});
+
+describe("detectRenameCandidates", () => {
+  const snapshot = {
+    entities: [{ name: "User", fields: [{ name: "fullName", type: "text" }, { name: "age", type: "integer" }] }],
+  };
+
+  test("pairs a removed field with an added field of the same type", () => {
+    const current = userWith([{ name: "displayName", type: "text" }, { name: "age", type: "integer" }]).entities;
+    expect(detectRenameCandidates(snapshot, current)).toEqual([
+      { entity: "User", from: "fullName", to: "displayName" },
+    ]);
+  });
+
+  test("ignores a removed and added field of different types", () => {
+    const current = userWith([{ name: "score", type: "integer" }, { name: "age", type: "integer" }]).entities;
+    expect(detectRenameCandidates(snapshot, current)).toEqual([]);
+  });
+
+  test("returns nothing without a snapshot", () => {
+    expect(detectRenameCandidates(null, userWith([{ name: "x", type: "text" }]).entities)).toEqual([]);
+  });
+});
+
+describeIfPGlite("migration sandbox renames (integration)", () => {
+  jest.setTimeout(30_000);
+  let tmpDir: string;
+  const rename = [{ entity: "User", from: "fullName", to: "displayName" }];
+
+  beforeEach(async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "apso-rename-test-"));
+    const initial = userWith([{ name: "fullName", type: "text" }]);
+    await runMigrationSandbox(initial, tmpDir);
+    applyMigration(initial, tmpDir);
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test("confirmed rename emits RENAME COLUMN and no DROP", async () => {
+    const result = await runMigrationSandbox(userWith([{ name: "displayName", type: "text" }]), tmpDir, rename);
+
+    expect(result.success).toBe(true);
+    expect(result.upSql).toEqual(['ALTER TABLE "user" RENAME COLUMN "fullName" TO "displayName"']);
+    expect(result.downSql).toEqual(['ALTER TABLE "user" RENAME COLUMN "displayName" TO "fullName"']);
+  });
+
+  // TypeORM renames on its own only when a table has exactly one changed
+  // column. Renaming one field and adding another in the same edit drops data.
+  const renameAndAdd = userWith([
+    { name: "displayName", type: "text" },
+    { name: "age", type: "integer" },
+  ]);
+
+  test("rename plus a new field drops the column when not confirmed", async () => {
+    const result = await runMigrationSandbox(renameAndAdd, tmpDir);
+
+    expect(result.success).toBe(true);
+    expect(result.upSql.join(" ")).toContain('DROP COLUMN "fullName"');
+  });
+
+  test("rename plus a new field keeps the data when confirmed", async () => {
+    const result = await runMigrationSandbox(renameAndAdd, tmpDir, rename);
+
+    expect(result.success).toBe(true);
+    expect(result.upSql[0]).toBe('ALTER TABLE "user" RENAME COLUMN "fullName" TO "displayName"');
+    const all = result.upSql.join(" ");
+    expect(all).toContain('ADD "age" integer');
+    expect(all).not.toContain("DROP COLUMN");
+  });
+
+  test("rename plus a nullable change keeps both", async () => {
+    const result = await runMigrationSandbox(
+      userWith([{ name: "displayName", type: "text", nullable: true }]),
+      tmpDir,
+      rename
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.upSql[0]).toBe('ALTER TABLE "user" RENAME COLUMN "fullName" TO "displayName"');
+    const rest = result.upSql.slice(1).join(" ");
+    expect(rest).toContain('"displayName" DROP NOT NULL');
+    expect(rest).not.toContain("DROP COLUMN");
   });
 });

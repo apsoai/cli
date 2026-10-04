@@ -349,6 +349,49 @@ async function createPGliteDataSource(
   return dataSource;
 }
 
+/** A field renamed within one entity, confirmed by the user. */
+export interface FieldRename {
+  entity: string;
+  from: string;
+  to: string;
+}
+
+/**
+ * Find likely renames: within an entity present in both schemas, a field that
+ * disappeared paired with a new field of the same type. TypeORM's diff turns
+ * these into DROP + ADD, which loses the column's data.
+ */
+// ponytail: greedy first-match pairing by type; declining a pair does not
+// re-offer the added field to another removed one. Jev scoring replaces this.
+export function detectRenameCandidates(
+  snapshot: ApsorcSnapshot | null,
+  current: EntityDef[]
+): FieldRename[] {
+  if (!snapshot) return [];
+  const candidates: FieldRename[] = [];
+  for (const entity of current) {
+    const previous = snapshot.entities.find((e) => e.name === entity.name);
+    if (!previous) continue;
+    const previousFields = previous.fields || [];
+    const currentFields = entity.fields || [];
+    const previousNames = new Set(previousFields.map((f) => f.name));
+    const currentNames = new Set(currentFields.map((f) => f.name));
+    const added = currentFields.filter((f) => !previousNames.has(f.name));
+    for (const removed of previousFields.filter((f) => !currentNames.has(f.name))) {
+      const match = added.findIndex(
+        (f) => normalizeFieldType(f.type) === normalizeFieldType(removed.type as any)
+      );
+      if (match === -1) continue;
+      candidates.push({ entity: entity.name, from: removed.name, to: added[match].name });
+      added.splice(match, 1);
+    }
+  }
+  return candidates;
+}
+
+const renameColumnSql = (table: string, from: string, to: string): string =>
+  `ALTER TABLE "${table}" RENAME COLUMN "${from}" TO "${to}"`;
+
 /**
  * Run the migration sandbox: detect changes, generate SQL, test execution.
  *
@@ -358,7 +401,8 @@ async function createPGliteDataSource(
  */
 export async function runMigrationSandbox(
   current: EntityGeneratorInput,
-  projectDir?: string
+  projectDir?: string,
+  renames: FieldRename[] = []
 ): Promise<MigrationResult> {
   const snapshot = readSnapshot(projectDir);
 
@@ -424,6 +468,14 @@ export async function runMigrationSandbox(
       const prevDs = await createPGliteDataSource(prevClasses);
       await prevDs.initialize();
       await prevDs.synchronize();
+      // Apply confirmed renames first so the diff below sees the column under
+      // its new name (and the RENAME itself is validated against Postgres).
+      for (const rename of renames) {
+        // eslint-disable-next-line no-await-in-loop
+        await prevDs.query(
+          renameColumnSql(snakeCase(rename.entity), rename.from, rename.to)
+        );
+      }
       // Don't call prevDs.destroy() -- it closes the PGlite singleton.
       // Just disconnect TypeORM's connection manager.
       // The PGlite in-memory database persists in the singleton.
@@ -448,6 +500,13 @@ export async function runMigrationSandbox(
       const downSql = downQueries.map(
         (q: { query: string; parameters?: any[] }) => q.query
       );
+
+      for (const rename of [...renames].reverse()) {
+        const entity = current.entities.find((e) => e.name === rename.entity);
+        const table = entity?.table || snakeCase(rename.entity);
+        upSql.unshift(renameColumnSql(table, rename.from, rename.to));
+        downSql.push(renameColumnSql(table, rename.to, rename.from));
+      }
 
       if (upSql.length === 0) {
         await resetPGliteSingleton();
