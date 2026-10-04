@@ -1,12 +1,12 @@
 {
   "name": "@apso/cli",
-  "version": "0.41.1",
+  "version": "0.41.2",
   "lockfileVersion": 3,
   "requires": true,
   "packages": {
     "": {
       "name": "@apso/cli",
-      "version": "0.41.1",
+      "version": "0.41.2",
       "license": "Apache-2.0",
       "dependencies": {
         "@apso/schema-tools": "^0.2.0",
