@@ -195,6 +195,33 @@ export interface CheckResult {
 }
 
 /**
+ * Projects from the v1 template have no PGlite support in src/orm.config.ts,
+ * so the checks cannot run locally. They pass as skipped rather than block a
+ * deploy they cannot judge.
+ */
+const NO_PGLITE: CheckResult = {
+  ok: true,
+  steps: [
+    {
+      name: "skipped",
+      ok: true,
+      output:
+        "This project's database config (src/orm.config.ts) can't use a local PGlite database, so this check was skipped. Projects created from the current template support it.",
+    },
+  ],
+};
+
+export function supportsPglite(projectDir: string): boolean {
+  try {
+    return /typeorm-pglite|PGliteDriver/.test(
+      fs.readFileSync(path.join(projectDir, "src", "orm.config.ts"), "utf8")
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Run a migration on a fresh copy of the deployed schema, then check that the
  * database matches the project's entities (a second generate finds nothing).
  */
@@ -205,6 +232,7 @@ export async function verifyMigration(
   cliBin: string,
   skipBuild = false
 ): Promise<CheckResult> {
+  if (!supportsPglite(projectDir)) return NO_PGLITE;
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "apso-pglite-"));
   const steps: Step[] = [];
   const done = (s: Step) => {
@@ -277,6 +305,7 @@ export async function smokeTest(
   entityNames: string[],
   { skipBuild = false, timeoutMs = 60_000 } = {}
 ): Promise<CheckResult> {
+  if (!supportsPglite(projectDir)) return NO_PGLITE;
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "apso-pglite-"));
   const steps: Step[] = [];
   const done = (s: Step) => {
