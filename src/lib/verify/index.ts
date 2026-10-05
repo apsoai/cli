@@ -1,6 +1,6 @@
 /**
- * Pre-deploy checks for a generated TypeScript service, run against PGlite:
- * generate the migration from the deployed schema, run it and check for drift,
+ * Pre-deploy checks for a generated service: generate the migration from the
+ * deployed schema, run it and check for drift (TypeScript only, on PGlite),
  * and smoke test the endpoints. The CLI and the in-browser editor (which runs
  * the CLI in a WebContainer) share these steps.
  */
@@ -123,6 +123,21 @@ export async function buildBaseline(
     fs.rmSync(copy, { recursive: true, force: true });
   }
 }
+
+/**
+ * Why `apso migrate` can't run for this project's language, or undefined.
+ * ponytail: Python (Alembic) and Go (goose) have no local scratch database to
+ * build the baseline on; add when they get one like PGlite for TypeScript.
+ */
+export const migrateUnsupported = (
+  language: TargetLanguage = "typescript"
+): string | undefined => {
+  if (language === "python")
+    return "apso migrate supports TypeScript services only for now. This is a Python service: use Alembic directly (alembic revision --autogenerate, alembic upgrade head, alembic check).";
+  if (language === "go")
+    return "apso migrate supports TypeScript services only for now. This is a Go service: write goose migrations in migrations/ and run them with `go run cmd/migrate/main.go up`.";
+  return undefined;
+};
 
 export interface GenerateResult {
   ok: boolean;
@@ -458,19 +473,33 @@ async function serve(
 export interface SmokeOptions {
   skipBuild?: boolean;
   timeoutMs?: number;
+  language?: TargetLanguage;
 }
 
 /**
- * Start the built service on a PGlite database synced to its entities and call
- * GET /health, every entity's list endpoint, and a create/read/delete of one
- * row per entity.
+ * Start the service and call GET /health, every entity's list endpoint, and a
+ * create/read/delete of one row per entity. TypeScript services run on a
+ * PGlite database synced to their entities; Python and Go services run on the
+ * database in DATABASE_URL.
  */
 export async function smokeTest(
   projectDir: string,
   entities: Entity[],
   relationships: RelationshipMap = {},
-  { skipBuild = false, timeoutMs = 60_000 }: SmokeOptions = {}
+  {
+    skipBuild = false,
+    timeoutMs = 60_000,
+    language = "typescript",
+  }: SmokeOptions = {}
 ): Promise<CheckResult> {
+  if (language !== "typescript")
+    return smokeTestOnDatabaseUrl(
+      projectDir,
+      entities,
+      relationships,
+      language,
+      timeoutMs
+    );
   if (!supportsPglite(projectDir)) return NO_PGLITE;
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "apso-pglite-"));
   const steps: Step[] = [];
@@ -497,11 +526,127 @@ export async function smokeTest(
       env: { ...process.env, ...pgliteEnv(dataDir), APP_PORT: String(port) },
     });
     await serve(server, port, timeoutMs, done, (base) =>
-      checkEndpoints(base, "typescript", entities, relationships, done)
+      checkEndpoints(base, language, entities, relationships, done)
     );
     return { ok: steps.every((s) => s.ok), steps };
   } finally {
     fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+}
+
+/** KEY=value lines of the project's .env; no interpolation. */
+export function readDotEnv(projectDir: string): Record<string, string> {
+  let text = "";
+  try {
+    text = fs.readFileSync(path.join(projectDir, ".env"), "utf8");
+  } catch {
+    return {};
+  }
+  const env: Record<string, string> = {};
+  for (const line of text.split(/\r?\n/)) {
+    const m = line.match(/^\s*(?:export\s+)?([\w.]+)\s*=\s*(.*?)\s*$/);
+    if (m) env[m[1]] = m[2].replace(/^(["'])(.*)\1$/, "$2");
+  }
+  return env;
+}
+
+const canConnect = (host: string, port: number) =>
+  new Promise<boolean>((resolve) => {
+    const s = net.connect({ host, port, timeout: 3000 });
+    const end = (ok: boolean) => {
+      s.destroy();
+      resolve(ok);
+    };
+    s.on("connect", () => end(true));
+    s.on("timeout", () => end(false));
+    s.on("error", () => end(false));
+  });
+
+const skipped = (output: string): CheckResult => ({
+  ok: true,
+  steps: [{ name: "skipped", ok: true, output }],
+});
+
+/**
+ * Python and Go services have no embedded database, so they run against the
+ * one in DATABASE_URL (environment first, then .env), as configured: the
+ * smoke test never creates tables, and it skips when no database answers.
+ */
+async function smokeTestOnDatabaseUrl(
+  projectDir: string,
+  entities: Entity[],
+  relationships: RelationshipMap,
+  language: TargetLanguage,
+  timeoutMs: number
+): Promise<CheckResult> {
+  const env = { ...readDotEnv(projectDir), ...process.env };
+  if (!env.DATABASE_URL)
+    return skipped(
+      "No DATABASE_URL in the environment or .env, so there is no database to run the service against. Set it and rerun."
+    );
+  let db: URL;
+  try {
+    db = new URL(env.DATABASE_URL);
+  } catch {
+    return {
+      ok: false,
+      steps: [
+        { name: "database", ok: false, output: "DATABASE_URL is not a URL." },
+      ],
+    };
+  }
+  const dbPort = Number(db.port) || 5432;
+  if (!(await canConnect(db.hostname, dbPort)))
+    return skipped(
+      `No database is listening at ${db.hostname}:${dbPort} (DATABASE_URL), so the service can't start. Start the database and rerun.`
+    );
+
+  const steps: Step[] = [];
+  const done = (s: Step) => {
+    steps.push(s);
+    return s.ok;
+  };
+  const port = await freePort();
+  const serverEnv = { ...env, PORT: String(port) };
+  const binDir = fs.mkdtempSync(path.join(os.tmpdir(), "apso-smoke-"));
+  try {
+    let server: ChildProcess;
+    if (language === "go") {
+      // A built binary, not `go run`: killing `go run` can leave the server running.
+      const bin = path.join(binDir, "server");
+      if (
+        !done(
+          step(
+            "build",
+            await run("go", ["build", "-o", bin, "./cmd"], projectDir)
+          )
+        )
+      )
+        return { ok: false, steps };
+      server = spawn(bin, [], { cwd: projectDir, env: serverEnv });
+    } else {
+      const venv = path.join(projectDir, ".venv", "bin", "python");
+      const python = fs.existsSync(venv) ? venv : "python3";
+      server = spawn(
+        python,
+        [
+          "-m",
+          "uvicorn",
+          "app.main:app",
+          "--host",
+          "127.0.0.1",
+          "--port",
+          String(port),
+        ],
+        { cwd: projectDir, env: serverEnv }
+      );
+    }
+    await serve(server, port, timeoutMs, done, (base) =>
+      checkEndpoints(base, language, entities, relationships, done)
+    );
+    return { ok: steps.every((s) => s.ok), steps };
+  } finally {
+    fs.rmSync(binDir, { recursive: true, force: true });
   }
 }
 

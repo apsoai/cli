@@ -14,6 +14,7 @@
 # Exit non-zero on the first failure so CI surfaces a broken scaffold.
 # Run locally: bash scripts/scaffold-smoke.sh [typescript|python|go]
 # Optional: APSORC_FIXTURE=test/fixtures/<file>.apsorc to generate from a fixture.
+# Optional (go): SMOKE_DATABASE_URL=<empty Postgres> to also run `apso test smoke`.
 set -euo pipefail
 
 LANGUAGE="${1:-typescript}"
@@ -103,6 +104,13 @@ case "$LANGUAGE" in
     "$(go env GOPATH)/bin/swag" init -g cmd/main.go -o docs
     echo "==> Compiling the scaffolded project"
     go build ./...
+    # Go services need a real Postgres. Opt in with an empty database, e.g.
+    # SMOKE_DATABASE_URL=postgres://me@localhost:5432/apso_smoke?sslmode=disable
+    # (DATABASE_SYNC lets the service create its tables there).
+    if [ -n "${SMOKE_DATABASE_URL:-}" ]; then
+      echo "==> Smoke testing the endpoints on SMOKE_DATABASE_URL"
+      DATABASE_URL="$SMOKE_DATABASE_URL" DATABASE_SYNC=true "$CLI_ROOT/bin/run" test smoke
+    fi
     ;;
   python)
     # The template requires Python >= 3.11; override with PYTHON=python3.12

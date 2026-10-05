@@ -1,8 +1,11 @@
 import { expect, describe, test } from "@jest/globals";
 import { planCrud, sampleValue } from "../../../src/lib/verify/crud-plan";
-import { entityRoute } from "../../../src/lib/verify";
+import { entityRoute, readDotEnv } from "../../../src/lib/verify";
 import { parseRelationships } from "../../../src/lib/utils/relationships";
 import { Entity } from "../../../src/lib/types";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
 
 describe("sampleValue", () => {
   test("fills each supported type", () => {
@@ -87,5 +90,14 @@ describe("entityRoute", () => {
     expect(entityRoute("typescript", "LineItem")).toBe("/LineItems");
     expect(entityRoute("python", "LineItem")).toBe("/api/lineitems");
     expect(entityRoute("go", "LineItem")).toBe("/api/line-items");
+  });
+});
+
+describe("readDotEnv", () => {
+  test("reads KEY=value lines and strips quotes", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "apso-env-"));
+    fs.writeFileSync(path.join(dir, ".env"), '# db\nDATABASE_URL="postgres://u:p@h:5433/d"\nPORT=3000\n');
+    expect(readDotEnv(dir)).toEqual({ DATABASE_URL: "postgres://u:p@h:5433/d", PORT: "3000" });
+    expect(readDotEnv(path.join(dir, "missing"))).toEqual({});
   });
 });

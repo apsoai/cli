@@ -5,13 +5,14 @@ import { report, smokeTest } from "../../lib/verify";
 
 export default class TestSmoke extends BaseCommand {
   static description =
-    "Start the service on a local PGlite database and call /health, every entity's list endpoint, and a create/read/delete of one row per entity (TypeScript services)";
+    "Start the service and call /health, every entity's list endpoint, and a create/read/delete of one row per entity. TypeScript services run on a local PGlite database; Python and Go services run on the database in DATABASE_URL (rows are created and deleted there, tables are not created) and the check is skipped when none answers";
 
   static examples = [`$ apso test smoke`];
 
   static flags = {
     "skip-build": Flags.boolean({
-      description: "Use the existing dist/ build instead of building first",
+      description:
+        "Use the existing dist/ build instead of building first (TypeScript)",
       default: false,
     }),
     json: Flags.boolean({
@@ -22,13 +23,13 @@ export default class TestSmoke extends BaseCommand {
 
   async run(): Promise<void> {
     const { flags } = await this.parse(TestSmoke);
-    const { entities, relationshipMap, auth } = parseApsorc();
+    const { entities, relationshipMap, auth, language } = parseApsorc();
     // With auth configured every entity route needs a session, so only /health is checked.
     const result = await smokeTest(
       process.cwd(),
       auth ? [] : entities,
       relationshipMap,
-      { skipBuild: flags["skip-build"] }
+      { skipBuild: flags["skip-build"], language }
     );
     const summary =
       result.steps[0]?.name === "skipped"
