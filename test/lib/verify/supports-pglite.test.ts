@@ -24,7 +24,7 @@ describe("supportsPglite", () => {
   });
 
   test("checks pass as skipped instead of failing a v1 project", async () => {
-    const result = await smokeTest(project("type: 'postgres'"), ["Widget"], { skipBuild: true });
+    const result = await smokeTest(project("type: 'postgres'"), [{ name: "Widget" }], {}, { skipBuild: true });
     expect(result.ok).toBe(true);
     expect(result.steps.map((s) => s.name)).toEqual(["skipped"]);
   });

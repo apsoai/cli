@@ -5,13 +5,18 @@
  * the CLI in a WebContainer) share these steps.
  */
 
-import { spawn } from "child_process";
+import { ChildProcess, spawn } from "child_process";
 import * as fs from "fs";
 import * as http from "http";
 import * as net from "net";
 import * as os from "os";
 import * as path from "path";
 import pluralize from "pluralize";
+import { Entity } from "../types/entity";
+import { TargetLanguage } from "../types/generator";
+import { RelationshipMap } from "../types/relationship";
+import { kebabCase } from "../utils/casing";
+import { planCrud } from "./crud-plan";
 
 export interface Step {
   name: string;
@@ -280,32 +285,191 @@ const freePort = () =>
     s.on("error", reject);
   });
 
-const get = (url: string) =>
-  new Promise<{ status: number; body: string }>((resolve) => {
+type Res = { status: number; body: string };
+
+const request = (method: string, url: string, body?: unknown) =>
+  new Promise<Res>((resolve) => {
+    const data = body === undefined ? undefined : JSON.stringify(body);
+    const headers: http.OutgoingHttpHeaders = data
+      ? {
+          "content-type": "application/json",
+          "content-length": Buffer.byteLength(data),
+        }
+      : {};
     http
-      .get(url, { timeout: 15_000 }, (res) => {
-        let body = "";
+      .request(url, { method, headers, timeout: 15_000 }, (res) => {
+        let text = "";
         res.on("data", (d) => {
-          body += d;
+          text += d;
         });
-        res.on("end", () => resolve({ status: res.statusCode ?? 0, body }));
+        res.on("end", () =>
+          resolve({ status: res.statusCode ?? 0, body: text })
+        );
       })
       .on("timeout", function (this: http.ClientRequest) {
         this.destroy(new Error("No response within 15s"));
       })
-      .on("error", (e) => resolve({ status: 0, body: e.message }));
+      .on("error", (e) => resolve({ status: 0, body: e.message }))
+      .end(data);
   });
+
+const get = (url: string) => request("GET", url);
+
+const expectStatus = (res: Res, ...ok: number[]) => ({
+  ok: ok.includes(res.status),
+  output: ok.includes(res.status)
+    ? undefined
+    : `${res.status} ${tail(res.body, 500)}`,
+});
+
+const idOf = (body: string): unknown => {
+  try {
+    return JSON.parse(body).id ?? undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+/** The route each language's generated controller serves an entity on. */
+export const entityRoute = (language: TargetLanguage, name: string): string => {
+  const plural = pluralize(name);
+  if (language === "python") return `/api/${plural.toLowerCase()}`;
+  if (language === "go") return `/api/${kebabCase(plural)}`;
+  return `/${plural}`;
+};
+
+/* eslint-disable no-await-in-loop */
+/**
+ * List every entity, then create, read and delete one row of each: parents
+ * before children on the way in, children before parents on the way out.
+ */
+async function checkEndpoints(
+  base: string,
+  language: TargetLanguage,
+  entities: Entity[],
+  relationships: RelationshipMap,
+  done: (s: Step) => boolean
+): Promise<void> {
+  const route = (name: string) => entityRoute(language, name);
+  for (const { name } of entities) {
+    done({
+      name: `GET ${route(name)}`,
+      ...expectStatus(await get(base + route(name)), 200),
+    });
+  }
+
+  const plan = planCrud(entities, relationships);
+  for (const s of plan.skipped)
+    done({ name: `skip ${s.name}`, ok: true, output: s.reason });
+  const ids = new Map<string, unknown>();
+  for (const p of plan.order) {
+    const r = route(p.name);
+    const failed = p.parents.find((parent) => !ids.has(parent.entity));
+    if (failed) {
+      done({
+        name: `skip ${p.name}`,
+        ok: true,
+        output: `needs a ${failed.entity} row, which failed to create`,
+      });
+      continue;
+    }
+    const body = { ...p.payload };
+    for (const parent of p.parents)
+      body[parent.property] = ids.get(parent.entity);
+    const created = await request("POST", base + r, body);
+    const id = [200, 201].includes(created.status)
+      ? idOf(created.body)
+      : undefined;
+    if (
+      !done({
+        name: `POST ${r}`,
+        ok: id !== undefined,
+        output:
+          id === undefined
+            ? `${created.status} ${tail(created.body, 500)}`
+            : undefined,
+      })
+    )
+      continue;
+    ids.set(p.name, id);
+    done({
+      name: `GET ${r}/${id}`,
+      ...expectStatus(await get(`${base}${r}/${id}`), 200),
+    });
+  }
+  for (const p of [...plan.order].reverse()) {
+    if (!ids.has(p.name)) continue;
+    const url = `${route(p.name)}/${ids.get(p.name)}`;
+    done({
+      name: `DELETE ${url}`,
+      ...expectStatus(await request("DELETE", base + url), 200, 204),
+    });
+  }
+}
+
+/** Wait for the server's /health, run check against it, and stop the server. */
+async function serve(
+  server: ChildProcess,
+  port: number,
+  timeoutMs: number,
+  done: (s: Step) => boolean,
+  check: (base: string) => Promise<void>
+): Promise<void> {
+  let log = "";
+  server.stdout?.on("data", (d) => {
+    log += d;
+  });
+  server.stderr?.on("data", (d) => {
+    log += d;
+  });
+  // A command that can't start (e.g. no python3) has no pid; keep its error.
+  server.on("error", (e) => {
+    log += e.message;
+  });
+  try {
+    const base = `http://127.0.0.1:${port}`;
+    const deadline = Date.now() + timeoutMs;
+    let health = await get(`${base}/health`);
+    while (
+      health.status !== 200 &&
+      Date.now() < deadline &&
+      server.exitCode === null &&
+      server.pid !== undefined
+    ) {
+      await new Promise((r) => {
+        setTimeout(r, 500);
+      });
+      health = await get(`${base}/health`);
+    }
+    if (
+      done({
+        name: "start",
+        ok: health.status === 200,
+        output: health.status === 200 ? undefined : tail(log),
+      })
+    )
+      await check(base);
+  } finally {
+    server.kill();
+  }
+}
+/* eslint-enable no-await-in-loop */
+
+export interface SmokeOptions {
+  skipBuild?: boolean;
+  timeoutMs?: number;
+}
 
 /**
  * Start the built service on a PGlite database synced to its entities and call
- * GET /health and the list endpoint of every entity.
- * ponytail: list only, no create/read/delete; add when payloads can be built
- * from required fields and relationships.
+ * GET /health, every entity's list endpoint, and a create/read/delete of one
+ * row per entity.
  */
 export async function smokeTest(
   projectDir: string,
-  entityNames: string[],
-  { skipBuild = false, timeoutMs = 60_000 } = {}
+  entities: Entity[],
+  relationships: RelationshipMap = {},
+  { skipBuild = false, timeoutMs = 60_000 }: SmokeOptions = {}
 ): Promise<CheckResult> {
   if (!supportsPglite(projectDir)) return NO_PGLITE;
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "apso-pglite-"));
@@ -314,7 +478,6 @@ export async function smokeTest(
     steps.push(s);
     return s.ok;
   };
-  let server: ReturnType<typeof spawn> | undefined;
   try {
     if (!skipBuild && !done(step("build", await build(projectDir))))
       return { ok: false, steps };
@@ -329,58 +492,15 @@ export async function smokeTest(
       return { ok: false, steps };
 
     const port = await freePort();
-    let log = "";
-    server = spawn(process.execPath, ["dist/main"], {
+    const server = spawn(process.execPath, ["dist/main"], {
       cwd: projectDir,
       env: { ...process.env, ...pgliteEnv(dataDir), APP_PORT: String(port) },
     });
-    server.stdout?.on("data", (d) => {
-      log += d;
-    });
-    server.stderr?.on("data", (d) => {
-      log += d;
-    });
-    const base = `http://127.0.0.1:${port}`;
-
-    const deadline = Date.now() + timeoutMs;
-    let health = await get(`${base}/health`);
-    while (
-      health.status !== 200 &&
-      Date.now() < deadline &&
-      server.exitCode === null
-    ) {
-      // eslint-disable-next-line no-await-in-loop
-      await new Promise((r) => {
-        setTimeout(r, 500);
-      });
-      // eslint-disable-next-line no-await-in-loop
-      health = await get(`${base}/health`);
-    }
-    if (
-      !done({
-        name: "start",
-        ok: health.status === 200,
-        output: health.status === 200 ? undefined : tail(log),
-      })
-    )
-      return { ok: false, steps };
-
-    for (const name of entityNames) {
-      const route = `/${pluralize(name)}`;
-      // eslint-disable-next-line no-await-in-loop
-      const res = await get(base + route);
-      done({
-        name: `GET ${route}`,
-        ok: res.status === 200,
-        output:
-          res.status === 200
-            ? undefined
-            : `${res.status} ${tail(res.body, 500)}`,
-      });
-    }
+    await serve(server, port, timeoutMs, done, (base) =>
+      checkEndpoints(base, "typescript", entities, relationships, done)
+    );
     return { ok: steps.every((s) => s.ok), steps };
   } finally {
-    server?.kill();
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
 }
