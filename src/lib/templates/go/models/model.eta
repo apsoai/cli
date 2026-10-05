@@ -9,7 +9,7 @@ import (
 <% } %>
 )
 
-// <%= it.name %> represents the <%= it.snakeCasedName %> table
+// <%= it.name %> represents the <%= it.tableName %> table
 type <%= it.name %> struct {
 <% if (it.createPrimaryKey) { %>
 <% if (it.primaryKeyType === 'uuid') { %>
@@ -48,5 +48,5 @@ type <%= it.name %> struct {
 
 // TableName overrides the table name
 func (<%= it.name %>) TableName() string {
-	return "<%= it.snakeCasedName %>"
+	return "<%= it.tableName %>"
 }

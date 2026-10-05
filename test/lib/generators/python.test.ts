@@ -73,6 +73,46 @@ describe("PythonGenerator", () => {
     });
   });
 
+  describe("table name override (cli#107)", () => {
+    test("honors an explicit per-entity table override", async () => {
+      const entity: Entity = {
+        name: "Order",
+        table: "order_record",
+        fields: [{ name: "total", type: "integer", nullable: false }],
+      };
+
+      const files = await generator.generateEntity({
+        entity,
+        relationships: [],
+        allEntities: [entity],
+        apiType: "rest",
+      });
+
+      const modelContent = findFileContent(files, "order.py");
+      expect(modelContent).toBeDefined();
+      expect(modelContent).toContain('__tablename__ = "order_record"');
+      // must NOT fall back to the reserved-word snake_case name
+      expect(modelContent).not.toContain('__tablename__ = "order"');
+    });
+
+    test("falls back to snake_case of the name when no override is set", async () => {
+      const entity: Entity = {
+        name: "Order",
+        fields: [{ name: "total", type: "integer", nullable: false }],
+      };
+
+      const files = await generator.generateEntity({
+        entity,
+        relationships: [],
+        allEntities: [entity],
+        apiType: "rest",
+      });
+
+      const modelContent = findFileContent(files, "order.py");
+      expect(modelContent).toContain('__tablename__ = "order"');
+    });
+  });
+
   describe("default value handling", () => {
     test("string defaults render without HTML encoding", async () => {
       const entity: Entity = {
@@ -276,6 +316,27 @@ describe("PythonGenerator", () => {
       expect(modelContent).toBeDefined();
       expect(modelContent).toContain("ForeignKey(");
       expect(modelContent).toContain("relationship(");
+    });
+
+    test("ManyToOne FK names the parent's real table (override, multi-word)", async () => {
+      const order: Entity = { name: "Order", table: "order_record", fields: [] };
+      const profile: Entity = { name: "UserProfile", fields: [] };
+      const item: Entity = { name: "LineItem", fields: [] };
+      const relationships: Relationship[] = [
+        { type: "ManyToOne", name: "Order", referenceName: "Order" },
+        { type: "ManyToOne", name: "UserProfile", referenceName: "UserProfile" },
+      ];
+
+      const files = await generator.generateEntity({
+        entity: item,
+        relationships,
+        allEntities: [order, profile, item],
+        apiType: "rest",
+      });
+
+      const modelContent = findFileContent(files, "lineitem.py");
+      expect(modelContent).toContain('ForeignKey("order_record.id")');
+      expect(modelContent).toContain('ForeignKey("user_profile.id")');
     });
   });
 

@@ -1,7 +1,13 @@
 import * as path from "path";
 import { Flags } from "@oclif/core";
 import BaseCommand from "../../lib/base-command";
-import { cliBinPath, report, verifyMigration } from "../../lib/verify";
+import { parseApsorc } from "../../lib/apsorc-parser";
+import {
+  cliBinPath,
+  migrateUnsupported,
+  report,
+  verifyMigration,
+} from "../../lib/verify";
 
 export default class MigrateVerify extends BaseCommand {
   static description =
@@ -32,6 +38,8 @@ export default class MigrateVerify extends BaseCommand {
 
   async run(): Promise<void> {
     const { flags } = await this.parse(MigrateVerify);
+    const unsupported = migrateUnsupported(parseApsorc().language);
+    if (unsupported) this.error(unsupported);
     const result = await verifyMigration(
       process.cwd(),
       path.resolve(flags.baseline),

@@ -76,6 +76,44 @@ describe("GoGenerator", () => {
       expect(content).toContain('return "blog_post"');
     });
 
+    test("honors an explicit per-entity table override (cli#107)", async () => {
+      const entity: Entity = {
+        name: "Order",
+        table: "order_record",
+        fields: [{ name: "total", type: "integer" }],
+      };
+
+      const files = await generator.generateEntity({
+        entity,
+        relationships: [],
+        allEntities: [entity],
+        apiType: "rest",
+      });
+
+      const content = findFileContent(files, "order.go");
+      expect(content).toBeDefined();
+      expect(content).toContain('return "order_record"');
+      // must NOT fall back to the reserved-word snake_case name
+      expect(content).not.toContain('return "order"');
+    });
+
+    test("falls back to snake_case of the name when no override is set (cli#107)", async () => {
+      const entity: Entity = {
+        name: "Order",
+        fields: [{ name: "total", type: "integer" }],
+      };
+
+      const files = await generator.generateEntity({
+        entity,
+        relationships: [],
+        allEntities: [entity],
+        apiType: "rest",
+      });
+
+      const content = findFileContent(files, "order.go");
+      expect(content).toContain('return "order"');
+    });
+
     test("output path uses snake_case filename", async () => {
       const entity: Entity = {
         name: "UserProfile",
