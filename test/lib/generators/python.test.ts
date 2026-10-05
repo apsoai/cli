@@ -317,6 +317,27 @@ describe("PythonGenerator", () => {
       expect(modelContent).toContain("ForeignKey(");
       expect(modelContent).toContain("relationship(");
     });
+
+    test("ManyToOne FK names the parent's real table (override, multi-word)", async () => {
+      const order: Entity = { name: "Order", table: "order_record", fields: [] };
+      const profile: Entity = { name: "UserProfile", fields: [] };
+      const item: Entity = { name: "LineItem", fields: [] };
+      const relationships: Relationship[] = [
+        { type: "ManyToOne", name: "Order", referenceName: "Order" },
+        { type: "ManyToOne", name: "UserProfile", referenceName: "UserProfile" },
+      ];
+
+      const files = await generator.generateEntity({
+        entity: item,
+        relationships,
+        allEntities: [order, profile, item],
+        apiType: "rest",
+      });
+
+      const modelContent = findFileContent(files, "lineitem.py");
+      expect(modelContent).toContain('ForeignKey("order_record.id")');
+      expect(modelContent).toContain('ForeignKey("user_profile.id")');
+    });
   });
 
   describe("validation", () => {

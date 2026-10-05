@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     "<%= assoc.joinTableName || `${it.tableName}_${assoc.name.toLowerCase()}` %>",
     Base.metadata,
     Column("<%= assoc.joinColumnName || `${it.tableName}_id` %>", <% if (it.primaryKeyType === 'uuid') { %>PGUUID(as_uuid=True)<% } else { %>Integer<% } %>, ForeignKey("<%= it.tableName %>.id"), primary_key=True),
-    Column("<%= assoc.inverseJoinColumnName || `${assoc.name.toLowerCase()}_id` %>", <% if (assoc.referencedEntityPrimaryKeyType === 'uuid') { %>PGUUID(as_uuid=True)<% } else { %>Integer<% } %>, ForeignKey("<%= assoc.name.toLowerCase() %>.id"), primary_key=True),
+    Column("<%= assoc.inverseJoinColumnName || `${assoc.name.toLowerCase()}_id` %>", <% if (assoc.referencedEntityPrimaryKeyType === 'uuid') { %>PGUUID(as_uuid=True)<% } else { %>Integer<% } %>, ForeignKey("<%= it.tableNames[assoc.name] || assoc.name.toLowerCase() %>.id"), primary_key=True),
 )
 <% }) %>
 
@@ -93,7 +93,7 @@ columnsToProcess.forEach((field) => { -%>
     # Foreign key for <%= assoc.name %>
     <%= assoc.camelCasedId %>: Mapped[<% if (assoc.referencedEntityPrimaryKeyType === 'uuid') { %>Optional[UUID]<% } else { %>Optional[int]<% } %>] = mapped_column(
         <% if (assoc.referencedEntityPrimaryKeyType === 'uuid') { %>PGUUID(as_uuid=True)<% } else { %>Integer<% } %>,
-        ForeignKey("<%= assoc.name.toLowerCase() %>.id"<% if (assoc.cascadeDelete) { %>, ondelete="CASCADE"<% } %>),
+        ForeignKey("<%= it.tableNames[assoc.name] || assoc.name.toLowerCase() %>.id"<% if (assoc.cascadeDelete) { %>, ondelete="CASCADE"<% } %>),
         nullable=<%= assoc.nullable ? 'True' : 'False' %><% if (assoc.index) { %>,
         index=True<% } %>
     )
