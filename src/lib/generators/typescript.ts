@@ -15,7 +15,7 @@ import {
   AuthConfig,
   Field,
 } from "../types";
-// Utilities available for future use: createFile, withGeneratedMeta from "../utils/file-system"
+// Utilities available for future use: createFile from "../utils/file-system"
 import { getFieldForTemplate, typeExistsInEntity, fieldToEnumType } from "../utils/field";
 import {
   getRelationshipForTemplate,
@@ -475,8 +475,6 @@ export class TypeScriptGenerator extends BaseGenerator {
     const templateData = {
       scopedEntities,
       authConfig: normalizedAuth,
-      generatedAt: new Date().toISOString(),
-      generatedBy: "Apso CLI",
     };
 
     // Generate auth.guard.ts if auth is configured
