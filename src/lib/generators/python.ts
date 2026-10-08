@@ -319,10 +319,10 @@ export class PythonGenerator extends BaseGenerator {
     const filename = `${timestamp}_${name}.py`;
 
     const upStatements = upSql
-      .map((sql) => `    op.execute("""${sql}""")`)
+      .map((sql) => `    op.execute(${JSON.stringify(sql)})`)
       .join("\n");
     const downStatements = (downSql || [])
-      .map((sql) => `    op.execute("""${sql}""")`)
+      .map((sql) => `    op.execute(${JSON.stringify(sql)})`)
       .join("\n");
 
     const content = `"""${name}"""

@@ -1,4 +1,5 @@
 import { expect, describe, test, beforeAll } from "@jest/globals";
+import { spawnSync } from "child_process";
 import { PythonGenerator } from "../../../src/lib/generators/python";
 import { GeneratorConfig, Entity, Relationship } from "../../../src/lib/types";
 
@@ -566,5 +567,51 @@ describe("PythonGenerator", () => {
       const files = await generator.generateDomainEvents([entity], "rest", {});
       expect(files).toEqual([]);
     });
+  });
+
+  describe("migration generation (cli#148)", () => {
+    const hasPython = spawnSync("python3", ["--version"]).status === 0;
+
+    // Run the migration under a stub alembic.op that records each statement.
+    const runMigration = `
+import json, sys, types
+calls = []
+alembic = types.ModuleType("alembic")
+alembic.op = types.SimpleNamespace(execute=calls.append)
+sys.modules["alembic"] = alembic
+exec(sys.stdin.read())
+upgrade()
+downgrade()
+print(json.dumps(calls))
+`;
+
+    (hasPython ? test : test.skip)(
+      "writes a migration Python runs with the SQL unchanged",
+      async () => {
+        const upSql = [
+          // ends in a quoted identifier
+          'ALTER TABLE "task" DROP COLUMN "title"',
+          // backslash
+          String.raw`ALTER TABLE "task" ALTER COLUMN "path" SET DEFAULT 'C:\tmp'`,
+          // newlines
+          'CREATE TABLE "note" (\n  "id" SERIAL NOT NULL\n)',
+        ];
+        const downSql = ['DROP TABLE "user"'];
+        const files = await generator.generateMigration({
+          entities: [],
+          relationshipMap: {},
+          upSql,
+          downSql,
+        });
+
+        expect(files).toHaveLength(1);
+        const result = spawnSync("python3", ["-c", runMigration], {
+          input: files[0].content,
+          encoding: "utf8",
+        });
+        expect(result.stderr).toBe("");
+        expect(JSON.parse(result.stdout)).toEqual([...upSql, ...downSql]);
+      }
+    );
   });
 });
