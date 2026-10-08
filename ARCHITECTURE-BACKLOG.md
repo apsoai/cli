@@ -42,7 +42,7 @@ Three overlapping config loading strategies: `parseApsorc()` (used), `loadConfig
 
 `createDirectoryContents` and `writeFile` are holdovers from an older template system. No command calls them. `init` uses git clone, `generate` uses Eta templates.
 
-**Fix:** Delete both functions. Keep `createFile` and `withGeneratedMeta`.
+**Fix:** Delete both functions. Keep `createFile`.
 
 **Gains:** Removes dead code that suggests an alternative template mechanism exists.
 

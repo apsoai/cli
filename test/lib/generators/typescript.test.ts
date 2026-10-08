@@ -509,3 +509,26 @@ describe("http controller suppression (issue #93)", () => {
     });
   });
 });
+
+describe("guard regeneration (cli#129)", () => {
+  test("renders the same guard files when nothing changed", async () => {
+    const generator = new TypeScriptGenerator(createConfig([]));
+    const entities: Entity[] = [
+      {
+        name: "Project",
+        fields: [{ name: "name", type: "text" }],
+        scopeBy: "workspaceId",
+      },
+    ];
+    const auth = { provider: "better-auth" as const };
+
+    const first = await generator.generateGuards(entities, auth);
+    await new Promise((resolve) => {
+      setTimeout(resolve, 5);
+    });
+    const second = await generator.generateGuards(entities, auth);
+
+    expect(first.map((f) => f.path)).toContain("guards/auth.guard.ts");
+    expect(second).toEqual(first);
+  });
+});
