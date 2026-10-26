@@ -27,7 +27,7 @@ apso dev               # Start local dev server via Docker Compose
 # Schema
 apso migrate           # Test schema migrations locally (PGlite sandbox)
 apso migrate generate  # Migration from a deployed .apsorc to this project's entities (TypeScript, PGlite)
-apso migrate verify    # Run a migration on the deployed schema, then check for drift
+apso migrate verify    # Run a migration on the deployed schema (optionally seeded with --seed rows), then check data loss and drift; generate and verify both warn on statements that lose data
 apso test smoke        # Start the service; call /health, list, and create/read/delete each entity (TS on PGlite, Python/Go on DATABASE_URL)
 apso schema validate   # Validate local .apsorc (includes lint)
 apso schema lint       # Lint .apsorc with @apso/schema-tools (--fix, --json)

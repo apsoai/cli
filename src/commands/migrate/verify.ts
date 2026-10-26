@@ -15,6 +15,7 @@ export default class MigrateVerify extends BaseCommand {
 
   static examples = [
     `$ apso migrate verify --baseline deployed.apsorc --migration src/migrations/1700000000000-SchemaUpdate-migration.ts`,
+    `$ apso migrate verify --baseline deployed.apsorc --migration src/migrations/1700000000000-SchemaUpdate-migration.ts --seed seed.sql`,
   ];
 
   static flags = {
@@ -25,6 +26,14 @@ export default class MigrateVerify extends BaseCommand {
     migration: Flags.string({
       description: "The migration file to run",
       required: true,
+    }),
+    seed: Flags.string({
+      description:
+        "SQL file of rows to insert into the deployed schema before the migration runs; the check then fails if the migration loses any of them",
+    }),
+    "accept-loss": Flags.boolean({
+      description: "Report seeded rows or values the migration loses without failing",
+      default: false,
     }),
     "skip-build": Flags.boolean({
       description: "Use the existing dist/ build instead of building first",
@@ -45,7 +54,11 @@ export default class MigrateVerify extends BaseCommand {
       path.resolve(flags.baseline),
       flags.migration,
       cliBinPath(this.config.root),
-      flags["skip-build"]
+      {
+        skipBuild: flags["skip-build"],
+        seedFile: flags.seed,
+        acceptLoss: flags["accept-loss"],
+      }
     );
     report(
       (s) => this.log(s),

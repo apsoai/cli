@@ -17,6 +17,7 @@ import { TargetLanguage } from "../types/generator";
 import { RelationshipMap } from "../types/relationship";
 import { kebabCase } from "../utils/casing";
 import { planCrud } from "./crud-plan";
+import { Finding, reviewMigration } from "./review";
 
 export interface Step {
   name: string;
@@ -144,6 +145,8 @@ export interface GenerateResult {
   needed: boolean;
   file?: string;
   steps: Step[];
+  /** Statements in the generated migration that lose data or fail on rows. */
+  findings?: Finding[];
 }
 
 /** Generate a migration from the deployed schema (baselineApsorc) to the project's entities. */
@@ -190,6 +193,9 @@ export async function generateMigration(
       needed: true,
       file: file && path.join("src", "migrations", file),
       steps,
+      findings: file
+        ? reviewMigration(fs.readFileSync(path.join(migrationsDir, file), "utf8"))
+        : undefined,
     };
   } finally {
     fs.rmSync(dataDir, { recursive: true, force: true });
@@ -212,6 +218,61 @@ ds.initialize()
 export interface CheckResult {
   ok: boolean;
   steps: Step[];
+  findings?: Finding[];
+}
+
+// Row and non-null value counts per table and column of the PGlite database
+// at PGLITE_DATA_DIR, after running the SQL file in argv[1] if given.
+const COUNT_ROWS = `
+const fs = require("fs");
+const { PGlite } = require("@electric-sql/pglite");
+(async () => {
+  const db = new PGlite(process.env.PGLITE_DATA_DIR);
+  if (process.argv[1]) await db.exec(fs.readFileSync(process.argv[1], "utf8"));
+  const cols = (await db.query("SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name <> 'migrations'")).rows;
+  const out = {};
+  for (const { table_name: t, column_name: c } of cols) {
+    const r = (await db.query('SELECT count(*)::int AS rows, count("' + c + '")::int AS vals FROM "' + t + '"')).rows[0];
+    out[t] = out[t] || { rows: r.rows, values: {} };
+    out[t].values[c] = r.vals;
+  }
+  console.log(JSON.stringify(out));
+  await db.close();
+})().catch((e) => { console.error(e.message); process.exit(1); });
+`;
+
+type Counts = Record<string, { rows: number; values: Record<string, number> }>;
+
+/**
+ * Rows and values present before the migration and missing after it,
+ * following the tables and columns the migration renames.
+ */
+export function dataLoss(before: Counts, after: Counts, source: string): string[] {
+  const tables = new Map(
+    [...source.matchAll(/ALTER TABLE "([^"]+)" RENAME TO "([^"]+)"/g)].map((m) => [m[1], m[2]])
+  );
+  const columns = new Map(
+    [...source.matchAll(/ALTER TABLE "([^"]+)" RENAME COLUMN "([^"]+)" TO "([^"]+)"/g)].map(
+      (m) => [`${m[1]}.${m[2]}`, m[3]]
+    )
+  );
+  const lost: string[] = [];
+  for (const [t, { rows, values }] of Object.entries(before)) {
+    if (!rows) continue;
+    const t2 = tables.get(t) ?? t;
+    const now = after[t2];
+    if (!now) {
+      lost.push(`table ${t}: all ${rows} rows`);
+      continue;
+    }
+    if (now.rows < rows) lost.push(`table ${t}: ${rows - now.rows} of ${rows} rows`);
+    for (const [c, n] of Object.entries(values)) {
+      const c2 = columns.get(`${t}.${c}`) ?? columns.get(`${t2}.${c}`) ?? c;
+      const kept = now.values[c2] ?? 0;
+      if (n > kept) lost.push(`${t}.${c}: ${n - kept} of ${n} values`);
+    }
+  }
+  return lost;
 }
 
 /**
@@ -250,9 +311,15 @@ export async function verifyMigration(
   baselineApsorc: string,
   migrationFile: string,
   cliBin: string,
-  skipBuild = false
+  {
+    skipBuild = false,
+    seedFile,
+    acceptLoss = false,
+  }: { skipBuild?: boolean; seedFile?: string; acceptLoss?: boolean } = {}
 ): Promise<CheckResult> {
   if (!supportsPglite(projectDir)) return NO_PGLITE;
+  const source = fs.readFileSync(path.resolve(projectDir, migrationFile), "utf8");
+  const findings = reviewMigration(source);
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "apso-pglite-"));
   const steps: Step[] = [];
   const done = (s: Step) => {
@@ -261,7 +328,15 @@ export async function verifyMigration(
   };
   try {
     if (!done(await buildBaseline(projectDir, baselineApsorc, dataDir, cliBin)))
-      return { ok: false, steps };
+      return { ok: false, steps, findings };
+    const count = async (name: string, sql?: string) => {
+      const r = await run(process.execPath, ["-e", COUNT_ROWS, ...(sql ? [sql] : [])], projectDir, pgliteEnv(dataDir));
+      done(step(name, r));
+      return r.ok ? (JSON.parse(r.output.trim().split("\n").pop()!) as Counts) : undefined;
+    };
+    // Seed rows make the migration face the data it will meet in production.
+    const before = seedFile ? await count("seed", path.resolve(seedFile)) : undefined;
+    if (seedFile && !before) return { ok: false, steps, findings };
     const compiled = path
       .join("dist", path.relative("src", migrationFile))
       .replace(/\.ts$/, ".js");
@@ -269,7 +344,7 @@ export async function verifyMigration(
     const needsBuild =
       !skipBuild || !fs.existsSync(path.join(projectDir, compiled));
     if (needsBuild && !done(step("build", await build(projectDir))))
-      return { ok: false, steps };
+      return { ok: false, steps, findings };
     const migrate = await run(
       process.execPath,
       ["-e", RUN_ONE_MIGRATION, compiled],
@@ -277,14 +352,28 @@ export async function verifyMigration(
       pgliteEnv(dataDir)
     );
     if (!done({ ...step("migrate", migrate), output: tail(migrate.output) }))
-      return { ok: false, steps };
+      return { ok: false, steps, findings };
+    if (before) {
+      const after = await count("count");
+      if (!after) return { ok: false, steps, findings };
+      const lost = dataLoss(before, after, source);
+      const ok = lost.length === 0 || acceptLoss;
+      done({
+        name: "data",
+        ok,
+        output: lost.length > 0
+          ? `The migration lost seeded data:\n${lost.join("\n")}${ok ? "" : "\nFix the migration, or rerun with --accept-loss if the loss is intended."}`
+          : undefined,
+      });
+      if (!ok) return { ok: false, steps, findings };
+    }
 
     const drift = await typeorm(
       projectDir,
       ["migration:generate", "./src/migrations/drift", "--check"],
       pgliteEnv(dataDir)
     );
-    return { ok: done(step("drift", drift)), steps };
+    return { ok: done(step("drift", drift)), steps, findings };
   } finally {
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
@@ -669,5 +758,6 @@ export function report(
     log(`${s.ok ? "ok  " : "FAIL"} ${s.name}`);
     if (s.output) log(s.output.replace(/^/gm, "     "));
   }
+  for (const f of result.findings ?? []) log(`WARN ${f.code}: ${f.message}`);
   if (summary) log(summary);
 }
