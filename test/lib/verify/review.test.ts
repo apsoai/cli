@@ -2,7 +2,7 @@ import { expect, describe, test } from "@jest/globals";
 import * as fs from "fs";
 import * as path from "path";
 import { reviewMigration } from "../../../src/lib/verify/review";
-import { dataLoss } from "../../../src/lib/verify";
+import { dataLoss, unaccepted } from "../../../src/lib/verify";
 
 // Each fixture is what `apso migrate generate` (TypeORM migration:generate)
 // wrote for one .apsorc change to a Company/Contact schema.
@@ -75,6 +75,19 @@ describe("reviewMigration rules", () => {
     ]);
   });
 
+  test("a drop or SET NOT NULL after the data is copied or backfilled is clean", () => {
+    expect(
+      reviewMigration(
+        migration(
+          `ALTER TABLE "contact" ADD "firstName" text`,
+          `UPDATE "contact" SET "firstName" = split_part("fullName", ' ', 1)`,
+          `ALTER TABLE "contact" ALTER COLUMN "firstName" SET NOT NULL`,
+          `ALTER TABLE "contact" DROP COLUMN "fullName"`
+        )
+      )
+    ).toEqual([]);
+  });
+
   test("statements on a table the migration creates are safe", () => {
     expect(
       reviewMigration(
@@ -111,5 +124,33 @@ describe("dataLoss", () => {
       "contact.id: 1 of 4 values",
       "contact.score: 4 of 4 values",
     ]);
+  });
+
+  test("data moved to another table or a join table is not lost", () => {
+    const seeded = {
+      contact: {
+        rows: 3,
+        values: { id: 3, phone: 2, companyId: 3 },
+        distinct: { id: ["1", "2", "3"], phone: ["555-01", "555-02"], companyId: ["1", "2"] },
+      },
+    };
+    const after = {
+      contact: { rows: 3, values: { id: 3 }, distinct: { id: ["1", "2", "3"] } },
+      "phone_number": { rows: 2, values: { number: 2 }, distinct: { number: ["555-01", "555-02"] } },
+      "contact_companies_company": { rows: 3, values: { companyId: 3 }, distinct: { companyId: ["1", "2"] } },
+    };
+    expect(dataLoss(seeded, after, "")).toEqual([]);
+    const dropped = { ...after, "phone_number": { rows: 1, values: { number: 1 }, distinct: { number: ["555-01"] } } };
+    expect(dataLoss(seeded, dropped, "")).toEqual(["contact.phone: 2 of 2 values"]);
+    const company = { rows: 2, values: { id: 2 }, distinct: { id: ["1", "2"] } };
+    const emptyJoin = { contact: after.contact, company, "contact_companies_company": { rows: 0, values: { companyId: 0 }, distinct: { companyId: [] } } };
+    expect(dataLoss({ ...seeded, company }, { ...emptyJoin, "phone_number": after.phone_number }, "")).toEqual([
+      "contact.companyId: 3 of 3 values",
+    ]);
+  });
+
+  test("accepted losses are named by table or column", () => {
+    const lost = ["table legacy: all 2 rows", "contact.fullName: 4 of 4 values", "contact.score: 1 of 4 values"];
+    expect(unaccepted(lost, ["legacy", "contact.fullName"])).toEqual(["contact.score: 1 of 4 values"]);
   });
 });

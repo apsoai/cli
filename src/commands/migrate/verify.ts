@@ -16,6 +16,7 @@ export default class MigrateVerify extends BaseCommand {
   static examples = [
     `$ apso migrate verify --baseline deployed.apsorc --migration src/migrations/1700000000000-SchemaUpdate-migration.ts`,
     `$ apso migrate verify --baseline deployed.apsorc --migration src/migrations/1700000000000-SchemaUpdate-migration.ts --seed seed.sql`,
+    `$ apso migrate verify --baseline deployed.apsorc --migration src/migrations/1700000000000-SchemaUpdate-migration.ts --seed seed.sql --check checks.sql --accept-loss contact.fullName`,
   ];
 
   static flags = {
@@ -31,9 +32,15 @@ export default class MigrateVerify extends BaseCommand {
       description:
         "SQL file of rows to insert into the deployed schema before the migration runs; the check then fails if the migration loses any of them",
     }),
-    "accept-loss": Flags.boolean({
-      description: "Report seeded rows or values the migration loses without failing",
-      default: false,
+    check: Flags.string({
+      description:
+        "SQL file of SELECTs run after the migration; each row must have a boolean ok (and a label naming the check), e.g. SELECT bool_and(\"firstName\" <> '') AS ok, 'every contact has a first name' AS label FROM contact",
+    }),
+    "accept-loss": Flags.string({
+      description:
+        "A table or table.column whose seeded data the migration may drop on purpose (repeatable); pair it with --check to prove where the data went",
+      multiple: true,
+      default: [],
     }),
     "skip-build": Flags.boolean({
       description: "Use the existing dist/ build instead of building first",
@@ -57,6 +64,7 @@ export default class MigrateVerify extends BaseCommand {
       {
         skipBuild: flags["skip-build"],
         seedFile: flags.seed,
+        checkFile: flags.check,
         acceptLoss: flags["accept-loss"],
       }
     );

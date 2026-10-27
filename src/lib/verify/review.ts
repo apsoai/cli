@@ -43,11 +43,16 @@ export function reviewMigration(source: string): Finding[] {
   );
   const existing = (table: string) => !created.has(table);
 
+  // An UPDATE or INSERT before a statement that names the column means the
+  // migration already moves or backfills its data.
+  const handled = (i: number, col: string) =>
+    up.slice(0, i).some((q) => /^(UPDATE|INSERT)\b/.test(q) && q.includes(`"${col}"`));
+
   const dropped = new Map<string, string[]>();
   const added = new Map<string, string[]>();
-  for (const q of up) {
+  for (const [i, q] of up.entries()) {
     const d = q.match(/^ALTER TABLE "([^"]+)" DROP COLUMN "([^"]+)"/);
-    if (d) dropped.set(d[1], [...(dropped.get(d[1]) ?? []), d[2]]);
+    if (d && !handled(i, d[2])) dropped.set(d[1], [...(dropped.get(d[1]) ?? []), d[2]]);
     const a = q.match(/^ALTER TABLE "([^"]+)" ADD "([^"]+)"/);
     if (a) added.set(a[1], [...(added.get(a[1]) ?? []), a[2]]);
   }
@@ -63,11 +68,13 @@ export function reviewMigration(source: string): Finding[] {
           `${table}.${col} is dropped while ${list(newCols)} is added. If that is a rename, replace the DROP and ADD with RENAME COLUMN to keep the data; otherwise every value in "${col}" is deleted.`);
       else
         add("DROPS_COLUMN", table, col,
-          `${table}.${col} is dropped with all its values. Confirm the loss, or copy the data first.`);
+          created.size > 0
+            ? `${table}.${col} is dropped with all its values while this migration creates ${list([...created] as string[])}. If the data moves there, copy it with INSERT ... SELECT before the DROP; otherwise confirm the loss.`
+            : `${table}.${col} is dropped with all its values. Confirm the loss, or copy the data first.`);
     }
   }
 
-  for (const q of up) {
+  for (const [i, q] of up.entries()) {
     let m = q.match(/^DROP TABLE "([^"]+)"/);
     if (m)
       add("DROPS_TABLE", m[1], undefined,
@@ -85,7 +92,7 @@ export function reviewMigration(source: string): Finding[] {
     }
 
     m = q.match(/^ALTER TABLE "([^"]+)" ALTER COLUMN "([^"]+)" SET NOT NULL/);
-    if (m && existing(m[1]))
+    if (m && existing(m[1]) && !handled(i, m[2]))
       add("SET_NOT_NULL", m[1], m[2],
         `${m[1]}.${m[2]} becomes NOT NULL, which fails on any row where it is null. Backfill those rows first.`);
 

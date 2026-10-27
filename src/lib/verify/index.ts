@@ -222,7 +222,8 @@ export interface CheckResult {
 }
 
 // Row and non-null value counts per table and column of the PGlite database
-// at PGLITE_DATA_DIR, after running the SQL file in argv[1] if given.
+// at PGLITE_DATA_DIR, after running the SQL file in argv[1] if given, plus each
+// column's distinct values (as text) so data moved to another table is found.
 const COUNT_ROWS = `
 const fs = require("fs");
 const { PGlite } = require("@electric-sql/pglite");
@@ -232,20 +233,45 @@ const { PGlite } = require("@electric-sql/pglite");
   const cols = (await db.query("SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name <> 'migrations'")).rows;
   const out = {};
   for (const { table_name: t, column_name: c } of cols) {
-    const r = (await db.query('SELECT count(*)::int AS rows, count("' + c + '")::int AS vals FROM "' + t + '"')).rows[0];
-    out[t] = out[t] || { rows: r.rows, values: {} };
+    const q = '"' + c + '"';
+    const r = (await db.query("SELECT count(*)::int AS rows, count(" + q + ")::int AS vals, (SELECT array_agg(v) FROM (SELECT DISTINCT " + q + "::text AS v FROM \\"" + t + "\\" WHERE " + q + " IS NOT NULL LIMIT 1000) d) AS dv FROM \\"" + t + "\\"")).rows[0];
+    out[t] = out[t] || { rows: r.rows, values: {}, distinct: {} };
     out[t].values[c] = r.vals;
+    out[t].distinct[c] = r.dv || [];
   }
   console.log(JSON.stringify(out));
   await db.close();
 })().catch((e) => { console.error(e.message); process.exit(1); });
 `;
 
-type Counts = Record<string, { rows: number; values: Record<string, number> }>;
+// Assertions the user wrote for this migration: each SELECT returns rows with a
+// boolean "ok" and a "label", the same format as the eval checks.
+const RUN_CHECKS = `
+const fs = require("fs");
+const { PGlite } = require("@electric-sql/pglite");
+(async () => {
+  const db = new PGlite(process.env.PGLITE_DATA_DIR);
+  const failed = [];
+  for (const r of await db.exec(fs.readFileSync(process.argv[1], "utf8")))
+    for (const row of r.rows) if ("ok" in row && row.ok !== true) failed.push(row.label || JSON.stringify(row));
+  await db.close();
+  if (failed.length) { console.error("Failed checks:\\n" + failed.join("\\n")); process.exit(1); }
+})().catch((e) => { console.error(e.message); process.exit(1); });
+`;
+
+type Counts = Record<
+  string,
+  { rows: number; values: Record<string, number>; distinct?: Record<string, string[]> }
+>;
+
+// Filled in by the database on insert, so a moved row gets new ones.
+const GENERATED = new Set(["created_at", "updated_at"]);
 
 /**
  * Rows and values present before the migration and missing after it,
- * following the tables and columns the migration renames.
+ * following the tables and columns the migration renames. A column or table
+ * whose values all turn up in another column after the migration was moved,
+ * not lost (a field moved to a new table, a foreign key moved to a join table).
  */
 export function dataLoss(before: Counts, after: Counts, source: string): string[] {
   const tables = new Map(
@@ -256,24 +282,45 @@ export function dataLoss(before: Counts, after: Counts, source: string): string[
       (m) => [`${m[1]}.${m[2]}`, m[3]]
     )
   );
+  // Only tables the migration creates count, and not their ids: small integer
+  // values (foreign keys) would otherwise match any existing id column.
+  const afterValues = Object.entries(after)
+    .filter(([t]) => !before[t] && ![...tables.values()].includes(t))
+    .flatMap(([, a]) =>
+      Object.entries(a.distinct ?? {})
+        .filter(([c]) => c !== "id")
+        .map(([, v]) => new Set(v))
+    );
+  const moved = (t: string, c: string) => {
+    const vals = before[t].distinct?.[c] ?? [];
+    return vals.length > 0 && afterValues.some((s) => vals.every((v) => s.has(v)));
+  };
   const lost: string[] = [];
   for (const [t, { rows, values }] of Object.entries(before)) {
     if (!rows) continue;
     const t2 = tables.get(t) ?? t;
     const now = after[t2];
     if (!now) {
-      lost.push(`table ${t}: all ${rows} rows`);
+      const gone = Object.keys(values).filter(
+        (c) => values[c] > 0 && !GENERATED.has(c) && !moved(t, c)
+      );
+      if (gone.length > 0) lost.push(`table ${t}: all ${rows} rows`);
       continue;
     }
     if (now.rows < rows) lost.push(`table ${t}: ${rows - now.rows} of ${rows} rows`);
     for (const [c, n] of Object.entries(values)) {
       const c2 = columns.get(`${t}.${c}`) ?? columns.get(`${t2}.${c}`) ?? c;
       const kept = now.values[c2] ?? 0;
-      if (n > kept) lost.push(`${t}.${c}: ${n - kept} of ${n} values`);
+      if (n > kept && !(kept === 0 && moved(t, c)))
+        lost.push(`${t}.${c}: ${n - kept} of ${n} values`);
     }
   }
   return lost;
 }
+
+/** Losses the user accepted by name: a table, or table.column. */
+export const unaccepted = (lost: string[], accept: string[]) =>
+  lost.filter((l) => !accept.some((a) => l.startsWith(`${a}:`) || l.startsWith(`table ${a}:`)));
 
 /**
  * Projects from the v1 template have no PGlite support in src/orm.config.ts,
@@ -314,8 +361,9 @@ export async function verifyMigration(
   {
     skipBuild = false,
     seedFile,
-    acceptLoss = false,
-  }: { skipBuild?: boolean; seedFile?: string; acceptLoss?: boolean } = {}
+    checkFile,
+    acceptLoss = [],
+  }: { skipBuild?: boolean; seedFile?: string; checkFile?: string; acceptLoss?: string[] } = {}
 ): Promise<CheckResult> {
   if (!supportsPglite(projectDir)) return NO_PGLITE;
   const source = fs.readFileSync(path.resolve(projectDir, migrationFile), "utf8");
@@ -357,16 +405,21 @@ export async function verifyMigration(
       const after = await count("count");
       if (!after) return { ok: false, steps, findings };
       const lost = dataLoss(before, after, source);
-      const ok = lost.length === 0 || acceptLoss;
+      const ok = unaccepted(lost, acceptLoss).length === 0;
       done({
         name: "data",
         ok,
         output: lost.length > 0
-          ? `The migration lost seeded data:\n${lost.join("\n")}${ok ? "" : "\nFix the migration, or rerun with --accept-loss if the loss is intended."}`
+          ? `The migration lost seeded data:\n${lost.join("\n")}${ok ? "" : "\nFix the migration. If data moved somewhere the check can't follow (e.g. a field split in two), prove it with --check and rerun with --accept-loss <table.column>."}`
           : undefined,
       });
       if (!ok) return { ok: false, steps, findings };
     }
+    if (
+      checkFile &&
+      !done(step("check", await run(process.execPath, ["-e", RUN_CHECKS, path.resolve(checkFile)], projectDir, pgliteEnv(dataDir))))
+    )
+      return { ok: false, steps, findings };
 
     const drift = await typeorm(
       projectDir,
