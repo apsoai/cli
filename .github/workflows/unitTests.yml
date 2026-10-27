@@ -10,6 +10,11 @@ permissions:
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # 24 is the Node bundled in the Homebrew tarballs; 22 is the oldest
+        # supported line, kept for npm installs on older machines.
+        node: ['22', '24']
     steps:
     - uses: actions/checkout@v3
       with:
@@ -18,7 +23,7 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v3
       with:
-        node-version: '18'  # Set to your Node.js version
+        node-version: ${{ matrix.node }}
         registry-url: 'https://npm.pkg.github.com'
         scope: '@mavric'
       

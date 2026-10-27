@@ -1,0 +1,31 @@
+name: tarball smoke test
+
+# Packs the linux standalone tarball (the Homebrew/curl bundle with its own
+# Node) and runs it. Only on PRs that change what goes into the bundle, since
+# packing downloads a Node binary.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - package.json
+      - npm-shrinkwrap.json
+      - scripts/tarball-smoke.sh
+      - .github/workflows/tarball-smoke.yml
+
+permissions:
+  contents: read
+
+jobs:
+  tarball-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - run: npm ci
+      - run: npm run build
+      - run: bash scripts/tarball-smoke.sh linux-x64
