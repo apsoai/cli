@@ -18,7 +18,7 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v3
       with:
-        node-version: '18'  # Set to your Node.js version
+        node-version: '24'  # Same line as the Node bundled in the tarballs
         registry-url: 'https://registry.npmjs.org/'
       
     - name: Install dependencies
@@ -83,7 +83,7 @@ jobs:
     # Configured on npmjs.com: @apso/cli > Settings > Trusted Publisher
     # (GitHub Actions, apsoai/cli, onPushToMain.yml, environment blank,
     # "Allow npm publish" checked; without it only `npm stage publish` works).
-    # Build stays on Node 18 (what CI tests); publish needs npm >= 11.5.1,
+    # Build runs on Node 24 (what CI tests); publish needs npm >= 11.5.1,
     # which needs Node 22.
     # No registry-url: with it, setup-node writes an .npmrc that sends the
     # NODE_AUTH_TOKEN placeholder (XXXXX-...) as the auth token, and npm then
@@ -110,6 +110,12 @@ jobs:
       if: steps.bump_version.outputs.newTag != ''
       run: |
         npx oclif pack tarballs --targets darwin-x64,darwin-arm64,linux-x64
+
+    # Run the linux tarball before anything is uploaded, so a broken bundle
+    # never reaches the GitHub Release or the Homebrew formula.
+    - name: Smoke test the linux tarball
+      if: steps.bump_version.outputs.newTag != ''
+      run: bash scripts/tarball-smoke.sh linux-x64
 
     - name: Rename tarballs and compute checksums
       if: steps.bump_version.outputs.newTag != ''

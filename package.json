@@ -108,7 +108,7 @@
     },
     "update": {
       "node": {
-        "version": "18.20.4",
+        "version": "24.22.1",
         "targets": [
           "darwin-x64",
           "darwin-arm64",
