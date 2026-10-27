@@ -227,6 +227,39 @@ describe("TypeScriptGenerator", () => {
       expect(entityContent).toContain('@Column({ "type": "uuid", nullable: true })');
     });
 
+    test("boolean defaults are false unless the default is true", async () => {
+      const entity: Entity = {
+        name: "Flag",
+        primaryKeyType: "serial",
+        fields: [
+          { name: "noDefault", type: "boolean" },
+          { name: "falseString", type: "boolean", default: "false" },
+          { name: "falseBool", type: "boolean", default: false },
+          { name: "trueString", type: "boolean", default: "true" },
+          { name: "trueBool", type: "boolean", default: true },
+        ] as unknown as Field[],
+      };
+
+      const files = await generator.generateEntity({
+        entity,
+        relationships: [],
+        allEntities: [entity],
+        apiType: "rest",
+      });
+
+      const content = findFileContent(files, "Flag.entity")!;
+      const defaultOf = (name: string) =>
+        content
+          .split("@Column(")
+          .find((c) => c.includes(`${name}!:`))
+          ?.match(/default: (\w+)/)?.[1];
+      expect(defaultOf("noDefault")).toBe("false");
+      expect(defaultOf("falseString")).toBe("false");
+      expect(defaultOf("falseBool")).toBe("false");
+      expect(defaultOf("trueString")).toBe("true");
+      expect(defaultOf("trueBool")).toBe("true");
+    });
+
     test("timestamptz, timestamp, and datetime generate instant-in-time columns honoring nullable", async () => {
       const entity: Entity = {
         name: "Event",
