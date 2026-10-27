@@ -77,6 +77,10 @@ The Apso platform consists of multiple interconnected projects:
 ## Common Commands
 
 ```bash
+# Install (bun is faster locally; CI and publishing use npm ci + npm-shrinkwrap.json)
+bun install          # or: npm ci
+# Adding a dependency: npm install <pkg>, then bun install, and commit both lockfiles
+
 # Development
 npm run build        # Build TypeScript and copy templates
 npm run lint         # Run ESLint

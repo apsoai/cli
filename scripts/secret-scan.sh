@@ -28,7 +28,7 @@ xox[baprs]-[A-Za-z0-9-]{10,}
 file_list() {
   git ls-files \
     | grep -vE '(^|/)(dist|build|node_modules|vendor|__pycache__|\.venv|\.next|coverage)/' \
-    | grep -vE '(package-lock\.json|go\.sum|poetry\.lock|Pipfile\.lock|yarn\.lock|pnpm-lock\.yaml)$' \
+    | grep -vE '(package-lock\.json|go\.sum|poetry\.lock|Pipfile\.lock|yarn\.lock|pnpm-lock\.yaml|bun\.lock)$' \
     | grep -vE 'scripts/secret-scan\.sh$'
 }
 
