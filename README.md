@@ -9,8 +9,9 @@ Apso generates production-ready backend services from a JSON schema file. You ge
 **Homebrew** (macOS / Linux)
 
 ```bash
-brew tap apsoai/tap
-brew install apso
+brew install apsoai/tap/apso
+# Installed before Homebrew 6? Trust the formula so upgrades work:
+# brew trust --formula apsoai/tap/apso
 ```
 
 **npm**
