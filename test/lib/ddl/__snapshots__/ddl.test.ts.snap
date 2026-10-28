@@ -1,0 +1,180 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`schemaDdl coverage runs on Postgres and matches its snapshot 1`] = `
+[
+  "CREATE TYPE "public"."account_tier_enum" AS ENUM('free', 'pro')",
+  "CREATE TABLE "post" ("id" SERIAL NOT NULL, "title" text NOT NULL, "accountId" integer NOT NULL, "profileId" integer, CONSTRAINT "PK_be5fda3aac270b134ff9c21cdee" PRIMARY KEY ("id"))",
+  "CREATE TABLE "tag" ("id" SERIAL NOT NULL, "label" character varying(255) NOT NULL, CONSTRAINT "UQ_647c189a51deb35bc452751bc4a" UNIQUE ("label"), CONSTRAINT "PK_8e4052373c579afc1471f526760" PRIMARY KEY ("id"))",
+  "CREATE TABLE "account_profile" ("id" SERIAL NOT NULL, "bio" character varying(500), CONSTRAINT "PK_928b8a91ee2e4bceee8c0ddf0cd" PRIMARY KEY ("id"))",
+  "CREATE TABLE "account" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), "handle" text NOT NULL, "code" character(3), "active" boolean NOT NULL DEFAULT false, "verified" boolean NOT NULL DEFAULT false, "visits" bigint NOT NULL DEFAULT '0', "balance" numeric(12,4), "ratio" numeric, "score" double precision, "born" date, "seenAt" TIMESTAMP WITH TIME ZONE, "prefs" jsonb, "raw" json, "tier" "public"."account_tier_enum" NOT NULL DEFAULT 'free', "profileId" integer, CONSTRAINT "UQ_734bbcf136a53616581ed7489c1" UNIQUE ("handle"), CONSTRAINT "unique_account_code_born" UNIQUE ("code", "born"), CONSTRAINT "UQ_0faf7d6efef933e4b40996ad023" UNIQUE ("ratio", "score"), CONSTRAINT "REL_ff102ecfd2f4b5a7edf239dd02" UNIQUE ("profileId"), CONSTRAINT "PK_54115ee388cdb6d86bb4bf5b2ea" PRIMARY KEY ("id"))",
+  "CREATE TABLE "post_tags_tag" ("postId" integer NOT NULL, "tagId" integer NOT NULL, CONSTRAINT "PK_e9b7b8e6a07bdccb6a954171676" PRIMARY KEY ("postId", "tagId"))",
+  "CREATE INDEX "IDX_734bbcf136a53616581ed7489c" ON "account" ("handle")",
+  "CREATE INDEX "IDX_a924efb2a1b358e0fcf9b80931" ON "account" ("tier")",
+  "CREATE INDEX "IDX_8a4bcb70c6769e9a951b5448cc" ON "account" ("code", "tier")",
+  "CREATE UNIQUE INDEX "IDX_77f186f325459ffba1c72fd405" ON "account" ("visits")",
+  "CREATE INDEX "IDX_f219a87fd8c020d3bb6527c942" ON "post" ("accountId")",
+  "CREATE INDEX "IDX_b651178cc41334544a7a9601c4" ON "post_tags_tag" ("postId")",
+  "CREATE INDEX "IDX_41e7626b9cc03c5c65812ae55e" ON "post_tags_tag" ("tagId")",
+  "ALTER TABLE "account" ADD CONSTRAINT "FK_ff102ecfd2f4b5a7edf239dd025" FOREIGN KEY ("profileId") REFERENCES "account_profile"("id") ON DELETE CASCADE ON UPDATE NO ACTION",
+  "ALTER TABLE "post" ADD CONSTRAINT "FK_f219a87fd8c020d3bb6527c9420" FOREIGN KEY ("accountId") REFERENCES "account"("id") ON DELETE CASCADE ON UPDATE NO ACTION",
+  "ALTER TABLE "post" ADD CONSTRAINT "FK_970844fcd10c2b6df7c1b49eacf" FOREIGN KEY ("profileId") REFERENCES "account_profile"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
+  "ALTER TABLE "post_tags_tag" ADD CONSTRAINT "FK_b651178cc41334544a7a9601c45" FOREIGN KEY ("postId") REFERENCES "post"("id") ON DELETE CASCADE ON UPDATE CASCADE",
+  "ALTER TABLE "post_tags_tag" ADD CONSTRAINT "FK_41e7626b9cc03c5c65812ae55e8" FOREIGN KEY ("tagId") REFERENCES "tag"("id") ON DELETE CASCADE ON UPDATE CASCADE",
+]
+`;
+
+exports[`schemaDdl enum-replace runs on Postgres and matches its snapshot 1`] = `
+[
+  "CREATE TYPE "public"."contact_status_enum" AS ENUM('lead', 'active', 'closed')",
+  "CREATE TABLE "contact" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), "fullName" text NOT NULL, "phone" character varying(40), "status" "public"."contact_status_enum" NOT NULL DEFAULT 'lead', "score" text, "companyId" integer NOT NULL, CONSTRAINT "PK_2cbbe00f59ab6b3bb5b8d19f989" PRIMARY KEY ("id"))",
+  "CREATE TABLE "company" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), "name" text NOT NULL, CONSTRAINT "PK_056f7854a7afdba7cbd6d45fc20" PRIMARY KEY ("id"))",
+  "CREATE INDEX "IDX_196374b312744cf2c400c96238" ON "contact" ("companyId")",
+  "ALTER TABLE "contact" ADD CONSTRAINT "FK_196374b312744cf2c400c962383" FOREIGN KEY ("companyId") REFERENCES "company"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
+]
+`;
+
+exports[`schemaDdl extract-entity runs on Postgres and matches its snapshot 1`] = `
+[
+  "CREATE TYPE "public"."contact_status_enum" AS ENUM('lead', 'active', 'archived')",
+  "CREATE TYPE "public"."phone_number_label_enum" AS ENUM('mobile', 'work', 'home')",
+  "CREATE TABLE "phone_number" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), "number" character varying(40) NOT NULL, "label" "public"."phone_number_label_enum" NOT NULL DEFAULT 'mobile', "contactId" integer NOT NULL, CONSTRAINT "PK_c16f58426537a660b3f2a26e983" PRIMARY KEY ("id"))",
+  "CREATE TABLE "contact" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), "fullName" text NOT NULL, "status" "public"."contact_status_enum" NOT NULL DEFAULT 'lead', "score" text, "companyId" integer NOT NULL, CONSTRAINT "PK_2cbbe00f59ab6b3bb5b8d19f989" PRIMARY KEY ("id"))",
+  "CREATE TABLE "company" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), "name" text NOT NULL, CONSTRAINT "PK_056f7854a7afdba7cbd6d45fc20" PRIMARY KEY ("id"))",
+  "CREATE INDEX "IDX_196374b312744cf2c400c96238" ON "contact" ("companyId")",
+  "CREATE INDEX "IDX_069067410ee19d423487a189e4" ON "phone_number" ("contactId")",
+  "ALTER TABLE "contact" ADD CONSTRAINT "FK_196374b312744cf2c400c962383" FOREIGN KEY ("companyId") REFERENCES "company"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
+  "ALTER TABLE "phone_number" ADD CONSTRAINT "FK_069067410ee19d423487a189e4d" FOREIGN KEY ("contactId") REFERENCES "contact"("id") ON DELETE CASCADE ON UPDATE NO ACTION",
+]
+`;
+
+exports[`schemaDdl inventory-multi-fk runs on Postgres and matches its snapshot 1`] = `
+[
+  "CREATE TYPE "public"."purchase_order_status_enum" AS ENUM('draft', 'sent', 'partial', 'received', 'cancelled')",
+  "CREATE TYPE "public"."stock_movement_movement_type_enum" AS ENUM('received', 'sold', 'transferred', 'adjusted', 'damaged')",
+  "CREATE TYPE "public"."stock_movement_reference_document_type_enum" AS ENUM('purchase_order', 'stock_transfer', 'inventory_count', 'manual')",
+  "CREATE TYPE "public"."stock_transfer_status_enum" AS ENUM('pending', 'in_transit', 'received', 'cancelled')",
+  "CREATE TYPE "public"."inventory_count_count_status_enum" AS ENUM('pending', 'in_progress', 'completed', 'approved')",
+  "CREATE TYPE "public"."alert_alert_type_enum" AS ENUM('low_stock', 'reorder_trigger', 'overstock', 'expiration')",
+  "CREATE TYPE "public"."alert_severity_enum" AS ENUM('info', 'warning', 'critical')",
+  "CREATE TABLE "alert" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), "alert_type" "public"."alert_alert_type_enum" NOT NULL DEFAULT 'low_stock', "severity" "public"."alert_severity_enum" NOT NULL DEFAULT 'info', "triggered_date" TIMESTAMP WITH TIME ZONE NOT NULL, "resolved_date" TIMESTAMP WITH TIME ZONE, "is_resolved" boolean NOT NULL DEFAULT false, "message" text NOT NULL, "productId" integer NOT NULL, "warehouseId" integer NOT NULL, CONSTRAINT "PK_ad91cad659a3536465d564a4b2f" PRIMARY KEY ("id"))",
+  "CREATE TABLE "inventory_count" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), "count_date" TIMESTAMP WITH TIME ZONE NOT NULL, "count_status" "public"."inventory_count_count_status_enum" NOT NULL DEFAULT 'pending', "discrepancy_count" integer NOT NULL DEFAULT '0', "adjustment_approved" boolean NOT NULL DEFAULT false, "approval_date" TIMESTAMP WITH TIME ZONE, "approved_by" character varying(255), "warehouseId" integer NOT NULL, CONSTRAINT "PK_2706c2f462af54d29b7f3f950b0" PRIMARY KEY ("id"))",
+  "CREATE TABLE "stock_transfer" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), "transfer_number" character varying(255) NOT NULL, "transfer_date" TIMESTAMP WITH TIME ZONE NOT NULL, "expected_arrival_date" TIMESTAMP WITH TIME ZONE NOT NULL, "status" "public"."stock_transfer_status_enum" NOT NULL DEFAULT 'pending', "shipping_method" character varying(255) NOT NULL, "tracking_number" character varying(255), "notes" text, "warehouseId" integer NOT NULL, "productId" integer NOT NULL, CONSTRAINT "unique_stock_transfer_number" UNIQUE ("transfer_number"), CONSTRAINT "PK_b6165ea3cc5b8062e7eaa1bd44d" PRIMARY KEY ("id"))",
+  "CREATE TABLE "stock_movement" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), "movement_type" "public"."stock_movement_movement_type_enum" NOT NULL DEFAULT 'received', "quantity" integer NOT NULL, "movement_date" TIMESTAMP WITH TIME ZONE NOT NULL, "reference_document_id" character varying(255), "reference_document_type" "public"."stock_movement_reference_document_type_enum" NOT NULL DEFAULT 'purchase_order', "notes" text, "productId" integer NOT NULL, "warehouseId" integer NOT NULL, "purchaseOrderId" integer NOT NULL, "stockTransferId" integer NOT NULL, "inventoryCountId" integer NOT NULL, CONSTRAINT "PK_9fe1232f916686ae8cf00294749" PRIMARY KEY ("id"))",
+  "CREATE TABLE "purchase_order" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), "order_number" character varying(255) NOT NULL, "order_date" TIMESTAMP WITH TIME ZONE NOT NULL, "expected_delivery_date" TIMESTAMP WITH TIME ZONE NOT NULL, "status" "public"."purchase_order_status_enum" NOT NULL DEFAULT 'draft', "total_amount" numeric(10,2) NOT NULL, "notes" text, "supplierId" integer NOT NULL, CONSTRAINT "unique_purchase_order_number" UNIQUE ("order_number"), CONSTRAINT "PK_ad3e1c7b862f4043b103a6c8c60" PRIMARY KEY ("id"))",
+  "CREATE TABLE "inventory_level" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), "quantity_on_hand" integer NOT NULL DEFAULT '0', "quantity_reserved" integer NOT NULL DEFAULT '0', "quantity_available" integer NOT NULL DEFAULT '0', "last_counted_date" TIMESTAMP WITH TIME ZONE, "recount_required" boolean NOT NULL DEFAULT false, "productId" integer NOT NULL, "warehouseId" integer NOT NULL, CONSTRAINT "PK_e9d89cce26e51fd2e52104308cf" PRIMARY KEY ("id"))",
+  "CREATE TABLE "supplier" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), "company_name" character varying(255) NOT NULL, "contact_person" character varying(255) NOT NULL, "email" character varying(255) NOT NULL, "phone" character varying(255), "payment_terms" character varying(255) NOT NULL, "lead_time_days" integer NOT NULL DEFAULT '0', CONSTRAINT "unique_supplier_email" UNIQUE ("email"), CONSTRAINT "PK_2bc0d2cab6276144d2ff98a2828" PRIMARY KEY ("id"))",
+  "CREATE TABLE "warehouse" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), "name" character varying(255) NOT NULL, "address" character varying(255) NOT NULL, "city" character varying(255) NOT NULL, "state" character varying(255) NOT NULL, "postal_code" character varying(255) NOT NULL, "country" character varying(255) NOT NULL, "capacity" bigint NOT NULL, "manager_name" character varying(255), "manager_email" character varying(255), CONSTRAINT "unique_warehouse_manager_email" UNIQUE ("manager_email"), CONSTRAINT "PK_965abf9f99ae8c5983ae74ebde8" PRIMARY KEY ("id"))",
+  "CREATE TABLE "product" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), "name" character varying(255) NOT NULL, "sku" character varying(255) NOT NULL, "barcode" character varying(255), "description" text, "category" character varying(255), "unit_of_measure" character varying(255) NOT NULL, "reorder_point" integer NOT NULL DEFAULT '0', "reorder_quantity" integer NOT NULL DEFAULT '0', CONSTRAINT "unique_product_sku" UNIQUE ("sku"), CONSTRAINT "unique_product_barcode" UNIQUE ("barcode"), CONSTRAINT "PK_bebc9158e480b949565b4dc7a82" PRIMARY KEY ("id"))",
+  "CREATE UNIQUE INDEX "IDX_34f6ca1cd897cc926bdcca1ca3" ON "product" ("sku")",
+  "CREATE UNIQUE INDEX "IDX_7ac18742b02b8af41afdaa3b9a" ON "product" ("barcode")",
+  "CREATE INDEX "IDX_d71ac3a30622a475df871b5513" ON "product" ("category")",
+  "CREATE INDEX "IDX_22cc43e9a74d7498546e9a63e7" ON "product" ("name")",
+  "CREATE INDEX "IDX_d5d5470e55d4238b1239e9f154" ON "warehouse" ("name")",
+  "CREATE INDEX "IDX_170fc4b91d85bd5529cc3d9b07" ON "warehouse" ("city")",
+  "CREATE UNIQUE INDEX "IDX_2fab7864ff7c3c8443bd60fe1a" ON "warehouse" ("manager_email")",
+  "CREATE INDEX "IDX_2919d31557c892df61c6666c5c" ON "supplier" ("company_name")",
+  "CREATE UNIQUE INDEX "IDX_c40cbff7400f06ae1c8d9f4233" ON "supplier" ("email")",
+  "CREATE INDEX "IDX_e00461bccae94468b802eb0528" ON "inventory_level" ("quantity_available")",
+  "CREATE INDEX "IDX_5830be5baf34b0316c965b0e55" ON "inventory_level" ("last_counted_date")",
+  "CREATE UNIQUE INDEX "IDX_a932de191f1a55173e4b985c6e" ON "purchase_order" ("order_number")",
+  "CREATE INDEX "IDX_9d78349144d7e60ceaba65daac" ON "purchase_order" ("order_date")",
+  "CREATE INDEX "IDX_74cdefa69dd3fa109518094424" ON "purchase_order" ("expected_delivery_date")",
+  "CREATE INDEX "IDX_c9cdb0a71bfc9c896a32e86de1" ON "purchase_order" ("status")",
+  "CREATE INDEX "IDX_6abab23462824d24a68779f877" ON "stock_movement" ("movement_type")",
+  "CREATE INDEX "IDX_36a47cba62434621b3050a11de" ON "stock_movement" ("movement_date")",
+  "CREATE INDEX "IDX_b23f39ee962952607901553663" ON "stock_movement" ("reference_document_id")",
+  "CREATE INDEX "IDX_4cdd5089d5aefc5c3c11c7cf6e" ON "stock_movement" ("reference_document_type")",
+  "CREATE INDEX "IDX_cb4500178121ca86f25db1f930" ON "stock_movement" ("movement_type", "movement_date")",
+  "CREATE UNIQUE INDEX "IDX_c3b6f1959fccaffa96e8e0e349" ON "stock_transfer" ("transfer_number")",
+  "CREATE INDEX "IDX_fc70e3e73fb5cc1a0076cface8" ON "stock_transfer" ("transfer_date")",
+  "CREATE INDEX "IDX_59a46f9dcda16a0e4839c4dd27" ON "stock_transfer" ("expected_arrival_date")",
+  "CREATE INDEX "IDX_70f17fc214ab5e82cc2eb9245a" ON "stock_transfer" ("status")",
+  "CREATE INDEX "IDX_f553e952f5b090ecec800fb298" ON "stock_transfer" ("tracking_number")",
+  "CREATE INDEX "IDX_916246e43c74e9b81a296c0730" ON "inventory_count" ("count_date")",
+  "CREATE INDEX "IDX_c10d235fd817625d237b493b23" ON "inventory_count" ("count_status")",
+  "CREATE INDEX "IDX_179793785adedfb8b6c7de63d2" ON "inventory_count" ("approval_date")",
+  "CREATE INDEX "IDX_417891fd39353a6a32697492df" ON "alert" ("alert_type")",
+  "CREATE INDEX "IDX_b52a542544bc2b02efed8a008d" ON "alert" ("severity")",
+  "CREATE INDEX "IDX_b6c2a21a2b10731dee4ac52baa" ON "alert" ("triggered_date")",
+  "CREATE INDEX "IDX_30b74940624c030a6b45df38a8" ON "alert" ("resolved_date")",
+  "CREATE INDEX "IDX_7ea45df55178498062ff1ec1e9" ON "alert" ("is_resolved")",
+  "CREATE INDEX "IDX_9c65227d50d4fb082071566328" ON "alert" ("alert_type", "severity")",
+  "ALTER TABLE "inventory_level" ADD CONSTRAINT "FK_b800cfb30def1fe9adcdd87f2d6" FOREIGN KEY ("productId") REFERENCES "product"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
+  "ALTER TABLE "inventory_level" ADD CONSTRAINT "FK_ce9364f1f524e53ee0493e760fb" FOREIGN KEY ("warehouseId") REFERENCES "warehouse"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
+  "ALTER TABLE "purchase_order" ADD CONSTRAINT "FK_e4ea5841622429c12889a487f31" FOREIGN KEY ("supplierId") REFERENCES "supplier"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
+  "ALTER TABLE "stock_movement" ADD CONSTRAINT "FK_9e1078f3037faf8730f384bb422" FOREIGN KEY ("productId") REFERENCES "product"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
+  "ALTER TABLE "stock_movement" ADD CONSTRAINT "FK_4118b88709dd431c6185b89953f" FOREIGN KEY ("warehouseId") REFERENCES "warehouse"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
+  "ALTER TABLE "stock_movement" ADD CONSTRAINT "FK_4074c87e32df6379a2fab412768" FOREIGN KEY ("purchaseOrderId") REFERENCES "purchase_order"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
+  "ALTER TABLE "stock_movement" ADD CONSTRAINT "FK_cc0121a69f371a62ec490e3def0" FOREIGN KEY ("stockTransferId") REFERENCES "stock_transfer"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
+  "ALTER TABLE "stock_movement" ADD CONSTRAINT "FK_e4c814076de7af958d41ce3bc49" FOREIGN KEY ("inventoryCountId") REFERENCES "inventory_count"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
+  "ALTER TABLE "stock_transfer" ADD CONSTRAINT "FK_4e7a74115f69f38af54297909f6" FOREIGN KEY ("warehouseId") REFERENCES "warehouse"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
+  "ALTER TABLE "stock_transfer" ADD CONSTRAINT "FK_5b650ac5cc3387ac9ac7ad7eb0c" FOREIGN KEY ("productId") REFERENCES "product"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
+  "ALTER TABLE "inventory_count" ADD CONSTRAINT "FK_9d9a2491e8963a389cc87249b27" FOREIGN KEY ("warehouseId") REFERENCES "warehouse"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
+  "ALTER TABLE "alert" ADD CONSTRAINT "FK_6d80a2602a8e0e9ed4871ad909d" FOREIGN KEY ("productId") REFERENCES "product"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
+  "ALTER TABLE "alert" ADD CONSTRAINT "FK_0e50368f6f58c7b3c7152485124" FOREIGN KEY ("warehouseId") REFERENCES "warehouse"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
+]
+`;
+
+exports[`schemaDdl many-to-many runs on Postgres and matches its snapshot 1`] = `
+[
+  "CREATE TYPE "public"."contact_status_enum" AS ENUM('lead', 'active', 'archived')",
+  "CREATE TABLE "contact" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), "fullName" text NOT NULL, "phone" character varying(40), "status" "public"."contact_status_enum" NOT NULL DEFAULT 'lead', "score" text, CONSTRAINT "PK_2cbbe00f59ab6b3bb5b8d19f989" PRIMARY KEY ("id"))",
+  "CREATE TABLE "company" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), "name" text NOT NULL, CONSTRAINT "PK_056f7854a7afdba7cbd6d45fc20" PRIMARY KEY ("id"))",
+  "CREATE TABLE "contact_companies_company" ("contactId" integer NOT NULL, "companyId" integer NOT NULL, CONSTRAINT "PK_a240a097bb1e1d698bc213e0c72" PRIMARY KEY ("contactId", "companyId"))",
+  "CREATE INDEX "IDX_e6e2d85d35645bd6b752226c49" ON "contact_companies_company" ("contactId")",
+  "CREATE INDEX "IDX_30d0ef2a176bf879a2d36df096" ON "contact_companies_company" ("companyId")",
+  "ALTER TABLE "contact_companies_company" ADD CONSTRAINT "FK_e6e2d85d35645bd6b752226c49d" FOREIGN KEY ("contactId") REFERENCES "contact"("id") ON DELETE CASCADE ON UPDATE CASCADE",
+  "ALTER TABLE "contact_companies_company" ADD CONSTRAINT "FK_30d0ef2a176bf879a2d36df0966" FOREIGN KEY ("companyId") REFERENCES "company"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
+]
+`;
+
+exports[`schemaDdl rename-entity runs on Postgres and matches its snapshot 1`] = `
+[
+  "CREATE TYPE "public"."contact_status_enum" AS ENUM('lead', 'active', 'archived')",
+  "CREATE TABLE "contact" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), "fullName" text NOT NULL, "phone" character varying(40), "status" "public"."contact_status_enum" NOT NULL DEFAULT 'lead', "score" text, "organizationId" integer NOT NULL, CONSTRAINT "PK_2cbbe00f59ab6b3bb5b8d19f989" PRIMARY KEY ("id"))",
+  "CREATE TABLE "organization" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), "name" text NOT NULL, CONSTRAINT "PK_472c1f99a32def1b0abb219cd67" PRIMARY KEY ("id"))",
+  "CREATE INDEX "IDX_7719d73cd16a9f57ecc6ac24b3" ON "contact" ("organizationId")",
+  "ALTER TABLE "contact" ADD CONSTRAINT "FK_7719d73cd16a9f57ecc6ac24b3d" FOREIGN KEY ("organizationId") REFERENCES "organization"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
+]
+`;
+
+exports[`schemaDdl rename-field runs on Postgres and matches its snapshot 1`] = `
+[
+  "CREATE TYPE "public"."contact_status_enum" AS ENUM('lead', 'active', 'archived')",
+  "CREATE TABLE "contact" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), "fullName" text NOT NULL, "mobilePhone" character varying(40), "status" "public"."contact_status_enum" NOT NULL DEFAULT 'lead', "score" text, "companyId" integer NOT NULL, CONSTRAINT "PK_2cbbe00f59ab6b3bb5b8d19f989" PRIMARY KEY ("id"))",
+  "CREATE TABLE "company" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), "name" text NOT NULL, CONSTRAINT "PK_056f7854a7afdba7cbd6d45fc20" PRIMARY KEY ("id"))",
+  "CREATE INDEX "IDX_196374b312744cf2c400c96238" ON "contact" ("companyId")",
+  "ALTER TABLE "contact" ADD CONSTRAINT "FK_196374b312744cf2c400c962383" FOREIGN KEY ("companyId") REFERENCES "company"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
+]
+`;
+
+exports[`schemaDdl required-field runs on Postgres and matches its snapshot 1`] = `
+[
+  "CREATE TYPE "public"."company_region_enum" AS ENUM('us', 'eu', 'apac')",
+  "CREATE TYPE "public"."contact_status_enum" AS ENUM('lead', 'active', 'archived')",
+  "CREATE TABLE "contact" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), "fullName" text NOT NULL, "phone" character varying(40), "status" "public"."contact_status_enum" NOT NULL DEFAULT 'lead', "score" text, "companyId" integer NOT NULL, CONSTRAINT "PK_2cbbe00f59ab6b3bb5b8d19f989" PRIMARY KEY ("id"))",
+  "CREATE TABLE "company" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), "name" text NOT NULL, "region" "public"."company_region_enum" NOT NULL DEFAULT 'us', CONSTRAINT "PK_056f7854a7afdba7cbd6d45fc20" PRIMARY KEY ("id"))",
+  "CREATE INDEX "IDX_196374b312744cf2c400c96238" ON "contact" ("companyId")",
+  "ALTER TABLE "contact" ADD CONSTRAINT "FK_196374b312744cf2c400c962383" FOREIGN KEY ("companyId") REFERENCES "company"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
+]
+`;
+
+exports[`schemaDdl split-field runs on Postgres and matches its snapshot 1`] = `
+[
+  "CREATE TYPE "public"."contact_status_enum" AS ENUM('lead', 'active', 'archived')",
+  "CREATE TABLE "contact" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), "firstName" text NOT NULL, "lastName" text, "phone" character varying(40), "status" "public"."contact_status_enum" NOT NULL DEFAULT 'lead', "score" text, "companyId" integer NOT NULL, CONSTRAINT "PK_2cbbe00f59ab6b3bb5b8d19f989" PRIMARY KEY ("id"))",
+  "CREATE TABLE "company" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), "name" text NOT NULL, CONSTRAINT "PK_056f7854a7afdba7cbd6d45fc20" PRIMARY KEY ("id"))",
+  "CREATE INDEX "IDX_196374b312744cf2c400c96238" ON "contact" ("companyId")",
+  "ALTER TABLE "contact" ADD CONSTRAINT "FK_196374b312744cf2c400c962383" FOREIGN KEY ("companyId") REFERENCES "company"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
+]
+`;
+
+exports[`schemaDdl type-change runs on Postgres and matches its snapshot 1`] = `
+[
+  "CREATE TYPE "public"."contact_status_enum" AS ENUM('lead', 'active', 'archived')",
+  "CREATE TABLE "contact" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), "fullName" text NOT NULL, "phone" character varying(40), "status" "public"."contact_status_enum" NOT NULL DEFAULT 'lead', "score" integer, "companyId" integer NOT NULL, CONSTRAINT "PK_2cbbe00f59ab6b3bb5b8d19f989" PRIMARY KEY ("id"))",
+  "CREATE TABLE "company" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), "name" text NOT NULL, CONSTRAINT "PK_056f7854a7afdba7cbd6d45fc20" PRIMARY KEY ("id"))",
+  "CREATE INDEX "IDX_196374b312744cf2c400c96238" ON "contact" ("companyId")",
+  "ALTER TABLE "contact" ADD CONSTRAINT "FK_196374b312744cf2c400c962383" FOREIGN KEY ("companyId") REFERENCES "company"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
+]
+`;

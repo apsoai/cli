@@ -95,7 +95,7 @@ export default class Deploy extends BaseCommand {
             this.log(`Error: ${result.error}`);
           }
           this.log("Fix the schema issue before deploying.");
-          this.log("Run 'apso migrate' for details.");
+          this.log("Run 'apso migrate sandbox' for details.");
           this.exit(1);
         }
 

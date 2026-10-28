@@ -73,5 +73,6 @@ describe("apso generate removes stale autogen files", () => {
     );
     expect(after).toContain(".gitkeep");
     expect(fs.readFileSync(extension, "utf8")).toBe("hand-written");
-  });
+    // Two full generates, plus Biome formatting for TypeScript: slow on CI runners.
+  }, 30_000);
 });

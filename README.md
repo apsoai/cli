@@ -185,22 +185,18 @@ Requires Docker and Docker Compose. Looks for `docker-compose.yml` in the curren
 
 ### `apso migrate`
 
-Detect schema changes, generate migration SQL, and test against a local PGlite sandbox. No Docker or external database required.
+Write the migration for a schema change without losing data. `apso migrate` regenerates the code, compares `.apsorc` with the deployed schema, and asks about every change whose intent the schema can't show: was a missing field renamed or dropped, how does a field split, what replaces a removed enum value, what do existing rows get for a new required field. It then writes the migration from your answers (a TypeORM migration for TypeScript, an Alembic revision for Python, a goose file for Go), saves the answered plan beside it, and tests it on a local PGlite copy of the deployed schema.
 
 ```bash
-apso migrate              # Detect changes, generate and test SQL
-apso migrate --apply      # Update snapshot after successful test
-apso migrate --reset      # Clear sandbox and start fresh
-apso migrate --sql        # Output raw SQL only (for piping)
+apso migrate --baseline deployed.apsorc     # first time: the .apsorc that is deployed
+apso migrate                                # later runs find the baseline from the last migration
+apso migrate --answer field:Contact.phone=rename:mobilePhone
+apso migrate --seed seed.sql --check checks.sql
 ```
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--apply` | Update local schema snapshot after verified migration | `false` |
-| `--reset` | Reset the sandbox (clear snapshot and PGlite data) | `false` |
-| `--sql` | Output raw SQL statements only | `false` |
+In a terminal it asks each question. Without one (or with `--json`) it prints the open questions as JSON and exits 2, so a coding agent can answer them with `--answer` or in `.apso/migration-plan.json` and run it again. The same answers always produce the same SQL.
 
-The sandbox works by comparing your current `.apsorc` against the last-known snapshot, generating the migration SQL, and executing it against an in-process Postgres instance (PGlite). If the migration fails locally, you know before it reaches any real database.
+The steps are also separate commands: `apso migrate plan`, `apso migrate generate` and `apso migrate verify`. `apso migrate sandbox` is the older snapshot preview on an empty database (`--apply`, `--reset`, `--sql`).
 
 ### `apso deploy`
 

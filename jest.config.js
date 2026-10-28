@@ -2,6 +2,8 @@
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
+  // PGlite-backed suites (migration render, verify, generate) take seconds per test on CI runners.
+  testTimeout: 30000,
   testMatch: [
     "**/src/**/*.spec.ts",
     "**/src/**/*.test.ts",
