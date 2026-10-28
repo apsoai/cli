@@ -11,10 +11,7 @@
 import { createHash } from "crypto";
 import { Entity } from "../types/entity";
 import { ComputedField } from "../types/field";
-import {
-  RelationshipMap,
-  RelationshipForTemplate,
-} from "../types/relationship";
+import { RelationshipMap } from "../types/relationship";
 import { getFieldForTemplate } from "../utils/field";
 import { snakeCase } from "../utils/casing";
 import { getRelationshipForTemplate } from "../utils/relationships";
@@ -50,6 +47,9 @@ export const enumTypeName = (table: string, column: string) =>
 export interface ColumnSpec {
   /** Column SQL without constraints: name, type, NOT NULL, DEFAULT. */
   sql: string;
+  type: string;
+  notNull: boolean;
+  default?: string;
   unique: boolean;
   index: boolean;
 }
@@ -138,7 +138,14 @@ export function columnSpec(table: string, f: ComputedField): ColumnSpec {
   let sql = `${q(f.name)} ${type}`;
   if (!f.nullable) sql += " NOT NULL";
   if (def !== undefined) sql += ` DEFAULT ${def}`;
-  return { sql, unique, index: Boolean(f.index) };
+  return {
+    sql,
+    type,
+    notNull: !f.nullable,
+    default: def,
+    unique,
+    index: Boolean(f.index),
+  };
 }
 
 export interface SchemaInput {
@@ -146,79 +153,196 @@ export interface SchemaInput {
   relationshipMap: RelationshipMap;
 }
 
-const index = (table: string, cols: string[], unique = false) =>
-  `CREATE ${unique ? "UNIQUE " : ""}INDEX ${q(
-    constraintName.index(table, cols)
-  )} ON ${q(table)} (${cols.map((c) => q(c)).join(", ")})`;
+export interface ModelColumn {
+  name: string;
+  /** The column as CREATE TABLE writes it. */
+  sql: string;
+  type: string;
+  notNull: boolean;
+  default?: string;
+  /** A SERIAL id, whose default is the table's id sequence. */
+  serial?: boolean;
+}
+
+export interface ModelTable {
+  name: string;
+  columns: ModelColumn[];
+}
+
+export interface ModelConstraint {
+  /** Identity independent of the name: kind, table, columns (and target). */
+  key: string;
+  name: string;
+  table: string;
+  kind: "pk" | "unique" | "fk";
+  columns: string[];
+  /** Everything after CONSTRAINT "name". */
+  body: string;
+  references?: string;
+}
+
+export interface ModelIndex {
+  key: string;
+  name: string;
+  table: string;
+  columns: string[];
+  unique: boolean;
+}
+
+export interface ModelEnum {
+  name: string;
+  values: string[];
+}
+
+/** Every object a schema creates, in creation order. */
+export interface Model {
+  extensions: string[];
+  enums: ModelEnum[];
+  tables: ModelTable[];
+  constraints: ModelConstraint[];
+  indexes: ModelIndex[];
+}
+
+const cols = (c: string[]) => c.map((x) => q(x)).join(", ");
+const column = (
+  name: string,
+  type: string,
+  notNull: boolean,
+  def?: string,
+  serial?: boolean
+): ModelColumn => ({
+  name,
+  sql: `${q(name)} ${serial ? "SERIAL" : type}${notNull ? " NOT NULL" : ""}${
+    def && !serial ? ` DEFAULT ${def}` : ""
+  }`,
+  type,
+  notNull,
+  default: def,
+  serial,
+});
 
 const pkColumn = (e: Entity) =>
   (e.fields ?? []).find((f) => f.primary)?.name ?? "id";
 const fkType = (target?: Entity) =>
   target?.primaryKeyType === "uuid" ? "uuid" : "integer";
 
-/** CREATE statements for every enum type, table, index and foreign key. */
-export function schemaDdl(input: SchemaInput): string[] {
+export function schemaModel(input: SchemaInput): Model {
   const { entities, relationshipMap } = input;
   const byName = new Map(entities.map((e) => [e.name, e]));
-  const prelude: string[] = [];
-  const enums: string[] = [];
-  const tables: string[] = [];
-  const indexes: string[] = [];
-  const foreignKeys: string[] = [];
+  const model: Model = {
+    extensions: [],
+    enums: [],
+    tables: [],
+    constraints: [],
+    indexes: [],
+  };
+  const entityTables: ModelTable[] = [];
+  const joinTables: ModelTable[] = [];
+  const inline: ModelConstraint[] = [];
+  const foreignKeys: ModelConstraint[] = [];
 
-  const rels = (e: Entity): RelationshipForTemplate[] =>
-    getRelationshipForTemplate(e.name, relationshipMap[e.name] || [], entities);
+  const index = (table: string, columns: string[], unique = false) =>
+    model.indexes.push({
+      key: `index:${table}(${columns.join(",")})`,
+      name: constraintName.index(table, columns),
+      table,
+      columns,
+      unique,
+    });
+  const unique = (
+    table: string,
+    columns: string[],
+    name: string,
+    list = inline
+  ) =>
+    list.push({
+      key: `unique:${table}(${columns.join(",")})`,
+      name,
+      table,
+      kind: "unique",
+      columns,
+      body: `UNIQUE (${cols(columns)})`,
+    });
+  const primaryKey = (table: string, columns: string[], list = inline) =>
+    list.push({
+      key: `pk:${table}`,
+      name: constraintName.primaryKey(table, columns),
+      table,
+      kind: "pk",
+      columns,
+      body: `PRIMARY KEY (${cols(columns)})`,
+    });
+  const foreignKey = (
+    table: string,
+    col: string,
+    target: string,
+    targetCol: string,
+    actions: string
+  ) =>
+    foreignKeys.push({
+      key: `fk:${table}(${col})->${target}`,
+      name: constraintName.foreignKey(table, [col]),
+      table,
+      kind: "fk",
+      columns: [col],
+      references: target,
+      body: `FOREIGN KEY (${q(col)}) REFERENCES ${q(target)}(${q(
+        targetCol
+      )}) ${actions}`,
+    });
 
   for (const e of entities) {
     const table = tableName(e);
-    const cols: string[] = [];
-    const constraints: string[] = [];
+    const t: ModelTable = { name: table, columns: [] };
     const customPk = (e.fields ?? []).some((f) => f.primary);
 
     if (!customPk) {
       const pkType: string = e.primaryKeyType || "serial";
       if (pkType === "uuid") {
-        prelude.push(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
-        cols.push(`"id" uuid NOT NULL DEFAULT uuid_generate_v4()`);
-      } else if (pkType === "text") cols.push(`"id" text NOT NULL`);
-      else cols.push(`"id" SERIAL NOT NULL`);
+        model.extensions.push(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
+        t.columns.push(column("id", "uuid", true, "uuid_generate_v4()"));
+      } else if (pkType === "text") t.columns.push(column("id", "text", true));
+      else
+        t.columns.push(
+          column(
+            "id",
+            "integer",
+            true,
+            `nextval('${table}_id_seq'::regclass)`,
+            true
+          )
+        );
     }
     if (e.created_at)
-      cols.push(`"created_at" TIMESTAMP NOT NULL DEFAULT now()`);
+      t.columns.push(column("created_at", "TIMESTAMP", true, "now()"));
     if (e.updated_at)
-      cols.push(`"updated_at" TIMESTAMP NOT NULL DEFAULT now()`);
+      t.columns.push(column("updated_at", "TIMESTAMP", true, "now()"));
 
     for (const f of getFieldForTemplate(e.fields ?? [], e.name)) {
       if (!customPk && f.name === "id") continue;
       if (e.created_at && f.name === "created_at") continue;
       if (e.updated_at && f.name === "updated_at") continue;
       if (f.type === "enum" && f.values)
-        enums.push(
-          `CREATE TYPE "public".${q(
-            enumTypeName(table, f.name)
-          )} AS ENUM(${f.values.map((v) => literal(v)).join(", ")})`
-        );
+        model.enums.push({
+          name: enumTypeName(table, f.name),
+          values: [...f.values],
+        });
       const spec = columnSpec(table, f);
-      cols.push(spec.sql);
+      t.columns.push(column(f.name, spec.type, spec.notNull, spec.default));
       if (spec.unique)
-        constraints.push(
-          `CONSTRAINT ${q(constraintName.unique(table, [f.name]))} UNIQUE (${q(
-            f.name
-          )})`
-        );
-      if (spec.index) indexes.push(index(table, [f.name]));
+        unique(table, [f.name], constraintName.unique(table, [f.name]));
+      if (spec.index) index(table, [f.name]);
     }
 
-    for (const i of e.indexes ?? [])
-      indexes.push(index(table, i.fields, i.unique));
+    for (const i of e.indexes ?? []) index(table, i.fields, i.unique);
     for (const u of e.uniques ?? [])
-      constraints.push(
-        `CONSTRAINT ${q(
-          u.name || constraintName.unique(table, u.fields)
-        )} UNIQUE (${u.fields.map((c) => q(c)).join(", ")})`
-      );
+      unique(table, u.fields, u.name || constraintName.unique(table, u.fields));
 
-    for (const r of rels(e)) {
+    for (const r of getRelationshipForTemplate(
+      e.name,
+      relationshipMap[e.name] || [],
+      entities
+    )) {
       const target = byName.get(r.name);
       if (!target) continue;
       const targetTable = tableName(target);
@@ -226,30 +350,21 @@ export function schemaDdl(input: SchemaInput): string[] {
       const oneToOne = r.type === "OneToOne";
       const onDelete = r.cascadeDelete || oneToOne ? "CASCADE" : "NO ACTION";
 
-      if (r.type === "ManyToOne" || (r.type === "OneToOne" && r.joinTable)) {
+      if (r.type === "ManyToOne" || (oneToOne && r.joinTable)) {
         const col =
           r.type === "ManyToOne"
             ? r.camelCasedId
             : typeormCase.camelCase(`${r.relationshipName}_id`);
-        cols.push(
-          `${q(col)} ${fkType(target)}${
-            r.nullable || oneToOne ? "" : " NOT NULL"
-          }`
-        );
-        if (r.type === "OneToOne")
-          constraints.push(
-            `CONSTRAINT ${q(constraintName.relation(table, [col]))} UNIQUE (${q(
-              col
-            )})`
-          );
-        if (r.type === "ManyToOne" && r.index)
-          indexes.push(index(table, [col]));
-        foreignKeys.push(
-          `ALTER TABLE ${q(table)} ADD CONSTRAINT ${q(
-            constraintName.foreignKey(table, [col])
-          )} FOREIGN KEY (${q(col)}) REFERENCES ${q(targetTable)}(${q(
-            pkColumn(target)
-          )}) ON DELETE ${onDelete} ON UPDATE NO ACTION`
+        t.columns.push(column(col, fkType(target), !(r.nullable || oneToOne)));
+        if (oneToOne)
+          unique(table, [col], constraintName.relation(table, [col]));
+        if (r.type === "ManyToOne" && r.index) index(table, [col]);
+        foreignKey(
+          table,
+          col,
+          targetTable,
+          pkColumn(target),
+          `ON DELETE ${onDelete} ON UPDATE NO ACTION`
         );
       }
 
@@ -264,44 +379,78 @@ export function schemaDdl(input: SchemaInput): string[] {
         const otherCol =
           r.inverseJoinColumnName ||
           typeormCase.camelCase(`${targetTable}_${pkColumn(target)}`);
-        tables.push(
-          `CREATE TABLE ${q(join)} (${q(ownCol)} ${fkType(e)} NOT NULL, ${q(
-            otherCol
-          )} ${fkType(target)} NOT NULL, ` +
-            `CONSTRAINT ${q(
-              constraintName.primaryKey(join, [ownCol, otherCol])
-            )} PRIMARY KEY (${q(ownCol)}, ${q(otherCol)}))`
-        );
-        indexes.push(index(join, [ownCol]), index(join, [otherCol]));
+        joinTables.push({
+          name: join,
+          columns: [
+            column(ownCol, fkType(e), true),
+            column(otherCol, fkType(target), true),
+          ],
+        });
+        primaryKey(join, [ownCol, otherCol]);
+        index(join, [ownCol]);
+        index(join, [otherCol]);
         // TypeORM cascades the inverse key only when no inverse relation exists.
         const inverse = r.biDirectional ? "NO ACTION" : "CASCADE";
-        foreignKeys.push(
-          `ALTER TABLE ${q(join)} ADD CONSTRAINT ${q(
-            constraintName.foreignKey(join, [ownCol])
-          )} FOREIGN KEY (${q(ownCol)}) REFERENCES ${q(table)}(${q(
-            pkColumn(e)
-          )}) ON DELETE CASCADE ON UPDATE CASCADE`,
-          `ALTER TABLE ${q(join)} ADD CONSTRAINT ${q(
-            constraintName.foreignKey(join, [otherCol])
-          )} FOREIGN KEY (${q(otherCol)}) REFERENCES ${q(targetTable)}(${q(
-            pkColumn(target)
-          )}) ON DELETE ${inverse} ON UPDATE ${inverse}`
+        foreignKey(
+          join,
+          ownCol,
+          table,
+          pkColumn(e),
+          "ON DELETE CASCADE ON UPDATE CASCADE"
+        );
+        foreignKey(
+          join,
+          otherCol,
+          targetTable,
+          pkColumn(target),
+          `ON DELETE ${inverse} ON UPDATE ${inverse}`
         );
       }
     }
 
-    const pkCols = customPk
-      ? (e.fields ?? []).filter((f) => f.primary).map((f) => f.name)
-      : ["id"];
-    constraints.push(
-      `CONSTRAINT ${q(
-        constraintName.primaryKey(table, pkCols)
-      )} PRIMARY KEY (${pkCols.map((c) => q(c)).join(", ")})`
+    primaryKey(
+      table,
+      customPk
+        ? (e.fields ?? []).filter((f) => f.primary).map((f) => f.name)
+        : ["id"]
     );
-    tables.unshift(
-      `CREATE TABLE ${q(table)} (${[...cols, ...constraints].join(", ")})`
-    );
+    entityTables.unshift(t);
   }
 
-  return [...new Set(prelude), ...enums, ...tables, ...indexes, ...foreignKeys];
+  model.extensions = [...new Set(model.extensions)];
+  model.tables = [...entityTables, ...joinTables];
+  model.constraints = [...inline, ...foreignKeys];
+  return model;
+}
+
+export const createTypeSql = (e: ModelEnum) =>
+  `CREATE TYPE "public".${q(e.name)} AS ENUM(${e.values
+    .map((v) => literal(v))
+    .join(", ")})`;
+export const createIndexSql = (i: ModelIndex) =>
+  `CREATE ${i.unique ? "UNIQUE " : ""}INDEX ${q(i.name)} ON ${q(
+    i.table
+  )} (${cols(i.columns)})`;
+export const addConstraintSql = (c: ModelConstraint) =>
+  `ALTER TABLE ${q(c.table)} ADD CONSTRAINT ${q(c.name)} ${c.body}`;
+export const createTableSql = (t: ModelTable, constraints: ModelConstraint[]) =>
+  `CREATE TABLE ${q(t.name)} (${[
+    ...t.columns.map((c) => c.sql),
+    ...constraints
+      .filter((c) => c.table === t.name && c.kind !== "fk")
+      .map((c) => `CONSTRAINT ${q(c.name)} ${c.body}`),
+  ].join(", ")})`;
+
+/** CREATE statements for every enum type, table, index and foreign key. */
+export function schemaDdl(input: SchemaInput): string[] {
+  const m = schemaModel(input);
+  return [
+    ...m.extensions,
+    ...m.enums.map((e) => createTypeSql(e)),
+    ...m.tables.map((t) => createTableSql(t, m.constraints)),
+    ...m.indexes.map((i) => createIndexSql(i)),
+    ...m.constraints
+      .filter((c) => c.kind === "fk")
+      .map((c) => addConstraintSql(c)),
+  ];
 }
