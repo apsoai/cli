@@ -7,6 +7,7 @@ import {
   planMigration,
   Plan,
 } from "../../../src/lib/plan";
+import { describeQuestion } from "../../../src/lib/plan/prompts";
 
 // Each case is one migration eval from apso-skills: the deployed .apsorc and
 // the one the user changed it to.
@@ -141,5 +142,21 @@ describe("answers", () => {
     expect(plan("split-field", first).questions.map((q) => q.id)).toEqual([
       "field:Contact.fullName",
     ]);
+  });
+});
+
+describe("describeQuestion", () => {
+  it("gives each option its words and each two-way split a starting rule", () => {
+    const d = describeQuestion({
+      id: "field:Contact.fullName",
+      kind: "removedField",
+      subject: "Contact.fullName was removed",
+      options: ["split:firstName,lastName", "drop"],
+      suggested: "split:firstName,lastName",
+    });
+    expect(d.labels.drop).toBe("Dropped (deletes its data)");
+    expect(d.labels["split:firstName,lastName"]).toMatch(/Split into firstName and lastName.*\(suggested\)/);
+    expect(d.splitDefaults!["split:firstName,lastName"].firstName).toContain("split_part");
+    expect(d.sqlHint).toBeUndefined();
   });
 });

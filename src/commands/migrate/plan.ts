@@ -5,6 +5,7 @@ import BaseCommand from "../../lib/base-command";
 import { readApsorcFile } from "../../lib/apsorc-parser";
 import { openQuestions, Plan, planWithAnswers } from "../../lib/plan";
 import { Baseline, resolveBaseline } from "../../lib/plan/baseline";
+import { describeQuestion } from "../../lib/plan/prompts";
 
 export default class MigratePlan extends BaseCommand {
   static description =
@@ -78,7 +79,7 @@ export default class MigratePlan extends BaseCommand {
     if (json) {
       this.log(
         JSON.stringify(
-          { plan: flags.plan, baseline: baseline.source, open },
+          { plan: flags.plan, baseline: baseline.source, open: open.map((q) => describeQuestion(q)) },
           null,
           2
         )

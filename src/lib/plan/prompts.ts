@@ -8,21 +8,33 @@ const after = (o: string, prefix: string) => o.slice(prefix.length);
 
 export function optionLabel(q: Question, o: string): string {
   let label = o;
-  if (q.kind === "removedField") {
-    if (o.startsWith("rename:")) label = `Renamed to ${after(o, "rename:")} (keeps the data)`;
-    else if (o.startsWith("split:"))
-      label = `Split into ${after(o, "split:").split(",").join(" and ")} (you give the rule)`;
-    else if (o.startsWith("move:")) label = `Moved to ${after(o, "move:")} (copies the existing values)`;
-    else if (o === "drop") label = "Dropped (deletes its data)";
-  } else if (q.kind === "removedEntity") {
-    if (o.startsWith("rename:")) label = `Renamed to ${after(o, "rename:")} (keeps its rows)`;
-    else if (o === "drop") label = "Dropped (deletes its rows)";
-  } else if (q.kind === "enumValue") label = `Change those rows to '${o}'`;
-  else if (q.kind === "backfill") label = o === "sql" ? "Use a SQL expression" : `Set existing rows to '${o}'`;
-  else if (q.kind === "cast")
-    label = o === "sql" ? "Use a SQL expression to convert" : "Convert each value as it is (fails on values that don't convert)";
-  else if (q.kind === "relation")
-    label = o === "copy-links" ? "Copy each existing link into the new join table" : "Start with no links (deletes them)";
+  switch (q.kind) {
+    case "removedField":
+      if (o.startsWith("rename:")) label = `Renamed to ${after(o, "rename:")} (keeps the data)`;
+      else if (o.startsWith("split:"))
+        label = `Split into ${after(o, "split:").split(",").join(" and ")} (you give the rule)`;
+      else if (o.startsWith("move:")) label = `Moved to ${after(o, "move:")} (copies the existing values)`;
+      else if (o === "drop") label = "Dropped (deletes its data)";
+      break;
+    case "removedEntity":
+      if (o.startsWith("rename:")) label = `Renamed to ${after(o, "rename:")} (keeps its rows)`;
+      else if (o === "drop") label = "Dropped (deletes its rows)";
+      break;
+    case "enumValue":
+      label = `Change those rows to '${o}'`;
+      break;
+    case "backfill":
+      label = o === "sql" ? "Use a SQL expression" : `Set existing rows to '${o}'`;
+      break;
+    case "cast":
+      label = o === "sql" ? "Use a SQL expression to convert" : "Convert each value as it is (fails on values that don't convert)";
+      break;
+    case "relation":
+      label = o === "copy-links" ? "Copy each existing link into the new join table" : "Start with no links (deletes them)";
+      break;
+    default:
+      break;
+  }
   return o === q.suggested ? `${label} (suggested)` : label;
 }
 
@@ -43,5 +55,27 @@ export function splitDefaults(q: Question, targets: string[]): Record<string, st
   return {
     [targets[0]]: first,
     [targets[1]]: `NULLIF(btrim(substr(btrim(${src}), length(${first}) + 1)), '')`,
+  };
+}
+
+/**
+ * A question as an app or agent shows it: each option's words, a hint when an
+ * option needs SQL, and a starting rule for each two-way split option.
+ */
+export function describeQuestion(q: Question): Question & {
+  labels: Record<string, string>;
+  sqlHint?: string;
+  splitDefaults?: Record<string, Record<string, string>>;
+} {
+  const splits = q.options.filter((o) => o.startsWith("split:"));
+  return {
+    ...q,
+    labels: Object.fromEntries(q.options.map((o) => [o, optionLabel(q, o)])),
+    ...(q.options.includes("sql") && { sqlHint: sqlHint(q) }),
+    ...(splits.length > 0 && {
+      splitDefaults: Object.fromEntries(
+        splits.map((o) => [o, splitDefaults(q, after(o, "split:").split(","))])
+      ),
+    }),
   };
 }

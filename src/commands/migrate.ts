@@ -7,7 +7,7 @@ import { readApsorcFile } from "../lib/apsorc-parser";
 import { writePlannedMigration } from "../lib/ddl/migration-file";
 import { openQuestions, Plan, planWithAnswers, Question } from "../lib/plan";
 import { Baseline, baselineFile, resolveBaseline } from "../lib/plan/baseline";
-import { optionLabel, splitDefaults, sqlHint } from "../lib/plan/prompts";
+import { describeQuestion, optionLabel, splitDefaults, sqlHint } from "../lib/plan/prompts";
 import {
   cliBinPath,
   migrateUnsupported,
@@ -16,6 +16,8 @@ import {
   supportsPglite,
   verifyMigration,
 } from "../lib/verify";
+
+const required = (v: string) => v.trim() !== "" || "Enter an expression";
 
 export default class Migrate extends BaseCommand {
   static description =
@@ -65,6 +67,11 @@ export default class Migrate extends BaseCommand {
 
   private json = false;
 
+  /** Progress for people; agents get only the final JSON. */
+  private say(s: string): void {
+    if (!this.json) this.log(s);
+  }
+
   /** Print the outcome: one JSON object for agents, nothing extra for people. */
   private out(status: string, extra: Record<string, unknown>): void {
     if (this.json) this.log(JSON.stringify({ status, ...extra }, null, 2));
@@ -85,9 +92,6 @@ export default class Migrate extends BaseCommand {
     const interactive = !this.json && Boolean(process.stdin.isTTY);
     // Keep stdout pure JSON for agents: parser notices go to stderr.
     if (this.json) console.info = (...m: unknown[]) => process.stderr.write(m.join(" ") + "\n");
-    const say = (s: string) => {
-      if (!this.json) this.log(s);
-    };
 
     const { apsorc } = readApsorcFile();
     const unsupported = migrateUnsupported(apsorc.language);
@@ -95,7 +99,7 @@ export default class Migrate extends BaseCommand {
     const cliBin = cliBinPath(this.config.root);
 
     if (!flags["skip-generate"]) {
-      say("Generating code from .apsorc...");
+      this.say("Generating code from .apsorc...");
       // Agents run without a terminal, where generate needs the language spelled out.
       const language = apsorc.language ?? "typescript";
       const gen = await run(process.execPath, [cliBin, "generate", "--language", language], cwd);
@@ -109,7 +113,7 @@ export default class Migrate extends BaseCommand {
     } catch (error) {
       this.fail((error as Error).message);
     }
-    say(`Comparing with ${baseline.source}.`);
+    this.say(`Comparing with ${baseline.source}.`);
 
     const previous: Plan | undefined = fs.existsSync(planPath)
       ? JSON.parse(fs.readFileSync(planPath).toString())
@@ -133,7 +137,7 @@ export default class Migrate extends BaseCommand {
         const next =
           'Rerun apso migrate --answer <id>=<option> for each. For "sql" and "split:" answers, also set the question\'s "sql" in the plan file: a string, or one expression per split field.';
         if (this.json) {
-          this.out("questions", { plan: path.relative(cwd, planPath), baseline: baseline.source, open, next });
+          this.out("questions", { plan: path.relative(cwd, planPath), baseline: baseline.source, open: open.map((q) => describeQuestion(q)), next });
         } else {
           for (const q of open) this.log(`\n${q.id}\n  ${q.subject}\n  options: ${q.options.join(" | ")}`);
           this.log(`\n${next}`);
@@ -151,16 +155,16 @@ export default class Migrate extends BaseCommand {
     const written = writePlannedMigration(cwd, baseline.schema, flags.name, planPath);
     if (!written.ok) this.fail(written.steps.map((s) => s.output).filter(Boolean).join("\n"));
     if (!written.needed) {
-      say("The database already matches .apsorc. Nothing to migrate.");
+      this.say("The database already matches .apsorc. Nothing to migrate.");
       this.out("up-to-date", {});
       return;
     }
-    say(`Wrote ${written.file}`);
-    for (const f of written.findings ?? []) say(`  warning ${f.code}: ${f.message}`);
+    this.say(`Wrote ${written.file}`);
+    for (const f of written.findings ?? []) this.say(`  warning ${f.code}: ${f.message}`);
 
     let verified: boolean | "skipped" = "skipped";
     if (!flags["skip-verify"] && supportsPglite(cwd)) {
-      say("Testing the migration on a local copy of the deployed schema...");
+      this.say("Testing the migration on a local copy of the deployed schema...");
       const result = await verifyMigration(cwd, baselineFile(baseline), written.file!, cliBin, {
         seedFile: flags.seed,
         checkFile: flags.check,
@@ -175,9 +179,9 @@ export default class Migrate extends BaseCommand {
         );
     }
 
-    say(`\nReview and commit ${written.file} and ${written.planFile}, then deploy.`);
+    this.say(`\nReview and commit ${written.file} and ${written.planFile}, then deploy.`);
     if (verified === true && !flags.seed)
-      say("Tip: --seed <rows.sql> also checks that existing rows survive the migration.");
+      this.say("Tip: --seed <rows.sql> also checks that existing rows survive the migration.");
     this.out("written", { file: written.file, planFile: written.planFile, verified });
   }
 
@@ -192,7 +196,6 @@ export default class Migrate extends BaseCommand {
       },
     ]);
     q.answer = choice;
-    const required = (v: string) => v.trim() !== "" || "Enter an expression";
     if (choice === "sql") {
       const { sql } = await inquirer.prompt<{ sql: string }>([
         { type: "input", name: "sql", message: sqlHint(q), validate: required },
