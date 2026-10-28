@@ -1,6 +1,6 @@
 {
   "name": "@apso/cli",
-  "version": "0.43.4",
+  "version": "0.44.0",
   "mcpName": "io.github.apsoai/apso",
   "description": "Apso CLI",
   "author": "Apso by Mavric - @mavric",
