@@ -12,7 +12,7 @@
  */
 import { parseApsorcV2 } from "../apsorc-parser";
 import { ApsorcType } from "../apsorc-parser";
-import { Plan, Question } from "../plan";
+import { openQuestions, Plan, planMigration, Question } from "../plan";
 import {
   Model,
   ModelColumn,
@@ -352,4 +352,146 @@ export function changeDdl(
     if (c.kind === "fk" && add(c)) up.push(addConstraintSql(c));
 
   return { up };
+}
+
+export type DownDdl = { down: string[] } | { irreversible: string[] };
+
+/**
+ * The reverse migration: the plan from the new schema back to the deployed
+ * one, answered from the forward answers. Renames invert, added fields drop,
+ * removed enum values map back, a split rejoins, and data that moved (to a
+ * new table, or into many-to-many links) is copied back. Anything left
+ * unanswered is reported instead of guessed.
+ */
+export function downDdl(
+  before: ApsorcType,
+  after: ApsorcType,
+  plan: Plan
+): DownDdl {
+  const fwd = new Map(
+    plan.questions.filter((x) => x.answer).map((x) => [x.id, x])
+  );
+  const entityRenamedFrom = new Map(
+    answered(plan, "removedEntity")
+      .filter((x) => x.answer!.startsWith("rename:"))
+      .map((x) => [x.answer!.slice("rename:".length), subject(x.id).entity])
+  );
+  const forwardEntity = (name: string) =>
+    [...entityRenamedFrom].find(([, old]) => old === name)?.[0] ?? name;
+  const nowTable = (entity: string) =>
+    tableName(after.entities.find((e) => e.name === entity)!);
+  const A = schemaModel(parseApsorcV2(after));
+  const B = schemaModel(parseApsorcV2(before));
+
+  const answer = (x: Question): Partial<Question> | undefined => {
+    const { entity, field, value } = subject(x.id);
+    if (x.kind === "removedEntity") {
+      const old = entityRenamedFrom.get(entity);
+      return { answer: old ? `rename:${old}` : "drop" };
+    }
+    if (x.kind === "removedField") {
+      const renamedFrom = [...fwd.values()].find(
+        (f) =>
+          f.kind === "removedField" &&
+          f.answer === `rename:${field}` &&
+          forwardEntity(subject(f.id).entity) === entity
+      );
+      return {
+        answer: renamedFrom
+          ? `rename:${subject(renamedFrom.id).field}`
+          : "drop",
+      };
+    }
+    if (x.kind === "enumValue") {
+      const from = [...fwd.values()].find(
+        (f) =>
+          f.kind === "enumValue" &&
+          f.answer === value &&
+          subject(f.id).field === field
+      );
+      return from && { answer: subject(from.id).value };
+    }
+    if (x.kind === "cast") return { answer: "cast" };
+    if (x.kind === "relation") return { answer: "drop-links" };
+    if (x.kind === "backfill") {
+      const split = fwd.get(`field:${forwardEntity(entity)}.${field}`);
+      if (split?.answer?.startsWith("split:")) {
+        const parts = split.answer
+          .slice("split:".length)
+          .split(",")
+          .map((p) => q(p));
+        return { answer: "sql", sql: `concat_ws(' ', ${parts.join(", ")})` };
+      }
+    }
+    return undefined;
+  };
+
+  let rev = planMigration(after, before);
+  for (let round = 0; round < 3; round++) {
+    for (const x of rev.questions) if (!x.answer) Object.assign(x, answer(x));
+    rev = planMigration(after, before, rev);
+  }
+
+  // Data the forward migration moved out of a column comes back from where it went.
+  const extra: Question[] = [];
+  for (const x of answered(plan, "removedField")) {
+    if (!x.answer!.startsWith("move:")) continue;
+    const { entity, field } = subject(x.id);
+    const [toEntity, toField] = x.answer!.slice("move:".length).split(".");
+    const from = nowTable(entity);
+    const to = nowTable(toEntity);
+    const fk = A.constraints.find(
+      (c) => c.kind === "fk" && c.table === to && c.references === from
+    )!;
+    extra.push({
+      id: `backfill:${entity}.${field}`,
+      kind: "backfill",
+      subject: `restore ${field} from ${toEntity}`,
+      options: ["sql"],
+      answer: "sql",
+      sql: `SELECT ${q(toField)} FROM ${q(to)} x WHERE x.${q(
+        fk.columns[0]
+      )} = ${q(from)}."id" ORDER BY x."id" LIMIT 1`,
+    });
+  }
+  for (const x of answered(plan, "relation")) {
+    if (x.answer !== "copy-links") continue;
+    const { entity, field: target } = subject(x.id);
+    const from = nowTable(entity);
+    const to = nowTable(target);
+    const fk = B.constraints.find(
+      (c) => c.kind === "fk" && c.table === from && c.references === to
+    )!;
+    const joinFks = A.constraints.filter(
+      (c) => c.kind === "fk" && !B.tables.some((t) => t.name === c.table)
+    );
+    const own = joinFks.find(
+      (c) =>
+        c.references === from &&
+        joinFks.some((d) => d.table === c.table && d.references === to)
+    )!;
+    const other = joinFks.find(
+      (d) => d.table === own.table && d.references === to
+    )!;
+    extra.push({
+      id: `backfill:${entity}.${fk.columns[0]}`,
+      kind: "backfill",
+      subject: `restore ${fk.columns[0]} from ${own.table}`,
+      options: ["sql"],
+      answer: "sql",
+      sql: `SELECT j.${q(other.columns[0])} FROM ${q(own.table)} j WHERE j.${q(
+        own.columns[0]
+      )} = ${q(from)}."id" LIMIT 1`,
+    });
+  }
+
+  const open = openQuestions(rev);
+  if (open.length > 0)
+    return { irreversible: open.map((x) => `${x.id}: ${x.subject}`) };
+  return {
+    down: changeDdl(after, before, {
+      ...rev,
+      questions: [...rev.questions, ...extra],
+    }).up,
+  };
 }
