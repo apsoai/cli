@@ -25,7 +25,8 @@ apso generate          # Generate code from .apsorc schema
 apso dev               # Start local dev server via Docker Compose
 
 # Schema
-apso migrate           # Test schema migrations locally (PGlite sandbox)
+apso migrate           # The guided flow: generate code, plan against the deployed schema, ask about anything ambiguous (or print questions as JSON and exit 2), write the migration, verify it
+apso migrate sandbox   # The older snapshot preview on an empty PGlite database (--sql prints DDL for an .apsorc)
 apso migrate plan      # Compare the deployed schema (found automatically) with .apsorc; ambiguous changes become questions in .apso/migration-plan.json; JSON when piped; exits 2 while any are open
 apso migrate generate  # Write the TypeORM migration from the answered plan: up() with renames, data moves and backfills, plus a reversing down(); --typeorm uses TypeORM's generator
 apso migrate verify    # Run the newest migration on a local PGlite copy of the schema it starts from (optionally --seed rows, --check assertions), then check data loss and drift
