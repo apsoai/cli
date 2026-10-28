@@ -26,9 +26,9 @@ apso dev               # Start local dev server via Docker Compose
 
 # Schema
 apso migrate           # Test schema migrations locally (PGlite sandbox)
-apso migrate plan      # Compare deployed vs current .apsorc; ambiguous changes (rename, split, move, enum, backfill, cast) become questions in .apso/migration-plan.json; exits 2 while any are open
-apso migrate generate  # Write a TypeORM migration from the answered plan: Apso renders up() (renames, data moves, backfills) and a reversing down(); exits 2 while plan questions are open; --typeorm uses TypeORM's generator instead
-apso migrate verify    # Run a migration on the deployed schema (optionally seeded with --seed rows), then check data loss (following data copied into new tables), --check assertions and drift; generate and verify both warn on statements that lose data
+apso migrate plan      # Compare the deployed schema (found automatically) with .apsorc; ambiguous changes become questions in .apso/migration-plan.json; JSON when piped; exits 2 while any are open
+apso migrate generate  # Write the TypeORM migration from the answered plan: up() with renames, data moves and backfills, plus a reversing down(); --typeorm uses TypeORM's generator
+apso migrate verify    # Run the newest migration on a local PGlite copy of the schema it starts from (optionally --seed rows, --check assertions), then check data loss and drift
 apso test smoke        # Start the service; call /health, list, and create/read/delete each entity (TS on PGlite, Python/Go on DATABASE_URL)
 apso schema validate   # Validate local .apsorc (includes lint)
 apso schema lint       # Lint .apsorc with @apso/schema-tools (--fix, --json)

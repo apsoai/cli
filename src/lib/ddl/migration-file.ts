@@ -64,14 +64,11 @@ export interface PlannedMigration {
 
 export function writePlannedMigration(
   projectDir: string,
-  baselinePath: string,
+  before: ApsorcType,
   name: string,
   planPath: string,
   now = Date.now()
 ): PlannedMigration {
-  const before: ApsorcType = JSON.parse(
-    fs.readFileSync(baselinePath).toString()
-  );
   const after: ApsorcType = JSON.parse(
     fs.readFileSync(path.join(projectDir, ".apsorc")).toString()
   );
@@ -80,7 +77,10 @@ export function writePlannedMigration(
     : undefined;
   const plan = planMigration(before, after, previous);
   fs.mkdirSync(path.dirname(planPath), { recursive: true });
-  fs.writeFileSync(planPath, JSON.stringify(plan, null, 2) + "\n");
+  fs.writeFileSync(
+    planPath,
+    JSON.stringify({ ...plan, before }, null, 2) + "\n"
+  );
 
   const open = openQuestions(plan);
   if (open.length > 0)
@@ -130,8 +130,11 @@ export function writePlannedMigration(
   fs.writeFileSync(path.join(dir, `${base}.ts`), source);
   fs.writeFileSync(
     path.join(dir, `${base}.plan.json`),
-    JSON.stringify(plan, null, 2) + "\n"
+    // The schemas let later runs find the baseline without being told.
+    JSON.stringify({ ...plan, before, after }, null, 2) + "\n"
   );
+  // The answers now live beside the migration; the next change starts fresh.
+  fs.rmSync(planPath, { force: true });
   const rel = (f: string) => path.relative(projectDir, path.join(dir, f));
   return {
     ok: true,

@@ -1,9 +1,14 @@
 import * as path from "path";
 import { Flags } from "@oclif/core";
 import BaseCommand from "../../lib/base-command";
-import { parseApsorc } from "../../lib/apsorc-parser";
+import { parseApsorc, readApsorcFile } from "../../lib/apsorc-parser";
 import { writePlannedMigration } from "../../lib/ddl/migration-file";
 import { Question } from "../../lib/plan";
+import {
+  Baseline,
+  baselineFile,
+  resolveBaseline,
+} from "../../lib/plan/baseline";
 import {
   cliBinPath,
   migrateUnsupported,
@@ -16,15 +21,15 @@ export default class MigrateGenerate extends BaseCommand {
     "Write a migration from the deployed schema to this project's .apsorc. Apso renders the SQL from the answered migration plan (apso migrate plan), including data moves and a down() that reverses them. Exits 2 while plan questions are open. --typeorm uses TypeORM's generator on a local PGlite database instead (TypeScript services).";
 
   static examples = [
-    `$ apso migrate plan --baseline deployed.apsorc --answer entity:Company=rename:Organization`,
-    `$ apso migrate generate --baseline deployed.apsorc`,
-    `$ apso migrate generate --baseline deployed.apsorc --typeorm`,
+    `$ apso migrate plan --answer entity:Company=rename:Organization`,
+    `$ apso migrate generate`,
+    `$ apso migrate generate --typeorm`,
   ];
 
   static flags = {
     baseline: Flags.string({
-      description: "The deployed .apsorc to migrate from",
-      required: true,
+      description:
+        "The deployed .apsorc to migrate from. Defaults to the schema after the newest planned migration, or the .apsorc from the last commit that changed the migrations folder",
     }),
     name: Flags.string({
       description: "Migration name",
@@ -50,16 +55,28 @@ export default class MigrateGenerate extends BaseCommand {
     const unsupported = migrateUnsupported(parseApsorc().language);
     if (unsupported) this.error(unsupported);
 
+    const { apsorc } = readApsorcFile();
+    let baseline: Baseline;
+    try {
+      baseline = resolveBaseline(
+        process.cwd(),
+        apsorc,
+        flags.baseline,
+        path.resolve(flags.plan)
+      );
+    } catch (error) {
+      this.error((error as Error).message, { exit: 1 });
+    }
     const result = flags.typeorm
       ? await generateMigration(
           process.cwd(),
-          path.resolve(flags.baseline),
+          baselineFile(baseline),
           flags.name,
           cliBinPath(this.config.root)
         )
       : writePlannedMigration(
           process.cwd(),
-          path.resolve(flags.baseline),
+          baseline.schema,
           flags.name,
           path.resolve(flags.plan)
         );

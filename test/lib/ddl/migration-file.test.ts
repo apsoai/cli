@@ -9,6 +9,10 @@ import {
 
 const fixture = (c: string, f: string) =>
   path.join(__dirname, "../../fixtures/plan", c, f);
+const before = () =>
+  JSON.parse(
+    fs.readFileSync(fixture("rename-field", "before.apsorc")).toString()
+  );
 const project = (c: string) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "apso-planned-"));
   fs.copyFileSync(fixture(c, "after.apsorc"), path.join(dir, ".apsorc"));
@@ -20,7 +24,7 @@ describe("writePlannedMigration", () => {
     const dir = project("rename-field");
     const result = writePlannedMigration(
       dir,
-      fixture("rename-field", "before.apsorc"),
+      before(),
       "SchemaUpdate",
       path.join(dir, ".apso/migration-plan.json")
     );
@@ -32,18 +36,13 @@ describe("writePlannedMigration", () => {
   test("writes the migration and its plan once answered", () => {
     const dir = project("rename-field");
     const planPath = path.join(dir, ".apso/migration-plan.json");
-    writePlannedMigration(
-      dir,
-      fixture("rename-field", "before.apsorc"),
-      "SchemaUpdate",
-      planPath
-    );
+    writePlannedMigration(dir, before(), "SchemaUpdate", planPath);
     const plan = JSON.parse(fs.readFileSync(planPath).toString());
     plan.questions[0].answer = "rename:mobilePhone";
     fs.writeFileSync(planPath, JSON.stringify(plan));
     const result = writePlannedMigration(
       dir,
-      fixture("rename-field", "before.apsorc"),
+      before(),
       "SchemaUpdate",
       planPath,
       1_700_000_000_000

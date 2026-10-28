@@ -67,7 +67,12 @@ export interface Plan {
 export const hashSchema = (s: PlanSchema): string =>
   "sha256:" +
   createHash("sha256")
-    .update(JSON.stringify({ entities: s.entities, relationships: s.relationships ?? [] }))
+    .update(
+      JSON.stringify({
+        entities: s.entities,
+        relationships: s.relationships ?? [],
+      })
+    )
     .digest("hex");
 
 const STRING_TYPES = new Set(["text", "varchar", "char", "string"]);
@@ -86,12 +91,15 @@ const fieldSignature = (e: PlanEntity) =>
     .sort()
     .join(",");
 const relates = (rels: PlanRelationship[], a: string, b: string) =>
-  rels.some((r) => (r.from === a && r.to === b) || (r.from === b && r.to === a));
+  rels.some(
+    (r) => (r.from === a && r.to === b) || (r.from === b && r.to === a)
+  );
 
 /** Every answer this question will accept is valid; anything else stays open. */
 export function isAnswered(q: Question): boolean {
   if (!q.answer || !q.options.includes(q.answer)) return false;
-  if (q.answer === "sql") return typeof q.sql === "string" && q.sql.trim() !== "";
+  if (q.answer === "sql")
+    return typeof q.sql === "string" && q.sql.trim() !== "";
   if (q.answer.startsWith("split:")) {
     const targets = q.answer.slice("split:".length).split(",");
     const sql = q.sql;
@@ -113,9 +121,11 @@ function claimedTargets(questions: Question[]): Set<string> {
   for (const q of questions) {
     if (!q.answer) continue;
     const entity = q.id.slice(q.id.indexOf(":") + 1).split(".")[0];
-    if (q.answer.startsWith("rename:")) claimed.add(`${entity}.${q.answer.slice(7)}`);
+    if (q.answer.startsWith("rename:"))
+      claimed.add(`${entity}.${q.answer.slice(7)}`);
     if (q.answer.startsWith("split:"))
-      for (const t of q.answer.slice(6).split(",")) claimed.add(`${entity}.${t}`);
+      for (const t of q.answer.slice(6).split(","))
+        claimed.add(`${entity}.${t}`);
     if (q.answer.startsWith("move:")) claimed.add(q.answer.slice(5));
   }
   return claimed;
@@ -148,21 +158,29 @@ export function planMigration(
   const added = after.entities.filter((e) => !byName(before.entities, e.name));
 
   // Removed entities: rename to an added entity with the same fields, or drop.
-  for (const old of before.entities.filter((e) => !byName(after.entities, e.name))) {
-    const matches = added.filter((e) => fieldSignature(e) === fieldSignature(old));
+  for (const old of before.entities.filter(
+    (e) => !byName(after.entities, e.name)
+  )) {
+    const matches = added.filter(
+      (e) => fieldSignature(e) === fieldSignature(old)
+    );
     questions.push({
       id: `entity:${old.name}`,
       kind: "removedEntity",
       subject: `Entity ${old.name} is gone`,
       options: [...matches.map((e) => `rename:${e.name}`), "drop"],
-      ...(matches.length === 1 ? { suggested: `rename:${matches[0].name}` } : {}),
+      ...(matches.length === 1
+        ? { suggested: `rename:${matches[0].name}` }
+        : {}),
     });
   }
 
   for (const now of after.entities) {
     const was = byName(before.entities, now.name);
     if (!was) continue;
-    const addedFields = fieldsOf(now).filter((f) => !byName(fieldsOf(was), f.name));
+    const addedFields = fieldsOf(now).filter(
+      (f) => !byName(fieldsOf(was), f.name)
+    );
 
     for (const old of fieldsOf(was)) {
       const cur = byName(fieldsOf(now), old.name);
@@ -171,10 +189,16 @@ export function planMigration(
         const same = addedFields.filter((f) => sameType(f, old));
         const moves = added
           .filter((e) => relates(afterRels, e.name, now.name))
-          .flatMap((e) => fieldsOf(e).filter((f) => sameType(f, old)).map((f) => `move:${e.name}.${f.name}`));
+          .flatMap((e) =>
+            fieldsOf(e)
+              .filter((f) => sameType(f, old))
+              .map((f) => `move:${e.name}.${f.name}`)
+          );
         const options = [
           ...same.map((f) => `rename:${f.name}`),
-          ...(same.length > 1 ? [`split:${same.map((f) => f.name).join(",")}`] : []),
+          ...(same.length > 1
+            ? [`split:${same.map((f) => f.name).join(",")}`]
+            : []),
           ...moves,
           "drop",
         ];
@@ -184,7 +208,9 @@ export function planMigration(
           kind: "removedField",
           subject: `Field ${now.name}.${old.name} (${old.type}) is gone`,
           options,
-          ...(readings === 1 && same.length === 1 ? { suggested: options[0] } : {}),
+          ...(readings === 1 && same.length === 1
+            ? { suggested: options[0] }
+            : {}),
         });
         continue;
       }
@@ -218,7 +244,8 @@ export function planMigration(
 
   // Relationships between the same two entities that change kind or vanish.
   for (const r of beforeRels.filter((r) => r.type === "ManyToOne")) {
-    if (!byName(after.entities, r.from) || !byName(after.entities, r.to)) continue;
+    if (!byName(after.entities, r.from) || !byName(after.entities, r.to))
+      continue;
     const kept = afterRels.some(
       (x) => x.type === "ManyToOne" && x.from === r.from && x.to === r.to
     );
@@ -226,7 +253,8 @@ export function planMigration(
     const toMany = afterRels.some(
       (x) =>
         x.type === "ManyToMany" &&
-        ((x.from === r.from && x.to === r.to) || (x.from === r.to && x.to === r.from))
+        ((x.from === r.from && x.to === r.to) ||
+          (x.from === r.to && x.to === r.from))
     );
     questions.push({
       id: `relation:${r.from}.${r.to}`,
@@ -244,7 +272,11 @@ export function planMigration(
   const carry = (q: Question): Question => {
     const p = prev.get(q.id);
     if (!p?.answer || !q.options.includes(p.answer)) return q;
-    return { ...q, answer: p.answer, ...(p.sql === undefined ? {} : { sql: p.sql }) };
+    return {
+      ...q,
+      answer: p.answer,
+      ...(p.sql === undefined ? {} : { sql: p.sql }),
+    };
   };
   const answeredSoFar = questions.map((q) => carry(q));
 
@@ -256,7 +288,12 @@ export function planMigration(
     const was = byName(before.entities, now.name);
     if (!was) continue;
     for (const f of fieldsOf(now)) {
-      if (byName(fieldsOf(was), f.name) || f.nullable || f.default !== undefined) continue;
+      if (
+        byName(fieldsOf(was), f.name) ||
+        f.nullable ||
+        f.default !== undefined
+      )
+        continue;
       const key = `${now.name}.${f.name}`;
       if (claimed.has(key) || pending.has(key)) continue;
       answeredSoFar.push(
@@ -270,5 +307,10 @@ export function planMigration(
     }
   }
 
-  return { version: 1, from: hashSchema(before), to: hashSchema(after), questions: answeredSoFar };
+  return {
+    version: 1,
+    from: hashSchema(before),
+    to: hashSchema(after),
+    questions: answeredSoFar,
+  };
 }

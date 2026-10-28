@@ -1,13 +1,22 @@
 import { expect, describe, test } from "@jest/globals";
 import * as fs from "fs";
 import * as path from "path";
-import { isAnswered, openQuestions, planMigration, Plan } from "../../../src/lib/plan";
+import {
+  isAnswered,
+  openQuestions,
+  planMigration,
+  Plan,
+} from "../../../src/lib/plan";
 
 // Each case is one migration eval from apso-skills: the deployed .apsorc and
 // the one the user changed it to.
 const schema = (c: string, which: "before" | "after") =>
   JSON.parse(
-    fs.readFileSync(path.join(__dirname, "../../fixtures/plan", c, `${which}.apsorc`)).toString()
+    fs
+      .readFileSync(
+        path.join(__dirname, "../../fixtures/plan", c, `${which}.apsorc`)
+      )
+      .toString()
   );
 const plan = (c: string, previous?: Plan) =>
   planMigration(schema(c, "before"), schema(c, "after"), previous);
@@ -21,13 +30,21 @@ const asked = (c: string, previous?: Plan) =>
 describe("planMigration on the migration eval cases", () => {
   test("rename-entity: rename suggested, nothing else asked", () => {
     expect(asked("rename-entity")).toEqual([
-      { id: "entity:Company", options: ["rename:Organization", "drop"], suggested: "rename:Organization" },
+      {
+        id: "entity:Company",
+        options: ["rename:Organization", "drop"],
+        suggested: "rename:Organization",
+      },
     ]);
   });
 
   test("rename-field: rename suggested", () => {
     expect(asked("rename-field")).toEqual([
-      { id: "field:Contact.phone", options: ["rename:mobilePhone", "drop"], suggested: "rename:mobilePhone" },
+      {
+        id: "field:Contact.phone",
+        options: ["rename:mobilePhone", "drop"],
+        suggested: "rename:mobilePhone",
+      },
     ]);
   });
 
@@ -35,14 +52,22 @@ describe("planMigration on the migration eval cases", () => {
     expect(asked("split-field")).toEqual([
       {
         id: "field:Contact.fullName",
-        options: ["rename:firstName", "rename:lastName", "split:firstName,lastName", "drop"],
+        options: [
+          "rename:firstName",
+          "rename:lastName",
+          "split:firstName,lastName",
+          "drop",
+        ],
       },
     ]);
   });
 
   test("extract-entity: phone can move to PhoneNumber.number", () => {
     expect(asked("extract-entity")).toEqual([
-      { id: "field:Contact.phone", options: ["move:PhoneNumber.number", "drop"] },
+      {
+        id: "field:Contact.phone",
+        options: ["move:PhoneNumber.number", "drop"],
+      },
     ]);
   });
 
@@ -54,7 +79,10 @@ describe("planMigration on the migration eval cases", () => {
 
   test("enum-replace: the removed value needs a new home", () => {
     expect(asked("enum-replace")).toEqual([
-      { id: "enum:Contact.status:archived", options: ["lead", "active", "closed"] },
+      {
+        id: "enum:Contact.status:archived",
+        options: ["lead", "active", "closed"],
+      },
     ]);
   });
 
