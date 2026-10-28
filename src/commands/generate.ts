@@ -11,7 +11,7 @@ import { TargetLanguage, GeneratorConfig } from "../lib/types";
 import BaseCommand from "../lib/base-command";
 import { isInteractive, missingFlag } from "../lib/utils/interactive";
 import { performance } from "perf_hooks";
-import { createFile } from "../lib/utils/file-system";
+import { createFile, removeStaleGeneratedFiles } from "../lib/utils/file-system";
 import { installCoAuthorHook } from "../lib/utils/git-hooks";
 import { ensureCrudDeps } from "../lib/utils/crud-deps";
 import { upgradeOrmConfigForPglite } from "../lib/utils/pglite-upgrade";
@@ -108,6 +108,16 @@ export default class Generate extends BaseCommand {
 
     let generatedFileCount = 0;
 
+    // Every path this run writes. After generation, anything else under
+    // autogen/ that carries the Apso header belongs to an entity that was
+    // removed or renamed in .apsorc and gets deleted (apsoai/cli#157).
+    const generatedPaths = new Set<string>();
+    const writeGenerated = (filePath: string, content: string) => {
+      const fullPath = path.join(autogenPath, filePath);
+      generatedPaths.add(fullPath);
+      return createFile(fullPath, content);
+    };
+
     const generatorConfig: GeneratorConfig = {
       language,
       rootFolder,
@@ -132,18 +142,16 @@ export default class Generate extends BaseCommand {
     // Generate enums
     const enumFiles = await generator.generateEnums(entities, lowerCaseApiType);
     for (const file of enumFiles) {
-      const fullPath = path.join(autogenPath, file.path);
       // eslint-disable-next-line no-await-in-loop
-      await createFile(fullPath, file.content);
+      await writeGenerated(file.path, file.content);
     }
     generatedFileCount += enumFiles.length;
 
     // Generate shared query utilities
     const queryUtilFiles = await generator.generateQueryUtils(entities, lowerCaseApiType);
     for (const file of queryUtilFiles) {
-      const fullPath = path.join(autogenPath, file.path);
       // eslint-disable-next-line no-await-in-loop
-      await createFile(fullPath, file.content);
+      await writeGenerated(file.path, file.content);
     }
     generatedFileCount += queryUtilFiles.length;
 
@@ -232,9 +240,8 @@ export default class Generate extends BaseCommand {
       // eslint-disable-next-line no-await-in-loop
       for (const files of allFiles) {
         for (const file of files) {
-          const fullPath = path.join(autogenPath, file.path);
           // eslint-disable-next-line no-await-in-loop
-          await createFile(fullPath, file.content);
+          await writeGenerated(file.path, file.content);
           generatedFileCount += 1;
         }
       }
@@ -248,9 +255,8 @@ export default class Generate extends BaseCommand {
     // Generate guards
     const guardFiles = await generator.generateGuards(entities, auth);
     for (const file of guardFiles) {
-      const fullPath = path.join(autogenPath, file.path);
       // eslint-disable-next-line no-await-in-loop
-      await createFile(fullPath, file.content);
+      await writeGenerated(file.path, file.content);
     }
     generatedFileCount += guardFiles.length;
 
@@ -261,19 +267,25 @@ export default class Generate extends BaseCommand {
       { emitEvents }
     );
     for (const file of domainEventFiles) {
-      const fullPath = path.join(autogenPath, file.path);
       // eslint-disable-next-line no-await-in-loop
-      await createFile(fullPath, file.content);
+      await writeGenerated(file.path, file.content);
     }
 
     // Generate index module
     const indexFiles = await generator.generateIndexModule(entities, lowerCaseApiType, { emitEvents, http });
     for (const file of indexFiles) {
-      const fullPath = path.join(autogenPath, file.path);
       // eslint-disable-next-line no-await-in-loop
-      await createFile(fullPath, file.content);
+      await writeGenerated(file.path, file.content);
     }
     generatedFileCount += indexFiles.length;
+
+    // Skip cleanup when nothing was generated: an empty or missing .apsorc
+    // would otherwise wipe every generated file.
+    if (entities.length > 0) {
+      for (const removed of removeStaleGeneratedFiles(autogenPath, generatedPaths)) {
+        console.log(`[apso] Removed stale ${path.relative(process.cwd(), removed)}`);
+      }
+    }
 
     // Format generated files (TypeScript only) with Biome — bundled with the
     // CLI and invoked directly, so it's a fast native pass (~ms) with no npx

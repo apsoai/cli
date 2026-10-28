@@ -16,6 +16,39 @@ export const createFile = async (
   await fs.promises.writeFile(file, content);
 };
 
+// Every file the CLI generates starts with this line (see templates/header.eta).
+const APSO_HEADER = "Generated with Apso";
+
+/**
+ * Delete files under `dir` that carry the Apso header but are not in `keep`,
+ * i.e. files left over from entities removed or renamed in .apsorc. Files
+ * without the header (template seeds like .gitkeep, hand-written code) are
+ * never touched. Directories emptied this way are removed too. Returns the
+ * deleted paths.
+ */
+export const removeStaleGeneratedFiles = (
+  dir: string,
+  keep: Set<string>
+): string[] => {
+  if (!fs.existsSync(dir)) return [];
+  const removed: string[] = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      removed.push(...removeStaleGeneratedFiles(fullPath, keep));
+      if (fs.readdirSync(fullPath).length === 0) fs.rmdirSync(fullPath);
+    } else if (
+      entry.isFile() &&
+      !keep.has(fullPath) &&
+      fs.readFileSync(fullPath, "utf8").includes(APSO_HEADER)
+    ) {
+      fs.unlinkSync(fullPath);
+      removed.push(fullPath);
+    }
+  }
+  return removed;
+};
+
 export const createDirectoryContents = (
   templatePath: string,
   newProjectPath: string,
