@@ -22,6 +22,7 @@ import {
 } from "../utils/relationships";
 import { snakeCase, camelCase } from "../utils/casing";
 import { getEventEmittingEntities } from "../events";
+import { pyString } from "../ddl/migration-file";
 import pluralize from "pluralize";
 
 /**
@@ -319,10 +320,10 @@ export class PythonGenerator extends BaseGenerator {
     const filename = `${timestamp}_${name}.py`;
 
     const upStatements = upSql
-      .map((sql) => `    op.execute("""${sql}""")`)
+      .map((sql) => `    op.execute(${pyString(sql)})`)
       .join("\n");
     const downStatements = (downSql || [])
-      .map((sql) => `    op.execute("""${sql}""")`)
+      .map((sql) => `    op.execute(${pyString(sql)})`)
       .join("\n");
 
     const content = `"""${name}"""

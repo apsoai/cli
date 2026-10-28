@@ -1,7 +1,7 @@
 /**
  * Pre-deploy checks for a generated service: generate the migration from the
- * deployed schema, run it and check for drift (TypeScript only, on PGlite),
- * and smoke test the endpoints. The CLI and the in-browser editor (which runs
+ * deployed schema, run it and check for drift (on PGlite), and smoke test the
+ * endpoints. The CLI and the in-browser editor (which runs
  * the CLI in a WebContainer) share these steps.
  */
 
@@ -12,6 +12,10 @@ import * as net from "net";
 import * as os from "os";
 import * as path from "path";
 import pluralize from "pluralize";
+import { parseApsorcV2 } from "../apsorc-parser";
+import { schemaDdl } from "../ddl";
+import { catalogDiff, readCatalog } from "../ddl/catalog";
+import { migrationSql, typeormMigration } from "../ddl/migration-file";
 import { Entity } from "../types/entity";
 import { TargetLanguage } from "../types/generator";
 import { RelationshipMap } from "../types/relationship";
@@ -124,21 +128,6 @@ export async function buildBaseline(
     fs.rmSync(copy, { recursive: true, force: true });
   }
 }
-
-/**
- * Why `apso migrate` can't run for this project's language, or undefined.
- * ponytail: Python (Alembic) and Go (goose) have no local scratch database to
- * build the baseline on; add when they get one like PGlite for TypeScript.
- */
-export const migrateUnsupported = (
-  language: TargetLanguage = "typescript"
-): string | undefined => {
-  if (language === "python")
-    return "apso migrate supports TypeScript services only for now. This is a Python service: use Alembic directly (alembic revision --autogenerate, alembic upgrade head, alembic check).";
-  if (language === "go")
-    return "apso migrate supports TypeScript services only for now. This is a Go service: write goose migrations in migrations/ and run them with `go run cmd/migrate/main.go up`.";
-  return undefined;
-};
 
 export interface GenerateResult {
   ok: boolean;
@@ -365,6 +354,12 @@ export async function verifyMigration(
     acceptLoss = [],
   }: { skipBuild?: boolean; seedFile?: string; checkFile?: string; acceptLoss?: string[] } = {}
 ): Promise<CheckResult> {
+  if (/\.(py|sql)$/.test(migrationFile))
+    return verifySqlMigration(projectDir, baselineApsorc, migrationFile, cliBin, {
+      seedFile,
+      checkFile,
+      acceptLoss,
+    });
   if (!supportsPglite(projectDir)) return NO_PGLITE;
   const source = fs.readFileSync(path.resolve(projectDir, migrationFile), "utf8");
   const findings = reviewMigration(source);
@@ -427,6 +422,109 @@ export async function verifyMigration(
       pgliteEnv(dataDir)
     );
     return { ok: done(step("drift", drift)), steps, findings };
+  } finally {
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+}
+
+const ddlOf = (apsorcFile: string) =>
+  schemaDdl(parseApsorcV2(JSON.parse(fs.readFileSync(apsorcFile).toString()))).join(";\n");
+
+/**
+ * verifyMigration for an Alembic or goose migration. Python and Go services
+ * have no TypeORM, so Apso's DDL writer builds the deployed schema, the
+ * migration's SQL runs as written, and drift is a catalog diff against a
+ * fresh build of the new .apsorc. down then runs and must give back the
+ * deployed schema.
+ */
+async function verifySqlMigration(
+  projectDir: string,
+  baselineApsorc: string,
+  migrationFile: string,
+  cliBin: string,
+  { seedFile, checkFile, acceptLoss = [] }: { seedFile?: string; checkFile?: string; acceptLoss?: string[] }
+): Promise<CheckResult> {
+  const { PGlite } = await import("@electric-sql/pglite");
+  const steps: Step[] = [];
+  const done = (s: Step) => {
+    steps.push(s);
+    return s.ok;
+  };
+  let sql: { up: string; down?: string };
+  try {
+    sql = migrationSql(migrationFile, fs.readFileSync(path.resolve(projectDir, migrationFile), "utf8"));
+  } catch (error) {
+    done({ name: "read", ok: false, output: (error as Error).message });
+    return { ok: false, steps };
+  }
+  const findings = reviewMigration(typeormMigration("Migration", [sql.up], { down: [] }));
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "apso-pglite-"));
+  // The CLI's own PGlite: the project has no node_modules to load one from.
+  const cliRoot = path.dirname(path.dirname(cliBin));
+  const script = (name: string, code: string, arg?: string) =>
+    run(process.execPath, ["-e", code, ...(arg ? [path.resolve(arg)] : [])], cliRoot, pgliteEnv(dataDir)).then(
+      (r) => {
+        done(step(name, r));
+        return r;
+      }
+    );
+  const exec = async (name: string, statements: string) => {
+    const db = new PGlite(dataDir);
+    try {
+      await db.exec(statements);
+      return done({ name, ok: true });
+    } catch (error) {
+      return done({ name, ok: false, output: (error as Error).message });
+    } finally {
+      await db.close();
+    }
+  };
+  const drift = async (name: string, apsorcFile: string) => {
+    const db = new PGlite(dataDir);
+    const fresh = new PGlite();
+    try {
+      await fresh.exec(ddlOf(apsorcFile));
+      const diff = catalogDiff(await readCatalog(fresh), await readCatalog(db));
+      return done({
+        name,
+        ok: diff.length === 0,
+        output: diff.length > 0 ? `The database differs from ${path.basename(apsorcFile)} (- missing, + extra):\n${diff.join("\n")}` : undefined,
+      });
+    } finally {
+      await db.close();
+      await fresh.close();
+    }
+  };
+  try {
+    if (!(await exec("baseline", ddlOf(baselineApsorc)))) return { ok: false, steps, findings };
+    const count = async (name: string, file?: string) => {
+      const r = await script(name, COUNT_ROWS, file);
+      return r.ok ? (JSON.parse(r.output.trim().split("\n").pop()!) as Counts) : undefined;
+    };
+    const before = seedFile ? await count("seed", seedFile) : undefined;
+    if (seedFile && !before) return { ok: false, steps, findings };
+    if (!(await exec("migrate", sql.up))) return { ok: false, steps, findings };
+    if (before) {
+      const after = await count("count");
+      if (!after) return { ok: false, steps, findings };
+      const lost = dataLoss(before, after, sql.up);
+      const ok = unaccepted(lost, acceptLoss).length === 0;
+      done({
+        name: "data",
+        ok,
+        output: lost.length > 0
+          ? `The migration lost seeded data:\n${lost.join("\n")}${ok ? "" : "\nFix the migration. If data moved somewhere the check can't follow (e.g. a field split in two), prove it with --check and rerun with --accept-loss <table.column>."}`
+          : undefined,
+      });
+      if (!ok) return { ok: false, steps, findings };
+    }
+    const checked = checkFile ? await script("check", RUN_CHECKS, checkFile) : undefined;
+    if (checked && !checked.ok) return { ok: false, steps, findings };
+    if (!(await drift("drift", path.join(projectDir, ".apsorc")))) return { ok: false, steps, findings };
+    if (sql.down === undefined) done({ name: "down", ok: true, output: "down refuses to run (irreversible), so it was not tested." });
+    else if (!(await exec("down", sql.down)) || !(await drift("down drift", baselineApsorc)))
+      return { ok: false, steps, findings };
+    return { ok: true, steps, findings };
   } finally {
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
