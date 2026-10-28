@@ -1,149 +1,216 @@
+import * as fs from "fs";
 import * as path from "path";
 import { Flags } from "@oclif/core";
+import * as inquirer from "inquirer";
 import BaseCommand from "../lib/base-command";
-import { parseApsorc } from "../lib/apsorc-parser";
+import { readApsorcFile } from "../lib/apsorc-parser";
+import { writePlannedMigration } from "../lib/ddl/migration-file";
+import { openQuestions, Plan, planWithAnswers, Question } from "../lib/plan";
+import { Baseline, baselineFile, resolveBaseline } from "../lib/plan/baseline";
+import { optionLabel, splitDefaults, sqlHint } from "../lib/plan/prompts";
 import {
-  runMigrationSandbox,
-  applyMigration,
-  resetSandbox,
-} from "../lib/migrate/sandbox";
-import { createGenerator } from "../lib";
-import { TargetLanguage, GeneratorConfig } from "../lib/types";
-import { createFile } from "../lib/utils/file-system";
+  cliBinPath,
+  migrateUnsupported,
+  report,
+  run,
+  supportsPglite,
+  verifyMigration,
+} from "../lib/verify";
 
 export default class Migrate extends BaseCommand {
   static description =
-    "Detect schema changes, generate migration SQL, and test against a local PGlite sandbox";
+    "Migrate the database to this .apsorc in one step: regenerate the code, compare with the deployed schema, ask about anything ambiguous (a rename or a drop, how a field splits, what replaces a removed value), write the migration, and test it on a local copy. In a terminal it asks; for an agent it prints the open questions as JSON and exits 2, and the agent reruns it with --answer. The steps are also separate commands: apso migrate plan, generate and verify.";
 
   static examples = [
-    `$ apso migrate`,
-    `$ apso migrate --apply`,
-    `$ apso migrate --reset`,
-    `$ apso migrate --sql`,
+    "$ apso migrate",
+    "$ apso migrate --answer field:Contact.phone=rename:mobilePhone",
+    "$ apso migrate --seed seed.sql --check checks.sql",
   ];
 
   static flags = {
-    apply: Flags.boolean({
+    baseline: Flags.string({
       description:
-        "Apply the migration: update the local snapshot after a successful test",
+        "The deployed .apsorc, the first time only. Later runs find it from the last migration",
+    }),
+    answer: Flags.string({
+      description: "Answer a question: <question id>=<option>. Repeatable.",
+      multiple: true,
+      default: [],
+    }),
+    seed: Flags.string({
+      description: "SQL file of rows to load first; the test then fails if the migration loses any",
+    }),
+    check: Flags.string({
+      description: "SQL file of SELECTs with a boolean ok column, run after the migration",
+    }),
+    "accept-loss": Flags.string({
+      description: "A table or table.column whose seeded data may be dropped on purpose (repeatable)",
+      multiple: true,
+      default: [],
+    }),
+    name: Flags.string({ description: "Migration name", default: "SchemaUpdate" }),
+    "skip-generate": Flags.boolean({
+      description: "Don't regenerate code from .apsorc first",
       default: false,
     }),
-    reset: Flags.boolean({
-      description: "Reset the sandbox (clear snapshot and PGlite data)",
+    "skip-verify": Flags.boolean({
+      description: "Write the migration without testing it",
       default: false,
     }),
-    sql: Flags.boolean({
-      description: "Output raw SQL only (for piping to files)",
+    json: Flags.boolean({
+      description: "Print the result as JSON (the default when output is not a terminal)",
       default: false,
     }),
   };
 
+  private json = false;
+
+  /** Print the outcome: one JSON object for agents, nothing extra for people. */
+  private out(status: string, extra: Record<string, unknown>): void {
+    if (this.json) this.log(JSON.stringify({ status, ...extra }, null, 2));
+  }
+
+  private fail(message: string, extra: Record<string, unknown> = {}): never {
+    if (this.json) {
+      this.out("failed", { error: message, ...extra });
+      this.exit(1);
+    }
+    this.error(message, { exit: 1 });
+  }
+
   async run(): Promise<void> {
     const { flags } = await this.parse(Migrate);
+    const cwd = process.cwd();
+    this.json = flags.json || !process.stdout.isTTY;
+    const interactive = !this.json && Boolean(process.stdin.isTTY);
+    // Keep stdout pure JSON for agents: parser notices go to stderr.
+    if (this.json) console.info = (...m: unknown[]) => process.stderr.write(m.join(" ") + "\n");
+    const say = (s: string) => {
+      if (!this.json) this.log(s);
+    };
 
-    // Handle reset
-    if (flags.reset) {
-      resetSandbox();
-      this.log("Sandbox reset. Snapshot and PGlite data cleared.");
-      return;
+    const { apsorc } = readApsorcFile();
+    const unsupported = migrateUnsupported(apsorc.language);
+    if (unsupported) this.fail(unsupported);
+    const cliBin = cliBinPath(this.config.root);
+
+    if (!flags["skip-generate"]) {
+      say("Generating code from .apsorc...");
+      // Agents run without a terminal, where generate needs the language spelled out.
+      const language = apsorc.language ?? "typescript";
+      const gen = await run(process.execPath, [cliBin, "generate", "--language", language], cwd);
+      if (!gen.ok) this.fail(`apso generate failed:\n${gen.output.trim().split("\n").slice(-15).join("\n")}`);
     }
 
-    // Parse .apsorc
-    let parsed;
+    const planPath = path.resolve(".apso/migration-plan.json");
+    let baseline: Baseline;
     try {
-      parsed = parseApsorc();
-    } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : String(error);
-      this.error(`Failed to parse .apsorc: ${msg}`);
+      baseline = resolveBaseline(cwd, apsorc, flags.baseline, planPath);
+    } catch (error) {
+      this.fail((error as Error).message);
     }
+    say(`Comparing with ${baseline.source}.`);
 
-    if (!flags.sql) {
-      this.log("Schema changes detected. Running migration sandbox...");
+    const previous: Plan | undefined = fs.existsSync(planPath)
+      ? JSON.parse(fs.readFileSync(planPath).toString())
+      : undefined;
+    let plan: Plan;
+    try {
+      plan = planWithAnswers(baseline.schema, apsorc, previous, flags.answer);
+    } catch (error) {
+      this.fail((error as Error).message);
     }
+    const save = () => {
+      fs.mkdirSync(path.dirname(planPath), { recursive: true });
+      fs.writeFileSync(planPath, JSON.stringify({ ...plan, before: baseline.schema }, null, 2) + "\n");
+    };
 
-    // Run the sandbox
-    const result = await runMigrationSandbox(
-      { entities: parsed.entities, relationshipMap: parsed.relationshipMap },
-    );
-
-    if (!result.needed) {
-      if (!flags.sql) {
-        this.log("No database-level changes detected.");
+    // Ask until nothing is open. Answers can raise new questions (dropping a
+    // field leaves a required one to backfill), so re-plan after each round.
+    for (let open = openQuestions(plan); open.length > 0; open = openQuestions(plan)) {
+      save();
+      if (!interactive) {
+        const next =
+          'Rerun apso migrate --answer <id>=<option> for each. For "sql" and "split:" answers, also set the question\'s "sql" in the plan file: a string, or one expression per split field.';
+        if (this.json) {
+          this.out("questions", { plan: path.relative(cwd, planPath), baseline: baseline.source, open, next });
+        } else {
+          for (const q of open) this.log(`\n${q.id}\n  ${q.subject}\n  options: ${q.options.join(" | ")}`);
+          this.log(`\n${next}`);
+        }
+        this.exit(2);
       }
+      for (const q of open) {
+        // eslint-disable-next-line no-await-in-loop
+        await this.ask(q);
+      }
+      plan = planWithAnswers(baseline.schema, apsorc, plan, []);
+    }
+    save();
+
+    const written = writePlannedMigration(cwd, baseline.schema, flags.name, planPath);
+    if (!written.ok) this.fail(written.steps.map((s) => s.output).filter(Boolean).join("\n"));
+    if (!written.needed) {
+      say("The database already matches .apsorc. Nothing to migrate.");
+      this.out("up-to-date", {});
       return;
     }
+    say(`Wrote ${written.file}`);
+    for (const f of written.findings ?? []) say(`  warning ${f.code}: ${f.message}`);
 
-    // Output results
-    if (flags.sql) {
-      // Raw SQL output mode
-      for (const sql of result.upSql) {
-        this.log(sql + ";");
-      }
-      return;
+    let verified: boolean | "skipped" = "skipped";
+    if (!flags["skip-verify"] && supportsPglite(cwd)) {
+      say("Testing the migration on a local copy of the deployed schema...");
+      const result = await verifyMigration(cwd, baselineFile(baseline), written.file!, cliBin, {
+        seedFile: flags.seed,
+        checkFile: flags.check,
+        acceptLoss: flags["accept-loss"],
+      });
+      verified = result.ok;
+      if (!this.json) report((s) => this.log(s), { ...result, findings: [] }, false);
+      if (!result.ok)
+        this.fail(
+          `The migration in ${written.file} failed its test. Fix the answers in ${written.planFile} or the .apsorc, then run apso migrate again.`,
+          { file: written.file, planFile: written.planFile, steps: result.steps }
+        );
     }
 
-    if (result.success) {
-      this.log("");
-      this.log("Migration SQL (up):");
-      this.log("---");
-      for (const sql of result.upSql) {
-        this.log(`  ${sql};`);
-      }
-      this.log("---");
-      this.log("");
-      this.log(`${result.upSql.length} statement(s) generated and tested.`);
-      this.log("Migration validated against local PGlite.");
+    say(`\nReview and commit ${written.file} and ${written.planFile}, then deploy.`);
+    if (verified === true && !flags.seed)
+      say("Tip: --seed <rows.sql> also checks that existing rows survive the migration.");
+    this.out("written", { file: written.file, planFile: written.planFile, verified });
+  }
 
-      // Generate language-native migration files for Python and Go
-      const language: TargetLanguage = parsed.language || "typescript";
-      if (language !== "typescript") {
-        const generatorConfig: GeneratorConfig = {
-          language,
-          rootFolder: parsed.rootFolder || "src",
-          apiType: parsed.apiType || "rest",
-          entities: parsed.entities,
-          relationshipMap: parsed.relationshipMap,
-        };
-
-        const generator = createGenerator(generatorConfig);
-        const migrationFiles = await generator.generateMigration({
-          entities: parsed.entities,
-          relationshipMap: parsed.relationshipMap,
-          upSql: result.upSql,
-          downSql: result.downSql,
-        });
-
-        for (const file of migrationFiles) {
-          const fullPath = path.join(process.cwd(), file.path);
-          // eslint-disable-next-line no-await-in-loop
-          await createFile(fullPath, file.content);
-          this.log(`Generated migration file: ${file.path}`);
-        }
+  private async ask(q: Question): Promise<void> {
+    const { choice } = await inquirer.prompt<{ choice: string }>([
+      {
+        type: "list",
+        name: "choice",
+        message: q.subject,
+        choices: q.options.map((o) => ({ name: optionLabel(q, o), value: o })),
+        default: q.suggested,
+      },
+    ]);
+    q.answer = choice;
+    const required = (v: string) => v.trim() !== "" || "Enter an expression";
+    if (choice === "sql") {
+      const { sql } = await inquirer.prompt<{ sql: string }>([
+        { type: "input", name: "sql", message: sqlHint(q), validate: required },
+      ]);
+      q.sql = sql;
+    }
+    if (choice.startsWith("split:")) {
+      const targets = choice.slice("split:".length).split(",");
+      const defaults = splitDefaults(q, targets);
+      const sql: Record<string, string> = {};
+      for (const t of targets) {
+        // eslint-disable-next-line no-await-in-loop
+        const { expr } = await inquirer.prompt<{ expr: string }>([
+          { type: "input", name: "expr", message: `SQL for ${t}`, default: defaults[t], validate: required },
+        ]);
+        sql[t] = expr;
       }
-
-      if (flags.apply) {
-        applyMigration({
-          entities: parsed.entities,
-          relationshipMap: parsed.relationshipMap,
-        });
-        this.log("Snapshot updated.");
-      } else {
-        this.log("Run with --apply to update the snapshot.");
-      }
-    } else {
-      this.log("");
-      this.log("Migration FAILED.");
-      if (result.error) {
-        this.log(`Error: ${result.error}`);
-      }
-      if (result.upSql.length > 0) {
-        this.log("");
-        this.log("Attempted SQL:");
-        for (const sql of result.upSql) {
-          this.log(`  ${sql};`);
-        }
-      }
-      this.exit(1);
+      q.sql = sql;
     }
   }
 }

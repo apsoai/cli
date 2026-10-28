@@ -3,7 +3,7 @@ import * as path from "path";
 import { Flags } from "@oclif/core";
 import BaseCommand from "../../lib/base-command";
 import { readApsorcFile } from "../../lib/apsorc-parser";
-import { openQuestions, Plan, planMigration } from "../../lib/plan";
+import { openQuestions, Plan, planWithAnswers } from "../../lib/plan";
 import { Baseline, resolveBaseline } from "../../lib/plan/baseline";
 
 export default class MigratePlan extends BaseCommand {
@@ -55,49 +55,17 @@ export default class MigratePlan extends BaseCommand {
     const before = baseline.schema;
     // Agents read the output from a pipe; people at a terminal get text.
     const json = flags.json || !process.stdout.isTTY;
+    // Keep stdout pure JSON for agents: parser notices go to stderr.
+    if (json) console.info = (...m: unknown[]) => process.stderr.write(m.join(" ") + "\n");
 
     const previous: Plan | undefined = fs.existsSync(planPath)
       ? JSON.parse(fs.readFileSync(planPath).toString())
       : undefined;
-    const given = new Map<string, string>();
-    for (const a of flags.answer) {
-      const eq = a.indexOf("=");
-      if (eq < 1)
-        this.error(`--answer must be <question id>=<option>, got "${a}"`, {
-          exit: 1,
-        });
-      given.set(a.slice(0, eq), a.slice(eq + 1));
-    }
-    const seed: Plan = previous ?? {
-      version: 1,
-      from: "",
-      to: "",
-      questions: [],
-    };
-    for (const [id, answer] of given) {
-      const q = seed.questions.find((x) => x.id === id);
-      if (q) q.answer = answer;
-      else
-        seed.questions.push({
-          id,
-          kind: "removedField",
-          subject: "",
-          options: [],
-          answer,
-        });
-    }
-
-    const plan = planMigration(before, after, seed);
-    for (const [id, answer] of given) {
-      const q = plan.questions.find((x) => x.id === id);
-      if (!q) this.error(`No question "${id}" in this plan.`, { exit: 1 });
-      if (!q.options.includes(answer))
-        this.error(
-          `"${answer}" is not an option for ${id}. Options: ${q.options.join(
-            ", "
-          )}`,
-          { exit: 1 }
-        );
+    let plan: Plan;
+    try {
+      plan = planWithAnswers(before, after, previous, flags.answer);
+    } catch (error) {
+      this.error((error as Error).message, { exit: 1 });
     }
 
     fs.mkdirSync(path.dirname(planPath), { recursive: true });

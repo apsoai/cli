@@ -314,3 +314,36 @@ export function planMigration(
     questions: answeredSoFar,
   };
 }
+
+/**
+ * Plan with --answer values (<question id>=<option>) applied on top of the
+ * plan in progress. Throws a message for the user when an answer is malformed,
+ * names no question, or is not one of its options.
+ */
+export function planWithAnswers(
+  before: PlanSchema,
+  after: PlanSchema,
+  previous: Plan | undefined,
+  answers: string[]
+): Plan {
+  const given = new Map<string, string>();
+  for (const a of answers) {
+    const eq = a.indexOf("=");
+    if (eq < 1) throw new Error(`--answer must be <question id>=<option>, got "${a}"`);
+    given.set(a.slice(0, eq), a.slice(eq + 1));
+  }
+  const seed: Plan = previous ?? { version: 1, from: "", to: "", questions: [] };
+  for (const [id, answer] of given) {
+    const q = seed.questions.find((x) => x.id === id);
+    if (q) q.answer = answer;
+    else seed.questions.push({ id, kind: "removedField", subject: "", options: [], answer });
+  }
+  const plan = planMigration(before, after, seed);
+  for (const [id, answer] of given) {
+    const q = plan.questions.find((x) => x.id === id);
+    if (!q) throw new Error(`No question "${id}" in this plan.`);
+    if (!q.options.includes(answer))
+      throw new Error(`"${answer}" is not an option for ${id}. Options: ${q.options.join(", ")}`);
+  }
+  return plan;
+}
