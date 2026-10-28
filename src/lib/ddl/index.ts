@@ -106,10 +106,8 @@ export function columnSpec(table: string, f: ComputedField): ColumnSpec {
       def = quoted(f);
       break;
     case "boolean":
-      // The template writes `Boolean(field.default) || false`, so a missing
-      // default (computed as the string "false") becomes true.
       type = "boolean";
-      def = String(Boolean(f.default) || false);
+      def = String(String(f.default).toLowerCase() === "true");
       break;
     case "uuid":
       type = "uuid";
