@@ -23,8 +23,19 @@ export interface Baseline {
   source: string;
 }
 
+/** Where each language's migrations live, and the extension of one. */
 export const migrationsDir = (projectDir: string, apsorc?: ApsorcType) =>
-  path.join(projectDir, apsorc?.rootFolder || "src", "migrations");
+  apsorc?.language === "python"
+    ? path.join(projectDir, "alembic", "versions")
+    : apsorc?.language === "go"
+    ? path.join(projectDir, "migrations")
+    : path.join(projectDir, apsorc?.rootFolder || "src", "migrations");
+export const migrationExtension = (apsorc?: ApsorcType) =>
+  apsorc?.language === "python"
+    ? ".py"
+    : apsorc?.language === "go"
+    ? ".sql"
+    : ".ts";
 
 /** The newest migration with a saved plan, by its timestamp prefix. */
 export function latestPlannedMigration(
@@ -35,14 +46,14 @@ export function latestPlannedMigration(
   if (!fs.existsSync(dir)) return undefined;
   const plans = fs
     .readdirSync(dir)
-    .filter((f) => /^\d+-.+-migration\.plan\.json$/.test(f))
-    .sort((a, b) => Number(b.split("-")[0]) - Number(a.split("-")[0]));
+    .filter((f) => /^\d+[_-].+\.plan\.json$/.test(f))
+    .sort((a, b) => Number(b.split(/[_-]/)[0]) - Number(a.split(/[_-]/)[0]));
   for (const planFile of plans) {
     const saved = JSON.parse(
       fs.readFileSync(path.join(dir, planFile)).toString()
     );
     if (!saved.before || !saved.after) continue;
-    const file = planFile.replace(/\.plan\.json$/, ".ts");
+    const file = planFile.replace(/\.plan\.json$/, migrationExtension(apsorc));
     return {
       file: path.relative(projectDir, path.join(dir, file)),
       planFile: path.relative(projectDir, path.join(dir, planFile)),

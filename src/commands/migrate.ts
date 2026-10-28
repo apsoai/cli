@@ -10,7 +10,6 @@ import { Baseline, baselineFile, resolveBaseline } from "../lib/plan/baseline";
 import { describeQuestion, optionLabel, splitDefaults, sqlHint } from "../lib/plan/prompts";
 import {
   cliBinPath,
-  migrateUnsupported,
   report,
   run,
   supportsPglite,
@@ -94,8 +93,6 @@ export default class Migrate extends BaseCommand {
     if (this.json) console.info = (...m: unknown[]) => process.stderr.write(m.join(" ") + "\n");
 
     const { apsorc } = readApsorcFile();
-    const unsupported = migrateUnsupported(apsorc.language);
-    if (unsupported) this.fail(unsupported);
     const cliBin = cliBinPath(this.config.root);
 
     if (!flags["skip-generate"]) {
@@ -163,7 +160,9 @@ export default class Migrate extends BaseCommand {
     for (const f of written.findings ?? []) this.say(`  warning ${f.code}: ${f.message}`);
 
     let verified: boolean | "skipped" = "skipped";
-    if (!flags["skip-verify"] && supportsPglite(cwd)) {
+    // Python and Go verify without the project's own database driver.
+    const canVerify = (apsorc.language ?? "typescript") !== "typescript" || supportsPglite(cwd);
+    if (!flags["skip-verify"] && canVerify) {
       this.say("Testing the migration on a local copy of the deployed schema...");
       const result = await verifyMigration(cwd, baselineFile(baseline), written.file!, cliBin, {
         seedFile: flags.seed,

@@ -1,7 +1,7 @@
 import * as path from "path";
 import { Flags } from "@oclif/core";
 import BaseCommand from "../../lib/base-command";
-import { parseApsorc, readApsorcFile } from "../../lib/apsorc-parser";
+import { readApsorcFile } from "../../lib/apsorc-parser";
 import { writePlannedMigration } from "../../lib/ddl/migration-file";
 import { Question } from "../../lib/plan";
 import {
@@ -11,14 +11,13 @@ import {
 } from "../../lib/plan/baseline";
 import {
   cliBinPath,
-  migrateUnsupported,
   generateMigration,
   report,
 } from "../../lib/verify";
 
 export default class MigrateGenerate extends BaseCommand {
   static description =
-    "Write a migration from the deployed schema to this project's .apsorc. Apso renders the SQL from the answered migration plan (apso migrate plan), including data moves and a down() that reverses them. Exits 2 while plan questions are open. --typeorm uses TypeORM's generator on a local PGlite database instead (TypeScript services).";
+    "Write a migration from the deployed schema to this project's .apsorc. Apso renders the SQL from the answered migration plan (apso migrate plan), including data moves and a down() that reverses them. Exits 2 while plan questions are open. The migration is a TypeORM class, an Alembic revision or a goose SQL file, by the service's language. --typeorm uses TypeORM's generator on a local PGlite database instead (TypeScript services).";
 
   static examples = [
     `$ apso migrate plan --answer entity:Company=rename:Organization`,
@@ -52,10 +51,9 @@ export default class MigrateGenerate extends BaseCommand {
 
   async run(): Promise<void> {
     const { flags } = await this.parse(MigrateGenerate);
-    const unsupported = migrateUnsupported(parseApsorc().language);
-    if (unsupported) this.error(unsupported);
-
     const { apsorc } = readApsorcFile();
+    if (flags.typeorm && (apsorc.language ?? "typescript") !== "typescript")
+      this.error("--typeorm works on TypeScript services only.");
     let baseline: Baseline;
     try {
       baseline = resolveBaseline(

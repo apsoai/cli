@@ -1,18 +1,17 @@
 import * as path from "path";
 import { Flags } from "@oclif/core";
 import BaseCommand from "../../lib/base-command";
-import { parseApsorc, readApsorcFile } from "../../lib/apsorc-parser";
+import { readApsorcFile } from "../../lib/apsorc-parser";
 import { baselineFile, latestPlannedMigration } from "../../lib/plan/baseline";
 import {
   cliBinPath,
-  migrateUnsupported,
   report,
   verifyMigration,
 } from "../../lib/verify";
 
 export default class MigrateVerify extends BaseCommand {
   static description =
-    "Run a migration on a local PGlite copy of the deployed schema, then check the database matches this project's entities (TypeScript services)";
+    "Run a migration on a local PGlite copy of the deployed schema, then check the database matches this project's entities (TypeScript), or a fresh build of its .apsorc (Python and Go, which also run down and check it gives back the deployed schema)";
 
   static examples = [
     `$ apso migrate verify`,
@@ -56,8 +55,6 @@ export default class MigrateVerify extends BaseCommand {
 
   async run(): Promise<void> {
     const { flags } = await this.parse(MigrateVerify);
-    const unsupported = migrateUnsupported(parseApsorc().language);
-    if (unsupported) this.error(unsupported);
     const { apsorc } = readApsorcFile();
     const latest = latestPlannedMigration(process.cwd(), apsorc);
     const migration = flags.migration ?? latest?.file;

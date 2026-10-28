@@ -22,6 +22,7 @@ import {
 } from "../utils/relationships";
 import { snakeCase, camelCase, pascalCase, kebabCase } from "../utils/casing";
 import { getEventEmittingEntities } from "../events";
+import { gooseStatements } from "../ddl/migration-file";
 import pluralize from "pluralize";
 
 /**
@@ -392,8 +393,8 @@ export class GoGenerator extends BaseGenerator {
     const name = migrationName || "auto";
     const filename = `${timestamp}_${name}.sql`;
 
-    const upStatements = upSql.map((sql) => `${sql};`).join("\n");
-    const downStatements = (downSql || []).map((sql) => `${sql};`).join("\n");
+    const upStatements = gooseStatements(upSql);
+    const downStatements = gooseStatements(downSql || []);
 
     const content = `-- +goose Up
 ${upStatements}
