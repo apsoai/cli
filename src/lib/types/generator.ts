@@ -201,6 +201,12 @@ export interface ServiceGenerationOptions extends EntityGenerationOptions {
    * Relationship map for service methods
    */
   relationshipMap: RelationshipMap;
+
+  /**
+   * The .apsorc auth config; with scopeBy, Go and Python services filter
+   * every query to the caller's tenant
+   */
+  auth?: AuthConfig;
 }
 
 /**

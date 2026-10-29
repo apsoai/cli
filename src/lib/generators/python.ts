@@ -26,7 +26,11 @@ import {
 } from "../utils/relationships";
 import { snakeCase, camelCase } from "../utils/casing";
 import { getEventEmittingEntities } from "../events";
-import { apiKeyTemplateData, hasScopedEntities } from "../guards";
+import {
+  apiKeyTemplateData,
+  entityScope,
+  nestedScopeEntities,
+} from "../guards";
 import { pyString } from "../ddl/migration-file";
 import pluralize from "pluralize";
 
@@ -225,6 +229,7 @@ export class PythonGenerator extends BaseGenerator {
       pluralEntityName,
       primaryKeyType,
       associations: [...new Set(relationshipsForTemplate)],
+      scope: entityScope(entity, Boolean(options.auth)),
     };
 
     const content = await this.renderTemplate("./services/service", data);
@@ -460,9 +465,10 @@ ${downStatements || "    pass"}
     auth?: AuthConfig
   ): Promise<GeneratedFile[]> {
     if (!auth) return [];
-    if (hasScopedEntities(entities))
+    const nested = nestedScopeEntities(entities);
+    if (nested.length > 0)
       console.warn(
-        "[apso] scopeBy is enforced in TypeScript services only; this Python service authenticates requests but does not filter rows by tenant"
+        `[apso] Nested scopeBy paths are enforced in TypeScript services only; ${nested.join(", ")} will not be filtered by those paths in this Python service`
       );
     let data: Record<string, unknown>;
     if (isJwtAuth(auth)) {

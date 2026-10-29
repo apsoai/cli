@@ -7,6 +7,9 @@ import (
 	"errors"
 
 	"app/autogen/dto"
+<% if (it.scope) { %>
+	"app/autogen/middleware"
+<% } %>
 	"app/autogen/models"
 	"app/autogen/utils"
 	"gorm.io/gorm"
@@ -37,6 +40,42 @@ type <%= it.entityName %>Service struct {
 func New<%= it.entityName %>Service(db *gorm.DB) *<%= it.entityName %>Service {
 	return &<%= it.entityName %>Service{db: db}
 }
+<% if (it.scope) { %>
+
+// scoped limits q to the caller's tenant for op ("find", "get", "create",
+// "update", "delete") per .apsorc scopeBy, and returns the scope column values.
+// Both are unchanged when op is not enforced or the caller holds a bypass role.
+func (s *<%= it.entityName %>Service) scoped(ctx context.Context, q *gorm.DB, op string) (*gorm.DB, map[string]string, error) {
+	switch op {
+	case <%~ it.scope.enforceOn.map((o) => JSON.stringify(o)).join(', ') %>:
+	default:
+		return q, nil, nil
+	}
+	a, ok := middleware.FromContext(ctx)
+	if !ok {
+		return nil, nil, ErrForbidden
+	}
+<% if (it.scope.bypassRoles.length > 0) { %>
+	if hasAnyRole(a.Roles, <%~ it.scope.bypassRoles.map((r) => JSON.stringify(r)).join(', ') %>) {
+		return q, nil, nil
+	}
+<% } %>
+	values := map[string]string{
+<% it.scope.fields.forEach((f) => { %>
+		<%~ JSON.stringify(f.column) %>: a.<%= f.source === 'userId' ? 'UserID' : f.source === 'email' ? 'Email' : 'WorkspaceID' %>,
+<% }) %>
+	}
+	table := models.<%= it.entityName %>{}.TableName()
+	for col, v := range values {
+		if v == "" {
+			return nil, nil, ErrForbidden
+		}
+		// Compared as text: token claims are strings, the column may be a number or uuid.
+		q = q.Where("CAST("+table+"."+col+" AS TEXT) = ?", v)
+	}
+	return q, values, nil
+}
+<% } %>
 
 // FindAll retrieves a paginated list of <%= it.pluralName %> with filtering, sorting, and joins.
 // Used by the nestjsx dialect ({data,count,total,page,pageCount} envelope).
@@ -47,6 +86,12 @@ func (s *<%= it.entityName %>Service) FindAll(ctx context.Context, opts utils.Qu
 <% it.associations.filter(a => a.eager).forEach((assoc) => { %>
 	query = query.Preload("<%= assoc.referenceName || assoc.name %>")
 <% }) %>
+<% if (it.scope) { %>
+	query, _, scopeErr := s.scoped(ctx, query, "find")
+	if scopeErr != nil {
+		return nil, scopeErr
+	}
+<% } %>
 
 	query, total, pageCount, err := utils.ApplyQueryE(query, opts, AllowedFields<%= it.entityName %>)
 	if err != nil {
@@ -82,6 +127,12 @@ func (s *<%= it.entityName %>Service) FindAllBare(ctx context.Context, opts util
 <% it.associations.filter(a => a.eager).forEach((assoc) => { %>
 	query = query.Preload("<%= assoc.referenceName || assoc.name %>")
 <% }) %>
+<% if (it.scope) { %>
+	query, _, scopeErr := s.scoped(ctx, query, "find")
+	if scopeErr != nil {
+		return nil, scopeErr
+	}
+<% } %>
 
 	query, _, _, err := utils.ApplyQueryE(query, opts, AllowedFields<%= it.entityName %>)
 	if err != nil {
@@ -107,6 +158,12 @@ func (s *<%= it.entityName %>Service) FindOne(ctx context.Context, id string) (*
 <% it.associations.filter(a => a.eager).forEach((assoc) => { %>
 	query = query.Preload("<%= assoc.referenceName || assoc.name %>")
 <% }) %>
+<% if (it.scope) { %>
+	query, _, scopeErr := s.scoped(ctx, query, "get")
+	if scopeErr != nil {
+		return nil, scopeErr
+	}
+<% } %>
 
 <% if (it.primaryKeyType === 'uuid') { %>
 	if err := query.Where("id = ?", id).First(&item).Error; err != nil {
@@ -137,6 +194,21 @@ func (s *<%= it.entityName %>Service) Create(ctx context.Context, input *dto.<%=
 		<%= assoc.referenceName || assoc.name %>ID: input.<%= assoc.referenceName || assoc.name %>ID,
 <% }) %>
 	}
+<% if (it.scope && it.scope.injectOnCreate) { %>
+
+	// The caller's tenant, never one from the body (.apsorc scopeBy).
+	_, scopeVals, scopeErr := s.scoped(ctx, s.db, "create")
+	if scopeErr != nil {
+		return nil, scopeErr
+	}
+<% it.scope.fields.forEach((f) => { %>
+	if v, ok := scopeVals[<%~ JSON.stringify(f.column) %>]; ok {
+		if err := setFromString(&item, <%~ JSON.stringify(f.goField) %>, v); err != nil {
+			return nil, err
+		}
+	}
+<% }) %>
+<% } %>
 
 	if err := s.db.WithContext(ctx).Create(&item).Error; err != nil {
 		return nil, err
@@ -150,10 +222,17 @@ func (s *<%= it.entityName %>Service) Create(ctx context.Context, input *dto.<%=
 func (s *<%= it.entityName %>Service) Update(ctx context.Context, id string, input *dto.<%= it.entityName %>Update) (*dto.<%= it.entityName %>Response, error) {
 	var item models.<%= it.entityName %>
 
+	findQuery := s.db.WithContext(ctx)
+<% if (it.scope) { %>
+	findQuery, scopeVals, scopeErr := s.scoped(ctx, findQuery, "update")
+	if scopeErr != nil {
+		return nil, scopeErr
+	}
+<% } %>
 <% if (it.primaryKeyType === 'uuid') { %>
-	if err := s.db.WithContext(ctx).Where("id = ?", id).First(&item).Error; err != nil {
+	if err := findQuery.Where("id = ?", id).First(&item).Error; err != nil {
 <% } else { %>
-	if err := s.db.WithContext(ctx).First(&item, id).Error; err != nil {
+	if err := findQuery.First(&item, id).Error; err != nil {
 <% } %>
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, errors.New("<%= it.entityName %> not found")
@@ -172,6 +251,12 @@ func (s *<%= it.entityName %>Service) Update(ctx context.Context, id string, inp
 		updates["<%= assoc.snakeReferenceName || assoc.snakeName %>_id"] = *input.<%= assoc.referenceName || assoc.name %>ID
 	}
 <% }) %>
+<% if (it.scope) { %>
+	// A scoped row cannot move to another tenant.
+	for col := range scopeVals {
+		delete(updates, col)
+	}
+<% } %>
 
 	if len(updates) > 0 {
 		if err := s.db.WithContext(ctx).Model(&item).Updates(updates).Error; err != nil {
@@ -198,10 +283,17 @@ func (s *<%= it.entityName %>Service) Update(ctx context.Context, id string, inp
 
 // Delete removes a <%= it.entityName %> by ID
 func (s *<%= it.entityName %>Service) Delete(ctx context.Context, id string) error {
+	deleteQuery := s.db.WithContext(ctx)
+<% if (it.scope) { %>
+	deleteQuery, _, scopeErr := s.scoped(ctx, deleteQuery, "delete")
+	if scopeErr != nil {
+		return scopeErr
+	}
+<% } %>
 <% if (it.primaryKeyType === 'uuid') { %>
-	result := s.db.WithContext(ctx).Where("id = ?", id).Delete(&models.<%= it.entityName %>{})
+	result := deleteQuery.Where("id = ?", id).Delete(&models.<%= it.entityName %>{})
 <% } else { %>
-	result := s.db.WithContext(ctx).Delete(&models.<%= it.entityName %>{}, id)
+	result := deleteQuery.Delete(&models.<%= it.entityName %>{}, id)
 <% } %>
 	if result.Error != nil {
 		return result.Error

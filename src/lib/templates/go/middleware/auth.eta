@@ -17,8 +17,8 @@ package middleware
 <% } %>
 
 import (
-<% if (it.jwt) { %>
 	"context"
+<% if (it.jwt) { %>
 	"encoding/json"
 <% } else { %>
 	"crypto/sha256"
@@ -62,6 +62,21 @@ type AuthContext struct {
 
 // AuthContextKey is the gin context key holding *AuthContext.
 const AuthContextKey = "auth"
+
+type authKey struct{}
+
+// setAuth attaches the caller to the gin context and to the request context,
+// where generated services read it for scopeBy.
+func setAuth(c *gin.Context, a *AuthContext) {
+	c.Set(AuthContextKey, a)
+	c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), authKey{}, a))
+}
+
+// FromContext returns the caller stored on a request context, if any.
+func FromContext(ctx context.Context) (*AuthContext, bool) {
+	a, ok := ctx.Value(authKey{}).(*AuthContext)
+	return a, ok
+}
 
 // GetAuthContext returns the authenticated caller, if any.
 func GetAuthContext(c *gin.Context) (*AuthContext, bool) {
@@ -239,7 +254,7 @@ func AuthMiddleware(_ *gorm.DB) gin.HandlerFunc {
 		if tenant == "" {
 			tenant = str(claim(claims, <%~ JSON.stringify(it.jwt.claims.organizationId || '') %>))
 		}
-		c.Set(AuthContextKey, &AuthContext{
+		setAuth(c, &AuthContext{
 			UserID:         userID,
 			Email:          str(claim(claims, <%~ JSON.stringify(it.jwt.claims.email || '') %>)),
 			WorkspaceID:    tenant,
@@ -329,7 +344,7 @@ func AuthMiddleware(db *gorm.DB) gin.HandlerFunc {
 			roles = append(roles, fmt.Sprint(v))
 		}
 <% } %>
-		c.Set(AuthContextKey, &AuthContext{
+		setAuth(c, &AuthContext{
 			ServiceID:      fmt.Sprint(row["id"]),
 			WorkspaceID:    tenant,
 			OrganizationID: tenant,

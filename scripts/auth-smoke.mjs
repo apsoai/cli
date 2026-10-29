@@ -11,8 +11,8 @@
  *     expired keys)
  *   - a valid token or key can list, create, read and delete rows
  *   - /health stays public
- *   - TypeScript only: scopeBy keeps each tenant to its own rows, overrides a
- *     tenant id sent in a create body, and refuses a caller with no tenant
+ *   - scopeBy keeps each tenant to its own rows, overrides a tenant id sent in
+ *     a create body, and refuses a caller with no tenant
  *
  * Tokens are minted locally with the claim shapes each provider issues, signed
  * by a key this script serves as a JWKS.
@@ -340,17 +340,17 @@ async function crudAndScope(base, t, auth, auth2, noTenant) {
   const as2 = auth2 ? auth2(String(id2)) : undefined;
 
   t.expect("list organizations", await call("GET", base + ORGS, { headers: as1 }), 200);
-  // In TypeScript scopeBy forces the caller's tenant; elsewhere the body's id is stored.
+  // scopeBy forces the caller's tenant whatever the body says.
   const created = await call("POST", base + PROJECTS, {
     headers: as1,
-    body: { title: "Roadmap", organizationId: language === "typescript" && as2 ? id2 : id1 },
+    body: { title: "Roadmap", organizationId: id2 },
   });
   if (!t.expect("create project", created, 200, 201)) return;
   const pid = created.json.id;
   const read = await call("GET", `${base}${PROJECTS}/${pid}`, { headers: as1 });
   t.expect("read project", read, 200);
 
-  if (language === "typescript" && as2) {
+  if (as2) {
     t.assert("create body cannot pick another tenant", String(read.json?.organizationId) === String(id1), `organizationId=${read.json?.organizationId}`);
     t.expect("other tenant cannot read the project", await call("GET", `${base}${PROJECTS}/${pid}`, { headers: as2 }), 403, 404);
     const theirs = await call("GET", base + PROJECTS, { headers: as2 });
@@ -358,6 +358,12 @@ async function crudAndScope(base, t, auth, auth2, noTenant) {
     t.assert("other tenant's list excludes the project", !rows(theirs.json).some((p) => p.id === pid));
     const mine = await call("GET", base + PROJECTS, { headers: as1 });
     t.assert("own list includes the project", rows(mine.json).some((p) => p.id === pid));
+    t.expect("other tenant cannot update the project", await call("PATCH", `${base}${PROJECTS}/${pid}`, { headers: as2, body: { title: "Taken" } }), 403, 404);
+    t.expect("other tenant cannot delete the project", await call("DELETE", `${base}${PROJECTS}/${pid}`, { headers: as2 }), 403, 404);
+    const moved = await call("PATCH", `${base}${PROJECTS}/${pid}`, { headers: as1, body: { title: "Roadmap 2", organizationId: id2 } });
+    t.expect("owner updates the project", moved, 200);
+    const after = await call("GET", `${base}${PROJECTS}/${pid}`, { headers: as1 });
+    t.assert("update cannot move the project to another tenant", after.status === 200 && String(after.json?.organizationId) === String(id1) && after.json?.title === "Roadmap 2", `${after.status} ${after.text.slice(0, 200)}`);
     if (noTenant) t.expect("caller with no tenant cannot list scoped rows", await call("GET", base + PROJECTS, { headers: noTenant }), 403);
     // scopeBy "orgId" takes the caller's tenant too.
     const NOTES = route("Notes");
@@ -431,12 +437,12 @@ async function apiKeyCase(name, base, db) {
 
   // The key decides the tenant; the org argument is ignored.
   const auth = () => key("sk_test_good_1");
-  const created = await call("POST", base + PROJECTS, { headers: auth(), body: { title: "Roadmap", organizationId: language === "typescript" ? Number(id2) : Number(id1) } });
+  const created = await call("POST", base + PROJECTS, { headers: auth(), body: { title: "Roadmap", organizationId: Number(id2) } });
   if (t.expect("create project", created, 200, 201)) {
     const pid = created.json.id;
     const read = await call("GET", `${base}${PROJECTS}/${pid}`, { headers: auth() });
     t.expect("read project", read, 200);
-    if (language === "typescript") {
+    {
       t.assert("create body cannot pick another tenant", String(read.json?.organizationId) === id1, `organizationId=${read.json?.organizationId}`);
       t.expect("other tenant's key cannot read the project", await call("GET", `${base}${PROJECTS}/${pid}`, { headers: key("sk_test_good_2") }), 403, 404);
       const theirs = await call("GET", base + PROJECTS, { headers: key("sk_test_good_2") });

@@ -701,9 +701,11 @@ def parse_query_params(params: Any, dialect_header: Optional[str] = None) -> Que
 class QueryBuilder:
     """Build and execute filtered/sorted/paginated SQLAlchemy queries."""
 
-    def __init__(self, model: Type[T], db: AsyncSession):
+    def __init__(self, model: Type[T], db: AsyncSession, scope: Optional[List[Any]] = None):
         self.model = model
         self.db = db
+        # Conditions every query must meet (the caller's tenant, .apsorc scopeBy).
+        self.scope = list(scope or [])
 
     # -- shared predicate builders ----------------------------------------
 
@@ -735,7 +737,7 @@ class QueryBuilder:
         return or_(*exprs) if group.operator == "$or" else and_(*exprs)
 
     def _where_clauses(self, options: QueryOptions) -> List[Any]:
-        clauses: List[Any] = []
+        clauses: List[Any] = list(self.scope)
         for f in options.filters:
             expr = self._filter_expr(f)
             if expr is not None:
@@ -889,7 +891,7 @@ class QueryBuilder:
         id: Any,
         joins: Optional[List[str]] = None,
     ) -> Optional[Any]:
-        query = select(self.model).where(self.model.id == id)
+        query = select(self.model).where(self.model.id == id, *self.scope)
 
         if joins:
             for join_name in joins:
