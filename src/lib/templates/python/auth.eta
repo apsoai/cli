@@ -1,0 +1,207 @@
+<%~ includeFile('./header.eta', it) %>
+
+"""
+Authentication for every route on the generated /api router.
+
+<% if (it.jwt) { %>
+Verifies <%= it.jwt.provider %> JWTs from the Authorization: Bearer header against the
+issuer's published keys (JWKS), checks issuer, expiry<% if (it.jwt.audience) { %>, audience<% } %> and algorithm,
+and maps the token's claims into an AuthContext on request.state.auth.
+AUTH_JWT_ISSUER, AUTH_JWT_AUDIENCE and AUTH_JWKS_URI override the .apsorc values.
+<% } else { %>
+Reads an API key from the <%= it.apiKey.apiKeyHeader %> header and looks up the <%= it.apiKey.apiKeyEntity %> row
+whose <%= it.apiKey.keyField %> is the key's hex SHA-256.
+<% } %>
+"""
+<% if (it.apiKey) { %>
+import hashlib
+from datetime import date, datetime, timezone
+<% } else { %>
+import os
+<% } %>
+from dataclasses import dataclass, field
+from typing import Any, List, Optional
+
+<% if (it.jwt) { %>
+import jwt
+from fastapi import HTTPException, Request, status
+from jwt import PyJWKClient
+from starlette.concurrency import run_in_threadpool
+<% } else { %>
+from fastapi import Depends, HTTPException, Request, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.database import get_db
+from .models.<%= it.apiKey.pyModule %> import <%= it.apiKey.apiKeyEntity %>
+<% } %>
+
+
+@dataclass
+class AuthContext:
+    """The normalized identity of the caller."""
+
+    user_id: Optional[str] = None
+    email: Optional[str] = None
+    service_id: Optional[str] = None
+    workspace_id: Optional[str] = None
+    organization_id: Optional[str] = None
+    roles: List[str] = field(default_factory=list)
+    claims: dict = field(default_factory=dict)
+
+
+def get_auth_context(request: Request) -> Optional[AuthContext]:
+    """The authenticated caller, if any."""
+    return getattr(request.state, "auth", None)
+
+
+def _unauthorized(detail: str) -> HTTPException:
+    return HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=detail)
+<% if (it.jwt) { %>
+
+
+ISSUER = os.getenv("AUTH_JWT_ISSUER") or <%~ JSON.stringify(it.jwt.issuer) %>
+AUDIENCE = os.getenv("AUTH_JWT_AUDIENCE") or <%~ JSON.stringify(it.jwt.audience || '') %>
+JWKS_URI = os.getenv("AUTH_JWKS_URI") or <%~ JSON.stringify(it.jwt.jwksUri) %>
+ALGORITHMS = <%~ JSON.stringify(it.jwt.algorithms) %>
+CLAIMS = <%~ JSON.stringify(it.jwt.claims) %>
+
+# Fetches and caches the issuer's keys on first use.
+_jwks = PyJWKClient(JWKS_URI, cache_keys=True)
+
+
+def _claim(payload: dict, path: Optional[str]) -> Any:
+    """A claim by exact name (Auth0 namespaced URLs contain dots), else by dotted path."""
+    if not path:
+        return None
+    if path in payload:
+        return payload[path]
+    value: Any = payload
+    for part in path.split("."):
+        if not isinstance(value, dict):
+            return None
+        value = value.get(part)
+    return value
+
+
+def _str(value: Any) -> Optional[str]:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (str, int, float)):
+        return str(value)
+    return None
+
+
+def _roles(value: Any) -> List[str]:
+    if isinstance(value, list):
+        return [str(v) for v in value]
+    return [value] if isinstance(value, str) and value else []
+
+
+async def require_auth(request: Request) -> AuthContext:
+    """FastAPI dependency: verify the bearer token and attach the AuthContext."""
+    header = request.headers.get("authorization", "")
+    if not header.startswith("Bearer "):
+        raise _unauthorized("No bearer token provided")
+    token = header[len("Bearer "):]
+    try:
+        signing_key = await run_in_threadpool(_jwks.get_signing_key_from_jwt, token)
+    except jwt.PyJWKClientConnectionError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Token signing keys unavailable",
+        )
+    except jwt.PyJWTError:
+        raise _unauthorized("Invalid token")
+    try:
+        payload = jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=ALGORITHMS,
+            issuer=ISSUER,
+<% if (it.jwt.provider !== 'cognito') { %>
+            audience=AUDIENCE or None,
+            options={"require": ["exp", "iss"], "verify_aud": bool(AUDIENCE)},
+<% } else { %>
+            options={"require": ["exp", "iss"], "verify_aud": False},
+<% } %>
+        )
+    except jwt.PyJWTError:
+        raise _unauthorized("Invalid token")
+<% if (it.jwt.provider === 'cognito') { %>
+    # Cognito ID tokens carry aud; access tokens carry client_id instead.
+    if AUDIENCE:
+        aud = payload.get("aud", payload.get("client_id"))
+        if not (AUDIENCE in aud if isinstance(aud, list) else aud == AUDIENCE):
+            raise _unauthorized("Invalid token")
+<% } %>
+
+    user_id = _str(_claim(payload, CLAIMS.get("userId")))
+    if not user_id:
+        raise _unauthorized("Token has no user id")
+    tenant = _str(_claim(payload, CLAIMS.get("workspaceId"))) or _str(
+        _claim(payload, CLAIMS.get("organizationId"))
+    )
+    ctx = AuthContext(
+        user_id=user_id,
+        email=_str(_claim(payload, CLAIMS.get("email"))),
+        workspace_id=tenant,
+        organization_id=tenant,
+        roles=_roles(_claim(payload, CLAIMS.get("roles"))),
+        claims=payload,
+    )
+    request.state.auth = ctx
+    return ctx
+<% } else { %>
+
+
+def _expired(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value <= datetime.now(timezone.utc)
+    if isinstance(value, date):
+        return value <= date.today()
+    return False
+
+
+async def require_auth(request: Request, db: AsyncSession = Depends(get_db)) -> AuthContext:
+    """FastAPI dependency: authenticate the API key and attach the AuthContext."""
+    key = request.headers.get(<%~ JSON.stringify(it.apiKey.apiKeyHeader) %>)
+    if not key:
+        raise _unauthorized("No API key provided")
+    digest = hashlib.sha256(key.encode()).hexdigest()
+    result = await db.execute(
+        select(<%= it.apiKey.apiKeyEntity %>).where(<%= it.apiKey.apiKeyEntity %>.<%= it.apiKey.keyField %> == digest)
+    )
+    record = result.scalar_one_or_none()
+    if record is None:
+        raise _unauthorized("Invalid API key")
+<% if (it.apiKey.hasStatus) { %>
+    if getattr(record.status, "value", record.status) != "active":
+        raise _unauthorized("API key is not active")
+<% } %>
+<% if (it.apiKey.hasExpiresAt) { %>
+    if _expired(record.expiresAt):
+        raise _unauthorized("API key has expired")
+<% } %>
+
+    tenant = getattr(record, <%~ JSON.stringify(it.apiKey.workspaceField) %>, None)
+    tenant = str(tenant) if tenant is not None else None
+<% if (it.apiKey.roleField) { %>
+    role = getattr(record, <%~ JSON.stringify(it.apiKey.roleField) %>, None)
+    roles = [str(getattr(role, "value", role))] if role is not None else []
+<% } else { %>
+    roles: List[str] = []
+<% } %>
+    ctx = AuthContext(
+        service_id=str(record.id),
+        workspace_id=tenant,
+        organization_id=tenant,
+        roles=roles,
+    )
+    request.state.auth = ctx
+    return ctx
+<% } %>

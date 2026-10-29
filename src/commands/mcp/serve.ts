@@ -478,6 +478,7 @@ export default class McpServe extends BaseCommand {
                 allEntities: entities,
                 apiType: lowerCaseApiType,
                 relationshipMap,
+                auth,
               }),
               generator.generateModule({
                 entity,
@@ -508,7 +509,8 @@ export default class McpServe extends BaseCommand {
           // Generate index module
           const indexFiles = await generator.generateIndexModule(
             entities,
-            lowerCaseApiType
+            lowerCaseApiType,
+            { auth }
           );
           for (const file of indexFiles) {
             const fullPath = path.join(autogenPath, file.path);
@@ -558,6 +560,7 @@ export default class McpServe extends BaseCommand {
             "auth0",
             "clerk",
             "cognito",
+            "jwt",
             "api-key",
             "custom-db-session",
           ])
@@ -628,11 +631,12 @@ export default class McpServe extends BaseCommand {
                 issuer: "https://YOUR_TENANT.auth0.com/",
                 audience: "https://api.yourapp.com",
               },
+              // Auth0 custom claims must be namespaced URLs, added by a post-login Action.
               claims: {
                 userId: "sub",
                 email: "email",
-                roles: "roles",
-                organizationId: "org_id",
+                roles: "https://yourapp.com/roles",
+                workspaceId: "https://yourapp.com/org_id",
               },
             },
             entities: [],
@@ -641,15 +645,14 @@ export default class McpServe extends BaseCommand {
           clerk: {
             auth: {
               provider: "clerk",
+              // Clerk session tokens carry no aud; the active organization is o.id / o.rol.
               jwt: {
                 issuer: "https://YOUR_CLERK_FRONTEND_API",
-                audience: "",
               },
               claims: {
                 userId: "sub",
-                email: "email",
-                roles: "roles",
-                organizationId: "org_id",
+                workspaceId: "o.id",
+                roles: "o.rol",
               },
             },
             entities: [],
@@ -666,7 +669,26 @@ export default class McpServe extends BaseCommand {
                 userId: "sub",
                 email: "email",
                 roles: "cognito:groups",
-                organizationId: "custom:org_id",
+                workspaceId: "custom:org_id",
+              },
+            },
+            entities: [],
+            relationships: [],
+          },
+          jwt: {
+            // Any issuer that publishes a JWKS (Supabase Auth, Firebase, WorkOS, Okta, Better Auth's JWT plugin).
+            auth: {
+              provider: "jwt",
+              jwt: {
+                issuer: "https://YOUR_ISSUER",
+                audience: "YOUR_AUDIENCE",
+                jwksUri: "https://YOUR_ISSUER/.well-known/jwks.json",
+              },
+              claims: {
+                userId: "sub",
+                email: "email",
+                workspaceId: "org_id",
+                roles: "roles",
               },
             },
             entities: [],
@@ -713,7 +735,7 @@ export default class McpServe extends BaseCommand {
           content: [
             {
               type: "text" as const,
-              text: `# Auth Setup: ${authProvider}\n\nMerge the following into your .apsorc file:\n\n\`\`\`json\n${JSON.stringify(config, null, 2)}\n\`\`\`\n\nAfter updating .apsorc:\n1. Run \`apso generate\` (or use the scaffold_api tool) to regenerate code\n2. Run \`npm install\` if new dependencies are needed\n3. Run \`apso dev\` to start the server and create auth tables\n\n${authProvider === "better-auth" ? "**Important:** BetterAuth stores passwords in the `account` table (not User). The `providerId` field must be set to \"credential\" for email/password login to work. Use `@apso/better-auth-adapter@latest` in your frontend." : "Configure the JWT issuer and audience values for your " + authProvider + " tenant."}`,
+              text: `# Auth Setup: ${authProvider}\n\nMerge the following into your .apsorc file:\n\n\`\`\`json\n${JSON.stringify(config, null, 2)}\n\`\`\`\n\nAfter updating .apsorc:\n1. Run \`apso generate\` (or use the scaffold_api tool) to regenerate code\n2. Run \`npm install\` if new dependencies are needed\n3. Run \`apso dev\` to start the server and create auth tables\n\n${authProvider === "better-auth" ? "**Important:** BetterAuth stores passwords in the `account` table (not User). The `providerId` field must be set to \"credential\" for email/password login to work. Use `@apso/better-auth-adapter@latest` in your frontend." : authProvider === "api-key" ? "Store each key's hex SHA-256 in ApiKey.keyHash, never the key itself; callers send the key in the x-api-key header." : "Replace the issuer, audience and claim names with your " + authProvider + " tenant's values. The service checks each token's signature against the issuer's JWKS. See https://docs.apso.ai/develop/auth/byoa."}`,
             },
           ],
         };

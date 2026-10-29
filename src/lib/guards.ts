@@ -1,4 +1,4 @@
-import { Entity, ScopeOptions } from "./types";
+import { Entity, ResolvedApiKeyAuth, ScopeOptions } from "./types";
 import pluralize from "pluralize";
 
 /**
@@ -88,4 +88,35 @@ export function getScopedEntities(entities: Entity[]): ScopedEntityConfig[] {
  */
 export function hasScopedEntities(entities: Entity[]): boolean {
   return entities.some((entity) => entity.scopeBy);
+}
+
+/** API key settings plus what the key entity offers, as the guard templates use them. */
+export interface ApiKeyTemplateData extends ResolvedApiKeyAuth {
+  hasStatus: boolean;
+  hasExpiresAt: boolean;
+}
+
+/**
+ * Check the API key entity exists and has the hash field, and note whether it
+ * has `status` and `expiresAt`, which the guard then enforces.
+ */
+export function apiKeyTemplateData(
+  apiKey: ResolvedApiKeyAuth,
+  entities: Entity[]
+): ApiKeyTemplateData {
+  const entity = entities.find((e) => e.name === apiKey.apiKeyEntity);
+  if (!entity)
+    throw new Error(
+      `auth.apiKeyEntity "${apiKey.apiKeyEntity}" is not an entity in .apsorc; add it with a "${apiKey.keyField}" text field`
+    );
+  const fields = new Set((entity.fields ?? []).map((f) => f.name));
+  if (!fields.has(apiKey.keyField))
+    throw new Error(
+      `Entity ${apiKey.apiKeyEntity} needs a "${apiKey.keyField}" text field holding each key's hex SHA-256 (auth.keyField)`
+    );
+  return {
+    ...apiKey,
+    hasStatus: fields.has("status"),
+    hasExpiresAt: fields.has("expiresAt"),
+  };
 }

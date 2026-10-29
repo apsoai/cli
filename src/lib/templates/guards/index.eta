@@ -1,10 +1,10 @@
 <%~ includeFile('../header.eta') %>
 
-<% if (it.authConfig) { %>
+<% if (it.hasAuth) { %>
 export * from './auth.guard';
 <% } %>
 <% if (it.scopedEntities && it.scopedEntities.length > 0) { %>
-<% if (it.authConfig) { %>
+<% if (it.hasAuth) { %>
 // When auth is configured, only export scope-specific items from scope.guard
 // to avoid duplicate exports (Public, IS_PUBLIC_KEY come from auth.guard)
 export {

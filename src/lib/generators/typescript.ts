@@ -28,12 +28,17 @@ import * as fs from "fs";
 import * as os from "os";
 import { promisify } from "util";
 import {
+  apiKeyTemplateData,
   getScopedEntities,
   hasScopedEntities,
 } from "../guards";
 import { getEventEmittingEntities } from "../events";
 import {
+  isApiKeyAuth,
   isDbSessionAuth,
+  isJwtAuth,
+  resolveApiKeyAuth,
+  resolveJwtAuth,
   DB_SESSION_AUTH_DEFAULTS,
   DbSessionAuthConfig,
 } from "../types/auth";
@@ -164,7 +169,7 @@ export class TypeScriptGenerator extends BaseGenerator {
   async generateController(
     options: ControllerGenerationOptions
   ): Promise<GeneratedFile[]> {
-    const { entity, relationships, relationshipMap } = options;
+    const { entity, relationships, relationshipMap, auth } = options;
     const { name: entityName } = entity;
 
     const relationshipsForTemplate = getRelationshipForTemplate(
@@ -204,6 +209,12 @@ export class TypeScriptGenerator extends BaseGenerator {
       primaryKeyType,
       associations: [...new Set(relationshipsForTemplate)],
       nestedJoinsFile,
+      // Direct scopeBy fields @CrudAuth adds to every query once a caller is
+      // authenticated. Nested scopes (task.workspaceId) are checked per row by
+      // ScopeGuard only.
+      crudAuth: auth
+        ? (getScopedEntities([entity])[0]?.scopes ?? []).filter((s) => s.direct)
+        : [],
     };
 
     const controllerContent = await this.renderTemplate(
@@ -443,11 +454,16 @@ export class TypeScriptGenerator extends BaseGenerator {
   async generateIndexModule(
     entities: Entity[],
     apiType: string,
-    _opts?: { emitEvents?: boolean }
+    opts?: { emitEvents?: boolean; auth?: AuthConfig }
   ): Promise<GeneratedFile[]> {
+    // generateGuards emits GuardsModule whenever auth or scopeBy is configured;
+    // listing it here is what turns its global guards on.
     const content = await this.renderTemplate(
       `./${apiType}/index-module-${apiType}`,
-      { entities }
+      {
+        entities,
+        hasGuards: Boolean(opts?.auth) || hasScopedEntities(entities),
+      }
     );
 
     return [
@@ -464,25 +480,51 @@ export class TypeScriptGenerator extends BaseGenerator {
   ): Promise<GeneratedFile[]> {
     const hasScopes = hasScopedEntities(entities);
     const normalizedAuth = this.normalizeAuthConfig(auth);
+    const jwt = auth && isJwtAuth(auth) ? resolveJwtAuth(auth) : undefined;
+    const apiKey =
+      auth && isApiKeyAuth(auth)
+        ? apiKeyTemplateData(resolveApiKeyAuth(auth), entities)
+        : undefined;
+    const hasAuth = Boolean(normalizedAuth || jwt || apiKey);
 
-    if (!hasScopes && !normalizedAuth) {
+    if (!hasScopes && !hasAuth) {
       return [];
     }
 
     const scopedEntities = getScopedEntities(entities);
     const files: GeneratedFile[] = [];
 
+    const authEntities: string[] = normalizedAuth
+      ? [
+          normalizedAuth.sessionEntity as string,
+          normalizedAuth.userEntity as string,
+          ...(normalizedAuth.accountUserEntity
+            ? [normalizedAuth.accountUserEntity]
+            : []),
+        ]
+      : apiKey
+      ? [apiKey.apiKeyEntity]
+      : [];
     const templateData = {
       scopedEntities,
       authConfig: normalizedAuth,
+      hasAuth,
+      authProvider: auth?.provider,
+      authEntities,
+      jwt,
+      apiKey,
       generatedAt: new Date().toISOString(),
       generatedBy: "Apso CLI",
     };
 
     // Generate auth.guard.ts if auth is configured
-    if (normalizedAuth) {
+    if (hasAuth) {
       const authGuardContent = await this.renderTemplate(
-        "./guards/auth.guard.eta",
+        jwt
+          ? "./guards/jwt-auth.guard.eta"
+          : apiKey
+          ? "./guards/api-key-auth.guard.eta"
+          : "./guards/auth.guard.eta",
         templateData
       );
       files.push({

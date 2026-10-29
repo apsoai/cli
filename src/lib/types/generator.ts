@@ -185,6 +185,12 @@ export interface ControllerGenerationOptions extends EntityGenerationOptions {
    * Relationship map for join queries
    */
   relationshipMap: RelationshipMap;
+
+  /**
+   * The .apsorc auth config; with scopeBy it limits every query to the
+   * caller's tenant
+   */
+  auth?: AuthConfig;
 }
 
 /**
@@ -304,7 +310,7 @@ export interface LanguageGenerator {
   generateIndexModule(
     entities: Entity[],
     apiType: string,
-    opts?: { emitEvents?: boolean; http?: boolean }
+    opts?: { emitEvents?: boolean; http?: boolean; auth?: AuthConfig }
   ): Promise<GeneratedFile[]>;
 
   /**

@@ -59,3 +59,45 @@ export function addMissingDeps(
   );
   return missing;
 }
+
+/** JWT verification library the generated TypeScript JWT guard imports. */
+export const JOSE_DEP: Record<string, string> = { jose: "^5.10.0" };
+
+/** JWT verification library the generated Python auth module imports. */
+export const PYJWT_DEP = "PyJWT[crypto]>=2.8.0";
+
+/**
+ * Add a requirement to pyproject.toml's [project] dependencies list unless a
+ * requirement for the same package is already there.
+ *
+ * @param {string} projectDir - Directory holding pyproject.toml.
+ * @param {string} requirement - A PEP 508 requirement, e.g. "PyJWT[crypto]>=2.8.0".
+ * @returns {boolean} True when pyproject.toml was changed.
+ */
+export function addMissingPythonDep(
+  projectDir: string,
+  requirement: string
+): boolean {
+  const file = path.join(projectDir, "pyproject.toml");
+  if (!fs.existsSync(file)) return false;
+  const text = fs.readFileSync(file, "utf8");
+  const name = requirement.split(/[ !<=>[~]/)[0].toLowerCase();
+  // The list's closing bracket sits on its own line, or ends a one-line list;
+  // brackets inside requirements ("uvicorn[standard]") are not the end.
+  const list =
+    /^dependencies\s*=\s*\[(.*)][^\S\n]*$/m.exec(text) ??
+    /^dependencies\s*=\s*\[([\S\s]*?)^]/m.exec(text);
+  if (!list) return false;
+  const declared = [...list[1].matchAll(/["']([^"']+)["']/g)].map((m) =>
+    m[1].split(/[ !<=>[~]/)[0].toLowerCase()
+  );
+  if (declared.includes(name)) return false;
+  const body = list[1].replace(/\s*$/, "");
+  const sep = body.trim() === "" || body.trim().endsWith(",") ? "" : ",";
+  const updated =
+    text.slice(0, list.index) +
+    `dependencies = [${body}${sep}\n    "${requirement}",\n]` +
+    text.slice(list.index + list[0].length);
+  fs.writeFileSync(file, updated);
+  return true;
+}

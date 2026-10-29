@@ -3,9 +3,15 @@
 <% it.entities.forEach((entity) => { %>
 import {<%= entity.name %>Module} from './<%= entity.name %>/<%= entity.name %>.module'
 <%}) %>
+<% if (it.hasGuards) { %>
+import { GuardsModule } from './guards/guards.module'
+<% } %>
 
 export default [
 <% it.entities.forEach((entity) => { %>
 <%= entity.name %>Module,
 <%}) %>
+<% if (it.hasGuards) { %>
+GuardsModule,
+<% } %>
 ]
