@@ -1,100 +1,340 @@
-<%~ includeFile('../../header.eta', it) %>
+<%~ includeFile('../header.eta', it) %>
 
 package middleware
 
-import (
-	"net/http"
-	"strings"
+// AuthMiddleware authenticates every route registered on the /api group.
+// Routes registered outside that group (such as /health) stay public.
+<% if (it.jwt) { %>
+//
+// It verifies <%= it.jwt.provider %> JWTs from the Authorization: Bearer header against the
+// issuer's published keys (JWKS), checks issuer, expiry<% if (it.jwt.audience) { %>, audience<% } %> and algorithm,
+// and maps the token's claims into an AuthContext.
+// AUTH_JWT_ISSUER, AUTH_JWT_AUDIENCE and AUTH_JWKS_URI override the .apsorc values.
+<% } else { %>
+//
+// It reads an API key from the <%= it.apiKey.apiKeyHeader %> header and looks up the
+// <%= it.apiKey.apiKeyEntity %> row whose <%= it.apiKey.keyField %> is the key's hex SHA-256.
+<% } %>
 
+import (
+<% if (it.jwt) { %>
+	"context"
+	"encoding/json"
+<% } else { %>
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+<% } %>
+	"net/http"
+<% if (it.jwt) { %>
+	"os"
+	"strconv"
+	"strings"
+	"sync"
+<% } else if (it.apiKey.hasExpiresAt) { %>
+	"time"
+<% } %>
+
+<% if (it.jwt) { %>
+	"github.com/MicahParks/keyfunc/v3"
+<% } %>
 	"github.com/gin-gonic/gin"
+<% if (it.jwt) { %>
+	"github.com/golang-jwt/jwt/v5"
+<% } %>
+	"gorm.io/gorm"
+<% if (it.apiKey) { %>
+
+	"app/autogen/models"
+<% } %>
 )
 
-// AuthMiddleware provides authentication middleware for protected routes
-func AuthMiddleware() gin.HandlerFunc {
+// AuthContext is the normalized identity of the caller.
+type AuthContext struct {
+	UserID         string                 `json:"userId,omitempty"`
+	Email          string                 `json:"email,omitempty"`
+	ServiceID      string                 `json:"serviceId,omitempty"`
+	WorkspaceID    string                 `json:"workspaceId,omitempty"`
+	OrganizationID string                 `json:"organizationId,omitempty"`
+	Roles          []string               `json:"roles"`
+	Claims         map[string]interface{} `json:"claims,omitempty"`
+}
+
+// AuthContextKey is the gin context key holding *AuthContext.
+const AuthContextKey = "auth"
+
+// GetAuthContext returns the authenticated caller, if any.
+func GetAuthContext(c *gin.Context) (*AuthContext, bool) {
+	v, ok := c.Get(AuthContextKey)
+	if !ok {
+		return nil, false
+	}
+	a, ok := v.(*AuthContext)
+	return a, ok
+}
+
+func unauthorized(c *gin.Context, msg string) {
+	c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": msg})
+}
+<% if (it.jwt) { %>
+
+func splitList(s string) []string {
+	out := []string{}
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func env(name, fallback string) string {
+	if v := os.Getenv(name); v != "" {
+		return v
+	}
+	return fallback
+}
+
+var (
+	issuer     = env("AUTH_JWT_ISSUER", <%~ JSON.stringify(it.jwt.issuer) %>)
+	audience   = env("AUTH_JWT_AUDIENCE", <%~ JSON.stringify(it.jwt.audience || '') %>)
+	jwksURI    = env("AUTH_JWKS_URI", <%~ JSON.stringify(it.jwt.jwksUri) %>)
+	algorithms = []string{<%~ it.jwt.algorithms.map((a) => JSON.stringify(a)).join(', ') %>}
+	// Origins allowed in the azp claim; empty allows any.
+	authorizedParties = splitList(env("AUTH_JWT_AUTHORIZED_PARTIES", <%~ JSON.stringify(it.jwt.authorizedParties.join(',')) %>))
+
+	jwksMu sync.Mutex
+	jwks   keyfunc.Keyfunc
+)
+
+// keys fetches the issuer's JWKS on first use, retrying on later requests if
+// the issuer was unreachable. keyfunc refreshes the set in the background.
+func keys() (keyfunc.Keyfunc, error) {
+	jwksMu.Lock()
+	defer jwksMu.Unlock()
+	if jwks != nil {
+		return jwks, nil
+	}
+	k, err := keyfunc.NewDefaultCtx(context.Background(), []string{jwksURI})
+	if err != nil {
+		return nil, err
+	}
+	jwks = k
+	return k, nil
+}
+
+// claim reads a claim by exact name (Auth0 namespaced URLs contain dots),
+// else by dotted path into nested objects.
+func claim(m map[string]interface{}, path string) interface{} {
+	if path == "" {
+		return nil
+	}
+	if v, ok := m[path]; ok {
+		return v
+	}
+	var cur interface{} = m
+	for _, part := range strings.Split(path, ".") {
+		obj, ok := cur.(map[string]interface{})
+		if !ok {
+			return nil
+		}
+		cur = obj[part]
+	}
+	return cur
+}
+
+func str(v interface{}) string {
+	switch t := v.(type) {
+	case string:
+		return t
+	case float64:
+		return strconv.FormatFloat(t, 'f', -1, 64)
+	case json.Number:
+		return t.String()
+	}
+	return ""
+}
+
+func contains(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}
+
+func roles(v interface{}) []string {
+	out := []string{}
+	switch t := v.(type) {
+	case []interface{}:
+		for _, r := range t {
+			if s := str(r); s != "" {
+				out = append(out, s)
+			}
+		}
+	case string:
+		if t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// AuthMiddleware verifies the caller's JWT. The database is unused for JWT auth.
+func AuthMiddleware(_ *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authorization header required"})
+		header := c.GetHeader("Authorization")
+		if !strings.HasPrefix(header, "Bearer ") {
+			unauthorized(c, "No bearer token provided")
+			return
+		}
+		k, err := keys()
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "Token signing keys unavailable"})
+			return
+		}
+		opts := []jwt.ParserOption{
+			jwt.WithIssuer(issuer),
+			jwt.WithValidMethods(algorithms),
+			jwt.WithExpirationRequired(),
+		}
+<% if (it.jwt.provider !== 'cognito') { %>
+		if audience != "" {
+			opts = append(opts, jwt.WithAudience(audience))
+		}
+<% } %>
+		mc := jwt.MapClaims{}
+		token, err := jwt.ParseWithClaims(strings.TrimPrefix(header, "Bearer "), mc, k.Keyfunc, opts...)
+		if err != nil || !token.Valid {
+			unauthorized(c, "Invalid token")
+			return
+		}
+		claims := map[string]interface{}(mc)
+<% if (it.jwt.provider === 'cognito') { %>
+		// Cognito ID tokens carry aud; access tokens carry client_id instead.
+		if audience != "" {
+			aud := claims["aud"]
+			if aud == nil {
+				aud = claims["client_id"]
+			}
+			if !containsAudience(aud, audience) {
+				unauthorized(c, "Invalid token")
+				return
+			}
+		}
+<% } %>
+
+		if azp, ok := claims["azp"].(string); ok && len(authorizedParties) > 0 && !contains(authorizedParties, azp) {
+			unauthorized(c, "Invalid token")
 			return
 		}
 
-		parts := strings.SplitN(authHeader, " ", 2)
-		if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid authorization header format"})
+		userID := str(claim(claims, <%~ JSON.stringify(it.jwt.claims.userId) %>))
+		if userID == "" {
+			unauthorized(c, "Token has no user id")
 			return
 		}
-
-		token := parts[1]
-
-		// TODO: Validate the token
-		// This is a placeholder - implement your actual token validation logic
-		if token == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
-			return
+		tenant := str(claim(claims, <%~ JSON.stringify(it.jwt.claims.workspaceId || '') %>))
+		if tenant == "" {
+			tenant = str(claim(claims, <%~ JSON.stringify(it.jwt.claims.organizationId || '') %>))
 		}
-
-		// Set user info in context if token is valid
-		// c.Set("user_id", userId)
-		// c.Set("user_roles", roles)
-
+		c.Set(AuthContextKey, &AuthContext{
+			UserID:         userID,
+			Email:          str(claim(claims, <%~ JSON.stringify(it.jwt.claims.email || '') %>)),
+			WorkspaceID:    tenant,
+			OrganizationID: tenant,
+			Roles:          roles(claim(claims, <%~ JSON.stringify(it.jwt.claims.roles || '') %>)),
+			Claims:         claims,
+		})
 		c.Next()
 	}
 }
+<% if (it.jwt.provider === 'cognito') { %>
 
-<% if (it.auth && it.auth.roles && it.auth.roles.length > 0) { %>
-// RoleMiddleware checks if the user has the required role
-func RoleMiddleware(allowedRoles ...string) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		// Get user roles from context (set by AuthMiddleware)
-		userRoles, exists := c.Get("user_roles")
-		if !exists {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "No roles found"})
-			return
-		}
-
-		roles, ok := userRoles.([]string)
-		if !ok {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Invalid roles format"})
-			return
-		}
-
-		// Check if user has any of the allowed roles
-		for _, userRole := range roles {
-			for _, allowedRole := range allowedRoles {
-				if userRole == allowedRole {
-					c.Next()
-					return
-				}
+func containsAudience(aud interface{}, want string) bool {
+	switch t := aud.(type) {
+	case string:
+		return t == want
+	case []interface{}:
+		for _, a := range t {
+			if str(a) == want {
+				return true
 			}
 		}
-
-		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Insufficient permissions"})
 	}
+	return false
+}
+<% } %>
+<% } else { %>
+
+<% if (it.apiKey.hasExpiresAt) { %>
+// before reports whether an expiresAt value read from the database is still
+// in the future. A value it cannot read counts as expired.
+func before(v interface{}, now time.Time) bool {
+	switch t := v.(type) {
+	case time.Time:
+		return now.Before(t)
+	case *time.Time:
+		return t == nil || now.Before(*t)
+	case string:
+		for _, layout := range []string{time.RFC3339Nano, "2006-01-02 15:04:05", "2006-01-02"} {
+			if p, err := time.Parse(layout, t); err == nil {
+				return now.Before(p)
+			}
+		}
+	case []byte:
+		return before(string(t), now)
+	}
+	return false
 }
 
-// Role constants
-const (
-<% it.auth.roles.forEach((role) => { %>
-	Role<%= role.charAt(0).toUpperCase() + role.slice(1) %> = "<%= role %>"
-<% }) %>
-)
 <% } %>
-
-<% if (it.auth && it.auth.multiTenant) { %>
-// TenantMiddleware extracts and validates tenant from requests
-func TenantMiddleware() gin.HandlerFunc {
+// AuthMiddleware authenticates the caller's API key against <%= it.apiKey.apiKeyEntity %>.
+func AuthMiddleware(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		tenantID := c.GetHeader("X-Tenant-ID")
-		if tenantID == "" {
-			tenantID = c.Query("tenantId")
-		}
-
-		if tenantID == "" {
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Tenant ID required"})
+		key := c.GetHeader(<%~ JSON.stringify(it.apiKey.apiKeyHeader) %>)
+		if key == "" {
+			unauthorized(c, "No API key provided")
 			return
 		}
-
-		c.Set("tenant_id", tenantID)
+		sum := sha256.Sum256([]byte(key))
+		row := map[string]interface{}{}
+		err := db.Model(&models.<%= it.apiKey.goModel %>{}).
+			Where(<%~ JSON.stringify(it.apiKey.keyColumn + ' = ?') %>, hex.EncodeToString(sum[:])).
+			Take(&row).Error
+		if err != nil {
+			unauthorized(c, "Invalid API key")
+			return
+		}
+<% if (it.apiKey.hasStatus) { %>
+		if fmt.Sprint(row["status"]) != "active" {
+			unauthorized(c, "API key is not active")
+			return
+		}
+<% } %>
+<% if (it.apiKey.hasExpiresAt) { %>
+		if v := row[<%~ JSON.stringify(it.apiKey.expiresColumn) %>]; v != nil && !before(v, time.Now()) {
+			unauthorized(c, "API key has expired")
+			return
+		}
+<% } %>
+		tenant := ""
+		if v := row[<%~ JSON.stringify(it.apiKey.workspaceColumn) %>]; v != nil {
+			tenant = fmt.Sprint(v)
+		}
+		roles := []string{}
+<% if (it.apiKey.roleField) { %>
+		if v := row[<%~ JSON.stringify(it.apiKey.roleColumn) %>]; v != nil {
+			roles = append(roles, fmt.Sprint(v))
+		}
+<% } %>
+		c.Set(AuthContextKey, &AuthContext{
+			ServiceID:      fmt.Sprint(row["id"]),
+			WorkspaceID:    tenant,
+			OrganizationID: tenant,
+			Roles:          roles,
+		})
 		c.Next()
 	}
 }

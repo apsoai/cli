@@ -10,7 +10,7 @@ const pgEnumName = (it.entityName + '_' + it.field.name + '_enum').toLowerCase()
             enums.<%= enumTypeName %>,
             name="<%= pgEnumName %>",
             values_callable=lambda x: [e.value for e in x],
-            create_type=False
+            create_type=True
         ),
         nullable=<%= it.field.nullable === false ? 'False' : 'True' %>
     )

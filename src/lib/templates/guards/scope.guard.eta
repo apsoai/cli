@@ -28,7 +28,7 @@ export const SkipScopeCheck = () =>
     );
   };
 
-<% if (it.authConfig) { %>
+<% if (it.hasAuth) { %>
 /**
  * Import Public decorator from auth.guard to avoid duplicate exports
  */
@@ -246,7 +246,11 @@ export class ScopeGuard implements CanActivate {
       for (const scope of scopeConfig.scopes) {
         const expectedValue = this.getScopeValue(request, scope.contextKey);
         if (!expectedValue) {
+<% if (it.hasAuth) { %>
+          return false; // The caller has no tenant, so it owns no scoped rows
+<% } else { %>
           continue; // No scope value in context, skip this check
+<% } %>
         }
 
         let actualValue: any;
@@ -257,7 +261,8 @@ export class ScopeGuard implements CanActivate {
           actualValue = this.getNestedValue(entity, scope.path);
         }
 
-        if (actualValue !== expectedValue) {
+        // Token claims are strings; a numeric FK column reads back as a number.
+        if (actualValue == null || String(actualValue) !== String(expectedValue)) {
           return false;
         }
       }
@@ -277,9 +282,17 @@ export class ScopeGuard implements CanActivate {
     for (const scope of scopeConfig.scopes) {
       if (scope.direct) {
         const scopeValue = this.getScopeValue(request, scope.contextKey);
+<% if (it.hasAuth) { %>
+        if (!scopeValue) {
+          throw new ForbiddenException('No tenant in the auth context');
+        }
+        // Always the caller's tenant, never one from the body.
+        request.body[scope.field] = scopeValue;
+<% } else { %>
         if (scopeValue && !request.body[scope.field]) {
           request.body[scope.field] = scopeValue;
         }
+<% } %>
       }
     }
   }
@@ -292,6 +305,11 @@ export class ScopeGuard implements CanActivate {
     for (const scope of scopeConfig.scopes) {
       if (scope.direct) {
         const scopeValue = this.getScopeValue(request, scope.contextKey);
+<% if (it.hasAuth) { %>
+        if (!scopeValue) {
+          throw new ForbiddenException('No tenant in the auth context');
+        }
+<% } %>
         if (scopeValue) {
           // Add filter for @apso/crud
           request.query[`filter.${scope.field}`] = `$eq:${scopeValue}`;

@@ -109,7 +109,7 @@ export abstract class BaseGenerator implements LanguageGenerator {
   abstract generateIndexModule(
     entities: Entity[],
     apiType: string,
-    opts?: { emitEvents?: boolean; http?: boolean }
+    opts?: { emitEvents?: boolean; http?: boolean; auth?: AuthConfig }
   ): Promise<GeneratedFile[]>;
 
   /**

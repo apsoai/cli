@@ -7,6 +7,7 @@ export type AuthProviderType =
   | "auth0"
   | "clerk"
   | "cognito"
+  | "jwt"
   | "api-key";
 
 /**
@@ -66,9 +67,11 @@ export interface JwtConfig {
   issuer: string;
 
   /**
-   * Expected audience for the JWT
+   * Expected audience for the JWT. When omitted the audience is not checked
+   * (Clerk session tokens and Cognito access tokens carry no `aud` claim).
+   * For Cognito an access token's `client_id` is checked against it instead.
    */
-  audience: string;
+  audience?: string;
 
   /**
    * JWKS URI for key rotation. If not provided, uses issuer + /.well-known/jwks.json
@@ -76,9 +79,16 @@ export interface JwtConfig {
   jwksUri?: string;
 
   /**
-   * Algorithms to accept. Default: ["RS256"]
+   * Algorithms to accept. Default: ["RS256"]. Better Auth's JWT plugin signs
+   * with EdDSA by default.
    */
   algorithms?: string[];
+
+  /**
+   * Origins allowed in the token's `azp` claim (Clerk recommends this). A
+   * token whose azp is not listed is rejected; one without azp is accepted.
+   */
+  authorizedParties?: string[];
 }
 
 /**
@@ -112,10 +122,11 @@ export interface JwtClaimsMapping {
 }
 
 /**
- * Configuration for JWT-based providers (Auth0, Cognito, Clerk)
+ * Configuration for JWT-based providers (Auth0, Clerk, Cognito, or any issuer
+ * that publishes a JWKS via the generic "jwt" provider)
  */
 export interface JwtAuthConfig extends BaseAuthConfig {
-  provider: "auth0" | "clerk" | "cognito";
+  provider: "auth0" | "clerk" | "cognito" | "jwt";
 
   /**
    * JWT verification configuration
@@ -150,7 +161,13 @@ export interface ApiKeyAuthConfig extends BaseAuthConfig {
   apiKeyEntity?: string;
 
   /**
-   * Field name on apiKeyEntity for workspace/organization ID
+   * Field on apiKeyEntity holding the hex SHA-256 of the key. Default: "keyHash"
+   */
+  keyField?: string;
+
+  /**
+   * Field name on apiKeyEntity for workspace/organization ID.
+   * Default: "organizationId"
    */
   workspaceField?: string;
 
@@ -249,6 +266,7 @@ export const API_KEY_AUTH_DEFAULTS: Required<
 > = {
   apiKeyHeader: "x-api-key",
   apiKeyEntity: "ApiKey",
+  keyField: "keyHash",
 };
 
 /**
@@ -271,7 +289,8 @@ export function isJwtAuth(auth: AuthConfig): auth is JwtAuthConfig {
   return (
     auth.provider === "auth0" ||
     auth.provider === "clerk" ||
-    auth.provider === "cognito"
+    auth.provider === "cognito" ||
+    auth.provider === "jwt"
   );
 }
 
@@ -282,4 +301,87 @@ export function isJwtAuth(auth: AuthConfig): auth is JwtAuthConfig {
  */
 export function isApiKeyAuth(auth: AuthConfig): auth is ApiKeyAuthConfig {
   return auth.provider === "api-key";
+}
+
+/** A JWT auth config with every default filled in, as the templates use it. */
+export interface ResolvedJwtAuth {
+  provider: JwtAuthConfig["provider"];
+  issuer: string;
+  audience?: string;
+  jwksUri: string;
+  algorithms: string[];
+  authorizedParties: string[];
+  claims: Required<Pick<JwtClaimsMapping, "userId">> &
+    Omit<JwtClaimsMapping, "userId">;
+}
+
+/** An API key auth config with every default filled in. */
+export type ResolvedApiKeyAuth = Required<
+  Omit<ApiKeyAuthConfig, "roleField">
+> &
+  Pick<ApiKeyAuthConfig, "roleField">;
+
+/**
+ * Claim defaults per provider. Clerk's v2 session token nests the active
+ * organization under `o`; Cognito puts group membership in `cognito:groups`.
+ */
+const PROVIDER_CLAIMS: Record<JwtAuthConfig["provider"], JwtClaimsMapping> = {
+  auth0: { userId: "sub", email: "email" },
+  clerk: { userId: "sub", email: "email", workspaceId: "o.id", roles: "o.rol" },
+  cognito: { userId: "sub", email: "email", roles: "cognito:groups" },
+  jwt: { userId: "sub", email: "email", roles: "roles" },
+};
+
+const ALLOWED_ALGORITHMS = new Set([
+  "RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384",
+  "EdDSA",
+]);
+
+/**
+ * Fill JWT defaults and reject configs that would generate an unsafe check.
+ * Only asymmetric algorithms are accepted: the key comes from the issuer's
+ * JWKS, so there is no shared secret to configure or leak.
+ */
+export function resolveJwtAuth(auth: JwtAuthConfig): ResolvedJwtAuth {
+  const issuer = auth.jwt?.issuer?.trim();
+  if (!issuer)
+    throw new Error(
+      `auth.jwt.issuer is required for the "${auth.provider}" provider`
+    );
+  const algorithms = auth.jwt.algorithms?.length
+    ? auth.jwt.algorithms
+    : ["RS256"];
+  const bad = algorithms.filter((a) => !ALLOWED_ALGORITHMS.has(a));
+  if (bad.length > 0)
+    throw new Error(
+      `auth.jwt.algorithms: ${bad.join(", ")} not supported; use ${[
+        ...ALLOWED_ALGORITHMS,
+      ].join(", ")}`
+    );
+  const claims = { ...PROVIDER_CLAIMS[auth.provider], ...auth.claims };
+  return {
+    provider: auth.provider,
+    issuer,
+    audience: auth.jwt.audience?.trim() || undefined,
+    jwksUri:
+      auth.jwt.jwksUri?.trim() ||
+      `${issuer.replace(/\/+$/, "")}/.well-known/jwks.json`,
+    algorithms,
+    authorizedParties: auth.jwt.authorizedParties ?? [],
+    claims: { ...claims, userId: claims.userId || "sub" },
+  };
+}
+
+/** Fill API key defaults. */
+export function resolveApiKeyAuth(auth: ApiKeyAuthConfig): ResolvedApiKeyAuth {
+  return {
+    provider: "api-key",
+    apiKeyHeader: (
+      auth.apiKeyHeader || API_KEY_AUTH_DEFAULTS.apiKeyHeader
+    ).toLowerCase(),
+    apiKeyEntity: auth.apiKeyEntity || API_KEY_AUTH_DEFAULTS.apiKeyEntity,
+    keyField: auth.keyField || API_KEY_AUTH_DEFAULTS.keyField,
+    workspaceField: auth.workspaceField || "organizationId",
+    roleField: auth.roleField,
+  };
 }

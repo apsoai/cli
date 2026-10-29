@@ -94,6 +94,12 @@ export class AuthGuard implements CanActivate {
       return true;
     }
 
+    // The template's health check stays public for load balancer probes.
+    const req = context.switchToHttp().getRequest();
+    if (req.method === 'GET' && /^\/health\/?$/.test(req.path)) {
+      return true;
+    }
+
     const request = context.switchToHttp().getRequest();
     const token = this.extractToken(request);
 

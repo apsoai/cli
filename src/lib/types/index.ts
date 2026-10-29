@@ -26,6 +26,10 @@ export {
   isDbSessionAuth,
   isJwtAuth,
   isApiKeyAuth,
+  ResolvedJwtAuth,
+  ResolvedApiKeyAuth,
+  resolveJwtAuth,
+  resolveApiKeyAuth,
 } from "./auth";
 export {
   TargetLanguage,

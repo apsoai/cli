@@ -14,7 +14,12 @@ import {
   Entity,
   AuthConfig,
   Field,
+  isApiKeyAuth,
+  isJwtAuth,
+  resolveApiKeyAuth,
+  resolveJwtAuth,
 } from "../types";
+import { apiKeyTemplateData, hasScopedEntities } from "../guards";
 import { getFieldForTemplate, typeExistsInEntity, fieldToEnumType } from "../utils/field";
 import {
   getRelationshipForTemplate,
@@ -161,6 +166,8 @@ export class GoGenerator extends BaseGenerator {
       goType: this.mapFieldToGoType(field),
       pascalName: pascalCase(field.name),
       snakeName: snakeCase(field.name),
+      // The enum type the enums package declares (EntityFieldEnum).
+      enumType: field.type === "enum" ? field.dataType : undefined,
     }));
   }
 
@@ -456,7 +463,7 @@ ${downStatements}
   async generateIndexModule(
     entities: Entity[],
     _apiType: string,
-    opts?: { emitEvents?: boolean; http?: boolean }
+    opts?: { emitEvents?: boolean; http?: boolean; auth?: AuthConfig }
   ): Promise<GeneratedFile[]> {
     // Effective HTTP flag per entity (entity override > top-level default >
     // true). When false we skip the handler + route registration but keep the
@@ -471,6 +478,7 @@ ${downStatements}
 
     const content = await this.renderTemplate("./index-module", {
       entities: entitiesData,
+      hasAuth: Boolean(opts?.auth),
     });
 
     // Generate model registry for AutoMigrate support
@@ -547,12 +555,38 @@ ${modelRefs}
   }
 
   async generateGuards(
-    _entities: Entity[],
+    entities: Entity[],
     auth?: AuthConfig
   ): Promise<GeneratedFile[]> {
-    const content = await this.renderTemplate("./middleware/auth", {
-      auth,
-    });
+    if (!auth) return [];
+    if (hasScopedEntities(entities))
+      console.warn(
+        "[apso] scopeBy is enforced in TypeScript services only; this Go service authenticates requests but does not filter rows by tenant"
+      );
+    let data: Record<string, unknown>;
+    if (isJwtAuth(auth)) {
+      data = { jwt: resolveJwtAuth(auth) };
+    } else if (isApiKeyAuth(auth)) {
+      const apiKey = apiKeyTemplateData(resolveApiKeyAuth(auth), entities);
+      const entity = entities.find((e) => e.name === apiKey.apiKeyEntity)!;
+      // gorm's default naming: snake_case of the Go field name.
+      const column = (name: string) => snakeCase(name);
+      data = {
+        apiKey: {
+          ...apiKey,
+          goModel: pascalCase(entity.name),
+          keyColumn: column(apiKey.keyField),
+          expiresColumn: column("expiresAt"),
+          workspaceColumn: column(apiKey.workspaceField),
+          roleColumn: apiKey.roleField ? column(apiKey.roleField) : undefined,
+        },
+      };
+    } else {
+      throw new Error(
+        `auth.provider "${auth.provider}" is generated for TypeScript services only. For Go, use "jwt" (Better Auth issues JWTs with its JWT plugin) or "api-key".`
+      );
+    }
+    const content = await this.renderTemplate("./middleware/auth", data);
 
     return [
       {

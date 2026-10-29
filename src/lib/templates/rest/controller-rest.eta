@@ -1,7 +1,7 @@
 <%~ includeFile('./header.eta') %>
 
 import { Controller, Body } from "@nestjs/common";
-import { Crud, CrudController, Override, ParsedRequest, CrudRequest, ParsedBody, CreateManyDto } from '@apso/crud';
+import { Crud, <% if (it.crudAuth.length) { %>CrudAuth, <% } %>CrudController, Override, ParsedRequest, CrudRequest, ParsedBody, CreateManyDto } from '@apso/crud';
 import { ApiTags, ApiResponse, ApiOperation, ApiBody } from '@nestjs/swagger';
 import {<%= it.entityName %>, <%= it.entityName %>Create, <%= it.entityName %>Update} from './dtos/<%= it.entityName%>.dto'
 import {<%= it.svcName %>} from './<%= it.entityName %>.service';
@@ -51,6 +51,21 @@ import {<%= it.svcName %>} from './<%= it.entityName %>.service';
         <% } %>
      }
 })
+<% if (it.crudAuth.length) { %>
+// Every query and write is limited to the caller's tenant (.apsorc scopeBy).
+@CrudAuth({
+    filter: (req: any) => ({
+<% it.crudAuth.forEach((s) => { %>
+        <%= s.field %>: req.<%= s.contextKey %> ?? req.user?.<%= s.contextKey %>,
+<% }) %>
+    }),
+    persist: (req: any) => ({
+<% it.crudAuth.forEach((s) => { %>
+        <%= s.field %>: req.<%= s.contextKey %> ?? req.user?.<%= s.contextKey %>,
+<% }) %>
+    }),
+})
+<% } %>
 
 @Controller('<%= it.pluralEntityName %>')
 @ApiTags('<%= it.pluralEntityName %>')

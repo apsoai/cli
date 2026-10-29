@@ -1,4 +1,5 @@
 import { Flags } from "@oclif/core";
+import * as fs from "fs";
 import * as path from "path";
 import inquirer from "inquirer";
 import {
@@ -7,13 +8,19 @@ import {
   isLanguageSupported,
   getImplementedLanguages,
 } from "../lib";
-import { TargetLanguage, GeneratorConfig } from "../lib/types";
+import { TargetLanguage, GeneratorConfig, isJwtAuth } from "../lib/types";
 import BaseCommand from "../lib/base-command";
 import { isInteractive, missingFlag } from "../lib/utils/interactive";
 import { performance } from "perf_hooks";
 import { createFile, removeStaleGeneratedFiles } from "../lib/utils/file-system";
 import { installCoAuthorHook } from "../lib/utils/git-hooks";
-import { ensureCrudDeps } from "../lib/utils/crud-deps";
+import {
+  JOSE_DEP,
+  PYJWT_DEP,
+  addMissingDeps,
+  addMissingPythonDep,
+  ensureCrudDeps,
+} from "../lib/utils/crud-deps";
 import { upgradeOrmConfigForPglite } from "../lib/utils/pglite-upgrade";
 
 export default class Generate extends BaseCommand {
@@ -230,6 +237,7 @@ export default class Generate extends BaseCommand {
             allEntities: entities,
             apiType: lowerCaseApiType,
             relationshipMap,
+            auth,
           })
         );
       }
@@ -272,7 +280,7 @@ export default class Generate extends BaseCommand {
     }
 
     // Generate index module
-    const indexFiles = await generator.generateIndexModule(entities, lowerCaseApiType, { emitEvents, http });
+    const indexFiles = await generator.generateIndexModule(entities, lowerCaseApiType, { emitEvents, http, auth });
     for (const file of indexFiles) {
       // eslint-disable-next-line no-await-in-loop
       await writeGenerated(file.path, file.content);
@@ -342,6 +350,38 @@ export default class Generate extends BaseCommand {
           "[apso] Updated src/orm.config.ts so `apso migrate verify` and `apso test smoke` can run on a local PGlite database. Run npm install before building."
         );
       }
+    }
+
+    // The generated auth code imports a JWT library; declare it.
+    if (auth && isJwtAuth(auth)) {
+      if (
+        language === "typescript" &&
+        addMissingDeps(process.cwd(), JOSE_DEP).length > 0
+      )
+        console.log(
+          "[apso] Added jose to package.json (the generated auth guard imports it). Run npm install before building."
+        );
+      if (
+        language === "python" &&
+        addMissingPythonDep(process.cwd(), PYJWT_DEP)
+      )
+        console.log(
+          `[apso] Added ${PYJWT_DEP} to pyproject.toml (the generated auth module imports it). Reinstall the project's dependencies.`
+        );
+      if (language === "go")
+        console.log(
+          "[apso] The generated auth middleware imports github.com/golang-jwt/jwt/v5 and github.com/MicahParks/keyfunc/v3. Run go mod tidy before building."
+        );
+    }
+    if (language === "python") {
+      const main = path.join(process.cwd(), "app", "main.py");
+      if (
+        fs.existsSync(main) &&
+        !fs.readFileSync(main, "utf8").includes("autogen_router")
+      )
+        console.warn(
+          "[apso] app/main.py does not include autogen_router, so the generated routes are not served. Add: from app.autogen import autogen_router; app.include_router(autogen_router)"
+        );
     }
 
     const totalBuildTime = performance.now() - totalBuildStart;

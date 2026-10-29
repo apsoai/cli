@@ -13,6 +13,10 @@ import {
   MigrationGenerationOptions,
   Entity,
   AuthConfig,
+  isApiKeyAuth,
+  isJwtAuth,
+  resolveApiKeyAuth,
+  resolveJwtAuth,
   Field,
 } from "../types";
 import { getFieldForTemplate, typeExistsInEntity, fieldToEnumType } from "../utils/field";
@@ -22,6 +26,7 @@ import {
 } from "../utils/relationships";
 import { snakeCase, camelCase } from "../utils/casing";
 import { getEventEmittingEntities } from "../events";
+import { apiKeyTemplateData, hasScopedEntities } from "../guards";
 import { pyString } from "../ddl/migration-file";
 import pluralize from "pluralize";
 
@@ -388,9 +393,13 @@ ${downStatements || "    pass"}
 
   async generateIndexModule(
     entities: Entity[],
-    _apiType: string
+    _apiType: string,
+    opts?: { auth?: AuthConfig }
   ): Promise<GeneratedFile[]> {
-    const content = await this.renderTemplate("./index-module", { entities });
+    const content = await this.renderTemplate("./index-module", {
+      entities,
+      hasAuth: Boolean(opts?.auth),
+    });
 
     return [
       {
@@ -447,12 +456,30 @@ ${downStatements || "    pass"}
   }
 
   async generateGuards(
-    _entities: Entity[],
-    _auth?: AuthConfig
+    entities: Entity[],
+    auth?: AuthConfig
   ): Promise<GeneratedFile[]> {
-    // Python auth/guards would be implemented differently (e.g., FastAPI dependencies)
-    // This is a placeholder for future implementation
-    return [];
+    if (!auth) return [];
+    if (hasScopedEntities(entities))
+      console.warn(
+        "[apso] scopeBy is enforced in TypeScript services only; this Python service authenticates requests but does not filter rows by tenant"
+      );
+    let data: Record<string, unknown>;
+    if (isJwtAuth(auth)) {
+      data = { jwt: resolveJwtAuth(auth) };
+    } else if (isApiKeyAuth(auth)) {
+      const apiKey = apiKeyTemplateData(resolveApiKeyAuth(auth), entities);
+      data = {
+        apiKey: { ...apiKey, pyModule: apiKey.apiKeyEntity.toLowerCase() },
+      };
+    } else {
+      throw new Error(
+        `auth.provider "${auth.provider}" is generated for TypeScript services only. For Python, use "jwt" (Better Auth issues JWTs with its JWT plugin) or "api-key".`
+      );
+    }
+    return [
+      { path: "auth.py", content: await this.renderTemplate("./auth", data) },
+    ];
   }
 
   async generateQueryUtils(

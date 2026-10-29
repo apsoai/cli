@@ -5,10 +5,21 @@ from typing import Optional, List, Any
 from datetime import datetime, date
 from decimal import Decimal
 from uuid import UUID
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_serializer
+from sqlalchemy import inspect as sa_inspect
 <% if (it.importEnums) { -%>
 from ..models import enums
 <% } -%>
+
+
+
+def _columns(value: Any) -> Any:
+    """A related ORM row as its column values; its own relations are not loaded."""
+    if isinstance(value, list):
+        return [_columns(v) for v in value]
+    if not hasattr(value, "__table__"):
+        return value
+    return {a.key: getattr(value, a.key) for a in sa_inspect(value).mapper.column_attrs}
 
 
 class <%= it.entityName %>Base(BaseModel):
@@ -76,6 +87,16 @@ class <%= it.entityName %>(BaseModel):
 <% it.associations.filter(a => a.type === 'ManyToOne' || a.type === 'OneToOne').forEach((assoc) => { -%>
     <%= assoc.relationshipName %>: Optional[Any] = None
 <% }); -%>
+<% const relationFields = [
+  ...it.associations.filter(a => a.type === 'OneToMany' || a.type === 'ManyToMany').map(a => a.pluralizedRelationshipName),
+  ...it.associations.filter(a => a.type === 'ManyToOne' || a.type === 'OneToOne').map(a => a.relationshipName),
+]; -%>
+<% if (relationFields.length > 0) { -%>
+
+    @field_serializer(<%~ [...new Set(relationFields)].map(n => JSON.stringify(n)).join(', ') %>)
+    def _serialize_relations(self, value: Any) -> Any:
+        return _columns(value)
+<% } -%>
 
 
 class <%= it.entityName %>List(BaseModel):

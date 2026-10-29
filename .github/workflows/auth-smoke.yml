@@ -1,0 +1,72 @@
+name: auth smoke test
+
+# Generates a service per language and auth provider (Auth0, Clerk, Cognito,
+# generic JWT, API key), starts it on Postgres, and checks that bad
+# credentials get 401, good ones can do CRUD, and (TypeScript) tenants only
+# see their own rows. See scripts/auth-smoke.mjs.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 7 * * 1"
+  pull_request:
+    paths:
+      - "src/lib/types/auth.ts"
+      - "src/lib/guards.ts"
+      - "src/lib/generators/**"
+      - "src/lib/templates/**"
+      - "src/lib/utils/crud-deps.ts"
+      - "src/commands/generate.ts"
+      - "scripts/auth-smoke.mjs"
+      - ".github/workflows/auth-smoke.yml"
+
+jobs:
+  auth-smoke:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [typescript, python, go]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    name: auth-smoke (${{ matrix.language }})
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@mavric"
+
+      - name: Setup Go
+        if: matrix.language == 'go'
+        uses: actions/setup-go@v5
+        with:
+          go-version: "stable"
+
+      - name: Setup Python
+        if: matrix.language == 'python'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build the CLI
+        run: |
+          npm ci
+          npm run build
+
+      - name: Run the auth checks
+        env:
+          AUTH_SMOKE_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432
+        run: node scripts/auth-smoke.mjs "${{ matrix.language }}"
