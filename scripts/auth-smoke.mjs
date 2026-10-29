@@ -225,6 +225,8 @@ const ENTITIES = [
     ],
   },
   { name: "Project", created_at: true, updated_at: true, scopeBy: "organizationId", fields: [{ name: "title", type: "text" }] },
+  // A tenant field that is not named workspaceId/organizationId (imported schemas).
+  { name: "Note", created_at: true, updated_at: true, scopeBy: "orgId", fields: [{ name: "body", type: "text" }, { name: "orgId", type: "integer", nullable: true }] },
 ];
 const RELATIONSHIPS = [
   { from: "Organization", to: "ApiKey", type: "OneToMany" },
@@ -357,6 +359,15 @@ async function crudAndScope(base, t, auth, auth2, noTenant) {
     const mine = await call("GET", base + PROJECTS, { headers: as1 });
     t.assert("own list includes the project", rows(mine.json).some((p) => p.id === pid));
     if (noTenant) t.expect("caller with no tenant cannot list scoped rows", await call("GET", base + PROJECTS, { headers: noTenant }), 403);
+    // scopeBy "orgId" takes the caller's tenant too.
+    const NOTES = route("Notes");
+    const note = await call("POST", base + NOTES, { headers: as1, body: { body: "hi", orgId: id2 } });
+    if (t.expect("create note (scopeBy orgId)", note, 200, 201)) {
+      t.assert("note stores the caller's tenant", String(note.json?.orgId) === String(id1), `orgId=${note.json?.orgId}`);
+      t.expect("other tenant cannot read the note", await call("GET", `${base}${NOTES}/${note.json.id}`, { headers: as2 }), 403, 404);
+      const theirNotes = await call("GET", base + NOTES, { headers: as2 });
+      t.assert("other tenant's notes exclude it", theirNotes.status === 200 && !rows(theirNotes.json).some((n) => n.id === note.json.id), `${theirNotes.status}`);
+    }
   }
   t.expect("delete project", await call("DELETE", `${base}${PROJECTS}/${pid}`, { headers: as1 }), 200, 204);
 }
