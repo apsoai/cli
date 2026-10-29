@@ -34,6 +34,6 @@ proj="$(mktemp -d)"
 cp "$root/test/fixtures/inventory-multi-fk.apsorc" "$proj/.apsorc"
 cd "$proj"
 "$apso" schema validate >/dev/null
-"$apso" migrate
+"$apso" migrate sandbox
 
 echo "tarball smoke passed: $(basename "$tarball") on node $got"
