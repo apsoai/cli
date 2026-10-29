@@ -64,6 +64,12 @@ ISSUER = os.getenv("AUTH_JWT_ISSUER") or <%~ JSON.stringify(it.jwt.issuer) %>
 AUDIENCE = os.getenv("AUTH_JWT_AUDIENCE") or <%~ JSON.stringify(it.jwt.audience || '') %>
 JWKS_URI = os.getenv("AUTH_JWKS_URI") or <%~ JSON.stringify(it.jwt.jwksUri) %>
 ALGORITHMS = <%~ JSON.stringify(it.jwt.algorithms) %>
+# Origins allowed in the azp claim; empty allows any.
+AUTHORIZED_PARTIES = [
+    p.strip()
+    for p in (os.getenv("AUTH_JWT_AUTHORIZED_PARTIES") or <%~ JSON.stringify(it.jwt.authorizedParties.join(',')) %>).split(",")
+    if p.strip()
+]
 CLAIMS = <%~ JSON.stringify(it.jwt.claims) %>
 
 # Fetches and caches the issuer's keys on first use.
@@ -135,6 +141,10 @@ async def require_auth(request: Request) -> AuthContext:
         if not (AUDIENCE in aud if isinstance(aud, list) else aud == AUDIENCE):
             raise _unauthorized("Invalid token")
 <% } %>
+
+    azp = payload.get("azp")
+    if AUTHORIZED_PARTIES and azp is not None and azp not in AUTHORIZED_PARTIES:
+        raise _unauthorized("Invalid token")
 
     user_id = _str(_claim(payload, CLAIMS.get("userId")))
     if not user_id:

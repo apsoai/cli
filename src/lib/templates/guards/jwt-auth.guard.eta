@@ -52,6 +52,10 @@ const ISSUER = process.env.AUTH_JWT_ISSUER || <%~ JSON.stringify(it.jwt.issuer) 
 const AUDIENCE = process.env.AUTH_JWT_AUDIENCE || <%~ JSON.stringify(it.jwt.audience || '') %>;
 const JWKS_URI = process.env.AUTH_JWKS_URI || <%~ JSON.stringify(it.jwt.jwksUri) %>;
 const ALGORITHMS = <%~ JSON.stringify(it.jwt.algorithms) %>;
+const AUTHORIZED_PARTIES = (process.env.AUTH_JWT_AUTHORIZED_PARTIES || <%~ JSON.stringify(it.jwt.authorizedParties.join(',')) %>)
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
 const CLAIMS = <%~ JSON.stringify(it.jwt.claims) %> as Record<string, string | undefined>;
 
 /** A claim by exact name (Auth0 namespaced URLs contain dots), else by dotted path. */
@@ -117,6 +121,11 @@ export class AuthGuard implements CanActivate {
       }
     }
 <% } %>
+
+    const azp = (payload as any).azp;
+    if (AUTHORIZED_PARTIES.length > 0 && azp !== undefined && !AUTHORIZED_PARTIES.includes(azp)) {
+      throw new UnauthorizedException('Invalid token');
+    }
 
     const userId = str(claim(payload, CLAIMS.userId));
     if (!userId) {

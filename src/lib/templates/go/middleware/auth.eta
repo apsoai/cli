@@ -78,6 +78,16 @@ func unauthorized(c *gin.Context, msg string) {
 }
 <% if (it.jwt) { %>
 
+func splitList(s string) []string {
+	out := []string{}
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 func env(name, fallback string) string {
 	if v := os.Getenv(name); v != "" {
 		return v
@@ -90,6 +100,8 @@ var (
 	audience   = env("AUTH_JWT_AUDIENCE", <%~ JSON.stringify(it.jwt.audience || '') %>)
 	jwksURI    = env("AUTH_JWKS_URI", <%~ JSON.stringify(it.jwt.jwksUri) %>)
 	algorithms = []string{<%~ it.jwt.algorithms.map((a) => JSON.stringify(a)).join(', ') %>}
+	// Origins allowed in the azp claim; empty allows any.
+	authorizedParties = splitList(env("AUTH_JWT_AUTHORIZED_PARTIES", <%~ JSON.stringify(it.jwt.authorizedParties.join(',')) %>))
 
 	jwksMu sync.Mutex
 	jwks   keyfunc.Keyfunc
@@ -141,6 +153,15 @@ func str(v interface{}) string {
 		return t.String()
 	}
 	return ""
+}
+
+func contains(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
 
 func roles(v interface{}) []string {
@@ -203,6 +224,11 @@ func AuthMiddleware(_ *gorm.DB) gin.HandlerFunc {
 			}
 		}
 <% } %>
+
+		if azp, ok := claims["azp"].(string); ok && len(authorizedParties) > 0 && !contains(authorizedParties, azp) {
+			unauthorized(c, "Invalid token")
+			return
+		}
 
 		userID := str(claim(claims, <%~ JSON.stringify(it.jwt.claims.userId) %>))
 		if userID == "" {

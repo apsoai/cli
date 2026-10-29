@@ -95,7 +95,14 @@ const b64url = (v) =>
 const keyPair = () => crypto.generateKeyPairSync("rsa", { modulusLength: 2048 });
 const signing = keyPair();
 const impostor = keyPair();
-const JWK = { ...signing.publicKey.export({ format: "jwk" }), kid: "k1", alg: "RS256", use: "sig" };
+const edSigning = crypto.generateKeyPairSync("ed25519");
+const edImpostor = crypto.generateKeyPairSync("ed25519");
+const JWKS = {
+  keys: [
+    { ...signing.publicKey.export({ format: "jwk" }), kid: "k1", alg: "RS256", use: "sig" },
+    { ...edSigning.publicKey.export({ format: "jwk" }), kid: "k2", alg: "EdDSA", use: "sig" },
+  ],
+};
 
 function mint(payload, { key = signing.privateKey, alg = "RS256", kid = "k1" } = {}) {
   const now = Math.floor(Date.now() / 1000);
@@ -105,6 +112,7 @@ function mint(payload, { key = signing.privateKey, alg = "RS256", kid = "k1" } =
   let sig = "";
   if (alg === "RS256") sig = crypto.sign("sha256", Buffer.from(head), key).toString("base64url");
   if (alg === "HS256") sig = crypto.createHmac("sha256", key).update(head).digest("base64url");
+  if (alg === "EdDSA") sig = crypto.sign(null, Buffer.from(head), key).toString("base64url");
   return `${head}.${sig}`;
 }
 
@@ -131,7 +139,8 @@ function providers(base) {
     },
     clerk: {
       // Clerk session tokens: no aud, the active org nested under "o".
-      auth: { provider: "clerk", jwt: { issuer: base } },
+      auth: { provider: "clerk", jwt: { issuer: base, authorizedParties: ["http://localhost:3000"] } },
+      unauthorizedParty: { azp: "https://evil.example" },
       claims: (org) => ({
         iss: base,
         sub: "user_2abc",
@@ -175,6 +184,26 @@ function providers(base) {
         app_metadata: org === undefined ? {} : { org_id: org, roles: ["owner"] },
       }),
       wrongAudience: { aud: "anon" },
+    },
+    "better-auth-jwt": {
+      // Better Auth's JWT plugin: EdDSA keys at /api/auth/jwks, iss and aud = BASE_URL.
+      auth: {
+        provider: "jwt",
+        jwt: { issuer: `${base}/ba`, audience: `${base}/ba`, jwksUri: `${base}/ba/api/auth/jwks`, algorithms: ["EdDSA"] },
+        claims: { workspaceId: "activeOrganizationId", roles: "role" },
+      },
+      signWith: { alg: "EdDSA", key: edSigning.privateKey, kid: "k2" },
+      impostor: { alg: "EdDSA", key: edImpostor.privateKey, kid: "k2" },
+      claims: (org) => ({
+        iss: `${base}/ba`,
+        aud: `${base}/ba`,
+        sub: "usr_8f2k",
+        email: "ana@apso.test",
+        name: "Ana",
+        role: "admin",
+        activeOrganizationId: org,
+      }),
+      wrongAudience: { aud: "https://other.example" },
     },
     "api-key": { auth: { provider: "api-key" } },
   };
@@ -335,22 +364,24 @@ async function crudAndScope(base, t, auth, auth2, noTenant) {
 async function jwtCase(name, p, base) {
   const t = checker(name);
   const bearer = (token) => ({ authorization: `Bearer ${token}` });
-  const valid = (org) => bearer(mint(p.claims(org ?? "1")));
+  const sign = (claims, opts = {}) => mint(claims, { ...p.signWith, ...opts });
+  const valid = (org) => bearer(sign(p.claims(org ?? "1")));
   const reject = async (label, headers) =>
     t.expect(label, await call("GET", base + ORGS, { headers }), 401);
 
   t.expect("/health is public", await call("GET", `${base}/health`), 200);
   await reject("no credentials", {});
   await reject("garbage token", bearer("not.a.jwt"));
-  await reject("expired token", bearer(mint({ ...p.claims("1"), exp: Math.floor(Date.now() / 1000) - 60 })));
-  await reject("wrong issuer", bearer(mint({ ...p.claims("1"), iss: "https://evil.example/" })));
-  if (p.wrongAudience) await reject("wrong audience", bearer(mint({ ...p.claims("1"), ...p.wrongAudience })));
-  await reject("signed by another key", bearer(mint(p.claims("1"), { key: impostor.privateKey })));
+  await reject("expired token", bearer(sign({ ...p.claims("1"), exp: Math.floor(Date.now() / 1000) - 60 })));
+  await reject("wrong issuer", bearer(sign({ ...p.claims("1"), iss: "https://evil.example/" })));
+  if (p.wrongAudience) await reject("wrong audience", bearer(sign({ ...p.claims("1"), ...p.wrongAudience })));
+  if (p.unauthorizedParty) await reject("azp not an authorized party", bearer(sign({ ...p.claims("1"), ...p.unauthorizedParty })));
+  await reject("signed by another key", bearer(sign(p.claims("1"), p.impostor ?? { key: impostor.privateKey })));
   await reject('alg "none"', bearer(mint(p.claims("1"), { alg: "none" })));
   await reject("HS256 signed with the public key", bearer(mint(p.claims("1"), { alg: "HS256", key: signing.publicKey.export({ type: "spki", format: "pem" }) })));
-  await reject("no subject", bearer(mint({ ...p.claims("1"), sub: undefined })));
+  await reject("no subject", bearer(sign({ ...p.claims("1"), sub: undefined })));
 
-  await crudAndScope(base, t, valid, valid, bearer(mint(p.claims(undefined))));
+  await crudAndScope(base, t, valid, valid, bearer(sign(p.claims(undefined))));
   return t.failures;
 }
 
@@ -408,9 +439,9 @@ async function apiKeyCase(name, base, db) {
 // ---------- main ----------
 
 const jwks = http.createServer((req, res) => {
-  if (req.url.endsWith("/.well-known/jwks.json")) {
+  if (req.url.endsWith("/.well-known/jwks.json") || req.url.endsWith("/api/auth/jwks")) {
     res.writeHead(200, { "content-type": "application/json" });
-    res.end(JSON.stringify({ keys: [JWK] }));
+    res.end(JSON.stringify(JWKS));
   } else {
     res.writeHead(404).end();
   }

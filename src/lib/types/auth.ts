@@ -79,9 +79,16 @@ export interface JwtConfig {
   jwksUri?: string;
 
   /**
-   * Algorithms to accept. Default: ["RS256"]
+   * Algorithms to accept. Default: ["RS256"]. Better Auth's JWT plugin signs
+   * with EdDSA by default.
    */
   algorithms?: string[];
+
+  /**
+   * Origins allowed in the token's `azp` claim (Clerk recommends this). A
+   * token whose azp is not listed is rejected; one without azp is accepted.
+   */
+  authorizedParties?: string[];
 }
 
 /**
@@ -303,6 +310,7 @@ export interface ResolvedJwtAuth {
   audience?: string;
   jwksUri: string;
   algorithms: string[];
+  authorizedParties: string[];
   claims: Required<Pick<JwtClaimsMapping, "userId">> &
     Omit<JwtClaimsMapping, "userId">;
 }
@@ -326,6 +334,7 @@ const PROVIDER_CLAIMS: Record<JwtAuthConfig["provider"], JwtClaimsMapping> = {
 
 const ALLOWED_ALGORITHMS = new Set([
   "RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384",
+  "EdDSA",
 ]);
 
 /**
@@ -358,6 +367,7 @@ export function resolveJwtAuth(auth: JwtAuthConfig): ResolvedJwtAuth {
       auth.jwt.jwksUri?.trim() ||
       `${issuer.replace(/\/+$/, "")}/.well-known/jwks.json`,
     algorithms,
+    authorizedParties: auth.jwt.authorizedParties ?? [],
     claims: { ...claims, userId: claims.userId || "sub" },
   };
 }

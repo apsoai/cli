@@ -80,6 +80,12 @@ describe("resolveJwtAuth", () => {
     ).toMatchObject({ userId: "sub", workspaceId: "https://x/org" });
   });
 
+  test("accepts EdDSA (Better Auth's JWT plugin) and keeps authorized parties", () => {
+    const r = resolveJwtAuth({ provider: "jwt", jwt: { issuer: "https://c", algorithms: ["EdDSA"], authorizedParties: ["https://app"] } });
+    expect(r.algorithms).toEqual(["EdDSA"]);
+    expect(r.authorizedParties).toEqual(["https://app"]);
+  });
+
   test("rejects a missing issuer and symmetric algorithms", () => {
     expect(() => resolveJwtAuth({ provider: "jwt", jwt: { issuer: "" } })).toThrow(/issuer is required/);
     expect(() => resolveJwtAuth({ provider: "jwt", jwt: { issuer: "https://c", algorithms: ["HS256"] } })).toThrow(/HS256 not supported/);
