@@ -56,12 +56,12 @@ import {<%= it.svcName %>} from './<%= it.entityName %>.service';
 @CrudAuth({
     filter: (req: any) => ({
 <% it.crudAuth.forEach((s) => { %>
-        <%= s.field %>: req.<%= s.contextKey %> ?? req.user?.<%= s.contextKey %>,
+        <%= s.field %>: req.<%= s.contextKey %> ?? req.user?.<%= s.contextKey %> ?? req.auth?.<%= s.contextKey %> ?? req.auth?.workspaceId,
 <% }) %>
     }),
     persist: (req: any) => ({
 <% it.crudAuth.forEach((s) => { %>
-        <%= s.field %>: req.<%= s.contextKey %> ?? req.user?.<%= s.contextKey %>,
+        <%= s.field %>: req.<%= s.contextKey %> ?? req.user?.<%= s.contextKey %> ?? req.auth?.<%= s.contextKey %> ?? req.auth?.workspaceId,
 <% }) %>
     }),
 })

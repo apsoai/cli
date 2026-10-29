@@ -324,7 +324,10 @@ export class ScopeGuard implements CanActivate {
       request[contextKey] ||
       request.user?.[contextKey] ||
       request.scope?.[contextKey] ||
-      request.context?.[contextKey]
+      request.context?.[contextKey]<% if (it.hasAuth) { %> ||
+      // A scope field with another name (orgId, tenantId) is the caller's tenant.
+      request.auth?.[contextKey] ||
+      request.auth?.workspaceId<% } %>
     );
   }
 
