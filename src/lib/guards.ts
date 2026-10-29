@@ -120,3 +120,55 @@ export function apiKeyTemplateData(
     hasExpiresAt: fields.has("expiresAt"),
   };
 }
+
+/** A direct scopeBy field and the auth context value that fills it. */
+export interface DirectScopeField {
+  field: string;
+  /** userId and email map to the caller's own; anything else is the tenant. */
+  source: "userId" | "email" | "tenant";
+}
+
+/** What Go and Python services need to scope one entity. */
+export interface EntityScopeData {
+  fields: DirectScopeField[];
+  enforceOn: string[];
+  bypassRoles: string[];
+  injectOnCreate: boolean;
+}
+
+/**
+ * The direct scopeBy fields of an entity, for services that filter in their
+ * own queries (Go, Python). Undefined without auth: with no caller identity
+ * there is no tenant to scope by. Nested paths (task.workspaceId) are not
+ * included; see hasNestedScopes.
+ */
+export function entityScope(
+  entity: Entity,
+  hasAuth: boolean
+): EntityScopeData | undefined {
+  if (!hasAuth || !entity.scopeBy) return undefined;
+  const [config] = getScopedEntities([entity]);
+  const fields = config.scopes
+    .filter((s) => s.direct)
+    .map((s) => ({
+      field: s.field,
+      source:
+        s.contextKey === "userId" || s.contextKey === "email"
+          ? (s.contextKey as "userId" | "email")
+          : ("tenant" as const),
+    }));
+  if (fields.length === 0 || config.enforceOn.length === 0) return undefined;
+  return {
+    fields,
+    enforceOn: config.enforceOn,
+    bypassRoles: config.bypassRoles,
+    injectOnCreate: config.injectOnCreate,
+  };
+}
+
+/** Entities whose scopeBy uses a nested path, which Go and Python do not enforce. */
+export function nestedScopeEntities(entities: Entity[]): string[] {
+  return getScopedEntities(entities)
+    .filter((e) => e.scopes.some((s) => !s.direct))
+    .map((e) => e.name);
+}

@@ -3,6 +3,10 @@
 from typing import List, Optional, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
+<% if (it.scope) { %>
+from fastapi import HTTPException, status
+from sqlalchemy import String, cast
+<% } %>
 
 from ..models.<%= it.entityName.toLowerCase() %> import <%= it.entityName %>
 from ..schemas.<%= it.entityName.toLowerCase() %> import <%= it.entityName %>Create, <%= it.entityName %>Update
@@ -14,38 +18,94 @@ class <%= it.entityName %>Service:
     Service layer for <%= it.entityName %> CRUD operations.
     """
 
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, auth: Any = None):
         self.db = db
-        self._qb = QueryBuilder(<%= it.entityName %>, db)
+        # The caller (app.autogen.auth.AuthContext), when auth is configured.
+        self.auth = auth
+<% if (it.scope) { %>
+
+    def _scope_values(self, op: str) -> dict:
+        """
+        The caller's value for each scopeBy field for op ("find", "get",
+        "create", "update", "delete"); empty when op is not enforced or the
+        caller holds a bypass role. 403 when the caller has no tenant.
+        """
+        if op not in <%~ JSON.stringify(it.scope.enforceOn) %>:
+            return {}
+        a = self.auth
+        if a is None:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tenant in the auth context")
+<% if (it.scope.bypassRoles.length > 0) { %>
+        if set(a.roles) & set(<%~ JSON.stringify(it.scope.bypassRoles) %>):
+            return {}
+<% } %>
+        values = {
+<% it.scope.fields.forEach((f) => { %>
+            <%~ JSON.stringify(f.field) %>: a.<%= f.source === 'userId' ? 'user_id' : f.source === 'email' ? 'email' : 'workspace_id' %>,
+<% }) %>
+        }
+        if any(v in (None, "") for v in values.values()):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tenant in the auth context")
+        return values
+
+    def _qb(self, op: str) -> QueryBuilder:
+        """A query builder limited to the caller's tenant (compared as text)."""
+        scope = [
+            cast(getattr(<%= it.entityName %>, field), String) == str(value)
+            for field, value in self._scope_values(op).items()
+        ]
+        return QueryBuilder(<%= it.entityName %>, self.db, scope=scope)
+
+    def _with_tenant(self, payload: dict) -> dict:
+        """Set every scopeBy field to the caller's value, converted to the column's type."""
+<% if (it.scope.injectOnCreate) { %>
+        for field, value in self._scope_values("create").items():
+            try:
+                value = getattr(<%= it.entityName %>, field).type.python_type(value)
+            except (NotImplementedError, TypeError, ValueError):
+                pass
+            payload[field] = value
+<% } %>
+        return payload
+<% } else { %>
+
+    def _qb(self, op: str) -> QueryBuilder:
+        return QueryBuilder(<%= it.entityName %>, self.db)
+<% } %>
 
     async def get_many(self, options: QueryOptions) -> PaginatedResult:
         """
         Retrieve a paginated list of <%= it.pluralEntityName %> with filtering, sorting, and joins.
         (nestjsx dialect — {data,count,total,page,pageCount} envelope.)
         """
-        return await self._qb.get_many(options)
+        return await self._qb("find").get_many(options)
 
     async def get_many_list(self, options: QueryOptions) -> List[Any]:
         """
         Retrieve <%= it.pluralEntityName %> as a bare list (PostgREST dialect).
         """
-        return await self._qb.get_many_list(options)
+        return await self._qb("find").get_many_list(options)
 
     async def get_one(
         self,
         id: Any,
         joins: Optional[List[str]] = None,
+        op: str = "get",
     ) -> Optional[<%= it.entityName %>]:
         """
         Retrieve a single <%= it.entityName %> by ID.
         """
-        return await self._qb.get_one(id, joins=joins)
+        return await self._qb(op).get_one(id, joins=joins)
 
     async def create_one(self, data: <%= it.entityName %>Create) -> <%= it.entityName %>:
         """
         Create a new <%= it.entityName %>.
         """
+<% if (it.scope) { %>
+        item = <%= it.entityName %>(**self._with_tenant(data.model_dump(exclude_unset=True)))
+<% } else { %>
         item = <%= it.entityName %>(**data.model_dump(exclude_unset=True))
+<% } %>
         self.db.add(item)
         await self.db.commit()
         await self.db.refresh(item)
@@ -55,7 +115,11 @@ class <%= it.entityName %>Service:
         """
         Create multiple <%= it.pluralEntityName %>.
         """
+<% if (it.scope) { %>
+        items = [<%= it.entityName %>(**self._with_tenant(item.model_dump(exclude_unset=True))) for item in data]
+<% } else { %>
         items = [<%= it.entityName %>(**item.model_dump(exclude_unset=True)) for item in data]
+<% } %>
         self.db.add_all(items)
         await self.db.commit()
         for item in items:
@@ -70,11 +134,16 @@ class <%= it.entityName %>Service:
         """
         Update an existing <%= it.entityName %>.
         """
-        item = await self.get_one(id)
+        item = await self.get_one(id, op="update")
         if not item:
             return None
 
         update_data = data.model_dump(exclude_unset=True)
+<% if (it.scope) { %>
+        # A scoped row cannot move to another tenant.
+        for field in self._scope_values("update"):
+            update_data.pop(field, None)
+<% } %>
         for field, value in update_data.items():
             setattr(item, field, value)
 
@@ -90,11 +159,15 @@ class <%= it.entityName %>Service:
         """
         Replace an existing <%= it.entityName %>.
         """
-        item = await self.get_one(id)
+        item = await self.get_one(id, op="update")
         if not item:
             return None
 
         replace_data = data.model_dump()
+<% if (it.scope) { %>
+        for field in self._scope_values("update"):
+            replace_data.pop(field, None)
+<% } %>
         for field, value in replace_data.items():
             setattr(item, field, value)
 
@@ -106,7 +179,7 @@ class <%= it.entityName %>Service:
         """
         Delete a <%= it.entityName %> by ID.
         """
-        item = await self.get_one(id)
+        item = await self.get_one(id, op="delete")
         if not item:
             return False
 

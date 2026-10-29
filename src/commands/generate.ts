@@ -220,6 +220,7 @@ export default class Generate extends BaseCommand {
           allEntities: entities,
           apiType: lowerCaseApiType,
           relationshipMap,
+          auth,
         }),
         generator.generateModule({
           entity,

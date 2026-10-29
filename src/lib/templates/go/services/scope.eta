@@ -1,0 +1,62 @@
+<%~ includeFile('../../header.eta', it) %>
+
+package services
+
+import (
+	"encoding"
+	"errors"
+	"fmt"
+	"reflect"
+	"strconv"
+)
+
+// ErrForbidden means the caller has no tenant to scope by (.apsorc scopeBy).
+var ErrForbidden = errors.New("no tenant in the auth context")
+
+// hasAnyRole reports whether the caller holds one of the bypass roles.
+func hasAnyRole(roles []string, bypass ...string) bool {
+	for _, r := range roles {
+		for _, b := range bypass {
+			if r == b {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// setFromString sets a scope field on a model from the caller's tenant id,
+// converting it to the field's type (string, integer, or a TextUnmarshaler such
+// as uuid.UUID; pointers are allocated).
+func setFromString(model interface{}, field, value string) error {
+	f := reflect.ValueOf(model).Elem().FieldByName(field)
+	if !f.IsValid() {
+		return fmt.Errorf("model has no field %s", field)
+	}
+	if f.Kind() == reflect.Ptr {
+		f.Set(reflect.New(f.Type().Elem()))
+		f = f.Elem()
+	}
+	if u, ok := f.Addr().Interface().(encoding.TextUnmarshaler); ok {
+		return u.UnmarshalText([]byte(value))
+	}
+	switch f.Kind() {
+	case reflect.String:
+		f.SetString(value)
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		n, err := strconv.ParseInt(value, 10, 64)
+		if err != nil {
+			return fmt.Errorf("tenant id %q is not a number: %w", value, err)
+		}
+		f.SetInt(n)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		n, err := strconv.ParseUint(value, 10, 64)
+		if err != nil {
+			return fmt.Errorf("tenant id %q is not a number: %w", value, err)
+		}
+		f.SetUint(n)
+	default:
+		return fmt.Errorf("cannot set %s from a tenant id", field)
+	}
+	return nil
+}

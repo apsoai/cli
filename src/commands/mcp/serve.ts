@@ -471,6 +471,7 @@ export default class McpServe extends BaseCommand {
                 allEntities: entities,
                 apiType: lowerCaseApiType,
                 relationshipMap,
+                auth,
               }),
               generator.generateController({
                 entity,

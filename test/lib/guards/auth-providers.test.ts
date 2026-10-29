@@ -199,3 +199,41 @@ describe("addMissingPythonDep", () => {
     expect(read(dir)).toContain('dev = [\n    "pytest",\n]');
   });
 });
+
+describe("scopeBy in Go and Python services", () => {
+  const project = entities[2];
+  const opts = (auth?: AuthConfig) => ({
+    entity: project,
+    relationships: [],
+    allEntities: entities,
+    apiType: "rest",
+    relationshipMap: {},
+    auth,
+  });
+
+  test("Go filters every query by the caller's tenant only when auth is set", async () => {
+    const [scoped] = await generators.go.generateService(opts(jwt("jwt")));
+    expect(scoped.content).toContain('s.scoped(ctx, query, "find")');
+    expect(scoped.content).toContain('"organization_id": a.WorkspaceID');
+    expect(scoped.content).toContain('setFromString(&item, "OrganizationID", v)');
+    const [open] = await generators.go.generateService(opts());
+    expect(open.content).not.toContain("scoped(");
+  });
+
+  test("Go emits the shared scope helpers when an entity is scoped", async () => {
+    const files = await generators.go.generateGuards(entities, jwt("jwt"));
+    expect(files.map((f) => f.path)).toEqual(
+      expect.arrayContaining(["services/scope.go", "handlers/scope.go"])
+    );
+  });
+
+  test("Python scopes the query builder and the router passes the caller", async () => {
+    const [service] = await generators.python.generateService(opts(jwt("jwt")));
+    expect(service.content).toContain('"organizationId": a.workspace_id');
+    expect(service.content).toContain('self._qb("find")');
+    const [open] = await generators.python.generateService(opts());
+    expect(open.content).not.toContain("_scope_values");
+    const [router] = await generators.python.generateController({ ...opts(), relationshipMap: {} });
+    expect(router.content).toContain('Service(db, getattr(request.state, "auth", None))');
+  });
+});

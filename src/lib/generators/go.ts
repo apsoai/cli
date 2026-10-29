@@ -19,7 +19,11 @@ import {
   resolveApiKeyAuth,
   resolveJwtAuth,
 } from "../types";
-import { apiKeyTemplateData, hasScopedEntities } from "../guards";
+import {
+  apiKeyTemplateData,
+  entityScope,
+  nestedScopeEntities,
+} from "../guards";
 import { getFieldForTemplate, typeExistsInEntity, fieldToEnumType } from "../utils/field";
 import {
   getRelationshipForTemplate,
@@ -260,6 +264,7 @@ export class GoGenerator extends BaseGenerator {
       primaryKeyGoType: this.getPrimaryKeyGoType(primaryKeyType),
       primaryKeySwaggerType: this.getPrimaryKeySwaggerType(primaryKeyType),
       associations: [...new Set(relationshipsForTemplate)],
+      scope: entityScope(entity, Boolean(options.auth)),
     };
 
     const content = await this.renderTemplate("./handlers/handler", data);
@@ -309,6 +314,7 @@ export class GoGenerator extends BaseGenerator {
       updatedAt,
       columns,
       associations: [...new Set(goRelationships)],
+      scope: this.goScope(entity, Boolean(options.auth)),
     };
 
     const content = await this.renderTemplate("./services/service", data);
@@ -554,14 +560,37 @@ ${modelRefs}
     ];
   }
 
+  /**
+   * Scope data for a Go service: each direct scopeBy field's struct field and
+   * gorm column (snake_case of the Go field). A field declared on the entity is
+   * pascalCase; a relation's foreign key (organizationId) is OrganizationID.
+   */
+  private goScope(entity: Entity, hasAuth: boolean) {
+    const scope = entityScope(entity, hasAuth);
+    if (!scope) return;
+    const declared = new Set((entity.fields ?? []).map((f) => f.name));
+    return {
+      ...scope,
+      fields: scope.fields.map((f) => ({
+        ...f,
+        goField:
+          declared.has(f.field) || !f.field.endsWith("Id")
+            ? pascalCase(f.field)
+            : `${pascalCase(f.field.slice(0, -2))}ID`,
+        column: snakeCase(f.field),
+      })),
+    };
+  }
+
   async generateGuards(
     entities: Entity[],
     auth?: AuthConfig
   ): Promise<GeneratedFile[]> {
     if (!auth) return [];
-    if (hasScopedEntities(entities))
+    const nested = nestedScopeEntities(entities);
+    if (nested.length > 0)
       console.warn(
-        "[apso] scopeBy is enforced in TypeScript services only; this Go service authenticates requests but does not filter rows by tenant"
+        `[apso] Nested scopeBy paths are enforced in TypeScript services only; ${nested.join(", ")} will not be filtered by those paths in this Go service`
       );
     let data: Record<string, unknown>;
     if (isJwtAuth(auth)) {
@@ -587,13 +616,21 @@ ${modelRefs}
       );
     }
     const content = await this.renderTemplate("./middleware/auth", data);
-
-    return [
-      {
-        path: "middleware/auth.go",
-        content,
-      },
-    ];
+    const files: GeneratedFile[] = [{ path: "middleware/auth.go", content }];
+    // Shared helpers for services and handlers of entities with a direct scopeBy.
+    if (entities.some((e) => entityScope(e, true))) {
+      files.push(
+        {
+          path: "services/scope.go",
+          content: await this.renderTemplate("./services/scope", {}),
+        },
+        {
+          path: "handlers/scope.go",
+          content: await this.renderTemplate("./handlers/scope", {}),
+        }
+      );
+    }
+    return files;
   }
 
   async generateQueryUtils(

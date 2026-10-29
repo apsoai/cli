@@ -184,6 +184,13 @@ export class ScopeGuard implements CanActivate {
     if (operation === 'create' && scopeConfig.injectOnCreate) {
       this.injectScopeValues(request, scopeConfig);
     }
+<% if (it.hasAuth) { %>
+
+    // A scoped row cannot move to another tenant on update.
+    if (operation === 'update') {
+      this.injectScopeValues(request, scopeConfig);
+    }
+<% } %>
 
     // For GET (list) requests, add scope filter
     if (operation === 'find') {

@@ -55,7 +55,7 @@ async def get_many(
     - order=col.asc|desc[.nullsfirst|nullslast]
     - limit=..&offset=.. (windows the bare array)
     """
-    service = <%= it.entityName %>Service(db)
+    service = <%= it.entityName %>Service(db, getattr(request.state, "auth", None))
     try:
         options = parse_query_params(request.query_params, x_crud_dialect)
     except QueryParseError as exc:
@@ -113,7 +113,7 @@ async def get_one(
     Supports query parameters:
     - join=relation (repeatable)
     """
-    service = <%= it.entityName %>Service(db)
+    service = <%= it.entityName %>Service(db, getattr(request.state, "auth", None))
 
     options = parse_query_params(request.query_params)
     joins = [j.relation for j in options.joins] if options.joins else None
@@ -134,13 +134,14 @@ async def get_one(
     summary="Create a single <%= it.entityName %>",
 )
 async def create_one(
+    request: Request,
     data: <%= it.entityName %>Create,
     db: AsyncSession = Depends(get_db),
 ) -> <%= it.entityName %>Schema:
     """
     Create a new <%= it.entityName %>.
     """
-    service = <%= it.entityName %>Service(db)
+    service = <%= it.entityName %>Service(db, getattr(request.state, "auth", None))
     return await service.create_one(data)
 
 
@@ -151,13 +152,14 @@ async def create_one(
     summary="Create multiple <%= it.pluralEntityName %>",
 )
 async def create_many(
+    request: Request,
     data: List[<%= it.entityName %>Create],
     db: AsyncSession = Depends(get_db),
 ) -> List[<%= it.entityName %>Schema]:
     """
     Create multiple <%= it.pluralEntityName %>.
     """
-    service = <%= it.entityName %>Service(db)
+    service = <%= it.entityName %>Service(db, getattr(request.state, "auth", None))
     return await service.create_many(data)
 
 
@@ -167,6 +169,7 @@ async def create_many(
     summary="Update a single <%= it.entityName %>",
 )
 async def update_one(
+    request: Request,
     id: <% if (it.primaryKeyType === 'uuid') { %>str<% } else { %>int<% } %>,
     data: <%= it.entityName %>Update,
     db: AsyncSession = Depends(get_db),
@@ -174,7 +177,7 @@ async def update_one(
     """
     Update an existing <%= it.entityName %>.
     """
-    service = <%= it.entityName %>Service(db)
+    service = <%= it.entityName %>Service(db, getattr(request.state, "auth", None))
     item = await service.update_one(id, data)
     if not item:
         raise HTTPException(
@@ -190,6 +193,7 @@ async def update_one(
     summary="Replace a single <%= it.entityName %>",
 )
 async def replace_one(
+    request: Request,
     id: <% if (it.primaryKeyType === 'uuid') { %>str<% } else { %>int<% } %>,
     data: <%= it.entityName %>Create,
     db: AsyncSession = Depends(get_db),
@@ -197,7 +201,7 @@ async def replace_one(
     """
     Replace an existing <%= it.entityName %>.
     """
-    service = <%= it.entityName %>Service(db)
+    service = <%= it.entityName %>Service(db, getattr(request.state, "auth", None))
     item = await service.replace_one(id, data)
     if not item:
         raise HTTPException(
@@ -213,13 +217,14 @@ async def replace_one(
     summary="Delete a single <%= it.entityName %>",
 )
 async def delete_one(
+    request: Request,
     id: <% if (it.primaryKeyType === 'uuid') { %>str<% } else { %>int<% } %>,
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """
     Delete a <%= it.entityName %> by ID.
     """
-    service = <%= it.entityName %>Service(db)
+    service = <%= it.entityName %>Service(db, getattr(request.state, "auth", None))
     deleted = await service.delete_one(id)
     if not deleted:
         raise HTTPException(

@@ -76,6 +76,11 @@ func (h *<%= it.entityName %>Handler) FindAll(c *gin.Context) {
 	if opts.Bare {
 		rows, err := h.service.FindAllBare(c.Request.Context(), opts)
 		if err != nil {
+<% if (it.scope) { %>
+			if scopeError(c, err) {
+				return
+			}
+<% } %>
 			if qe, ok := utils.AsQueryError(err); ok {
 				c.JSON(http.StatusBadRequest, gin.H{"error": qe.Error()})
 				return
@@ -89,6 +94,11 @@ func (h *<%= it.entityName %>Handler) FindAll(c *gin.Context) {
 
 	result, err := h.service.FindAll(c.Request.Context(), opts)
 	if err != nil {
+<% if (it.scope) { %>
+		if scopeError(c, err) {
+			return
+		}
+<% } %>
 		if qe, ok := utils.AsQueryError(err); ok {
 			c.JSON(http.StatusBadRequest, gin.H{"error": qe.Error()})
 			return
@@ -126,6 +136,11 @@ func (h *<%= it.entityName %>Handler) FindOne(c *gin.Context) {
 
 	result, err := h.service.FindOne(c.Request.Context(), id)
 	if err != nil {
+<% if (it.scope) { %>
+		if scopeError(c, err) {
+			return
+		}
+<% } %>
 		c.JSON(http.StatusNotFound, gin.H{"error": "<%= it.entityName %> not found"})
 		return
 	}
@@ -158,6 +173,11 @@ func (h *<%= it.entityName %>Handler) Create(c *gin.Context) {
 
 	result, err := h.service.Create(c.Request.Context(), &input)
 	if err != nil {
+<% if (it.scope) { %>
+		if scopeError(c, err) {
+			return
+		}
+<% } %>
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -204,6 +224,11 @@ func (h *<%= it.entityName %>Handler) Update(c *gin.Context) {
 
 	result, err := h.service.Update(c.Request.Context(), id, &input)
 	if err != nil {
+<% if (it.scope) { %>
+		if scopeError(c, err) {
+			return
+		}
+<% } %>
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -236,6 +261,11 @@ func (h *<%= it.entityName %>Handler) Delete(c *gin.Context) {
 <% } %>
 
 	if err := h.service.Delete(c.Request.Context(), id); err != nil {
+<% if (it.scope) { %>
+		if scopeError(c, err) {
+			return
+		}
+<% } %>
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
