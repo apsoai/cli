@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { <% if (it.hasNestedFk) { %>DataSource, <% } %>Repository } from 'typeorm';
 
 <% /* Import all entities that have scoped relationships (from sibling autogen folders) */ %>
 <% it.scopedEntities.forEach((entity) => { %>
@@ -73,6 +73,12 @@ export interface ScopeField {
   direct: boolean;
   /** For nested paths, the full path (e.g., 'task.workspaceId') */
   path?: string;
+  /** Nested paths: the foreign key to the first hop (e.g., 'taskId') */
+  fkField?: string;
+  /** Nested paths: the entity the foreign key points to (e.g., 'Task') */
+  parentEntity?: string;
+  /** Nested paths: the rest of the path on that entity (e.g., 'workspaceId') */
+  parentPath?: string;
 }
 
 /**
@@ -90,6 +96,11 @@ export const ENTITY_SCOPES: Record<string, ScopeConfig> = {
         direct: <%= scope.direct %>,
 <% if (scope.path) { %>
         path: '<%= scope.path %>',
+<% } %>
+<% if (scope.fkField) { %>
+        fkField: '<%= scope.fkField %>',
+        parentEntity: '<%= scope.parentEntity %>',
+        parentPath: '<%= scope.parentPath %>',
 <% } %>
       }<%= scopeIndex < entity.scopes.length - 1 ? ',' : '' %>
 <% }) %>
@@ -109,6 +120,9 @@ export class ScopeGuard implements CanActivate {
     @InjectRepository(<%= entity.name %>)
     private <%= entity.repoName %>: Repository<<%= entity.name %>>,
 <% }) %>
+<% if (it.hasNestedFk) { %>
+    private dataSource: DataSource,
+<% } %>
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -166,6 +180,12 @@ export class ScopeGuard implements CanActivate {
     if (!scopeConfig.enforceOn.includes(operation)) {
       return true;
     }
+<% if (it.hasNestedFk) { %>
+
+    // Nested paths (task.workspaceId): load the caller's parent ids for the
+    // controller's list filter, and refuse a parent from another tenant.
+    await this.loadNestedScopes(request, scopeConfig, operation);
+<% } %>
 
     // For GET requests with an ID, verify the resource belongs to this scope
     if ((operation === 'get' || operation === 'update' || operation === 'delete') && request.params?.id) {
@@ -338,6 +358,50 @@ export class ScopeGuard implements CanActivate {
     );
   }
 
+<% if (it.hasNestedFk) { %>
+  /**
+   * For each nested scope, find the ids of the parent rows in the caller's
+   * tenant and put them on request.apsoScope, where the controller's
+   * @CrudAuth filter reads them. A create or update that names a parent
+   * outside that set is refused.
+   */
+  private async loadNestedScopes(
+    request: any,
+    scopeConfig: ScopeConfig,
+    operation: string,
+  ): Promise<void> {
+    for (const scope of scopeConfig.scopes) {
+      if (!scope.fkField || !scope.parentEntity || !scope.parentPath) continue;
+      const scopeValue = this.getScopeValue(request, scope.contextKey);
+      if (!scopeValue) {
+        throw new ForbiddenException('No tenant in the auth context');
+      }
+      // ponytail: loads every parent id in the tenant per request; switch to a
+      // subquery filter if a tenant grows past tens of thousands of parents.
+      const repo = this.dataSource.getRepository(scope.parentEntity);
+      const pk = repo.metadata.primaryColumns[0].propertyName;
+      const where = scope.parentPath
+        .split('.')
+        .reverse()
+        .reduce<any>((inner, key) => ({ [key]: inner }), scopeValue);
+      const parents = await repo.find({ select: { [pk]: true } as any, where });
+      const ids = parents.map((p: any) => p[pk]);
+      request.apsoScope = { ...request.apsoScope, [scope.fkField]: ids };
+
+      if (operation === 'create' || operation === 'update') {
+        const body = request.body && typeof request.body === 'object' ? request.body : {};
+        const items = Array.isArray(body.bulk) ? body.bulk : [body];
+        for (const item of items) {
+          const fk = item?.[scope.fkField] ?? item?.[scope.field]?.[pk];
+          if (fk != null && !ids.some((id: any) => String(id) === String(fk))) {
+            throw new ForbiddenException('You do not have access to this resource');
+          }
+        }
+      }
+    }
+  }
+
+<% } %>
   private getNestedValue(obj: any, path: string): any {
     return path.split('.').reduce((current, key) => current?.[key], obj);
   }

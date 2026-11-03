@@ -14,6 +14,7 @@ import {
   Entity,
   AuthConfig,
   Field,
+  RelationshipMap,
 } from "../types";
 // Utilities available for future use: createFile, withGeneratedMeta from "../utils/file-system"
 import { getFieldForTemplate, typeExistsInEntity, fieldToEnumType } from "../utils/field";
@@ -200,6 +201,9 @@ export class TypeScriptGenerator extends BaseGenerator {
     const ctrlName = `${entityName}Controller`;
     const pluralEntityName = pluralize(entityName);
     const primaryKeyType = entity.primaryKeyType || "serial";
+    const scopes = auth
+      ? getScopedEntities([entity], relationshipMap)[0]?.scopes ?? []
+      : [];
 
     const data = {
       svcName,
@@ -209,12 +213,12 @@ export class TypeScriptGenerator extends BaseGenerator {
       primaryKeyType,
       associations: [...new Set(relationshipsForTemplate)],
       nestedJoinsFile,
-      // Direct scopeBy fields @CrudAuth adds to every query once a caller is
-      // authenticated. Nested scopes (task.workspaceId) are checked per row by
-      // ScopeGuard only.
-      crudAuth: auth
-        ? (getScopedEntities([entity])[0]?.scopes ?? []).filter((s) => s.direct)
-        : [],
+      // scopeBy fields @CrudAuth adds to every query once a caller is
+      // authenticated. Direct fields match the caller's tenant; nested paths
+      // (task.workspaceId) match the foreign key (taskId) against the parent
+      // ids ScopeGuard loaded for the caller into req.apsoScope.
+      crudAuth: scopes.filter((s) => s.direct),
+      crudAuthNested: scopes.filter((s) => s.fkField),
     };
 
     const controllerContent = await this.renderTemplate(
@@ -476,7 +480,8 @@ export class TypeScriptGenerator extends BaseGenerator {
 
   async generateGuards(
     entities: Entity[],
-    auth?: AuthConfig
+    auth?: AuthConfig,
+    relationshipMap?: RelationshipMap
   ): Promise<GeneratedFile[]> {
     const hasScopes = hasScopedEntities(entities);
     const normalizedAuth = this.normalizeAuthConfig(auth);
@@ -491,7 +496,7 @@ export class TypeScriptGenerator extends BaseGenerator {
       return [];
     }
 
-    const scopedEntities = getScopedEntities(entities);
+    const scopedEntities = getScopedEntities(entities, relationshipMap);
     const files: GeneratedFile[] = [];
 
     const authEntities: string[] = normalizedAuth
@@ -507,6 +512,9 @@ export class TypeScriptGenerator extends BaseGenerator {
       : [];
     const templateData = {
       scopedEntities,
+      // Nested paths are only enforced on list and create with a caller's tenant.
+      hasNestedFk:
+        hasAuth && scopedEntities.some((e) => e.scopes.some((s) => s.fkField)),
       authConfig: normalizedAuth,
       hasAuth,
       authProvider: auth?.provider,

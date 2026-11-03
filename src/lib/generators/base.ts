@@ -13,6 +13,7 @@ import {
   LanguageGenerator,
   Entity,
   AuthConfig,
+  RelationshipMap,
 } from "../types";
 import { createFile, withGeneratedMeta } from "../utils/file-system";
 
@@ -117,7 +118,8 @@ export abstract class BaseGenerator implements LanguageGenerator {
    */
   abstract generateGuards(
     entities: Entity[],
-    auth?: AuthConfig
+    auth?: AuthConfig,
+    relationshipMap?: RelationshipMap
   ): Promise<GeneratedFile[]>;
 
   /**

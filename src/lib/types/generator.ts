@@ -324,7 +324,8 @@ export interface LanguageGenerator {
    */
   generateGuards(
     entities: Entity[],
-    auth?: AuthConfig
+    auth?: AuthConfig,
+    relationshipMap?: RelationshipMap
   ): Promise<GeneratedFile[]>;
 
   /**

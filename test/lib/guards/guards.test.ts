@@ -275,5 +275,38 @@ describe("guards module", () => {
       expect(result).toHaveLength(2);
       expect(result.map((e) => e.name)).toEqual(["Project", "Task"]);
     });
+
+    test("resolves a nested path to its foreign key with the relationship map", () => {
+      const entities: Entity[] = [
+        { name: "Comment", fields: [], scopeBy: ["task.project.workspaceId", "userId"] },
+      ];
+      const [comment] = getScopedEntities(entities, {
+        Comment: [{ name: "Task", type: "ManyToOne" }],
+      });
+      expect(comment.scopes[0]).toMatchObject({
+        direct: false,
+        fkField: "taskId",
+        parentEntity: "Task",
+        parentPath: "project.workspaceId",
+      });
+      expect(comment.scopes[1].fkField).toBeUndefined();
+    });
+
+    test("uses the relationship's reference name for the foreign key", () => {
+      const [comment] = getScopedEntities(
+        [{ name: "Comment", fields: [], scopeBy: "parentTask.workspaceId" }],
+        { Comment: [{ name: "Task", type: "ManyToOne", referenceName: "parentTask" }] }
+      );
+      expect(comment.scopes[0]).toMatchObject({ fkField: "parentTaskId", parentEntity: "Task" });
+    });
+
+    test("rejects a nested path whose first segment is not a many-to-one relationship", () => {
+      expect(() =>
+        getScopedEntities(
+          [{ name: "Comment", fields: [], scopeBy: "task.workspaceId" }],
+          { Comment: [{ name: "Task", type: "OneToMany" }] }
+        )
+      ).toThrow('Comment.scopeBy "task.workspaceId": "task" must be a many-to-one relationship of Comment');
+    });
   });
 });

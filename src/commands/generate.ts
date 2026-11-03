@@ -262,7 +262,7 @@ export default class Generate extends BaseCommand {
     }
 
     // Generate guards
-    const guardFiles = await generator.generateGuards(entities, auth);
+    const guardFiles = await generator.generateGuards(entities, auth, relationshipMap);
     for (const file of guardFiles) {
       // eslint-disable-next-line no-await-in-loop
       await writeGenerated(file.path, file.content);
