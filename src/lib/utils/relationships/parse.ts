@@ -487,7 +487,7 @@ export const parseRelationships = (
   return response;
 };
 
-const getRelationshipName = (relationship: Relationship): string => {
+export const getRelationshipName = (relationship: Relationship): string => {
   if (relationship.referenceName) {
     return camelCase(relationship.referenceName);
   }

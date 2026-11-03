@@ -227,10 +227,13 @@ const ENTITIES = [
   { name: "Project", created_at: true, updated_at: true, scopeBy: "organizationId", fields: [{ name: "title", type: "text" }] },
   // A tenant field that is not named workspaceId/organizationId (imported schemas).
   { name: "Note", created_at: true, updated_at: true, scopeBy: "orgId", fields: [{ name: "body", type: "text" }, { name: "orgId", type: "integer", nullable: true }] },
+  // Scoped through its parent (TypeScript only; Python and Go warn and skip it).
+  { name: "Task", created_at: true, updated_at: true, scopeBy: "project.organizationId", fields: [{ name: "title", type: "text" }] },
 ];
 const RELATIONSHIPS = [
   { from: "Organization", to: "ApiKey", type: "OneToMany" },
   { from: "Organization", to: "Project", type: "OneToMany" },
+  { from: "Project", to: "Task", type: "OneToMany" },
 ];
 
 const route = (plural) =>
@@ -374,8 +377,32 @@ async function crudAndScope(base, t, auth, auth2, noTenant) {
       const theirNotes = await call("GET", base + NOTES, { headers: as2 });
       t.assert("other tenant's notes exclude it", theirNotes.status === 200 && !rows(theirNotes.json).some((n) => n.id === note.json.id), `${theirNotes.status}`);
     }
+    if (language === "typescript") await nestedScope(base, t, as1, as2, pid);
   }
   t.expect("delete project", await call("DELETE", `${base}${PROJECTS}/${pid}`, { headers: as1 }), 200, 204);
+}
+
+/** scopeBy "project.organizationId": a Task belongs to its project's tenant. */
+async function nestedScope(base, t, as1, as2, pid) {
+  const TASKS = route("Tasks");
+  const theirProject = await call("POST", base + PROJECTS, { headers: as2, body: { title: "Theirs" } });
+  if (!t.expect("other tenant creates a project", theirProject, 200, 201)) return;
+  const pid2 = theirProject.json.id;
+  const task = await call("POST", base + TASKS, { headers: as1, body: { title: "Ship it", projectId: pid } });
+  if (t.expect("create task under own project", task, 200, 201)) {
+    const tid = task.json.id;
+    const mine = await call("GET", base + TASKS, { headers: as1 });
+    t.assert("own task list includes the task", mine.status === 200 && rows(mine.json).some((x) => x.id === tid), `${mine.status} ${mine.text.slice(0, 200)}`);
+    const theirs = await call("GET", base + TASKS, { headers: as2 });
+    t.assert("other tenant's task list excludes the task", theirs.status === 200 && !rows(theirs.json).some((x) => x.id === tid), `${theirs.status} ${theirs.text.slice(0, 200)}`);
+    t.expect("other tenant cannot read the task", await call("GET", `${base}${TASKS}/${tid}`, { headers: as2 }), 403, 404);
+    t.expect("task cannot move to another tenant's project", await call("PATCH", `${base}${TASKS}/${tid}`, { headers: as1, body: { projectId: pid2 } }), 403);
+    t.expect("delete task", await call("DELETE", `${base}${TASKS}/${tid}`, { headers: as1 }), 200, 204);
+  }
+  t.expect("cannot create a task under another tenant's project", await call("POST", base + TASKS, { headers: as2, body: { title: "Sneak", projectId: pid } }), 403);
+  const empty = await call("GET", base + TASKS, { headers: as2 });
+  t.assert("tenant with no tasks lists none", empty.status === 200 && rows(empty.json).length === 0, `${empty.status} ${empty.text.slice(0, 200)}`);
+  t.expect("delete other tenant's project", await call("DELETE", `${base}${PROJECTS}/${pid2}`, { headers: as2 }), 200, 204);
 }
 
 async function jwtCase(name, p, base) {

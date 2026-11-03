@@ -1,5 +1,14 @@
-import { Entity, ResolvedApiKeyAuth, ScopeOptions } from "./types";
+import {
+  Entity,
+  RelationshipMap,
+  ResolvedApiKeyAuth,
+  ScopeOptions,
+} from "./types";
 import pluralize from "pluralize";
+import {
+  getRelationshipIdField,
+  getRelationshipName,
+} from "./utils/relationships/parse";
 
 /**
  * Represents a scope field configuration for template rendering
@@ -9,6 +18,14 @@ export interface ScopeFieldConfig {
   contextKey: string;
   direct: boolean;
   path?: string;
+  /**
+   * Nested paths only, set when the relationship map is given: the entity's
+   * foreign key to the first hop (taskId), the entity it points to (Task),
+   * and the rest of the path on that entity (workspaceId).
+   */
+  fkField?: string;
+  parentEntity?: string;
+  parentPath?: string;
 }
 
 /**
@@ -63,19 +80,51 @@ function toRepoName(entityName: string): string {
 }
 
 /**
- * Extracts scoped entity configurations from all entities.
+ * A nested path's first segment must be a ManyToOne relationship of the
+ * entity: its foreign key is what list queries filter on.
  */
-export function getScopedEntities(entities: Entity[]): ScopedEntityConfig[] {
+function resolveNestedScope(
+  entityName: string,
+  scope: ScopeFieldConfig,
+  relationshipMap: RelationshipMap
+): ScopeFieldConfig {
+  if (scope.direct || !scope.path) return scope;
+  const relation = (relationshipMap[entityName] ?? []).find(
+    (r) => r.type === "ManyToOne" && getRelationshipName(r) === scope.field
+  );
+  if (!relation)
+    throw new Error(
+      `${entityName}.scopeBy "${scope.path}": "${scope.field}" must be a many-to-one relationship of ${entityName}`
+    );
+  return {
+    ...scope,
+    fkField: getRelationshipIdField(relation),
+    parentEntity: relation.name,
+    parentPath: scope.path.split(".").slice(1).join("."),
+  };
+}
+
+/**
+ * Extracts scoped entity configurations from all entities. Pass the
+ * relationship map to resolve nested paths to their foreign keys.
+ */
+export function getScopedEntities(
+  entities: Entity[],
+  relationshipMap?: RelationshipMap
+): ScopedEntityConfig[] {
   return entities
     .filter((entity) => entity.scopeBy)
     .map((entity) => {
       const options = { ...DEFAULT_SCOPE_OPTIONS, ...entity.scopeOptions };
+      const scopes = parseScopeBy(entity.scopeBy!);
 
       return {
         name: entity.name,
         routeName: toRouteName(entity.name),
         repoName: toRepoName(entity.name),
-        scopes: parseScopeBy(entity.scopeBy!),
+        scopes: relationshipMap
+          ? scopes.map((s) => resolveNestedScope(entity.name, s, relationshipMap))
+          : scopes,
         injectOnCreate: options.injectOnCreate,
         enforceOn: options.enforceOn,
         bypassRoles: options.bypassRoles,
