@@ -31,7 +31,6 @@ import { <%= entity %> } from '../<%= entity %>/<%= entity %>.entity';
  * GuardsModule provides authentication and scope-based data isolation guards.
  *
  * Auto-generated from .apsorc configuration.
- * Generated at: <%= it.generatedAt %>
  *
  * Usage:
  * 1. Import GuardsModule in your AppModule

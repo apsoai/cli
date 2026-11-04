@@ -15,7 +15,7 @@ import {
   AuthConfig,
   RelationshipMap,
 } from "../types";
-import { createFile, withGeneratedMeta } from "../utils/file-system";
+import { createFile } from "../utils/file-system";
 
 /**
  * Abstract base class for language-specific generators.
@@ -156,7 +156,7 @@ export abstract class BaseGenerator implements LanguageGenerator {
   ): Promise<string> {
     const content = await this.templateEngine.renderFileAsync(
       templatePath,
-      withGeneratedMeta(data)
+      data
     );
     return content as string;
   }

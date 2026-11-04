@@ -237,3 +237,17 @@ describe("scopeBy in Go and Python services", () => {
     expect(router.content).toContain('Service(db, getattr(request.state, "auth", None))');
   });
 });
+
+describe("guard regeneration (cli#129)", () => {
+  test("JWT and API-key guards render the same when nothing changed", async () => {
+    for (const auth of [jwt("auth0"), { provider: "api-key" } as AuthConfig]) {
+      const first = await guardFile("typescript", auth);
+      await new Promise((resolve) => {
+        setTimeout(resolve, 5);
+      });
+      expect(first).toContain("AuthGuard");
+      expect(first).not.toContain("Generated at");
+      expect(await guardFile("typescript", auth)).toBe(first);
+    }
+  });
+});
