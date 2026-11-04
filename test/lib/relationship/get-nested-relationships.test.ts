@@ -700,4 +700,25 @@ describe("getNestedRelationships requirements", () => {
   //   const result = getNestedRelationships("User", map);
   //   expect(result).toEqual(["owner"]); // No owner.owner
   // });
+  test("emits each property name once when two relationships share it", () => {
+    // Service has two FKs to Stack; both inverse sides default to "services".
+    const relationshipMap: RelationshipMap = {
+      Workspace: [
+        { type: "ManyToOne", name: "Stack", referenceName: "sharedStack" },
+      ],
+      Stack: [
+        { type: "OneToMany", name: "Service" },
+        { type: "OneToMany", name: "Service" },
+      ],
+      Service: [
+        { type: "ManyToOne", name: "Stack", referenceName: "networkStack" },
+        { type: "ManyToOne", name: "Stack", referenceName: "databaseStack" },
+      ],
+    };
+
+    const paths = getNestedRelationships("Workspace", relationshipMap);
+
+    expect(paths).toContain("sharedStack.services");
+    expect(paths.length).toBe(new Set(paths).size);
+  });
 });
