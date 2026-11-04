@@ -300,15 +300,22 @@ function adaptSchemaFromService(raw: Raw): ServiceSchema {
  */
 export const buildApi = {
   /** Trigger a deploy for the linked service (POST /api/services/:id/deploy). */
-  async trigger(_workspaceSlug: string, serviceSlugOrId: string): Promise<BuildStatus> {
+  async trigger(
+    _workspaceSlug: string,
+    serviceSlugOrId: string,
+    env: ServiceEnv = "production"
+  ): Promise<BuildStatus> {
     const id = await resolveServiceId(serviceSlugOrId);
-    await api.post<Raw>(`/api/services/${id}/deploy`, { target: "apso" });
-    return buildStatusFromService(id);
+    await api.post<Raw>(`/api/services/${id}/deploy`, { target: "apso", environment: env });
+    return this.getStatus(id, env);
   },
 
-  /** No dedicated builds resource; derive status from the service record. */
-  async getStatus(serviceId: string): Promise<BuildStatus> {
-    return buildStatusFromService(serviceId);
+  /** No dedicated builds resource: production reads the service record, staging its own environment row. */
+  async getStatus(serviceId: string, env: ServiceEnv = "production"): Promise<BuildStatus> {
+    if (env === "production") return buildStatusFromService(serviceId);
+    const row = await envApi.get(serviceId, env);
+    if (!row) throw new Error(`This service has no ${env} environment. Run 'apso env add ${env}'.`);
+    return toBuildStatus(serviceId, row.buildStatus ?? row.status, row.updatedAt);
   },
 
   async getLatest(_workspaceSlug: string, serviceSlugOrId: string): Promise<BuildStatus | null> {
@@ -322,6 +329,7 @@ export const buildApi = {
       maxWait?: number;
       pollInterval?: number;
       onProgress?: (status: BuildStatus) => void;
+      env?: ServiceEnv;
     }
   ): Promise<BuildStatus> {
     const maxWait = options?.maxWait ?? 600_000;
@@ -329,7 +337,7 @@ export const buildApi = {
     const startTime = Date.now();
     /* eslint-disable no-await-in-loop */
     while (Date.now() - startTime < maxWait) {
-      const status = await this.getStatus(serviceId);
+      const status = await this.getStatus(serviceId, options?.env);
       if (options?.onProgress) options.onProgress(status);
       if (status.status === "success" || status.status === "failed") return status;
       await new Promise((resolve) => {
@@ -343,17 +351,84 @@ export const buildApi = {
 
 async function buildStatusFromService(serviceId: string): Promise<BuildStatus> {
   const raw = await api.get<Raw>(`/api/services/${serviceId}`);
-  const b = String(raw.build_status ?? "").toLowerCase();
+  return toBuildStatus(String(raw.id), raw.build_status, raw.updated_at ?? raw.created_at);
+}
+
+/** Maps a platform build_status (service record or environment row) to the CLI's four states. */
+export function toBuildStatus(serviceId: string, buildStatus: unknown, updatedAt?: string): BuildStatus {
+  const b = String(buildStatus ?? "").toLowerCase();
   const status: BuildStatus["status"] =
     b === "ready" ? "success" : b === "failed" || b === "error" ? "failed" : b === "new" || b === "" ? "pending" : "building";
   return {
-    id: String(raw.id),
-    serviceId: String(raw.id),
+    id: serviceId,
+    serviceId,
     status,
-    startedAt: raw.updated_at ?? raw.created_at ?? new Date().toISOString(),
-    completedAt: status === "success" || status === "failed" ? raw.updated_at : undefined,
+    startedAt: updatedAt ?? new Date().toISOString(),
+    completedAt: status === "success" || status === "failed" ? updatedAt : undefined,
   };
 }
+
+/**
+ * Environments API. Each environment is a ServiceDeployment row with its own
+ * stack, URL, logs and database branch. Production always exists; staging is
+ * an add-on that `addStaging` starts (and bills) and `removeStaging` tears down.
+ */
+export type ServiceEnv = "production" | "staging";
+export const SERVICE_ENVS: ServiceEnv[] = ["production", "staging"];
+
+export interface Environment {
+  id: string;
+  environment: string;
+  status: string;
+  buildStatus?: string;
+  url?: string;
+  lastDeployedAt?: string;
+  updatedAt?: string;
+}
+
+export interface PromotePreview {
+  blocked: string | null;
+  commits: { sha: string; message: string; author?: string; date?: string }[];
+  missingEnvVars: string[];
+  migrations: string[];
+}
+
+export const envApi = {
+  async list(serviceId: string): Promise<Environment[]> {
+    const raw = await api.get<Raw>(`/api/services/${serviceId}/deployments`);
+    const rows: Raw[] = Array.isArray(raw) ? raw : raw?.data ?? [];
+    return rows.map((r) => ({
+      id: String(r.id),
+      environment: String(r.environment_type),
+      status: String(r.deployment_status ?? ""),
+      buildStatus: r.build_status ?? undefined,
+      url: r.deployment_url ?? undefined,
+      lastDeployedAt: r.last_deployed_at ?? undefined,
+      updatedAt: r.updated_at ?? undefined,
+    }));
+  },
+
+  async get(serviceId: string, env: ServiceEnv): Promise<Environment | undefined> {
+    const envs = await this.list(serviceId);
+    return envs.find((e) => e.environment === env);
+  },
+
+  addStaging(serviceId: string): Promise<Raw> {
+    return api.post<Raw>(`/api/services/${serviceId}/environments/staging`);
+  },
+
+  removeStaging(serviceId: string): Promise<Raw> {
+    return api.delete<Raw>(`/api/services/${serviceId}/environments/staging`);
+  },
+
+  promotePreview(serviceId: string): Promise<PromotePreview> {
+    return api.get<PromotePreview>(`/api/services/${serviceId}/environments/promote-preview`);
+  },
+
+  promote(serviceId: string): Promise<Raw> {
+    return api.post<Raw>(`/api/services/${serviceId}/promote`);
+  },
+};
 
 /**
  * GitHub API

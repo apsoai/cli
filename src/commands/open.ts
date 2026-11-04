@@ -4,7 +4,8 @@ import * as os from "os";
 import BaseCommand from "../lib/base-command";
 import { credentials, projectLink } from "../lib/config";
 import { globalConfig } from "../lib/config";
-import { servicesApi } from "../lib/api/services";
+import { servicesApi, envApi } from "../lib/api/services";
+import { asEnv, envFlag } from "../lib/environments";
 
 export default class Open extends BaseCommand {
   static description = "Open the service dashboard or endpoint in browser";
@@ -13,9 +14,11 @@ export default class Open extends BaseCommand {
     `$ apso open`,
     `$ apso open --endpoint`,
     `$ apso open --dashboard`,
+    `$ apso open --endpoint --env staging`,
   ];
 
   static flags = {
+    env: envFlag,
     endpoint: Flags.boolean({
       char: "e",
       description: "Open the service API endpoint",
@@ -50,13 +53,16 @@ export default class Open extends BaseCommand {
         link.workspaceSlug,
         link.serviceSlug
       );
-      if (!service.endpoint) {
+      const env = asEnv(flags.env);
+      const row = env === "production" ? undefined : await envApi.get(service.id, env);
+      const endpoint = row ? row.url : service.endpoint;
+      if (!endpoint) {
         this.error(
-          "Service has no endpoint. Deploy first with 'apso deploy'."
+          `Service has no ${env} endpoint. Deploy first with 'apso deploy --env ${env}'.`
         );
       }
-      this.log(`Opening endpoint: ${service.endpoint}`);
-      openUrl(service.endpoint);
+      this.log(`Opening endpoint: ${endpoint}`);
+      openUrl(endpoint);
     } else {
       // Open the dashboard (default)
       const dashboardUrl = `${config.webUrl}/workspaces/${link.workspaceSlug}/services/${link.serviceSlug}`;
