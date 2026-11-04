@@ -150,8 +150,10 @@ describe("generated wiring", () => {
 
   test("Go create DTO does not require a scopeBy foreign key the service sets", async () => {
     const rels = [{ name: "Organization", type: "ManyToOne" as const }];
-    const dto = async (auth?: AuthConfig) =>
-      (await generators.go.generateDto({ entity: entities[2], relationships: rels, allEntities: entities, apiType: "rest", auth }))[0].content;
+    const dto = async (auth?: AuthConfig) => {
+      const [file] = await generators.go.generateDto({ entity: entities[2], relationships: rels, allEntities: entities, apiType: "rest", auth });
+      return file.content;
+    };
     expect(await dto(jwt("jwt"))).toContain('OrganizationID uint `json:"organizationId"`');
     expect(await dto()).toContain('`json:"organizationId" validate:"required"`');
   });
