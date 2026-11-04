@@ -1,7 +1,8 @@
 import { Flags } from "@oclif/core";
 import BaseCommand from "../lib/base-command";
 import { credentials, projectLink } from "../lib/config";
-import { servicesApi, buildApi, githubApi } from "../lib/api/services";
+import { servicesApi, buildApi, githubApi, envApi } from "../lib/api/services";
+import { asEnv, envFlag } from "../lib/environments";
 import { withUpgradeRetry } from "../lib/upgrade";
 import * as git from "../lib/git";
 import { parseApsorc } from "../lib/apsorc-parser";
@@ -19,9 +20,11 @@ export default class Deploy extends BaseCommand {
     `$ apso deploy --yes`,
     `$ apso deploy --skip-migrate`,
     `$ apso deploy --no-wait`,
+    `$ apso deploy --env staging`,
   ];
 
   static flags = {
+    env: envFlag,
     "no-wait": Flags.boolean({
       description: "Trigger deploy without waiting for completion",
       default: false,
@@ -55,6 +58,7 @@ export default class Deploy extends BaseCommand {
 
   async run(): Promise<void> {
     const { flags } = await this.parse(Deploy);
+    const env = asEnv(flags.env);
 
     // Auth guard
     if (!credentials.isValid()) {
@@ -127,10 +131,10 @@ export default class Deploy extends BaseCommand {
     // Determine source
     if (service.githubRepo || flags.repo) {
       this.log(
-        `Deploying "${service.name}" from ${service.githubRepo || flags.repo}#${flags.branch}...`
+        `Deploying "${service.name}" (${env}) from ${service.githubRepo || flags.repo}#${flags.branch}...`
       );
     } else {
-      this.log(`Deploying "${service.name}" via Apso Platform...`);
+      this.log(`Deploying "${service.name}" (${env}) via Apso Platform...`);
     }
 
     // Confirmation
@@ -159,12 +163,12 @@ export default class Deploy extends BaseCommand {
 
     // Trigger build
     const build = await withUpgradeRetry(() =>
-      buildApi.trigger(link.workspaceSlug, link.serviceSlug)
+      buildApi.trigger(link.workspaceSlug, link.serviceSlug, env)
     );
     this.log(`Build started: ${build.id}`);
 
     if (flags["no-wait"]) {
-      this.log("Deploy triggered. Run 'apso status' to check progress.");
+      this.log(`Deploy triggered. Run 'apso status --env ${env}' to check progress.`);
       return;
     }
 
@@ -173,6 +177,7 @@ export default class Deploy extends BaseCommand {
     spinner.start();
 
     const finalStatus = await buildApi.waitForCompletion(build.id, {
+      env,
       onProgress: (status) => {
         spinner.text = `Deploy status: ${status.status}...`;
       },
@@ -180,8 +185,10 @@ export default class Deploy extends BaseCommand {
 
     if (finalStatus.status === "success") {
       spinner.succeed("Deploy succeeded.");
-      if (service.endpoint) {
-        this.log(`Endpoint: ${service.endpoint}`);
+      const row = env === "production" ? undefined : await envApi.get(service.id, env);
+      const endpoint = row ? row.url : service.endpoint;
+      if (endpoint) {
+        this.log(`Endpoint: ${endpoint}`);
       }
     } else {
       spinner.fail("Deploy failed.");

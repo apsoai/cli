@@ -104,6 +104,9 @@
       },
       "import": {
         "description": "Import an existing database into a local .apsorc schema"
+      },
+      "env": {
+        "description": "Manage a service's environments (production, staging)"
       }
     },
     "update": {
