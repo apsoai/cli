@@ -23,6 +23,16 @@ exports[`schemaDdl coverage runs on Postgres and matches its snapshot 1`] = `
 ]
 `;
 
+exports[`schemaDdl duplicate-index runs on Postgres and matches its snapshot 1`] = `
+[
+  "CREATE TABLE "task" ("id" SERIAL NOT NULL, "title" text NOT NULL, "projectId" integer NOT NULL, CONSTRAINT "PK_fb213f79ee45060ba925ecd576e" PRIMARY KEY ("id"))",
+  "CREATE TABLE "project" ("id" SERIAL NOT NULL, "name" text NOT NULL, CONSTRAINT "PK_4d68b1358bb5b766d3e78f32f57" PRIMARY KEY ("id"))",
+  "CREATE UNIQUE INDEX "IDX_3399e2710196ea4bf734751558" ON "task" ("title")",
+  "CREATE INDEX "IDX_3797a20ef5553ae87af126bc2f" ON "task" ("projectId")",
+  "ALTER TABLE "task" ADD CONSTRAINT "FK_3797a20ef5553ae87af126bc2fe" FOREIGN KEY ("projectId") REFERENCES "project"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
+]
+`;
+
 exports[`schemaDdl enum-replace runs on Postgres and matches its snapshot 1`] = `
 [
   "CREATE TYPE "public"."contact_status_enum" AS ENUM('lead', 'active', 'closed')",

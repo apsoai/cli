@@ -17,6 +17,7 @@ const cases: [string, string][] = [
     ]),
   ["inventory-multi-fk", path.join(fixtures, "inventory-multi-fk.apsorc")],
   ["coverage", path.join(fixtures, "ddl", "coverage.apsorc")],
+  ["duplicate-index", path.join(fixtures, "ddl", "duplicate-index.apsorc")],
 ];
 const ddl = (file: string) =>
   schemaDdl(parseApsorcV2(JSON.parse(fs.readFileSync(file).toString())));
@@ -46,4 +47,10 @@ describe("schemaDdl", () => {
       expect(statements).toMatchSnapshot();
     }
   );
+
+  test("an index declared twice is created once (it would fail on deploy)", () => {
+    const creates = ddl(path.join(fixtures, "ddl", "duplicate-index.apsorc")).filter((s) => / INDEX /.test(s));
+    expect(creates.filter((s) => s.includes('("projectId")'))).toHaveLength(1);
+    expect(creates.filter((s) => s.includes('("title")'))).toEqual([expect.stringContaining("UNIQUE INDEX")]);
+  });
 });

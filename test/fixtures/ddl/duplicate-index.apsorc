@@ -1,0 +1,14 @@
+{
+  "version": 2,
+  "rootFolder": "src",
+  "apiType": "Rest",
+  "entities": [
+    { "name": "Project", "fields": [{ "name": "name", "type": "text" }] },
+    {
+      "name": "Task",
+      "fields": [{ "name": "title", "type": "text", "index": true }],
+      "indexes": [{ "fields": ["projectId"] }, { "fields": ["title"], "unique": true }]
+    }
+  ],
+  "relationships": [{ "from": "Task", "to": "Project", "type": "ManyToOne", "index": true }]
+}
