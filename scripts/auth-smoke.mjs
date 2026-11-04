@@ -229,11 +229,14 @@ const ENTITIES = [
   { name: "Note", created_at: true, updated_at: true, scopeBy: "orgId", fields: [{ name: "body", type: "text" }, { name: "orgId", type: "integer", nullable: true }] },
   // Scoped through its parent (TypeScript only; Python and Go warn and skip it).
   { name: "Task", created_at: true, updated_at: true, scopeBy: "project.organizationId", fields: [{ name: "title", type: "text" }] },
+  // A "support" role reads every tenant's tickets (scopeOptions.bypassRoles).
+  { name: "Ticket", created_at: true, updated_at: true, scopeBy: "organizationId", scopeOptions: { bypassRoles: ["support"] }, fields: [{ name: "title", type: "text" }] },
 ];
 const RELATIONSHIPS = [
   { from: "Organization", to: "ApiKey", type: "OneToMany" },
   { from: "Organization", to: "Project", type: "OneToMany" },
   { from: "Project", to: "Task", type: "OneToMany" },
+  { from: "Organization", to: "Ticket", type: "OneToMany" },
 ];
 
 const route = (plural) =>
@@ -334,7 +337,7 @@ function checker(name) {
 }
 
 /** CRUD with valid credentials, plus tenant isolation where scopeBy is enforced. */
-async function crudAndScope(base, t, auth, auth2, noTenant) {
+async function crudAndScope(base, t, auth, auth2, noTenant, support) {
   const org1 = await call("POST", base + ORGS, { headers: auth(undefined), body: { name: "Acme" } });
   const org2 = await call("POST", base + ORGS, { headers: auth(undefined), body: { name: "Beta" } });
   if (!t.expect("create organization", org1, 200, 201) || !t.expect("create second organization", org2, 200, 201)) return;
@@ -378,8 +381,23 @@ async function crudAndScope(base, t, auth, auth2, noTenant) {
       t.assert("other tenant's notes exclude it", theirNotes.status === 200 && !rows(theirNotes.json).some((n) => n.id === note.json.id), `${theirNotes.status}`);
     }
     if (language === "typescript") await nestedScope(base, t, as1, as2, pid);
+    if (support) await bypassScope(base, t, as1, as2, support(String(id2)));
   }
   t.expect("delete project", await call("DELETE", `${base}${PROJECTS}/${pid}`, { headers: as1 }), 200, 204);
+}
+
+/** scopeOptions.bypassRoles: a support caller sees other tenants' tickets; a member does not. */
+async function bypassScope(base, t, as1, as2, asSupport) {
+  const TICKETS = route("Tickets");
+  const ticket = await call("POST", base + TICKETS, { headers: as1, body: { title: "Login broken" } });
+  if (!t.expect("create ticket", ticket, 200, 201)) return;
+  const tid = ticket.json.id;
+  const member = await call("GET", base + TICKETS, { headers: as2 });
+  t.assert("member of another tenant does not list the ticket", member.status === 200 && !rows(member.json).some((x) => x.id === tid), `${member.status} ${member.text.slice(0, 200)}`);
+  const support = await call("GET", base + TICKETS, { headers: asSupport });
+  t.assert("support role lists another tenant's ticket", support.status === 200 && rows(support.json).some((x) => x.id === tid), `${support.status} ${support.text.slice(0, 200)}`);
+  t.expect("support role reads another tenant's ticket", await call("GET", `${base}${TICKETS}/${tid}`, { headers: asSupport }), 200);
+  t.expect("delete ticket", await call("DELETE", `${base}${TICKETS}/${tid}`, { headers: as1 }), 200, 204);
 }
 
 /** scopeBy "project.organizationId": a Task belongs to its project's tenant. */
@@ -425,7 +443,9 @@ async function jwtCase(name, p, base) {
   await reject("HS256 signed with the public key", bearer(mint(p.claims("1"), { alg: "HS256", key: signing.publicKey.export({ type: "spki", format: "pem" }) })));
   await reject("no subject", bearer(sign({ ...p.claims("1"), sub: undefined })));
 
-  await crudAndScope(base, t, valid, valid, bearer(sign(p.claims(undefined))));
+  // Only the Supabase-shaped case maps a roles array we can set per token.
+  const support = name === "jwt" ? (org) => bearer(sign({ ...p.claims(org), app_metadata: { org_id: org, roles: ["support"] } })) : undefined;
+  await crudAndScope(base, t, valid, valid, bearer(sign(p.claims(undefined))), support);
   return t.failures;
 }
 

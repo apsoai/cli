@@ -168,7 +168,7 @@ export class ScopeGuard implements CanActivate {
     }
 
     // Check if user has bypass role
-    const userRoles: string[] = request.user?.roles || request.roles || [];
+    const userRoles: string[] = request.auth?.roles ?? request.user?.roles ?? request.roles ?? [];
     if (scopeConfig.bypassRoles.some(role => userRoles.includes(role))) {
       return true;
     }
