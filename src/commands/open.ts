@@ -65,7 +65,7 @@ export default class Open extends BaseCommand {
       openUrl(endpoint);
     } else {
       // Open the dashboard (default)
-      const dashboardUrl = `${config.webUrl}/workspaces/${link.workspaceSlug}/services/${link.serviceSlug}`;
+      const dashboardUrl = `${config.webUrl}/${link.workspaceSlug}/services/${link.serviceId}/dashboard`;
       this.log(`Opening dashboard: ${dashboardUrl}`);
       openUrl(dashboardUrl);
     }

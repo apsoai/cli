@@ -32,6 +32,18 @@ const MAX_RETRIES = 3;
 const BACKOFF_BASE_DELAY = 1000;
 
 /**
+ * Refusals the user resolves in the web app, and where: "service" is the
+ * service's Deployments page (size and staging), "billing" the workspace's
+ * Billing page.
+ */
+export const APP_FIX_PAGES: Record<string, "service" | "billing"> = {
+  STAGING_REQUIRES_PAID_SERVICE: "service",
+  STAGING_ADDON_REQUIRED: "service",
+  STAGING_ADDON_PURCHASE_FAILED: "service",
+  SERVICE_SUSPENDED: "billing",
+};
+
+/**
  * Custom error class for API errors
  */
 export class ApiClientError extends Error {
@@ -61,8 +73,9 @@ export class ApiClientError extends Error {
    * upgrading (e.g. the free-tier service or deploy limit).
    */
   isLimitError(): boolean {
+    if (this.code && this.code in APP_FIX_PAGES) return true;
     return (
-      this.statusCode === 403 &&
+      (this.statusCode === 403 || this.statusCode === 402) &&
       (this.code === "SERVICE_LIMIT_REACHED" ||
         this.code === "LIMIT_REACHED" ||
         Boolean(this.upgradeUrl))
@@ -387,8 +400,13 @@ export async function apiRequest<T>(
 
       // Client errors - don't retry
       const limit = extractLimitInfo(errorData);
+      // The app's API routes put their sentence in `.error`; the backend uses `.message`.
+      const appError = (errorData as unknown as Record<string, unknown>).error;
       const clientError = new ApiClientError(
-        limit.message || errorData.message || "Request failed",
+        limit.message ||
+          errorData.message ||
+          (typeof appError === "string" ? appError : undefined) ||
+          "Request failed",
         response.status,
         errorData.details
       );

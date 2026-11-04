@@ -163,7 +163,8 @@ export default class Deploy extends BaseCommand {
 
     // Trigger build
     const build = await withUpgradeRetry(() =>
-      buildApi.trigger(link.workspaceSlug, link.serviceSlug, env)
+      buildApi.trigger(link.workspaceSlug, link.serviceSlug, env),
+      { workspaceSlug: link.workspaceSlug, serviceId: service.id }
     );
     this.log(`Build started: ${build.id}`);
 

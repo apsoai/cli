@@ -1,7 +1,8 @@
 import { Args, Flags } from "@oclif/core";
 import BaseCommand from "../../lib/base-command";
 import { envApi } from "../../lib/api/services";
-import { confirmOrExit, linkedService } from "../../lib/environments";
+import { confirmOrExit, linkedService, pageContext } from "../../lib/environments";
+import { withUpgradeRetry } from "../../lib/upgrade";
 
 export default class EnvAdd extends BaseCommand {
   static description =
@@ -30,7 +31,7 @@ export default class EnvAdd extends BaseCommand {
       `Add staging to "${service.name}"? This starts the paid staging add-on.`
     );
     if (!ok) return this.log("Cancelled.");
-    await envApi.addStaging(service.id);
+    await withUpgradeRetry(() => envApi.addStaging(service.id), pageContext(service));
     this.log(`Staging is being created for "${service.name}". Deploy to it with 'apso deploy --env staging'.`);
   }
 }

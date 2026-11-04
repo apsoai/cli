@@ -1,7 +1,8 @@
 import { Flags } from "@oclif/core";
 import BaseCommand from "../lib/base-command";
 import { buildApi, envApi, type PromotePreview } from "../lib/api/services";
-import { confirmOrExit, linkedService } from "../lib/environments";
+import { confirmOrExit, linkedService, pageContext } from "../lib/environments";
+import { withUpgradeRetry } from "../lib/upgrade";
 import { createSpinner } from "../lib/utils/spinner";
 
 export default class Promote extends BaseCommand {
@@ -36,7 +37,7 @@ export default class Promote extends BaseCommand {
     const ok = await confirmOrExit(this, flags.yes, `Promote staging to production for "${service.name}"?`);
     if (!ok) return this.log("Cancelled.");
 
-    await envApi.promote(service.id);
+    await withUpgradeRetry(() => envApi.promote(service.id), pageContext(service));
     if (flags["no-wait"]) {
       this.log("Promote started. Run 'apso status' to check progress.");
       return;

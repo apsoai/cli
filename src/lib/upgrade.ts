@@ -9,7 +9,7 @@
 
 import { exec } from "child_process";
 import inquirer from "inquirer";
-import { ApiClientError } from "./api/client";
+import { ApiClientError, APP_FIX_PAGES } from "./api/client";
 import { globalConfig } from "./config";
 import { isInteractive } from "./utils/interactive";
 
@@ -29,13 +29,43 @@ function openBrowser(url: string): Promise<void> {
   });
 }
 
+/** Where the user is when the refusal happened, so the link can go to the exact page. */
+export interface PageContext {
+  workspaceSlug?: string;
+  serviceId?: string;
+}
+
+/** The web app page that resolves this refusal, and how to name it in a prompt. */
+export function fixPage(
+  error: ApiClientError,
+  ctx: PageContext = {}
+): { url: string; label: string } {
+  const web = globalConfig.read().webUrl;
+  const where = error.code ? APP_FIX_PAGES[error.code] : undefined;
+  if (where === "service" && ctx.workspaceSlug && ctx.serviceId) {
+    return {
+      url: `${web}/${ctx.workspaceSlug}/services/${ctx.serviceId}/deployments`,
+      label: "the service's Deployments page",
+    };
+  }
+  if (where === "billing" && ctx.workspaceSlug) {
+    return { url: `${web}/${ctx.workspaceSlug}/billing`, label: "Billing" };
+  }
+  return {
+    url: `${web}${error.upgradeUrl || "/billing/upgrade"}`,
+    label: "the upgrade page",
+  };
+}
+
 /**
- * Prompt the user to upgrade after a limit error, open the upgrade page, and
- * wait for them to finish. Returns true if the caller should retry the action.
+ * Prompt the user to resolve a plan or billing refusal in the web app, open the
+ * page, and wait for them to finish. Returns true if the caller should retry.
  */
-export async function promptUpgrade(error: ApiClientError): Promise<boolean> {
-  const config = globalConfig.read();
-  const upgradeUrl = `${config.webUrl}${error.upgradeUrl || "/billing/upgrade"}`;
+export async function promptUpgrade(
+  error: ApiClientError,
+  ctx: PageContext = {}
+): Promise<boolean> {
+  const { url: upgradeUrl, label } = fixPage(error, ctx);
 
   console.log("");
   console.log(`  ⚠  ${error.message || "You've reached a plan limit."}`);
@@ -45,13 +75,13 @@ export async function promptUpgrade(error: ApiClientError): Promise<boolean> {
     {
       type: "confirm",
       name: "proceed",
-      message: "Open the upgrade page in your browser?",
+      message: `Open ${label} in your browser?`,
       default: true,
     },
   ]);
 
   if (!proceed) {
-    console.log(`  You can upgrade any time at: ${upgradeUrl}`);
+    console.log(`  You can do this any time at: ${upgradeUrl}`);
     return false;
   }
 
@@ -64,7 +94,7 @@ export async function promptUpgrade(error: ApiClientError): Promise<boolean> {
     {
       type: "confirm",
       name: "done",
-      message: "Press enter once your upgrade is complete to retry",
+      message: "Press enter once you are done there to retry",
       default: true,
     },
   ]);
@@ -76,7 +106,10 @@ export async function promptUpgrade(error: ApiClientError): Promise<boolean> {
  * Run an action; if it fails with an upgradeable plan-limit error, offer to
  * upgrade and retry once.
  */
-export async function withUpgradeRetry<T>(action: () => Promise<T>): Promise<T> {
+export async function withUpgradeRetry<T>(
+  action: () => Promise<T>,
+  ctx: PageContext = {}
+): Promise<T> {
   try {
     return await action();
   } catch (error) {
@@ -84,14 +117,12 @@ export async function withUpgradeRetry<T>(action: () => Promise<T>): Promise<T> 
       // Headless (agent/CI): never open a browser or prompt — surface the limit
       // as a clear error with the upgrade URL so the caller can act on it.
       if (!isInteractive()) {
-        const upgradeUrl = `${globalConfig.read().webUrl}${
-          error.upgradeUrl || "/billing/upgrade"
-        }`;
+        const { url } = fixPage(error, ctx);
         throw new Error(
-          `${error.message || "Plan limit reached."} Upgrade at ${upgradeUrl}`
+          `${(error.message || "Plan limit reached").replace(/\.?$/, ".")} Resolve it at ${url}`
         );
       }
-      const retry = await promptUpgrade(error);
+      const retry = await promptUpgrade(error, ctx);
       if (retry) {
         return action();
       }
