@@ -51,7 +51,7 @@ type <%= it.entityName %>Create struct {
 <% }); -%>
 <% it.associations.forEach((assoc) => { -%>
 <% if (assoc.type === 'ManyToOne' || (assoc.type === 'OneToOne' && assoc.isOwner)) { -%>
-	<%= assoc.referenceName || assoc.name %>ID <%= assoc.primaryKeyGoType || 'uint' %> `json:"<%= assoc.camelReferenceName || assoc.camelName %>Id" validate:"required"`
+	<%= assoc.referenceName || assoc.name %>ID <%= assoc.primaryKeyGoType || 'uint' %> `json:"<%= assoc.camelReferenceName || assoc.camelName %>Id"<% if (!assoc.scoped) { %> validate:"required"<% } %>`
 <% } -%>
 <% }) -%>
 }

@@ -217,6 +217,8 @@ export interface DtoGenerationOptions extends EntityGenerationOptions {
    * Include validation decorators/rules
    */
   includeValidation?: boolean;
+  /** With scopeBy, the service sets the tenant field, so create doesn't require it. */
+  auth?: AuthConfig;
 }
 
 /**

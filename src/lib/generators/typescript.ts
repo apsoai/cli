@@ -201,9 +201,25 @@ export class TypeScriptGenerator extends BaseGenerator {
     const ctrlName = `${entityName}Controller`;
     const pluralEntityName = pluralize(entityName);
     const primaryKeyType = entity.primaryKeyType || "serial";
-    const scopes = auth
-      ? getScopedEntities([entity], relationshipMap)[0]?.scopes ?? []
-      : [];
+    const scoped = auth
+      ? getScopedEntities([entity], relationshipMap)[0]
+      : undefined;
+    const scopes = scoped?.scopes ?? [];
+    // Only emitted when scopeOptions differ from the defaults, so services
+    // without them keep the same generated controller.
+    const scopeOptions =
+      scoped &&
+      (scoped.bypassRoles.length > 0 ||
+        !scoped.injectOnCreate ||
+        ["find", "get", "create", "update", "delete"].some(
+          (op) => !scoped.enforceOn.includes(op)
+        ))
+        ? {
+            enforceOn: scoped.enforceOn,
+            bypassRoles: scoped.bypassRoles,
+            injectOnCreate: scoped.injectOnCreate,
+          }
+        : undefined;
 
     const data = {
       svcName,
@@ -219,6 +235,7 @@ export class TypeScriptGenerator extends BaseGenerator {
       // ids ScopeGuard loaded for the caller into req.apsoScope.
       crudAuth: scopes.filter((s) => s.direct),
       crudAuthNested: scopes.filter((s) => s.fkField),
+      scopeOptions,
     };
 
     const controllerContent = await this.renderTemplate(

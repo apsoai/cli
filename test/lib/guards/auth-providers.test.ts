@@ -130,6 +130,38 @@ describe("generated wiring", () => {
     expect(without.find((f) => f.path.endsWith(".controller.ts"))!.content).not.toContain("@CrudAuth");
   });
 
+  test("TypeScript @CrudAuth honors bypassRoles, enforceOn and injectOnCreate", async () => {
+    const scoped: Entity = {
+      ...entities[2],
+      scopeOptions: { bypassRoles: ["support"], enforceOn: ["find", "get"], injectOnCreate: false },
+    };
+    const opts = { entity: scoped, relationships: [], allEntities: entities, apiType: "rest", relationshipMap: {} };
+    const files = await generators.typescript.generateController({ ...opts, auth: jwt("jwt") });
+    const ctrl = files.find((f) => f.path.endsWith(".controller.ts"))!.content;
+    expect(ctrl).toContain("const ENFORCE_ON = ['find', 'get'];");
+    expect(ctrl).toContain("const BYPASS_ROLES: string[] = ['support'];");
+    expect(ctrl).toContain("filter: (req: any) => skipScope(req) ? {} : ({");
+    expect(ctrl).toContain("persist: (req: any) => skipScope(req) || scopeOperation(req) === 'create' ? {} : ({");
+
+    // Default options keep the controller unchanged.
+    const plain = await generators.typescript.generateController({ ...opts, entity: entities[2], auth: jwt("jwt") });
+    expect(plain.find((f) => f.path.endsWith(".controller.ts"))!.content).not.toContain("skipScope");
+  });
+
+  test("Go create DTO does not require a scopeBy foreign key the service sets", async () => {
+    const rels = [{ name: "Organization", type: "ManyToOne" as const }];
+    const dto = async (auth?: AuthConfig) =>
+      (await generators.go.generateDto({ entity: entities[2], relationships: rels, allEntities: entities, apiType: "rest", auth }))[0].content;
+    expect(await dto(jwt("jwt"))).toContain('OrganizationID uint `json:"organizationId"`');
+    expect(await dto()).toContain('`json:"organizationId" validate:"required"`');
+  });
+
+  test("ScopeGuard reads roles from the auth context", async () => {
+    const files = await generators.typescript.generateGuards(entities, jwt("jwt"));
+    const guard = files.find((f) => f.path === "guards/scope.guard.ts")!.content;
+    expect(guard).toContain("request.auth?.roles ?? request.user?.roles");
+  });
+
   test("Go registers the middleware on the /api group", async () => {
     const [routes] = await generators.go.generateIndexModule(entities, "rest", { auth: jwt("jwt") });
     expect(routes.content).toContain("r.Use(middleware.AuthMiddleware(db))");

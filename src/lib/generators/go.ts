@@ -330,6 +330,9 @@ export class GoGenerator extends BaseGenerator {
   async generateDto(options: DtoGenerationOptions): Promise<GeneratedFile[]> {
     const { entity, relationships, allEntities, apiType } = options;
     const { name: entityName, fields = [] } = entity;
+    const scopeFields = new Set(
+      entityScope(entity, Boolean(options.auth))?.fields.map((f) => f.field)
+    );
 
     const columns = this.getGoFieldsForTemplate(fields, entityName);
     const relationshipsTemplate = getRelationshipForTemplate(
@@ -348,6 +351,8 @@ export class GoGenerator extends BaseGenerator {
         camelReferenceName: camelCase(rel.referenceName || rel.name),
         pluralName: pascalCase(pluralize(rel.name)),
         camelPluralName: camelCase(pluralize(rel.name)),
+        // The service sets a scopeBy foreign key from the caller on create.
+        scoped: scopeFields.has(`${camelCase(rel.referenceName || rel.name)}Id`),
       };
     });
 
