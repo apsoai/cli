@@ -203,6 +203,12 @@ async function refreshAccessToken(): Promise<boolean> {
     });
 
     if (!response.ok) {
+      // The server rejected the refresh token, so the stored session is dead. Clear it, or
+      // `apso login` trusts the local expiresAt and refuses to log in again (#178).
+      // Network errors land in the catch below and keep the credentials.
+      if (response.status === 400 || response.status === 401 || response.status === 403) {
+        credentials.clear();
+      }
       return false;
     }
 
