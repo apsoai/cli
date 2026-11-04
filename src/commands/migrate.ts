@@ -171,11 +171,18 @@ export default class Migrate extends BaseCommand {
       });
       verified = result.ok;
       if (!this.json) report((s) => this.log(s), { ...result, findings: [] }, false);
-      if (!result.ok)
+      if (!result.ok) {
+        // Don't keep a migration that failed: the next run would read it as
+        // deployed and find nothing to migrate. The working plan keeps the
+        // answers and the baseline, so a rerun picks up where this one stopped.
+        for (const f of [written.file!, written.planFile!]) fs.rmSync(path.resolve(cwd, f), { force: true });
+        save();
+        const planRel = path.relative(cwd, planPath);
         this.fail(
-          `The migration in ${written.file} failed its test. Fix the answers in ${written.planFile} or the .apsorc, then run apso migrate again.`,
-          { file: written.file, planFile: written.planFile, steps: result.steps }
+          `The migration failed its test, so it was not kept. Change an answer in ${planRel} or the .apsorc, then run apso migrate again. If the data loss is intended, rerun with --accept-loss <table.column>.`,
+          { plan: planRel, steps: result.steps }
         );
+      }
     }
 
     this.say(`\nReview and commit ${written.file} and ${written.planFile}, then deploy.`);
