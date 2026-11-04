@@ -20,6 +20,10 @@ export default class EnvList extends BaseCommand {
       this.log(JSON.stringify(envs, null, 2));
       return;
     }
+    // Production's row appears with the first deploy; until then say so rather than print nothing.
+    if (!envs.some((e) => e.environment === "production")) {
+      this.log(`${"production".padEnd(12)}${"not deployed yet".padEnd(22)}-`);
+    }
     for (const e of envs) {
       this.log(`${e.environment.padEnd(12)}${(e.buildStatus || e.status || "-").padEnd(22)}${e.url ?? "-"}`);
     }

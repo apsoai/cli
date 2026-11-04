@@ -4,6 +4,7 @@ import { credentials, projectLink } from "./config";
 import { servicesApi, SERVICE_ENVS, type ServiceEnv } from "./api/services";
 import type { Service } from "./api/types";
 import { isInteractive, missingFlag } from "./utils/interactive";
+import type { PageContext } from "./upgrade";
 
 // --env for commands that act on one environment. Production is the default, so existing scripts behave as before.
 export const envFlag = Flags.string({
@@ -21,6 +22,11 @@ export async function linkedService(cmd: Command): Promise<Service> {
   const link = projectLink.read();
   if (!link) cmd.error("Project not linked. Run 'apso link' first.");
   return servicesApi.get(link.workspaceId, link.serviceSlug);
+}
+
+// Where the linked service lives in the web app, for links to the page that fixes a refusal.
+export function pageContext(service: Service): PageContext {
+  return { workspaceSlug: projectLink.read()?.workspaceSlug, serviceId: service.id };
 }
 
 // Asks before a step that costs money or replaces something; headless runs must pass --yes.
