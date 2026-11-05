@@ -685,7 +685,8 @@ export function* generateNestedRelationships(
   maxDepth = 4,
   path: string[] = [],
   visitedPairs: Set<string> = new Set(),
-  baseEntity: string = entityName
+  baseEntity: string = entityName,
+  allowHop: (from: string, to: string) => boolean = () => true
 ): Generator<string> {
   // Stop if we've reached maximum depth
   if (path.length >= maxDepth) return;
@@ -752,6 +753,9 @@ export function* generateNestedRelationships(
     if (emittedAtLevel.has(formattedName)) continue;
     emittedAtLevel.add(formattedName);
 
+    // A hop that leaves the caller's tenant ends the path (see joinHopCheck).
+    if (!allowHop(entityName, relationship.name)) continue;
+
     // Build the new path
     const newPath = [...path, formattedName];
 
@@ -771,7 +775,8 @@ export function* generateNestedRelationships(
       maxDepth,
       newPath,
       newVisitedPairs,
-      baseEntity
+      baseEntity,
+      allowHop
     );
   }
 }
@@ -780,10 +785,19 @@ export function* generateNestedRelationships(
 export function getNestedRelationships(
   entityName: string,
   relationshipMap: RelationshipMap,
-  maxDepth?: number
+  maxDepth?: number,
+  allowHop?: (from: string, to: string) => boolean
 ): string[] {
   return [
-    ...generateNestedRelationships(entityName, relationshipMap, maxDepth),
+    ...generateNestedRelationships(
+      entityName,
+      relationshipMap,
+      maxDepth,
+      [],
+      new Set(),
+      entityName,
+      allowHop
+    ),
   ];
 }
 
@@ -792,13 +806,18 @@ export async function streamNestedRelationships(
   entityName: string,
   relationshipMap: RelationshipMap,
   writable: NodeJS.WritableStream,
-  maxDepth?: number
+  maxDepth?: number,
+  allowHop?: (from: string, to: string) => boolean
 ): Promise<number> {
   let count = 0;
   for (const joinPath of generateNestedRelationships(
     entityName,
     relationshipMap,
-    maxDepth
+    maxDepth,
+    [],
+    new Set(),
+    entityName,
+    allowHop
   )) {
     writable.write(`"${joinPath}": { eager: false },\n`);
     count++;

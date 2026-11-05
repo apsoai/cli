@@ -32,6 +32,7 @@ import {
   apiKeyTemplateData,
   getScopedEntities,
   hasScopedEntities,
+  joinHopCheck,
 } from "../guards";
 import { getEventEmittingEntities } from "../events";
 import {
@@ -170,13 +171,17 @@ export class TypeScriptGenerator extends BaseGenerator {
   async generateController(
     options: ControllerGenerationOptions
   ): Promise<GeneratedFile[]> {
-    const { entity, relationships, relationshipMap, auth } = options;
+    const { entity, relationships, relationshipMap, auth, allEntities } =
+      options;
     const { name: entityName } = entity;
 
+    // Joined rows skip the tenant filter, so only joins that stay inside the
+    // caller's tenant are generated (scopeBy; see joinHopCheck).
+    const allowHop = joinHopCheck(allEntities ?? [entity], Boolean(auth));
     const relationshipsForTemplate = getRelationshipForTemplate(
       entityName,
       relationships
-    );
+    ).filter((r) => !allowHop || allowHop(entityName, r.name));
 
     // Handle nested relationships for joins
     const tmpDir = os.tmpdir();
@@ -190,7 +195,9 @@ export class TypeScriptGenerator extends BaseGenerator {
     await streamNestedRelationships(
       entityName,
       relationshipMap,
-      nestedJoinsStream
+      nestedJoinsStream,
+      undefined,
+      allowHop
     );
     nestedJoinsStream.end();
     await new Promise<void>((resolve) => {

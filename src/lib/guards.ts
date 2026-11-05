@@ -215,6 +215,40 @@ export function entityScope(
   };
 }
 
+/** Follows a relationship from one entity to another; true if the join is safe. */
+export type JoinHopCheck = (from: string, to: string) => boolean;
+
+/**
+ * Which joins stay inside the caller's tenant. The tenant filter only limits
+ * the entity a request starts from; joined rows are not filtered. A hop is
+ * safe when it lands on a shared entity (no scopeBy, readable by every caller
+ * already) or goes from a scoped entity to one scoped by the same keys
+ * (Project.tasks). A hop from a shared entity into a scoped one reads every
+ * tenant's rows: from Task, `assignee.tasks` lists the assignee's tasks in
+ * all workspaces. Undefined without auth, when nothing is scoped.
+ *
+ * An entity counts as scoped only when both find and get are filtered;
+ * otherwise its rows are readable anyway and hops out of it are not safe.
+ */
+export function joinHopCheck(
+  entities: Entity[],
+  hasAuth: boolean
+): JoinHopCheck | undefined {
+  if (!hasAuth) return undefined;
+  const keys = new Map<string, Set<string>>();
+  for (const config of getScopedEntities(entities)) {
+    if (!config.enforceOn.includes("find") || !config.enforceOn.includes("get"))
+      continue;
+    keys.set(config.name, new Set(config.scopes.map((s) => s.contextKey)));
+  }
+  return (from, to) => {
+    const toKeys = keys.get(to);
+    if (!toKeys) return true;
+    const fromKeys = keys.get(from);
+    return fromKeys !== undefined && [...toKeys].every((k) => fromKeys.has(k));
+  };
+}
+
 /** Entities whose scopeBy uses a nested path, which Go and Python do not enforce. */
 export function nestedScopeEntities(entities: Entity[]): string[] {
   return getScopedEntities(entities)

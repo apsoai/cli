@@ -207,6 +207,7 @@ export default class Generate extends BaseCommand {
           relationships: entityRelationships,
           allEntities: entities,
           apiType: lowerCaseApiType,
+          auth,
         }),
         generator.generateDto({
           entity,

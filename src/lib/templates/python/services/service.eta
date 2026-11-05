@@ -73,18 +73,31 @@ class <%= it.entityName %>Service:
         return QueryBuilder(<%= it.entityName %>, self.db)
 <% } %>
 
+<% if (it.allowedJoins) { %>
+    # Joined rows skip the tenant filter, so only relations inside the
+    # caller's tenant can be joined (.apsorc scopeBy).
+    _ALLOWED_JOINS = frozenset(<%~ JSON.stringify(it.allowedJoins) %>)
+
+    def _safe_joins(self, options: QueryOptions) -> QueryOptions:
+        options.joins = [j for j in options.joins if j.relation in self._ALLOWED_JOINS]
+        return options
+<% } else { %>
+    def _safe_joins(self, options: QueryOptions) -> QueryOptions:
+        return options
+<% } %>
+
     async def get_many(self, options: QueryOptions) -> PaginatedResult:
         """
         Retrieve a paginated list of <%= it.pluralEntityName %> with filtering, sorting, and joins.
         (nestjsx dialect — {data,count,total,page,pageCount} envelope.)
         """
-        return await self._qb("find").get_many(options)
+        return await self._qb("find").get_many(self._safe_joins(options))
 
     async def get_many_list(self, options: QueryOptions) -> List[Any]:
         """
         Retrieve <%= it.pluralEntityName %> as a bare list (PostgREST dialect).
         """
-        return await self._qb("find").get_many_list(options)
+        return await self._qb("find").get_many_list(self._safe_joins(options))
 
     async def get_one(
         self,
@@ -95,6 +108,9 @@ class <%= it.entityName %>Service:
         """
         Retrieve a single <%= it.entityName %> by ID.
         """
+<% if (it.allowedJoins) { %>
+        joins = [j for j in joins or [] if j in self._ALLOWED_JOINS]
+<% } %>
         return await self._qb(op).get_one(id, joins=joins)
 
     async def create_one(self, data: <%= it.entityName %>Create) -> <%= it.entityName %>:
