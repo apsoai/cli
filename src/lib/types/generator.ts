@@ -175,6 +175,12 @@ export interface EntityGenerationOptions {
    * When false, the module omits the controller (see Entity.http).
    */
   includeController?: boolean;
+
+  /**
+   * The .apsorc auth config; with scopeBy, relations that would read another
+   * tenant's rows are not loaded (see joinHopCheck)
+   */
+  auth?: AuthConfig;
 }
 
 /**

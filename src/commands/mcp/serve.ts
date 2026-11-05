@@ -458,6 +458,7 @@ export default class McpServe extends BaseCommand {
                 relationships: entityRelationships,
                 allEntities: entities,
                 apiType: lowerCaseApiType,
+                auth,
               }),
               generator.generateDto({
                 entity,

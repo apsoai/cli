@@ -29,6 +29,7 @@ import { getEventEmittingEntities } from "../events";
 import {
   apiKeyTemplateData,
   entityScope,
+  joinHopCheck,
   nestedScopeEntities,
 } from "../guards";
 import { pyString } from "../ddl/migration-file";
@@ -135,11 +136,15 @@ export class PythonGenerator extends BaseGenerator {
     const updatedAt = entity.updated_at;
     const primaryKeyType = entity.primaryKeyType || "serial";
 
+    // Every relation loads with each row (lazy="selectin") and to-many lists
+    // are serialized, so one that reads another tenant's rows is never loaded
+    // (see joinHopCheck).
+    const allowHop = joinHopCheck(allEntities ?? [entity], Boolean(options.auth));
     const relationshipsForTemplate = getRelationshipForTemplate(
       name,
       relationships,
       allEntities
-    );
+    ).map((r) => ({ ...r, noload: allowHop ? !allowHop(name, r.name) : false }));
     const entitiesToImport = getRelationshipsForImport(
       name,
       relationshipsForTemplate
@@ -213,7 +218,7 @@ export class PythonGenerator extends BaseGenerator {
   async generateService(
     options: ServiceGenerationOptions
   ): Promise<GeneratedFile[]> {
-    const { entity, relationships } = options;
+    const { entity, relationships, allEntities } = options;
     const { name: entityName } = entity;
 
     const relationshipsForTemplate = getRelationshipForTemplate(
@@ -224,12 +229,26 @@ export class PythonGenerator extends BaseGenerator {
     const pluralEntityName = pluralize(entityName);
     const primaryKeyType = entity.primaryKeyType || "serial";
 
+    // Joined rows skip the tenant filter: with auth, only relations that stay
+    // inside the caller's tenant can be joined (see joinHopCheck).
+    const allowHop = joinHopCheck(allEntities ?? [entity], Boolean(options.auth));
+    const allowedJoins = allowHop
+      ? relationshipsForTemplate
+          .filter((r) => allowHop(entityName, r.name))
+          .map((r) =>
+            r.type === "ManyToOne" || r.type === "OneToOne"
+              ? r.relationshipName
+              : r.pluralizedRelationshipName
+          )
+      : undefined;
+
     const data = {
       entityName,
       pluralEntityName,
       primaryKeyType,
       associations: [...new Set(relationshipsForTemplate)],
       scope: entityScope(entity, Boolean(options.auth)),
+      allowedJoins,
     };
 
     const content = await this.renderTemplate("./services/service", data);

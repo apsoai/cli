@@ -87,7 +87,7 @@ columnsToProcess.forEach((field) => { -%>
     <%= assoc.pluralizedRelationshipName %>: Mapped[List["<%= assoc.name %>"]] = relationship(
         "<%= assoc.name %>",
         back_populates="<%= assoc.inverseSidePropertyName %>",
-        lazy="selectin"
+        lazy="<%= assoc.noload ? 'noload' : 'selectin' %>"
     )
 <% } else if (assoc.type === 'ManyToOne') { %>
     # Foreign key for <%= assoc.name %>
@@ -100,14 +100,14 @@ columnsToProcess.forEach((field) => { -%>
     <%= assoc.relationshipName %>: Mapped[Optional["<%= assoc.name %>"]] = relationship(
         "<%= assoc.name %>",
         <% if (assoc.biDirectional) { %>back_populates="<%= assoc.inverseSidePropertyName %>",<% } %>
-        lazy="selectin"
+        lazy="<%= assoc.noload ? 'noload' : 'selectin' %>"
     )
 <% } else if (assoc.type === 'ManyToMany') { %>
     <%= assoc.pluralizedRelationshipName %>: Mapped[List["<%= assoc.name %>"]] = relationship(
         "<%= assoc.name %>",
         secondary=<%= assoc.joinTableName || `${it.tableName}_${assoc.name.toLowerCase()}` %>,
         <% if (assoc.biDirectional) { %>back_populates="<%= assoc.inverseSidePropertyName %>",<% } %>
-        lazy="selectin"
+        lazy="<%= assoc.noload ? 'noload' : 'selectin' %>"
     )
 <% } else if (assoc.type === 'OneToOne') { %>
     <%= assoc.relationshipName %>: Mapped[Optional["<%= assoc.name %>"]] = relationship(
@@ -115,7 +115,7 @@ columnsToProcess.forEach((field) => { -%>
         <% if (assoc.biDirectional) { %>back_populates="<%= assoc.inverseSidePropertyName %>",<% } %>
         uselist=False,
         cascade="all, delete-orphan",
-        lazy="selectin"
+        lazy="<%= assoc.noload ? 'noload' : 'selectin' %>"
     )
 <% } %>
 <% }) %>

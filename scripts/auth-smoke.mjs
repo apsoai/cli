@@ -370,6 +370,7 @@ async function crudAndScope(base, t, auth, auth2, noTenant, support) {
     t.expect("owner updates the project", moved, 200);
     const after = await call("GET", `${base}${PROJECTS}/${pid}`, { headers: as1 });
     t.assert("update cannot move the project to another tenant", after.status === 200 && String(after.json?.organizationId) === String(id1) && after.json?.title === "Roadmap 2", `${after.status} ${after.text.slice(0, 200)}`);
+    await joinScope(base, t, as1, as2, pid);
     if (noTenant) t.expect("caller with no tenant cannot list scoped rows", await call("GET", base + PROJECTS, { headers: noTenant }), 403);
     // scopeBy "orgId" takes the caller's tenant too.
     const NOTES = route("Notes");
@@ -384,6 +385,22 @@ async function crudAndScope(base, t, auth, auth2, noTenant, support) {
     if (support) await bypassScope(base, t, as1, as2, support(String(id2)));
   }
   t.expect("delete project", await call("DELETE", `${base}${PROJECTS}/${pid}`, { headers: as1 }), 200, 204);
+}
+
+/**
+ * Joined rows skip the tenant filter, so the generated join lists stop at
+ * scoped rows reached through a shared entity: Organization has no scopeBy,
+ * so ?join=projects from it would list every tenant's projects.
+ */
+async function joinScope(base, t, as1, as2, pid) {
+  const name = (rel) => (language === "go" ? rel[0].toUpperCase() + rel.slice(1) : rel);
+  const leak = await call("GET", `${base}${ORGS}?join=${name("projects")}`, { headers: as2 });
+  const leaked = rows(leak.json).flatMap((o) => o.projects ?? []).some((p) => p.id === pid);
+  t.assert("joins from a shared entity do not reach another tenant's rows", leak.status < 500 && !leaked, `${leak.status} ${leak.text.slice(0, 200)}`);
+  // Go responses carry foreign key ids only, never joined rows.
+  if (language === "go") return;
+  const own = await call("GET", `${base}${PROJECTS}?join=${name("organization")}`, { headers: as1 });
+  t.assert("joins inside the tenant still load", own.status === 200 && rows(own.json).some((p) => p.id === pid && p.organization), `${own.status} ${own.text.slice(0, 200)}`);
 }
 
 /** scopeOptions.bypassRoles: a support caller sees other tenants' tickets; a member does not. */
