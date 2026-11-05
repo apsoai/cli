@@ -1,10 +1,9 @@
 /**
  * Upgrade-on-limit flow.
  *
- * When the platform rejects an action because the workspace hit a plan limit
- * (e.g. the free-tier service cap), we surface a friendly prompt that opens the
- * upgrade page in the browser and retries once the user is done — mirroring the
- * "you've hit a limit, upgrade?" flow developers expect from modern CLIs.
+ * When the platform rejects an action for a plan or billing reason (the free-tier
+ * service cap, staging on a free service, a suspended service), the CLI opens the
+ * web app page where the user fixes it and retries once they are done.
  */
 
 import { exec } from "child_process";
@@ -58,47 +57,33 @@ export function fixPage(
 }
 
 /**
- * Prompt the user to resolve a plan or billing refusal in the web app, open the
- * page, and wait for them to finish. Returns true if the caller should retry.
+ * Open the web app page that resolves a plan or billing refusal, then wait for
+ * the user to finish there. Returns true if the caller should retry.
  */
 export async function promptUpgrade(
   error: ApiClientError,
   ctx: PageContext = {}
 ): Promise<boolean> {
-  const { url: upgradeUrl, label } = fixPage(error, ctx);
+  const { url, label } = fixPage(error, ctx);
 
   console.log("");
   console.log(`  ⚠  ${error.message || "You've reached a plan limit."}`);
   console.log("");
-
-  const { proceed } = await inquirer.prompt<{ proceed: boolean }>([
-    {
-      type: "confirm",
-      name: "proceed",
-      message: `Open ${label} in your browser?`,
-      default: true,
-    },
-  ]);
-
-  if (!proceed) {
-    console.log(`  You can do this any time at: ${upgradeUrl}`);
-    return false;
-  }
-
-  console.log("");
-  console.log(`  Opening ${upgradeUrl}`);
+  console.log(`  Opening ${label} in your browser: ${url}`);
   console.log("  If the browser doesn't open, visit the URL above.");
-  await openBrowser(upgradeUrl);
+  console.log("");
+  await openBrowser(url);
 
   const { done } = await inquirer.prompt<{ done: boolean }>([
     {
       type: "confirm",
       name: "done",
-      message: "Press enter once you are done there to retry",
+      message: "Done there? Retry now",
       default: true,
     },
   ]);
 
+  if (!done) console.log(`  You can finish this any time at: ${url}`);
   return done;
 }
 
