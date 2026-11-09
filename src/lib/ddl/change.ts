@@ -134,6 +134,7 @@ const changed = (x: Named, y?: Named) =>
   !y || x.name !== y.name || x.body !== y.body || x.unique !== y.unique;
 /** The enum type name in a column type like "public"."contact_status_enum". */
 const typeOf = (t: string) => (t.match(/^"public"\."(.+)"$/) ?? [])[1];
+const isArray = (t: string) => t.endsWith("[]");
 
 export interface ChangeDdl {
   up: string[];
@@ -242,6 +243,11 @@ export function changeDdl(
             .join(" ")} ELSE ${q(c.name)}::text END)::${c.type}`;
         else if (enumName) using = `${q(c.name)}::text::${c.type}`;
         else if (cast?.answer === "sql") using = `(${cast.sql})`;
+        else if (isArray(o.type) !== isArray(c.type))
+          // A plain cast between a value and an array fails or garbles the data.
+          throw new Error(
+            `${t.name}.${c.name} changes between ${o.type} and ${c.type}; a plain cast can't convert it. Answer "sql" with an expression that builds the new value.`
+          );
         if (o.default !== undefined) up.push(`${at} DROP DEFAULT`);
         up.push(`${at} TYPE ${c.type} USING ${using}`);
         if (c.default !== undefined)

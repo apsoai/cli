@@ -17,6 +17,7 @@ interface PlanField {
   values?: string[];
   nullable?: boolean;
   default?: string | null;
+  elementType?: string;
 }
 
 interface PlanEntity {
@@ -79,6 +80,8 @@ const STRING_TYPES = new Set(["text", "varchar", "char", "string"]);
 const sameType = (a: PlanField, b: PlanField) => {
   const ta = normalizeFieldType(a.type);
   const tb = normalizeFieldType(b.type);
+  if (ta === "array" && tb === "array")
+    return (a.elementType || "text") === (b.elementType || "text");
   return ta === tb || (STRING_TYPES.has(ta) && STRING_TYPES.has(tb));
 };
 
@@ -219,7 +222,11 @@ export function planMigration(
           id: `cast:${now.name}.${old.name}`,
           kind: "cast",
           subject: `Field ${now.name}.${old.name} changes type from ${old.type} to ${cur.type}`,
-          options: ["cast", "sql"],
+          // No plain cast turns a value into an array or back.
+          options:
+            (cur.type === "array") === (old.type === "array")
+              ? ["cast", "sql"]
+              : ["sql"],
         });
       } else if (old.values && cur.values) {
         for (const v of old.values.filter((v) => !cur.values!.includes(v))) {
