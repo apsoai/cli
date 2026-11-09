@@ -564,4 +564,23 @@ describe("guard regeneration (cli#129)", () => {
     expect(first.map((f) => f.path)).toContain("guards/auth.guard.ts");
     expect(second).toEqual(first);
   });
+  test("a OneToOne FK column in uniques/indexes names the relation property", async () => {
+    const workspace: Entity = { name: "Workspace", fields: [{ name: "name", type: "text" }] };
+    const setting: Entity = {
+      name: "Setting",
+      fields: [{ name: "tz", type: "text" }],
+      uniques: [{ fields: ["workspaceId", "tz"] }],
+      indexes: [{ fields: ["workspaceId"] }],
+    };
+    const files = await new TypeScriptGenerator(createConfig([workspace, setting])).generateEntity({
+      entity: setting,
+      relationships: [{ name: "Workspace", type: "OneToOne", join: true, referenceName: "Workspace" }],
+      allEntities: [workspace, setting],
+      apiType: "rest",
+    });
+    const content = findFileContent(files, "Setting.entity");
+    // TypeORM has no "workspaceId" property here; "workspace" resolves to its join column.
+    expect(content).toContain('@Unique(["workspace", "tz"])');
+    expect(content).toContain('@Index(["workspace"])');
+  });
 });

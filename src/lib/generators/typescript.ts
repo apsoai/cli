@@ -132,10 +132,24 @@ export class TypeScriptGenerator extends BaseGenerator {
       relationshipsForTemplate
     );
 
+    // A OneToOne's FK column has no property of its own on the entity, so
+    // @Index/@Unique name the relation property; TypeORM resolves it to the
+    // join column (workspaceId -> workspace).
+    const oneToOneColumns = new Map(
+      relationshipsForTemplate
+        .filter((r) => r.type === "OneToOne" && r.joinTable)
+        .map((r) => [r.camelCasedId, r.relationshipName])
+    );
+    const toProperties = <T extends { fields: string[] }>(list: T[] = []) =>
+      list.map((c) => ({
+        ...c,
+        fields: c.fields.map((f) => oneToOneColumns.get(f) ?? f),
+      }));
+
     const data = {
       name,
-      indexes: indexes || [],
-      uniques: uniques || [],
+      indexes: toProperties(indexes),
+      uniques: toProperties(uniques),
       createPrimaryKey,
       primaryKeyType,
       snakeCasedName: snakeCase(name),

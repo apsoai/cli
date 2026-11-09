@@ -139,6 +139,15 @@ exports[`schemaDdl many-to-many runs on Postgres and matches its snapshot 1`] = 
 ]
 `;
 
+exports[`schemaDdl one-to-one-unique runs on Postgres and matches its snapshot 1`] = `
+[
+  "CREATE TABLE "setting" ("id" SERIAL NOT NULL, "tz" text NOT NULL, "workspaceId" integer, CONSTRAINT "UQ_d21ca45aa249362ffa6c8cb3f96" UNIQUE ("workspaceId", "tz"), CONSTRAINT "REL_f924fc930a165985f0aaa4b959" UNIQUE ("workspaceId"), CONSTRAINT "PK_fcb21187dc6094e24a48f677bed" PRIMARY KEY ("id"))",
+  "CREATE TABLE "workspace" ("id" SERIAL NOT NULL, "name" text NOT NULL, CONSTRAINT "PK_ca86b6f9b3be5fe26d307d09b49" PRIMARY KEY ("id"))",
+  "CREATE INDEX "IDX_d21ca45aa249362ffa6c8cb3f9" ON "setting" ("tz", "workspaceId")",
+  "ALTER TABLE "setting" ADD CONSTRAINT "FK_f924fc930a165985f0aaa4b959b" FOREIGN KEY ("workspaceId") REFERENCES "workspace"("id") ON DELETE CASCADE ON UPDATE NO ACTION",
+]
+`;
+
 exports[`schemaDdl rename-entity runs on Postgres and matches its snapshot 1`] = `
 [
   "CREATE TYPE "public"."contact_status_enum" AS ENUM('lead', 'active', 'archived')",
