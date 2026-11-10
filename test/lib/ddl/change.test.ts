@@ -85,6 +85,26 @@ describe("changeDdl on the migration eval cases", () => {
   });
 });
 
+test("an .apsorc without a relationships key renders (fresh scaffolds omit it)", () => {
+  const label = { name: "label", type: "text" };
+  const note = { name: "note", type: "text", nullable: true };
+  const before = {
+    version: 2,
+    entities: [{ name: "SmokeWidget", fields: [label] }],
+  } as unknown as ApsorcType;
+  const after = {
+    version: 2,
+    entities: [{ name: "SmokeWidget", fields: [label, note] }],
+  } as unknown as ApsorcType;
+  const plan = planMigration(before, after);
+  expect(changeDdl(before, after, plan).up).toEqual([
+    'ALTER TABLE "smoke_widget" ADD "note" text',
+  ]);
+  expect(downDdl(before, after, plan)).toEqual({
+    down: [expect.stringMatching(/"smoke_widget" DROP COLUMN "note"/)],
+  });
+});
+
 describe("downDdl reverses each eval case", () => {
   // Split and cast lose detail by design (trimmed whitespace, 'n/a').
   const lossy = new Set(["split-field", "type-change"]);

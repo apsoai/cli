@@ -152,7 +152,9 @@ export const dedupeIndexes = (entity: Entity): Entity => {
 };
 
 export const parseApsorcV2 = (apsorc: ApsorcType): ParsedApsorcData => {
-  const { entities, relationships: apsoRelationships } = apsorc;
+  // A raw .apsorc may omit "relationships" (fresh scaffolds do); parseRc
+  // defaults it, but migrate and verify read the file directly.
+  const { entities, relationships: apsoRelationships = [] } = apsorc;
   assertCodegenSafeNames(apsorc);
   const relationshipMap = parseRelationships(apsoRelationships);
   return {
