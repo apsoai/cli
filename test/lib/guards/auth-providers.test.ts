@@ -248,7 +248,9 @@ describe("scopeBy in Go and Python services", () => {
   test("Go filters every query by the caller's tenant only when auth is set", async () => {
     const [scoped] = await generators.go.generateService(opts(jwt("jwt")));
     expect(scoped.content).toContain('s.scoped(ctx, query, "find")');
-    expect(scoped.content).toContain('"organization_id": a.WorkspaceID');
+    // The column keeps its .apsorc name, as the DDL writer creates it.
+    expect(scoped.content).toContain('"organizationId": a.WorkspaceID');
+    expect(scoped.content).toContain('CAST("`+table+`"."`+col+`" AS TEXT)');
     expect(scoped.content).toContain('setFromString(&item, "OrganizationID", v)');
     const [open] = await generators.go.generateService(opts());
     expect(open.content).not.toContain("scoped(");

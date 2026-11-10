@@ -4,7 +4,9 @@ package handlers
 
 import (
 	"net/http"
+<% if (it.primaryKeyType !== 'uuid') { %>
 	"strconv"
+<% } %>
 
 	"app/autogen/dto"
 	"app/autogen/services"

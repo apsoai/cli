@@ -1,1 +1,0 @@
-	<%= it.column.pascalName %> <%= it.column.arrayGoType %> `gorm:"type:<%= it.column.elementType %>[]<% if (!it.column.required) { %>;default:null<% } %>" json:"<%= it.column.name %><% if (!it.column.required) { %>,omitempty<% } %>"`

@@ -4,6 +4,9 @@ package services
 
 import (
 	"context"
+<% if (it.columns.some(c => c.gormTag.includes('serializer:json'))) { %>
+	"encoding/json"
+<% } %>
 	"errors"
 
 	"app/autogen/dto"
@@ -23,7 +26,7 @@ import (
 var AllowedFields<%= it.entityName %> = map[string]bool{
 	"id": true,
 <% it.columns.forEach((column) => { %>
-	"<%= column.snakeName %>": true,
+	"<%= column.name %>": true,
 <% }) %>
 <% if (it.createdAt) { %>
 	"created_at": true,
@@ -31,8 +34,8 @@ var AllowedFields<%= it.entityName %> = map[string]bool{
 <% if (it.updatedAt) { %>
 	"updated_at": true,
 <% } %>
-<% it.associations.filter(a => a.type === 'ManyToOne' || (a.type === 'OneToOne' && a.joinTable)).forEach((assoc) => { %>
-	"<%= assoc.type === 'OneToOne' ? assoc.camelCasedId : `${assoc.snakeReferenceName || assoc.snakeName}_id` %>": true,
+<% it.associations.filter(a => a.owns).forEach((assoc) => { %>
+	"<%= assoc.fkColumn %>": true,
 <% }) %>
 }
 
@@ -74,7 +77,7 @@ func (s *<%= it.entityName %>Service) scoped(ctx context.Context, q *gorm.DB, op
 			return nil, nil, ErrForbidden
 		}
 		// Compared as text: token claims are strings, the column may be a number or uuid.
-		q = q.Where("CAST("+table+"."+col+" AS TEXT) = ?", v)
+		q = q.Where(`CAST("`+table+`"."`+col+`" AS TEXT) = ?`, v)
 	}
 	return q, values, nil
 }
@@ -87,7 +90,7 @@ func (s *<%= it.entityName %>Service) FindAll(ctx context.Context, opts utils.Qu
 
 	query := s.db.WithContext(ctx).Model(&models.<%= it.entityName %>{})
 <% it.associations.filter(a => a.eager).forEach((assoc) => { %>
-	query = query.Preload("<%= assoc.referenceName || assoc.name %>")
+	query = query.Preload("<%= assoc.fieldName %>")
 <% }) %>
 <% if (it.scope) { %>
 	query, _, scopeErr := s.scoped(ctx, query, "find")
@@ -128,7 +131,7 @@ func (s *<%= it.entityName %>Service) FindAllBare(ctx context.Context, opts util
 
 	query := s.db.WithContext(ctx).Model(&models.<%= it.entityName %>{})
 <% it.associations.filter(a => a.eager).forEach((assoc) => { %>
-	query = query.Preload("<%= assoc.referenceName || assoc.name %>")
+	query = query.Preload("<%= assoc.fieldName %>")
 <% }) %>
 <% if (it.scope) { %>
 	query, _, scopeErr := s.scoped(ctx, query, "find")
@@ -159,7 +162,7 @@ func (s *<%= it.entityName %>Service) FindOne(ctx context.Context, id string) (*
 
 	query := s.db.WithContext(ctx)
 <% it.associations.filter(a => a.eager).forEach((assoc) => { %>
-	query = query.Preload("<%= assoc.referenceName || assoc.name %>")
+	query = query.Preload("<%= assoc.fieldName %>")
 <% }) %>
 <% if (it.scope) { %>
 	query, _, scopeErr := s.scoped(ctx, query, "get")
@@ -187,14 +190,10 @@ func (s *<%= it.entityName %>Service) FindOne(ctx context.Context, id string) (*
 func (s *<%= it.entityName %>Service) Create(ctx context.Context, input *dto.<%= it.entityName %>Create) (*dto.<%= it.entityName %>Response, error) {
 	item := models.<%= it.entityName %>{
 <% it.columns.filter(c => !c.generated && !c.primary).forEach((column) => { %>
-<% if (column.required) { %>
 		<%= column.pascalName %>: input.<%= column.pascalName %>,
-<% } else { %>
-		<%= column.pascalName %>: input.<%= column.pascalName %>,
-<% } %>
 <% }) %>
-<% it.associations.filter(a => a.type === 'ManyToOne' || (a.type === 'OneToOne' && a.joinTable)).forEach((assoc) => { %>
-		<%= assoc.referenceName || assoc.name %>ID: input.<%= assoc.referenceName || assoc.name %>ID,
+<% it.associations.filter(a => a.owns).forEach((assoc) => { %>
+		<%= assoc.fkField %>: input.<%= assoc.fkField %>,
 <% }) %>
 	}
 <% if (it.scope && it.scope.injectOnCreate) { %>
@@ -246,17 +245,24 @@ func (s *<%= it.entityName %>Service) Update(ctx context.Context, id string, inp
 	updates := make(map[string]interface{})
 <% it.columns.filter(c => !c.generated && !c.primary).forEach((column) => { %>
 	if input.<%= column.pascalName %> != nil {
-<% if (column.type === 'array') { %>
+<% if (column.gormTag.includes('serializer:json')) { %>
+		// A map in an update map skips the model's JSON serializer.
+		encoded, err := json.Marshal(input.<%= column.pascalName %>)
+		if err != nil {
+			return nil, err
+		}
+		updates["<%= column.name %>"] = string(encoded)
+<% } else if (column.type === 'array') { %>
 		// A plain slice would be sent as a record; the pq type sends an array.
-		updates["<%= column.snakeName %>"] = <%= column.arrayGoType %>(*input.<%= column.pascalName %>)
+		updates["<%= column.name %>"] = <%= column.arrayGoType %>(*input.<%= column.pascalName %>)
 <% } else { %>
-		updates["<%= column.snakeName %>"] = *input.<%= column.pascalName %>
+		updates["<%= column.name %>"] = *input.<%= column.pascalName %>
 <% } %>
 	}
 <% }) %>
-<% it.associations.filter(a => a.type === 'ManyToOne' || (a.type === 'OneToOne' && a.joinTable)).forEach((assoc) => { %>
-	if input.<%= assoc.referenceName || assoc.name %>ID != nil {
-		updates["<%= assoc.type === 'OneToOne' ? assoc.camelCasedId : `${assoc.snakeReferenceName || assoc.snakeName}_id` %>"] = *input.<%= assoc.referenceName || assoc.name %>ID
+<% it.associations.filter(a => a.owns).forEach((assoc) => { %>
+	if input.<%= assoc.fkField %> != nil {
+		updates["<%= assoc.fkColumn %>"] = *input.<%= assoc.fkField %>
 	}
 <% }) %>
 <% if (it.scope) { %>
@@ -275,7 +281,7 @@ func (s *<%= it.entityName %>Service) Update(ctx context.Context, id string, inp
 	// Reload with associations
 	query := s.db.WithContext(ctx)
 <% it.associations.filter(a => a.eager).forEach((assoc) => { %>
-	query = query.Preload("<%= assoc.referenceName || assoc.name %>")
+	query = query.Preload("<%= assoc.fieldName %>")
 <% }) %>
 <% if (it.primaryKeyType === 'uuid') { %>
 	if err := query.Where("id = ?", id).First(&item).Error; err != nil {
@@ -314,7 +320,7 @@ func (s *<%= it.entityName %>Service) Delete(ctx context.Context, id string) err
 
 // toResponse converts a model to a response DTO
 func (s *<%= it.entityName %>Service) toResponse(item *models.<%= it.entityName %>) dto.<%= it.entityName %>Response {
-	return dto.<%= it.entityName %>Response{
+	response := dto.<%= it.entityName %>Response{
 		ID: item.ID,
 <% it.columns.forEach((column) => { %>
 		<%= column.pascalName %>: item.<%= column.pascalName %>,
@@ -325,8 +331,22 @@ func (s *<%= it.entityName %>Service) toResponse(item *models.<%= it.entityName 
 <% if (it.updatedAt) { %>
 		UpdatedAt: item.UpdatedAt,
 <% } %>
-<% it.associations.filter(a => a.type === 'ManyToOne' || (a.type === 'OneToOne' && a.joinTable)).forEach((assoc) => { %>
-		<%= assoc.referenceName || assoc.name %>ID: item.<%= assoc.referenceName || assoc.name %>ID,
+<% it.associations.filter(a => a.owns).forEach((assoc) => { %>
+		<%= assoc.fkField %>: item.<%= assoc.fkField %>,
 <% }) %>
 	}
+	// Relations loaded by ?join= or eager loading.
+<% it.associations.forEach((assoc) => { %>
+<% if (assoc.type === 'ManyToOne' || assoc.type === 'OneToOne') { %>
+	if item.<%= assoc.fieldName %> != nil {
+		related := (&<%= assoc.name %>Service{}).toResponse(item.<%= assoc.fieldName %>)
+		response.<%= assoc.fieldName %> = &related
+	}
+<% } else if (assoc.type === 'OneToMany' || (assoc.type === 'ManyToMany' && assoc.join)) { %>
+	for i := range item.<%= assoc.fieldName %> {
+		response.<%= assoc.fieldName %> = append(response.<%= assoc.fieldName %>, (&<%= assoc.name %>Service{}).toResponse(&item.<%= assoc.fieldName %>[i]))
+	}
+<% } %>
+<% }) %>
+	return response
 }
