@@ -26,6 +26,8 @@ export interface Field {
   length?: number;
   precision?: number;
   scale?: number;
+  /** Postgres element type of an "array" field; text when unset. */
+  elementType?: string;
   /* eslint-disable-next-line  camelcase */
   is_email?: boolean;
 }

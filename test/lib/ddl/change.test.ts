@@ -1,7 +1,8 @@
 import { expect, describe, test } from "@jest/globals";
 import * as fs from "fs";
 import * as path from "path";
-import { parseApsorcV2 } from "../../../src/lib/apsorc-parser";
+import { ApsorcType, parseApsorcV2 } from "../../../src/lib/apsorc-parser";
+import { Field } from "../../../src/lib/types";
 import { schemaDdl, schemaModel } from "../../../src/lib/ddl";
 import { changeDdl, downDdl } from "../../../src/lib/ddl/change";
 import { catalogDiff, readCatalog } from "../../../src/lib/ddl/catalog";
@@ -118,5 +119,100 @@ describe("downDdl reverses each eval case", () => {
     if (!lossy.has(c)) expect(await rows()).toEqual(seeded);
     await db.close();
     await fresh.close();
+  });
+});
+
+describe("array fields", () => {
+  const schema = (fields: Field[]): ApsorcType => ({
+    version: 2,
+    rootFolder: "src",
+    apiType: "Rest" as ApsorcType["apiType"],
+    entities: [{ name: "Email", fields }],
+    relationships: [],
+  });
+  const subject: Field = { name: "subject", type: "text" };
+
+  test("columns are text[] unless elementType is set", () => {
+    const [table] = schemaModel(
+      parseApsorcV2(
+        schema([
+          { name: "toAddresses", type: "array" },
+          {
+            name: "ids",
+            type: "array",
+            elementType: "integer",
+            nullable: true,
+          },
+        ])
+      )
+    ).tables;
+    expect(table.columns.slice(1).map((c) => c.sql)).toEqual([
+      '"toAddresses" text[] NOT NULL',
+      '"ids" integer[]',
+    ]);
+  });
+
+  test("an elementType that is not a type name is refused", () => {
+    expect(() =>
+      schemaModel(
+        parseApsorcV2(
+          schema([{ name: "x", type: "array", elementType: "text); DROP" }])
+        )
+      )
+    ).toThrow(/invalid elementType/);
+  });
+
+  test("adding one to an existing table, then changing its elementType", async () => {
+    const v1 = schema([subject]);
+    const v2 = schema([subject, { name: "cc", type: "array", nullable: true }]);
+    const v3 = schema([
+      subject,
+      { name: "cc", type: "array", elementType: "integer", nullable: true },
+    ]);
+    const db = await pglite();
+    await db.exec(schemaDdl(parseApsorcV2(v1)).join(";\n"));
+    await db.exec(`INSERT INTO "email" ("subject") VALUES ('hi')`);
+    const up = [
+      [v1, v2],
+      [v2, v3],
+    ].flatMap(([from, to]) => {
+      const plan = planMigration(from, to);
+      for (const x of plan.questions) x.answer = "cast";
+      expect(openQuestions(planMigration(from, to, plan))).toEqual([]);
+      return changeDdl(from, to, plan).up;
+    });
+    expect(up).toContain(
+      'ALTER TABLE "email" ALTER COLUMN "cc" TYPE integer[] USING "cc"::integer[]'
+    );
+    await db.exec(up.join(";\n"));
+    const fresh = await pglite();
+    await fresh.exec(schemaDdl(parseApsorcV2(v3)).join(";\n"));
+    expect(
+      catalogDiff(await readCatalog(fresh), await readCatalog(db))
+    ).toEqual([]);
+    await db.close();
+    await fresh.close();
+  });
+
+  test("a value to an array takes SQL, not a plain cast", async () => {
+    const before = schema([{ name: "to", type: "text" }]);
+    const after = schema([{ name: "to", type: "array" }]);
+    const plan = planMigration(before, after);
+    expect(plan.questions.map((x) => x.options)).toEqual([["sql"]]);
+    plan.questions[0].answer = "cast";
+    expect(openQuestions(planMigration(before, after, plan))).toHaveLength(1);
+    expect(() => changeDdl(before, after, plan)).toThrow(/plain cast/);
+
+    plan.questions[0].answer = "sql";
+    plan.questions[0].sql = `ARRAY["to"]`;
+    const db = await pglite();
+    await db.exec(schemaDdl(parseApsorcV2(before)).join(";\n"));
+    await db.exec(`INSERT INTO "email" ("to") VALUES ('a@b.co')`);
+    await db.exec(changeDdl(before, after, plan).up.join(";\n"));
+    const r = await db.query<{ to: string[] }>(`SELECT "to" FROM "email"`);
+    expect(r.rows[0].to).toEqual(["a@b.co"]);
+    await db.close();
+    // Nothing answers the way back, so the reverse is reported, not guessed.
+    expect(downDdl(before, after, plan)).toHaveProperty("irreversible");
   });
 });

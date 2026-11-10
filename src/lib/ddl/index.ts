@@ -129,6 +129,16 @@ export function columnSpec(table: string, f: ComputedField): ColumnSpec {
     case "json-plain":
       type = "json";
       break;
+    case "array": {
+      // entity-col-array.eta: { type: elementType || "text", array: true }, no default.
+      const element = f.elementType || "text";
+      if (!/^[a-z][\w ]*$/i.test(element))
+        throw new Error(
+          `Field ${table}.${f.name} has an invalid elementType "${element}".`
+        );
+      type = `${element}[]`;
+      break;
+    }
     default:
       // ponytail: spatial, range and other special templates; add each with a parity case.
       throw new Error(
