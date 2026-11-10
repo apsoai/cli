@@ -584,3 +584,27 @@ describe("guard regeneration (cli#129)", () => {
     expect(content).toContain('@Index(["workspace"])');
   });
 });
+
+describe("array element types", () => {
+  test("an integer or boolean elementType gives number[] or boolean[]", async () => {
+    const entity: Entity = {
+      name: "Email",
+      fields: [
+        { name: "to", type: "array" },
+        { name: "ids", type: "array", elementType: "integer" },
+        { name: "flags", type: "array", elementType: "boolean" },
+      ],
+    };
+    const generator = new TypeScriptGenerator(createConfig([entity]));
+    const options = { entity, relationships: [], allEntities: [entity], apiType: "rest" };
+    const files = [
+      ...(await generator.generateEntity(options)),
+      ...(await generator.generateDto(options)),
+    ];
+    const entityFile = findFileContent(files, "Email.entity")!;
+    expect(entityFile).toContain("to: string[];");
+    expect(entityFile).toContain("ids: number[];");
+    expect(entityFile).toContain("flags: boolean[];");
+    expect(files.find((f) => f.path.includes("dto"))!.content).toContain(": number[];");
+  });
+});

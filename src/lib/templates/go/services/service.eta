@@ -12,6 +12,9 @@ import (
 <% } %>
 	"app/autogen/models"
 	"app/autogen/utils"
+<% if (it.columns.some(c => c.type === 'array')) { %>
+	"github.com/lib/pq"
+<% } %>
 	"gorm.io/gorm"
 )
 
@@ -28,8 +31,8 @@ var AllowedFields<%= it.entityName %> = map[string]bool{
 <% if (it.updatedAt) { %>
 	"updated_at": true,
 <% } %>
-<% it.associations.filter(a => a.type === 'ManyToOne' || (a.type === 'OneToOne' && a.isOwner)).forEach((assoc) => { %>
-	"<%= assoc.snakeReferenceName || assoc.snakeName %>_id": true,
+<% it.associations.filter(a => a.type === 'ManyToOne' || (a.type === 'OneToOne' && a.joinTable)).forEach((assoc) => { %>
+	"<%= assoc.type === 'OneToOne' ? assoc.camelCasedId : `${assoc.snakeReferenceName || assoc.snakeName}_id` %>": true,
 <% }) %>
 }
 
@@ -190,7 +193,7 @@ func (s *<%= it.entityName %>Service) Create(ctx context.Context, input *dto.<%=
 		<%= column.pascalName %>: input.<%= column.pascalName %>,
 <% } %>
 <% }) %>
-<% it.associations.filter(a => a.type === 'ManyToOne' || (a.type === 'OneToOne' && a.isOwner)).forEach((assoc) => { %>
+<% it.associations.filter(a => a.type === 'ManyToOne' || (a.type === 'OneToOne' && a.joinTable)).forEach((assoc) => { %>
 		<%= assoc.referenceName || assoc.name %>ID: input.<%= assoc.referenceName || assoc.name %>ID,
 <% }) %>
 	}
@@ -243,12 +246,17 @@ func (s *<%= it.entityName %>Service) Update(ctx context.Context, id string, inp
 	updates := make(map[string]interface{})
 <% it.columns.filter(c => !c.generated && !c.primary).forEach((column) => { %>
 	if input.<%= column.pascalName %> != nil {
+<% if (column.type === 'array') { %>
+		// A plain slice would be sent as a record; the pq type sends an array.
+		updates["<%= column.snakeName %>"] = <%= column.arrayGoType %>(*input.<%= column.pascalName %>)
+<% } else { %>
 		updates["<%= column.snakeName %>"] = *input.<%= column.pascalName %>
+<% } %>
 	}
 <% }) %>
-<% it.associations.filter(a => a.type === 'ManyToOne' || (a.type === 'OneToOne' && a.isOwner)).forEach((assoc) => { %>
+<% it.associations.filter(a => a.type === 'ManyToOne' || (a.type === 'OneToOne' && a.joinTable)).forEach((assoc) => { %>
 	if input.<%= assoc.referenceName || assoc.name %>ID != nil {
-		updates["<%= assoc.snakeReferenceName || assoc.snakeName %>_id"] = *input.<%= assoc.referenceName || assoc.name %>ID
+		updates["<%= assoc.type === 'OneToOne' ? assoc.camelCasedId : `${assoc.snakeReferenceName || assoc.snakeName}_id` %>"] = *input.<%= assoc.referenceName || assoc.name %>ID
 	}
 <% }) %>
 <% if (it.scope) { %>
@@ -317,7 +325,7 @@ func (s *<%= it.entityName %>Service) toResponse(item *models.<%= it.entityName 
 <% if (it.updatedAt) { %>
 		UpdatedAt: item.UpdatedAt,
 <% } %>
-<% it.associations.filter(a => a.type === 'ManyToOne' || (a.type === 'OneToOne' && a.isOwner)).forEach((assoc) => { %>
+<% it.associations.filter(a => a.type === 'ManyToOne' || (a.type === 'OneToOne' && a.joinTable)).forEach((assoc) => { %>
 		<%= assoc.referenceName || assoc.name %>ID: item.<%= assoc.referenceName || assoc.name %>ID,
 <% }) %>
 	}

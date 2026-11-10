@@ -34,7 +34,7 @@ type <%= it.entityName %>Response struct {
 	<%= assoc.referenceName || assoc.name %>ID <%= assoc.primaryKeyGoType || 'uint' %> `json:"<%= assoc.camelReferenceName || assoc.camelName %>Id"`
 	<%= assoc.referenceName || assoc.name %> *<%= assoc.name %>Response `json:"<%= assoc.camelReferenceName || assoc.camelName %>,omitempty"`
 <% } else if (assoc.type === 'OneToOne') { -%>
-<% if (assoc.isOwner) { -%>
+<% if (assoc.joinTable) { -%>
 	<%= assoc.referenceName || assoc.name %>ID <%= assoc.primaryKeyGoType || 'uint' %> `json:"<%= assoc.camelReferenceName || assoc.camelName %>Id"`
 <% } -%>
 	<%= assoc.referenceName || assoc.name %> *<%= assoc.name %>Response `json:"<%= assoc.camelReferenceName || assoc.camelName %>,omitempty"`
@@ -50,7 +50,7 @@ type <%= it.entityName %>Create struct {
 <%~ includeFile('./dto-col-' + column.type + '.eta', { column, mode: 'create' }) %>
 <% }); -%>
 <% it.associations.forEach((assoc) => { -%>
-<% if (assoc.type === 'ManyToOne' || (assoc.type === 'OneToOne' && assoc.isOwner)) { -%>
+<% if (assoc.type === 'ManyToOne' || (assoc.type === 'OneToOne' && assoc.joinTable)) { -%>
 	<%= assoc.referenceName || assoc.name %>ID <%= assoc.primaryKeyGoType || 'uint' %> `json:"<%= assoc.camelReferenceName || assoc.camelName %>Id"<% if (!assoc.scoped) { %> validate:"required"<% } %>`
 <% } -%>
 <% }) -%>
@@ -62,7 +62,7 @@ type <%= it.entityName %>Update struct {
 <%~ includeFile('./dto-col-' + column.type + '.eta', { column, mode: 'update' }) %>
 <% }); -%>
 <% it.associations.forEach((assoc) => { -%>
-<% if (assoc.type === 'ManyToOne' || (assoc.type === 'OneToOne' && assoc.isOwner)) { -%>
+<% if (assoc.type === 'ManyToOne' || (assoc.type === 'OneToOne' && assoc.joinTable)) { -%>
 	<%= assoc.referenceName || assoc.name %>ID *<%= assoc.primaryKeyGoType || 'uint' %> `json:"<%= assoc.camelReferenceName || assoc.camelName %>Id,omitempty"`
 <% } -%>
 <% }) -%>

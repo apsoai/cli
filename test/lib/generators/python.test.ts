@@ -19,6 +19,17 @@ function findFileContent(files: { path: string; content: string }[], filename: s
   return file?.content;
 }
 
+// Model and schema files for one "Email" entity with these fields.
+async function renderEmail(fields: Entity["fields"]) {
+  const generator = new PythonGenerator(createConfig([]));
+  const entity: Entity = { name: "Email", fields };
+  const options = { entity, relationships: [], allEntities: [entity], apiType: "rest" };
+  return {
+    model: findFileContent(await generator.generateEntity(options), "email.py")!,
+    schema: findFileContent(await generator.generateDto(options), "email.py")!,
+  };
+}
+
 describe("PythonGenerator", () => {
   let generator: PythonGenerator;
 
@@ -337,6 +348,79 @@ describe("PythonGenerator", () => {
       const modelContent = findFileContent(files, "lineitem.py");
       expect(modelContent).toContain('ForeignKey("order_record.id")');
       expect(modelContent).toContain('ForeignKey("user_profile.id")');
+    });
+  });
+
+  describe("array fields match the DDL writer", () => {
+    test("text[] by default and the elementType's type otherwise", async () => {
+      const { model, schema } = await renderEmail([
+        { name: "to", type: "array" },
+        { name: "ids", type: "array", elementType: "integer", nullable: true },
+        { name: "flags", type: "array", elementType: "boolean" },
+      ]);
+      expect(model).toContain("ARRAY(Text)");
+      expect(model).not.toContain("ARRAY(String)");
+      expect(model).toContain("ids: Mapped[Optional[List[int]]]");
+      expect(model).toContain("ARRAY(Integer)");
+      expect(model).toContain("ARRAY(Boolean)");
+      expect(schema).toContain("List[int]");
+      expect(schema).toContain("List[bool]");
+    });
+
+    test("the old arrayType key still works", async () => {
+      const { model } = await renderEmail([
+        { name: "ids", type: "array", arrayType: "integer" } as any,
+      ]);
+      expect(model).toContain("ARRAY(Integer)");
+    });
+
+    test("an elementType with no SQLAlchemy mapping is refused", async () => {
+      await expect(
+        renderEmail([{ name: "x", type: "array", elementType: "text); DROP" }])
+      ).rejects.toThrow(/does not support/);
+    });
+  });
+
+  describe("OneToOne", () => {
+    const workspace: Entity = { name: "Workspace", fields: [{ name: "name", type: "text" }] };
+    const setting: Entity = {
+      name: "Setting",
+      fields: [{ name: "tz", type: "text" }],
+      uniques: [{ fields: ["workspaceId", "tz"] }],
+    };
+
+    test("the owning side gets a UNIQUE workspaceId FK, like the DDL", async () => {
+      const files = await generator.generateEntity({
+        entity: setting,
+        relationships: [
+          { type: "OneToOne", name: "Workspace", join: true, referenceName: "Workspace", biDirectional: true, inverseReferenceName: "Setting" },
+        ],
+        allEntities: [workspace, setting],
+        apiType: "rest",
+      });
+      const model = findFileContent(files, "setting.py")!;
+      expect(model).toContain("workspaceId: Mapped[Optional[int]] = mapped_column(");
+      expect(model).toContain('ForeignKey("workspace.id", ondelete="CASCADE")');
+      expect(model).toContain("unique=True");
+      expect(model).toContain('UniqueConstraint("workspaceId", "tz")');
+      expect(model).toContain('back_populates="setting"');
+      // delete-orphan is not allowed on the many-to-one direction.
+      expect(model).not.toContain("delete-orphan");
+    });
+
+    test("the inverse side is a scalar relationship with no column", async () => {
+      const files = await generator.generateEntity({
+        entity: workspace,
+        relationships: [
+          { type: "OneToOne", name: "Setting", join: false, referenceName: "Setting", biDirectional: true, inverseReferenceName: "Workspace" },
+        ],
+        allEntities: [workspace, setting],
+        apiType: "rest",
+      });
+      const model = findFileContent(files, "workspace.py")!;
+      expect(model).toContain("uselist=False");
+      expect(model).toContain('back_populates="workspace"');
+      expect(model).not.toContain("settingId");
     });
   });
 

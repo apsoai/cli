@@ -411,6 +411,78 @@ describe("GoGenerator", () => {
     });
   });
 
+  describe("array fields match the DDL writer", () => {
+    test("pq array types with the elementType's Postgres type", async () => {
+      const entity: Entity = {
+        name: "Email",
+        fields: [
+          { name: "to", type: "array" },
+          { name: "ids", type: "array", elementType: "integer" },
+          { name: "old", type: "array", arrayItemType: "bigint" } as any,
+        ],
+      };
+      const files = await generator.generateEntity({
+        entity,
+        relationships: [],
+        allEntities: [entity],
+        apiType: "rest",
+      });
+      const content = findFileContent(files, "email.go")!;
+      expect(content).toContain('"github.com/lib/pq"');
+      expect(content).toContain('To pq.StringArray `gorm:"type:text[]');
+      expect(content).toContain('Ids pq.Int32Array `gorm:"type:integer[]');
+      expect(content).toContain('Old pq.Int64Array `gorm:"type:bigint[]');
+      // A JSON serializer would write ["a"] into a Postgres array column.
+      expect(content).not.toContain("serializer:json");
+    });
+
+    test("an elementType that is not a type name is refused", async () => {
+      const entity: Entity = {
+        name: "Email",
+        fields: [{ name: "x", type: "array", elementType: 'text" json:"y' }],
+      };
+      await expect(
+        generator.generateEntity({ entity, relationships: [], allEntities: [entity], apiType: "rest" })
+      ).rejects.toThrow(/invalid elementType/);
+    });
+  });
+
+  describe("OneToOne", () => {
+    const workspace: Entity = { name: "Workspace", fields: [{ name: "name", type: "text" }] };
+    const setting: Entity = { name: "Setting", fields: [{ name: "tz", type: "text" }] };
+    const owner: Relationship[] = [
+      { type: "OneToOne", name: "Workspace", join: true, referenceName: "Workspace", biDirectional: true, inverseReferenceName: "Setting" },
+    ];
+    const options = { entity: setting, relationships: owner, allEntities: [workspace, setting], apiType: "rest", relationshipMap: {} };
+
+    test("the owning side's FK column is workspaceId with UNIQUE, like the DDL", async () => {
+      const model = findFileContent(await generator.generateEntity(options), "setting.go")!;
+      expect(model).toContain('WorkspaceID uint `gorm:"column:workspaceId;unique"');
+      expect(model).toContain('gorm:"foreignKey:WorkspaceID;constraint:OnDelete:CASCADE"');
+      const service = findFileContent(await generator.generateService(options), "setting.go")!;
+      expect(service).toContain('"workspaceId": true');
+      expect(service).toContain('updates["workspaceId"]');
+      const dto = findFileContent(await generator.generateDto(options), "setting.go")!;
+      expect(dto).toContain('WorkspaceID uint `json:"workspaceId"');
+    });
+
+    test("the inverse side has no FK column and cascades", async () => {
+      const model = findFileContent(
+        await generator.generateEntity({
+          entity: workspace,
+          relationships: [
+            { type: "OneToOne", name: "Setting", join: false, referenceName: "Setting", biDirectional: true, inverseReferenceName: "Workspace" },
+          ],
+          allEntities: [workspace, setting],
+          apiType: "rest",
+        }),
+        "workspace.go"
+      )!;
+      expect(model).toContain('Setting *Setting `gorm:"constraint:OnDelete:CASCADE"');
+      expect(model).not.toContain("SettingID");
+    });
+  });
+
   describe("handler generation", () => {
     test("generates Gin handler with CRUD operations", async () => {
       const entity: Entity = {
@@ -882,6 +954,8 @@ describe("GoGenerator", () => {
             { name: "name", type: "text" },
             { name: "price", type: "float" },
             { name: "active", type: "boolean" },
+            { name: "tags", type: "array" },
+            { name: "scores", type: "array", elementType: "integer" },
           ],
         };
         const entities = [entity];

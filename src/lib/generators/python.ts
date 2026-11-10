@@ -19,7 +19,12 @@ import {
   resolveJwtAuth,
   Field,
 } from "../types";
-import { getFieldForTemplate, typeExistsInEntity, fieldToEnumType } from "../utils/field";
+import {
+  arrayElementType,
+  getFieldForTemplate,
+  typeExistsInEntity,
+  fieldToEnumType,
+} from "../utils/field";
 import {
   getRelationshipForTemplate,
   getRelationshipsForImport,
@@ -33,6 +38,42 @@ import {
 } from "../guards";
 import { pyString } from "../ddl/migration-file";
 import pluralize from "pluralize";
+
+// Postgres array element type -> [SQLAlchemy column type, Python type]. The
+// column type must give the same Postgres type the DDL writer does.
+const arrayElementTypes: Record<string, [string, string]> = {
+  text: ["Text", "str"],
+  varchar: ["String", "str"],
+  uuid: ["PGUUID(as_uuid=True)", "UUID"],
+  integer: ["Integer", "int"],
+  int: ["Integer", "int"],
+  int4: ["Integer", "int"],
+  smallint: ["SmallInteger", "int"],
+  bigint: ["BigInteger", "int"],
+  numeric: ["Numeric", "Decimal"],
+  decimal: ["Numeric", "Decimal"],
+  real: ["REAL", "float"],
+  float: ["Float", "float"],
+  float8: ["Float", "float"],
+  "double precision": ["Float", "float"],
+  boolean: ["Boolean", "bool"],
+  bool: ["Boolean", "bool"],
+  date: ["Date", "date"],
+  timestamp: ["DateTime", "datetime"],
+  timestamptz: ["DateTime(timezone=True)", "datetime"],
+};
+
+const withArrayTypes = <T extends Field>(columns: T[], entityName: string) =>
+  columns.map((c) => {
+    if (c.type !== "array") return c;
+    const element = arrayElementType(c);
+    const types = arrayElementTypes[element.toLowerCase()];
+    if (!types)
+      throw new Error(
+        `Field ${entityName}.${c.name} has elementType "${element}", which the Python generator does not support. Use one of: ${Object.keys(arrayElementTypes).join(", ")}.`
+      );
+    return { ...c, arrayColumnType: types[0], arrayItemType: types[1] };
+  });
 
 /**
  * Python/FastAPI generator that produces SQLAlchemy models, Pydantic schemas,
@@ -127,7 +168,7 @@ export class PythonGenerator extends BaseGenerator {
     const { entity, relationships, allEntities, apiType } = options;
     const { name, fields = [], indexes, uniques } = entity;
 
-    const columns = getFieldForTemplate(fields, name);
+    const columns = withArrayTypes(getFieldForTemplate(fields, name), name);
     const createPrimaryKey =
       columns.filter((column: Field) => column.primary === true).length === 0;
 
@@ -246,7 +287,10 @@ export class PythonGenerator extends BaseGenerator {
     const { entity, relationships, allEntities, apiType } = options;
     const { name: entityName, fields = [] } = entity;
 
-    const columns = getFieldForTemplate(fields, entityName);
+    const columns = withArrayTypes(
+      getFieldForTemplate(fields, entityName),
+      entityName
+    );
     const relationshipsTemplate = getRelationshipForTemplate(
       entityName,
       relationships

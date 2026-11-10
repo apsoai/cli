@@ -6,8 +6,8 @@ from datetime import datetime, date
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import Column, Integer, String, Text, Boolean, Float, Numeric, Date, DateTime, JSON, Enum as SAEnum, ForeignKey, Index, UniqueConstraint, Table
-from sqlalchemy.dialects.postgresql import UUID as PGUUID, JSONB, ARRAY, BYTEA, INET, INTERVAL, TSVECTOR
+from sqlalchemy import Column, Integer, SmallInteger, BigInteger, String, Text, Boolean, Float, Numeric, Date, DateTime, JSON, Enum as SAEnum, ForeignKey, Index, UniqueConstraint, Table
+from sqlalchemy.dialects.postgresql import UUID as PGUUID, JSONB, ARRAY, REAL, BYTEA, INET, INTERVAL, TSVECTOR
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -106,6 +106,19 @@ columnsToProcess.forEach((field) => { -%>
     <%= assoc.pluralizedRelationshipName %>: Mapped[List["<%= assoc.name %>"]] = relationship(
         "<%= assoc.name %>",
         secondary=<%= assoc.joinTableName || `${it.tableName}_${assoc.name.toLowerCase()}` %>,
+        <% if (assoc.biDirectional) { %>back_populates="<%= assoc.inverseSidePropertyName %>",<% } %>
+        lazy="selectin"
+    )
+<% } else if (assoc.type === 'OneToOne' && assoc.joinTable) { %>
+    # Foreign key for <%= assoc.name %> (one per row, so UNIQUE)
+    <%= assoc.camelCasedId %>: Mapped[<% if (assoc.referencedEntityPrimaryKeyType === 'uuid') { %>Optional[UUID]<% } else { %>Optional[int]<% } %>] = mapped_column(
+        <% if (assoc.referencedEntityPrimaryKeyType === 'uuid') { %>PGUUID(as_uuid=True)<% } else { %>Integer<% } %>,
+        ForeignKey("<%= it.tableNames[assoc.name] || assoc.name.toLowerCase() %>.id", ondelete="CASCADE"),
+        nullable=True,
+        unique=True
+    )
+    <%= assoc.relationshipName %>: Mapped[Optional["<%= assoc.name %>"]] = relationship(
+        "<%= assoc.name %>",
         <% if (assoc.biDirectional) { %>back_populates="<%= assoc.inverseSidePropertyName %>",<% } %>
         lazy="selectin"
     )

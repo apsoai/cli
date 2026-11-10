@@ -24,7 +24,12 @@ import {
   entityScope,
   nestedScopeEntities,
 } from "../guards";
-import { getFieldForTemplate, typeExistsInEntity, fieldToEnumType } from "../utils/field";
+import {
+  arrayElementType,
+  getFieldForTemplate,
+  typeExistsInEntity,
+  fieldToEnumType,
+} from "../utils/field";
 import {
   getRelationshipForTemplate,
   getRelationshipsForImport,
@@ -33,6 +38,24 @@ import { snakeCase, camelCase, pascalCase, kebabCase } from "../utils/casing";
 import { getEventEmittingEntities } from "../events";
 import { gooseStatements } from "../ddl/migration-file";
 import pluralize from "pluralize";
+
+// Postgres array element type -> lib/pq array type and its Go element type.
+// Anything else is read and written as text (pq.StringArray).
+const pqArrayTypes: Record<string, [string, string]> = {
+  integer: ["pq.Int32Array", "int32"],
+  int: ["pq.Int32Array", "int32"],
+  int4: ["pq.Int32Array", "int32"],
+  smallint: ["pq.Int32Array", "int32"],
+  bigint: ["pq.Int64Array", "int64"],
+  numeric: ["pq.Float64Array", "float64"],
+  decimal: ["pq.Float64Array", "float64"],
+  float: ["pq.Float64Array", "float64"],
+  float8: ["pq.Float64Array", "float64"],
+  "double precision": ["pq.Float64Array", "float64"],
+  real: ["pq.Float32Array", "float32"],
+  boolean: ["pq.BoolArray", "bool"],
+  bool: ["pq.BoolArray", "bool"],
+};
 
 /**
  * Go/Gin generator that produces GORM models, DTOs, Gin handlers,
@@ -160,6 +183,19 @@ export class GoGenerator extends BaseGenerator {
     return primaryKeyType === "uuid" ? "string" : "integer";
   }
 
+  private arrayTypes(field: Field, entityName: string) {
+    const elementType = arrayElementType(field);
+    // It goes into a struct tag, so only a plain type name.
+    if (!/^[a-z][\w ]*$/i.test(elementType))
+      throw new Error(
+        `Field ${entityName}.${field.name} has an invalid elementType "${elementType}".`
+      );
+    const [arrayGoType, arrayItemGoType] = pqArrayTypes[
+      elementType.toLowerCase()
+    ] || ["pq.StringArray", "string"];
+    return { elementType, arrayGoType, arrayItemGoType };
+  }
+
   /**
    * Transforms fields for Go templates with additional Go-specific properties
    */
@@ -167,6 +203,7 @@ export class GoGenerator extends BaseGenerator {
     const baseFields = getFieldForTemplate(fields, entityName);
     return baseFields.map((field: any) => ({
       ...field,
+      ...(field.type === "array" && this.arrayTypes(field, entityName)),
       goType: this.mapFieldToGoType(field),
       pascalName: pascalCase(field.name),
       snakeName: snakeCase(field.name),
@@ -198,7 +235,9 @@ export class GoGenerator extends BaseGenerator {
     // Add Go-specific properties to relationships
     const goRelationships = relationshipsForTemplate.map((rel) => ({
       ...rel,
-      primaryKeyGoType: this.getPrimaryKeyGoType(primaryKeyType),
+      primaryKeyGoType: this.getPrimaryKeyGoType(
+        rel.referencedEntityPrimaryKeyType || "serial"
+      ),
       camelReferenceName: camelCase(rel.referenceName || rel.name),
       snakeReferenceName: snakeCase(rel.referenceName || rel.name),
       pluralName: pascalCase(pluralize(rel.name)),
@@ -229,6 +268,7 @@ export class GoGenerator extends BaseGenerator {
       associations: [...new Set(goRelationships)],
       entitiesToImport,
       importEnums: typeExistsInEntity(entity, "enum") !== -1,
+      importPq: typeExistsInEntity(entity, "array") !== -1,
       apiType,
     };
 

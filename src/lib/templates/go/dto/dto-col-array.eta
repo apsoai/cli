@@ -3,5 +3,5 @@
 <% } else if (it.mode === 'create') { %>
 	<%= it.column.pascalName %> []<%= it.column.arrayItemGoType || 'string' %> `json:"<%= it.column.name %><% if (!it.column.required) { %>,omitempty<% } %>"<% if (it.column.required) { %> validate:"required"<% } %>`
 <% } else { %>
-	<%= it.column.pascalName %> []<%= it.column.arrayItemGoType || 'string' %> `json:"<%= it.column.name %>,omitempty"`
+	<%= it.column.pascalName %> *[]<%= it.column.arrayItemGoType || 'string' %> `json:"<%= it.column.name %>,omitempty"`
 <% } %>

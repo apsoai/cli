@@ -7,6 +7,9 @@ import (
 <% if (it.importEnums) { %>
 	"app/autogen/models/enums"
 <% } %>
+<% if (it.importPq) { %>
+	"github.com/lib/pq"
+<% } %>
 )
 
 // <%= it.name %> represents the <%= it.tableName %> table
@@ -34,11 +37,11 @@ type <%= it.name %> struct {
 	<%= assoc.referenceName || assoc.name %>ID <%= assoc.primaryKeyGoType || 'uint' %> `gorm:"index" json:"<%= assoc.camelReferenceName || assoc.camelName %>Id"`
 	<%= assoc.referenceName || assoc.name %> *<%= assoc.name %> `gorm:"foreignKey:<%= assoc.referenceName || assoc.name %>ID" json:"<%= assoc.camelReferenceName || assoc.camelName %>,omitempty"`
 <% } else if (assoc.type === 'OneToOne') { %>
-<% if (assoc.isOwner) { %>
-	<%= assoc.referenceName || assoc.name %>ID <%= assoc.primaryKeyGoType || 'uint' %> `gorm:"uniqueIndex" json:"<%= assoc.camelReferenceName || assoc.camelName %>Id"`
-	<%= assoc.referenceName || assoc.name %> *<%= assoc.name %> `gorm:"foreignKey:<%= assoc.referenceName || assoc.name %>ID" json:"<%= assoc.camelReferenceName || assoc.camelName %>,omitempty"`
+<% if (assoc.joinTable) { %>
+	<%= assoc.referenceName || assoc.name %>ID <%= assoc.primaryKeyGoType || 'uint' %> `gorm:"column:<%= assoc.camelCasedId %>;unique" json:"<%= assoc.camelReferenceName || assoc.camelName %>Id"`
+	<%= assoc.referenceName || assoc.name %> *<%= assoc.name %> `gorm:"foreignKey:<%= assoc.referenceName || assoc.name %>ID;constraint:OnDelete:CASCADE" json:"<%= assoc.camelReferenceName || assoc.camelName %>,omitempty"`
 <% } else { %>
-	<%= assoc.referenceName || assoc.name %> *<%= assoc.name %> `json:"<%= assoc.camelReferenceName || assoc.camelName %>,omitempty"`
+	<%= assoc.referenceName || assoc.name %> *<%= assoc.name %> `gorm:"constraint:OnDelete:CASCADE" json:"<%= assoc.camelReferenceName || assoc.camelName %>,omitempty"`
 <% } %>
 <% } else if (assoc.type === 'ManyToMany') { %>
 	<%= assoc.pluralName %> []<%= assoc.name %> `gorm:"many2many:<%= assoc.joinTable %>;" json:"<%= assoc.camelPluralName %>,omitempty"`
