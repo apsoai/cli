@@ -25,7 +25,7 @@ def _columns(value: Any) -> Any:
 class <%= it.entityName %>Base(BaseModel):
     """Base schema with common fields for <%= it.entityName %>"""
 <% it.columns.filter(c => !['id', 'createdAt', 'updatedAt', 'created_at', 'updated_at'].includes(c.name)).forEach((field) => { -%>
-<%~ includeFile(`./schema-col-${field.type}`, { field, entityName: it.entityName }) %>
+<%~ includeFile(`./schema-col-${field.schemaTemplate || field.type}`, { field, entityName: it.entityName }) %>
 <% }); -%>
 
 <% /* Add foreign key fields for ManyToOne relationships */ -%>
@@ -37,18 +37,18 @@ class <%= it.entityName %>Base(BaseModel):
 class <%= it.entityName %>Create(BaseModel):
     """Schema for creating a new <%= it.entityName %>"""
 <% it.columns.filter(c => !['id', 'createdAt', 'updatedAt', 'created_at', 'updated_at'].includes(c.name)).forEach((field) => { -%>
-<%~ includeFile(`./schema-col-${field.type}`, { field, entityName: it.entityName, forCreate: true }) %>
+<%~ includeFile(`./schema-col-${field.schemaTemplate || field.type}`, { field, entityName: it.entityName, forCreate: true }) %>
 <% }); -%>
 <% /* Add foreign key fields for ManyToOne relationships */ -%>
 <% it.associations.filter(a => a.type === 'ManyToOne' || (a.type === 'OneToOne' && a.joinTable)).forEach((assoc) => { -%>
-    <%= assoc.camelCasedId %>: <% if (assoc.nullable) { %>Optional[<% if (assoc.referencedEntityPrimaryKeyType === 'uuid') { %>UUID<% } else { %>int<% } %>] = None<% } else { %><% if (assoc.referencedEntityPrimaryKeyType === 'uuid') { %>UUID<% } else { %>int<% } %><% } %>
+    <%= assoc.camelCasedId %>: <% if (assoc.nullable || assoc.type === 'OneToOne') { %>Optional[<% if (assoc.referencedEntityPrimaryKeyType === 'uuid') { %>UUID<% } else { %>int<% } %>] = None<% } else { %><% if (assoc.referencedEntityPrimaryKeyType === 'uuid') { %>UUID<% } else { %>int<% } %><% } %>
 <% }); -%>
 
 
 class <%= it.entityName %>Update(BaseModel):
     """Schema for updating an existing <%= it.entityName %>"""
 <% it.columns.filter(c => !['id', 'createdAt', 'updatedAt', 'created_at', 'updated_at'].includes(c.name)).forEach((field) => { -%>
-<%~ includeFile(`./schema-col-${field.type}`, { field, entityName: it.entityName, forUpdate: true }) %>
+<%~ includeFile(`./schema-col-${field.schemaTemplate || field.type}`, { field, entityName: it.entityName, forUpdate: true }) %>
 <% }); -%>
 <% /* Add foreign key fields for ManyToOne relationships */ -%>
 <% it.associations.filter(a => a.type === 'ManyToOne' || (a.type === 'OneToOne' && a.joinTable)).forEach((assoc) => { -%>
@@ -74,7 +74,7 @@ class <%= it.entityName %>(BaseModel):
     updatedAt: datetime = Field(alias="updated_at")
 <% } -%>
 <% it.columns.filter(c => !['id', 'createdAt', 'updatedAt', 'created_at', 'updated_at'].includes(c.name)).forEach((field) => { -%>
-<%~ includeFile(`./schema-col-${field.type}`, { field, entityName: it.entityName }) %>
+<%~ includeFile(`./schema-col-${field.schemaTemplate || field.type}`, { field, entityName: it.entityName }) %>
 <% }); -%>
 <% /* Add foreign key fields for ManyToOne relationships */ -%>
 <% it.associations.filter(a => a.type === 'ManyToOne' || (a.type === 'OneToOne' && a.joinTable)).forEach((assoc) => { -%>

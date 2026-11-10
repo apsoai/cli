@@ -1,0 +1,24 @@
+<%~ includeFile('../header.eta', it) %>
+
+from sqlalchemy import event
+
+from app.database import Base
+<% it.modules.forEach(([m, name]) => { %>
+from .<%= m %> import <%= name %>  # noqa: F401
+<% }) %>
+
+# Run by create_all (DATABASE_SYNC=true) before it creates any table: the
+# extensions the tables need, and a check that stops, printing the renames to
+# run, when the database still has a join table or enum type under the name
+# older generated models gave it.
+_BEFORE_CREATE = [
+<% it.statements.forEach((s) => { %>
+    <%~ s %>,
+<% }) %>
+]
+
+
+@event.listens_for(Base.metadata, "before_create")
+def _apso_before_create(target, connection, **kw):
+    for statement in _BEFORE_CREATE:
+        connection.exec_driver_sql(statement)

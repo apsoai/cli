@@ -1,4 +1,0 @@
-    <%= it.field.name %>: Mapped[<% if (it.field.nullable !== false) { %>Optional[List[<%= it.field.arrayItemType %>]]<% } else { %>List[<%= it.field.arrayItemType %>]<% } %>] = mapped_column(
-        ARRAY(<%~ it.field.arrayColumnType %>),
-        nullable=<%= it.field.nullable === false ? 'False' : 'True' %>
-    )

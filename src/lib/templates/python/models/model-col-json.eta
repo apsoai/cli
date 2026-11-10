@@ -1,4 +1,0 @@
-    <%= it.field.name %>: Mapped[<% if (it.field.nullable !== false) { %>Optional[dict]<% } else { %>dict<% } %>] = mapped_column(
-        JSON,
-        nullable=<%= it.field.nullable === false ? 'False' : 'True' %>
-    )
