@@ -11,8 +11,11 @@
 import { createHash } from "crypto";
 import { Entity } from "../types/entity";
 import { ComputedField } from "../types/field";
-import { RelationshipMap } from "../types/relationship";
-import { getFieldForTemplate } from "../utils/field";
+import {
+  RelationshipForTemplate,
+  RelationshipMap,
+} from "../types/relationship";
+import { arrayElementType, getFieldForTemplate } from "../utils/field";
 import { snakeCase } from "../utils/casing";
 import { getRelationshipForTemplate } from "../utils/relationships";
 
@@ -131,7 +134,7 @@ export function columnSpec(table: string, f: ComputedField): ColumnSpec {
       break;
     case "array": {
       // entity-col-array.eta: { type: elementType || "text", array: true }, no default.
-      const element = f.elementType || "text";
+      const element = arrayElementType(f);
       if (!/^[a-z][\w ]*$/i.test(element))
         throw new Error(
           `Field ${table}.${f.name} has an invalid elementType "${element}".`
@@ -231,10 +234,38 @@ const column = (
   serial,
 });
 
-const pkColumn = (e: Entity) =>
+export const pkColumn = (e: Entity): string =>
   (e.fields ?? []).find((f) => f.primary)?.name ?? "id";
-const fkType = (target?: Entity) =>
+export const fkType = (target?: Entity): string =>
   target?.primaryKeyType === "uuid" ? "uuid" : "integer";
+
+/** The foreign key column of a ManyToOne or an owning OneToOne. */
+export const relationColumn = (r: RelationshipForTemplate): string =>
+  r.type === "ManyToOne"
+    ? r.camelCasedId
+    : typeormCase.camelCase(`${r.relationshipName}_id`);
+
+/** The join table of an owning ManyToMany and its two key columns. */
+export const joinTableOf = (
+  e: Entity,
+  r: RelationshipForTemplate,
+  target: Entity
+): { name: string; ownCol: string; otherCol: string } => {
+  const table = tableName(e);
+  const targetTable = tableName(target);
+  return {
+    name:
+      r.joinTableName ||
+      typeormCase.snakeCase(
+        `${table}_${r.pluralizedRelationshipName}_${targetTable}`
+      ),
+    ownCol:
+      r.joinColumnName || typeormCase.camelCase(`${table}_${pkColumn(e)}`),
+    otherCol:
+      r.inverseJoinColumnName ||
+      typeormCase.camelCase(`${targetTable}_${pkColumn(target)}`),
+  };
+};
 
 export function schemaModel(input: SchemaInput): Model {
   const { entities, relationshipMap } = input;
@@ -371,10 +402,7 @@ export function schemaModel(input: SchemaInput): Model {
       const onDelete = r.cascadeDelete || oneToOne ? "CASCADE" : "NO ACTION";
 
       if (r.type === "ManyToOne" || (oneToOne && r.joinTable)) {
-        const col =
-          r.type === "ManyToOne"
-            ? r.camelCasedId
-            : typeormCase.camelCase(`${r.relationshipName}_id`);
+        const col = relationColumn(r);
         t.columns.push(column(col, fkType(target), !(r.nullable || oneToOne)));
         if (oneToOne)
           unique(table, [col], constraintName.relation(table, [col]));
@@ -389,16 +417,7 @@ export function schemaModel(input: SchemaInput): Model {
       }
 
       if (r.type === "ManyToMany" && r.joinTable) {
-        const join =
-          r.joinTableName ||
-          typeormCase.snakeCase(
-            `${table}_${r.pluralizedRelationshipName}_${targetTable}`
-          );
-        const ownCol =
-          r.joinColumnName || typeormCase.camelCase(`${table}_${pkColumn(e)}`);
-        const otherCol =
-          r.inverseJoinColumnName ||
-          typeormCase.camelCase(`${targetTable}_${pkColumn(target)}`);
+        const { name: join, ownCol, otherCol } = joinTableOf(e, r, target);
         joinTables.push({
           name: join,
           columns: [

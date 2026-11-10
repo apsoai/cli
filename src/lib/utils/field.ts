@@ -197,12 +197,14 @@ export const getFieldForTemplate = (
       ...field,
       // Use normalized type for template lookup
       type: normalizedType as FieldType,
+      // Resolved here so every template and the DDL writer read one key.
+      ...(field.type === "array" && { elementType: arrayElementType(field) }),
       default: getDefaultValueForField(field),
       dataType:
         field.type === "enum"
           ? fieldToEnumType(field.name, entityName)
           : field.type === "array"
-          ? `${getJsTypeFromFieldType(field.elementType || "text")}[]`
+          ? `${getJsTypeFromFieldType(arrayElementType(field))}[]`
           : getJsTypeFromFieldType(field.type),
     };
   });
