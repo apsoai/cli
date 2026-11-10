@@ -251,14 +251,24 @@ export function schemaModel(input: SchemaInput): Model {
   const inline: ModelConstraint[] = [];
   const foreignKeys: ModelConstraint[] = [];
 
-  const index = (table: string, columns: string[], unique = false) =>
+  // The same columns can be indexed twice (a field or relationship
+  // "index": true plus an "indexes" entry). TypeORM names an index by its
+  // table and columns, so a second CREATE INDEX would fail on deploy: keep one.
+  const index = (table: string, columns: string[], unique = false) => {
+    const key = `index:${table}(${columns.join(",")})`;
+    const seen = model.indexes.find((i) => i.key === key);
+    if (seen) {
+      seen.unique ||= unique;
+      return;
+    }
     model.indexes.push({
-      key: `index:${table}(${columns.join(",")})`,
+      key,
       name: constraintName.index(table, columns),
       table,
       columns,
       unique,
     });
+  };
   const unique = (
     table: string,
     columns: string[],
