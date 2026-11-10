@@ -236,3 +236,78 @@ describe("array fields", () => {
     expect(downDdl(before, after, plan)).toHaveProperty("irreversible");
   });
 });
+
+describe("extensions", () => {
+  test("adding a uuid-keyed entity creates uuid-ossp before the table", async () => {
+    const base = {
+      version: 2,
+      rootFolder: "src",
+      apiType: "Rest" as ApsorcType["apiType"],
+      relationships: [],
+    };
+    const note = {
+      name: "Note",
+      fields: [{ name: "body", type: "text" } as Field],
+    };
+    const v1: ApsorcType = { ...base, entities: [note] };
+    const v2: ApsorcType = {
+      ...base,
+      entities: [
+        note,
+        {
+          name: "Event",
+          primaryKeyType: "uuid",
+          fields: [{ name: "kind", type: "text" } as Field],
+        } as never,
+      ],
+    };
+    const { up } = changeDdl(v1, v2, planMigration(v1, v2));
+    const ext = up.indexOf('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"');
+    expect(ext).toBe(0);
+    expect(
+      up.findIndex((x) => x.startsWith('CREATE TABLE "event"'))
+    ).toBeGreaterThan(ext);
+    const { PGlite } = await import("@electric-sql/pglite");
+    // eslint-disable-next-line @typescript-eslint/no-var-requires, camelcase, node/no-missing-require
+    const { uuid_ossp } = require("@electric-sql/pglite/contrib/uuid_ossp");
+    // eslint-disable-next-line camelcase
+    const db = new PGlite({ extensions: { uuid_ossp } });
+    await db.exec(schemaDdl(parseApsorcV2(v1)).join(";\n"));
+    await db.exec(up.join(";\n"));
+    const r = await db.query<{ id: string }>(
+      `INSERT INTO "event" ("kind") VALUES ('x') RETURNING "id"`
+    );
+    expect(r.rows[0].id).toMatch(/^[0-9a-f-]{36}$/);
+    await db.close();
+  });
+
+  test("a change that adds no uuid table adds no extension", () => {
+    const base = {
+      version: 2,
+      rootFolder: "src",
+      apiType: "Rest" as ApsorcType["apiType"],
+      relationships: [],
+    };
+    const v1: ApsorcType = {
+      ...base,
+      entities: [{ name: "Note", fields: [{ name: "body", type: "text" }] }],
+    };
+    const v2: ApsorcType = {
+      ...base,
+      entities: [
+        {
+          name: "Note",
+          fields: [
+            { name: "body", type: "text" },
+            { name: "title", type: "text", nullable: true },
+          ],
+        },
+      ],
+    };
+    expect(
+      changeDdl(v1, v2, planMigration(v1, v2)).up.some((x) =>
+        x.startsWith("CREATE EXTENSION")
+      )
+    ).toBe(false);
+  });
+});
