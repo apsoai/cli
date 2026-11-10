@@ -710,7 +710,7 @@ func ApplyQueryE(db *gorm.DB, opts QueryOptions, allowedFields map[string]bool) 
 		if strings.EqualFold(s.Direction, "DESC") {
 			dir = "DESC"
 		}
-		clause := fmt.Sprintf("%s %s", s.Field, dir)
+		clause := fmt.Sprintf("%s %s", quoteColumn(s.Field), dir)
 		if s.Nulls != "" {
 			clause = fmt.Sprintf("%s %s", clause, s.Nulls)
 		}
@@ -723,11 +723,16 @@ func ApplyQueryE(db *gorm.DB, opts QueryOptions, allowedFields map[string]bool) 
 		var safe []string
 		for _, f := range opts.Fields {
 			col := f
+			alias := ""
 			if i := strings.Index(strings.ToUpper(f), " AS "); i != -1 {
 				col = strings.TrimSpace(f[:i])
+				alias = strings.TrimSpace(f[i+4:])
 			}
-			if allowedFields[col] {
-				safe = append(safe, f)
+			if allowedFields[col] && alias != "" {
+				safe = append(safe, quoteColumn(col)+" AS "+quoteColumn(alias))
+			} else if allowedFields[col] {
+				// gorm quotes a bare column name itself.
+				safe = append(safe, col)
 			} else if postgrest {
 				return query, 0, 1, queryErr("Unknown column '%s' in select", col)
 			}
@@ -739,7 +744,7 @@ func ApplyQueryE(db *gorm.DB, opts QueryOptions, allowedFields map[string]bool) 
 
 	// Joins (Preloads)
 	for _, j := range opts.Joins {
-		query = query.Preload(j.Relation)
+		query = query.Preload(preloadName(j.Relation))
 	}
 
 	// Pagination
@@ -761,6 +766,25 @@ func ApplyQueryE(db *gorm.DB, opts QueryOptions, allowedFields map[string]bool) 
 	}
 
 	return query, total, pageCount, nil
+}
+
+// quoteColumn quotes an allowlisted column name: the columns keep their
+// .apsorc names, so seenAt must not fold to seenat.
+func quoteColumn(c string) string {
+	return `"` + strings.ReplaceAll(c, `"`, `""`) + `"`
+}
+
+// preloadName turns a relation as the .apsorc names it (author, posts,
+// author.profile) into the Go field path gorm preloads (Author, Posts,
+// Author.Profile), so ?join= takes the same names as TypeScript and Python.
+func preloadName(relation string) string {
+	parts := strings.Split(relation, ".")
+	for i, p := range parts {
+		if p != "" {
+			parts[i] = strings.ToUpper(p[:1]) + p[1:]
+		}
+	}
+	return strings.Join(parts, ".")
 }
 
 // buildGroupExpr turns a PostgREST FilterGroup into a nested GORM expression
@@ -861,6 +885,7 @@ func parseJoinParam(raw string) ParsedJoin {
 // ---------------------------------------------------------------------------
 
 func applyOperator(query *gorm.DB, field, op, value string, useOr bool) *gorm.DB {
+	field = quoteColumn(field)
 	where := query.Where
 	if useOr {
 		where = query.Or
@@ -960,9 +985,10 @@ func splitValue(value string) []string {
 // Booleans and numbers are converted so the database driver sends the
 // correct wire type instead of a raw string.
 func coerceValue(value string) interface{} {
+	// "1" and "0" stay numbers: an id or count filter of 1 is not a boolean.
 	low := strings.ToLower(value)
-	if low == "true" || low == "false" || low == "yes" || low == "no" || low == "1" || low == "0" {
-		return low == "true" || low == "yes" || low == "1"
+	if low == "true" || low == "false" || low == "yes" || low == "no" {
+		return low == "true" || low == "yes"
 	}
 	if v, err := strconv.ParseInt(value, 10, 64); err == nil {
 		return v

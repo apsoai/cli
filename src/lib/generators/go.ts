@@ -24,15 +24,82 @@ import {
   entityScope,
   nestedScopeEntities,
 } from "../guards";
-import { getFieldForTemplate, typeExistsInEntity, fieldToEnumType } from "../utils/field";
 import {
-  getRelationshipForTemplate,
-  getRelationshipsForImport,
-} from "../utils/relationships";
+  arrayElementType,
+  getFieldForTemplate,
+  typeExistsInEntity,
+  fieldToEnumType,
+} from "../utils/field";
+import { getRelationshipForTemplate } from "../utils/relationships";
 import { snakeCase, camelCase, pascalCase, kebabCase } from "../utils/casing";
 import { getEventEmittingEntities } from "../events";
 import { gooseStatements } from "../ddl/migration-file";
+import {
+  columnSpec,
+  enumTypeName,
+  fkType,
+  joinTableOf,
+  relationColumn,
+  tableName,
+} from "../ddl";
+import { legacyColumn, LegacyName, syncStatements } from "../ddl/sync";
+import { Relationship, RelationshipMap } from "../types";
 import pluralize from "pluralize";
+
+// Postgres array element type -> lib/pq array type and its Go element type.
+// Anything else is read and written as text (pq.StringArray).
+const pqArrayTypes: Record<string, [string, string]> = {
+  integer: ["pq.Int32Array", "int32"],
+  int: ["pq.Int32Array", "int32"],
+  int4: ["pq.Int32Array", "int32"],
+  smallint: ["pq.Int32Array", "int32"],
+  bigint: ["pq.Int64Array", "int64"],
+  numeric: ["pq.Float64Array", "float64"],
+  decimal: ["pq.Float64Array", "float64"],
+  float: ["pq.Float64Array", "float64"],
+  float8: ["pq.Float64Array", "float64"],
+  "double precision": ["pq.Float64Array", "float64"],
+  real: ["pq.Float32Array", "float32"],
+  boolean: ["pq.BoolArray", "bool"],
+  bool: ["pq.BoolArray", "bool"],
+};
+
+// Field type -> [Go type, DTO template]. Arrays and enums are typed per field.
+const goFieldTypes: Record<string, [string, string]> = {
+  text: ["string", "text"],
+  string: ["string", "string"],
+  varchar: ["string", "varchar"],
+  char: ["string", "varchar"],
+  uuid: ["string", "uuid"],
+  enum: ["string", "enum"],
+  integer: ["int", "integer"],
+  bigint: ["int64", "integer"],
+  smallint: ["int16", "integer"],
+  float: ["float64", "float"],
+  double: ["float64", "float"],
+  decimal: ["float64", "decimal"],
+  numeric: ["float64", "numeric"],
+  boolean: ["bool", "boolean"],
+  date: ["time.Time", "date"],
+  timestamp: ["time.Time", "timestamp"],
+  timestamptz: ["time.Time", "timestamptz"],
+  json: ["map[string]interface{}", "json"],
+  jsonb: ["map[string]interface{}", "jsonb"],
+  "json-plain": ["map[string]interface{}", "json"],
+  array: ["", "array"],
+};
+
+/**
+ * A gorm struct tag value from its settings. gorm splits on ";" (a "\;"
+ * stays literal), and the tag is a Go string literal, so quotes and
+ * backslashes are escaped for it.
+ */
+const gormTag = (settings: string[]): string =>
+  settings
+    .map((s) => s.replace(/;/g, "\\;"))
+    .join(";")
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"');
 
 /**
  * Go/Gin generator that produces GORM models, DTOs, Gin handlers,
@@ -88,7 +155,12 @@ export class GoGenerator extends BaseGenerator {
           "text",
           "varchar",
           "string",
+          "char",
           "integer",
+          "bigint",
+          "smallint",
+          "double",
+          "json-plain",
           "boolean",
           "float",
           "decimal",
@@ -121,32 +193,6 @@ export class GoGenerator extends BaseGenerator {
   }
 
   /**
-   * Maps .apsorc field types to Go types
-   */
-  private mapFieldToGoType(field: Field): string {
-    const typeMap: Record<string, string> = {
-      text: "string",
-      varchar: "string",
-      string: "string",
-      integer: "int",
-      boolean: "bool",
-      float: "float64",
-      decimal: "float64",
-      numeric: "float64",
-      date: "time.Time",
-      timestamp: "time.Time",
-      timestamptz: "time.Time",
-      json: "map[string]interface{}",
-      jsonb: "map[string]interface{}",
-      uuid: "string",
-      enum: "string",
-      array: "[]string",
-    };
-
-    return typeMap[field.type || "string"] || "string";
-  }
-
-  /**
    * Gets the Go type for primary keys
    */
   private getPrimaryKeyGoType(primaryKeyType: string): string {
@@ -160,75 +206,161 @@ export class GoGenerator extends BaseGenerator {
     return primaryKeyType === "uuid" ? "string" : "integer";
   }
 
+  private arrayTypes(field: Field, entityName: string) {
+    const elementType = arrayElementType(field);
+    // It goes into a struct tag, so only a plain type name.
+    if (!/^[a-z][\w ]*$/i.test(elementType))
+      throw new Error(
+        `Field ${entityName}.${field.name} has an invalid elementType "${elementType}".`
+      );
+    const [arrayGoType, arrayItemGoType] = pqArrayTypes[
+      elementType.toLowerCase()
+    ] || ["pq.StringArray", "string"];
+    return { elementType, arrayGoType, arrayItemGoType };
+  }
+
   /**
-   * Transforms fields for Go templates with additional Go-specific properties
+   * Fields for the Go templates. The gorm tag carries the column exactly as
+   * the DDL writer creates it (name, type, NOT NULL, default), so the model
+   * reads and writes the database `apso migrate` builds.
    */
-  private getGoFieldsForTemplate(fields: Field[], entityName: string): any[] {
-    const baseFields = getFieldForTemplate(fields, entityName);
-    return baseFields.map((field: any) => ({
-      ...field,
-      goType: this.mapFieldToGoType(field),
-      pascalName: pascalCase(field.name),
-      snakeName: snakeCase(field.name),
-      // The enum type the enums package declares (EntityFieldEnum).
-      enumType: field.type === "enum" ? field.dataType : undefined,
-    }));
+  private getGoFieldsForTemplate(fields: Field[], entity: Entity): any[] {
+    const table = tableName(entity);
+    return getFieldForTemplate(fields, entity.name).map((field: any) => {
+      const spec = columnSpec(table, field);
+      const [goScalar, dtoTemplate] = goFieldTypes[field.type as string] || [];
+      const array = field.type === "array" && this.arrayTypes(field, entity.name);
+      const enumType = field.type === "enum" ? field.dataType : undefined;
+      const scalar = enumType ? `enums.${enumType}` : goScalar;
+      const tag = [
+        `column:${field.name}`,
+        `type:${
+          field.type === "enum"
+            ? `"${enumTypeName(table, field.name)}"`
+            : spec.type.toLowerCase().replace("timestamp with time zone", "timestamptz")
+        }`,
+        ...(field.primary ? ["primaryKey"] : []),
+        ...(spec.notNull ? ["not null"] : []),
+        // gorm parses a number or boolean default itself, so it goes unquoted.
+        ...(spec.default === undefined
+          ? []
+          : [`default:${/^(u?int|float|bool)/.test(goScalar) ? String(field.default) : spec.default}`]),
+        ...(goScalar === "map[string]interface{}" ? ["serializer:json"] : []),
+      ];
+      return {
+        ...field,
+        ...array,
+        goType: scalar,
+        modelGoType: array
+          ? array.arrayGoType
+          : goScalar === "map[string]interface{}"
+          ? goScalar
+          : `*${scalar}`,
+        gormTag: gormTag(tag),
+        dtoTemplate,
+        pascalName: pascalCase(field.name),
+        snakeName: snakeCase(field.name),
+        // NOT NULL with no default: the create DTO requires it.
+        mustSend: spec.notNull && spec.default === undefined,
+        enumType,
+      };
+    });
+  }
+
+  /** Relationships with what the Go templates need: field names, columns, join tables. */
+  private goAssociations(
+    entity: Entity,
+    relationships: Relationship[],
+    allEntities: Entity[]
+  ): any[] {
+    const byName = new Map(allEntities.map((e) => [e.name, e]));
+    const relationshipMap: RelationshipMap = this.config.relationshipMap ?? {};
+    return getRelationshipForTemplate(entity.name, relationships, allEntities).map(
+      (rel) => {
+        const target = byName.get(rel.name);
+        const many = rel.type === "OneToMany" || rel.type === "ManyToMany";
+        const fieldName = pascalCase(
+          many ? rel.pluralizedRelationshipName : rel.relationshipName
+        );
+        const owns =
+          rel.type === "ManyToOne" || (rel.type === "OneToOne" && rel.joinTable);
+        const fkNullable = rel.type === "OneToOne" || Boolean(rel.nullable);
+        const pkGoType = this.getPrimaryKeyGoType(
+          target?.primaryKeyType || "serial"
+        );
+        let join: { name: string; ownCol: string; otherCol: string } | undefined;
+        if (rel.type === "ManyToMany" && target) {
+          if (rel.joinTable) join = joinTableOf(entity, rel, target);
+          else {
+            // The other side owns the join table; its key columns swap.
+            const owner = getRelationshipForTemplate(
+              target.name,
+              relationshipMap[target.name] || [],
+              allEntities
+            ).find(
+              (r) =>
+                r.type === "ManyToMany" && r.joinTable && r.name === entity.name
+            );
+            if (owner) {
+              const j = joinTableOf(target, owner, entity);
+              join = { name: j.name, ownCol: j.otherCol, otherCol: j.ownCol };
+            }
+          }
+        }
+        return {
+          ...rel,
+          fieldName,
+          jsonName: camelCase(fieldName),
+          owns,
+          fkField: `${pascalCase(rel.relationshipName)}ID`,
+          fkColumn: owns ? relationColumn(rel) : undefined,
+          fkNullable,
+          primaryKeyGoType: pkGoType,
+          fkGoType: `${fkNullable ? "*" : ""}${pkGoType}`,
+          fkTag: owns
+            ? gormTag([
+                `column:${relationColumn(rel)}`,
+                `type:${fkType(target)}`,
+                ...(fkNullable ? [] : ["not null"]),
+              ])
+            : undefined,
+          // The child's foreign key field, for OneToMany and the inverse OneToOne.
+          foreignKey: `${pascalCase(rel.inverseReferenceName || entity.name)}ID`,
+          onDeleteCascade: rel.type === "OneToOne" || Boolean(rel.cascadeDelete),
+          join,
+          camelReferenceName: camelCase(rel.referenceName || rel.name),
+          snakeReferenceName: snakeCase(rel.referenceName || rel.name),
+        };
+      }
+    );
   }
 
   async generateEntity(
     options: EntityGenerationOptions
   ): Promise<GeneratedFile[]> {
     const { entity, relationships, allEntities, apiType } = options;
-    const { name, fields = [], indexes, uniques } = entity;
+    const { name, fields = [] } = entity;
 
-    const columns = this.getGoFieldsForTemplate(fields, name);
+    const columns = this.getGoFieldsForTemplate(fields, entity);
     const createPrimaryKey =
       columns.filter((column: Field) => column.primary === true).length === 0;
-
-    const createdAt = entity.created_at;
-    const updatedAt = entity.updated_at;
     const primaryKeyType = entity.primaryKeyType || "serial";
-
-    const relationshipsForTemplate = getRelationshipForTemplate(
-      name,
-      relationships,
-      allEntities
-    );
-
-    // Add Go-specific properties to relationships
-    const goRelationships = relationshipsForTemplate.map((rel) => ({
-      ...rel,
-      primaryKeyGoType: this.getPrimaryKeyGoType(primaryKeyType),
-      camelReferenceName: camelCase(rel.referenceName || rel.name),
-      snakeReferenceName: snakeCase(rel.referenceName || rel.name),
-      pluralName: pascalCase(pluralize(rel.name)),
-      camelPluralName: camelCase(pluralize(rel.name)),
-      inverseName: pascalCase(rel.inversePropertyName || name),
-    }));
-
-    const entitiesToImport = getRelationshipsForImport(
-      name,
-      relationshipsForTemplate
-    );
+    const associations = this.goAssociations(entity, relationships, allEntities);
 
     const data = {
       name,
-      indexes: indexes || [],
-      uniques: uniques || [],
       createPrimaryKey,
       primaryKeyType,
-      snakeCasedName: snakeCase(name),
-      // Honor an explicit per-entity `table` override; otherwise derive from
-      // the entity name. See apsoai/cli#107 (Python/Go parity with #98).
-      tableName: entity.table || snakeCase(name),
-      createdAt,
-      updatedAt,
-      pluralizedName: camelCase(pluralize(name)),
-      pluralName: pascalCase(pluralize(name)),
+      tableName: tableName(entity),
+      createdAt: entity.created_at,
+      updatedAt: entity.updated_at,
       columns,
-      associations: [...new Set(goRelationships)],
-      entitiesToImport,
+      associations,
+      importTime:
+        Boolean(entity.created_at || entity.updated_at) ||
+        columns.some((c: any) => c.goType === "time.Time"),
       importEnums: typeExistsInEntity(entity, "enum") !== -1,
+      importPq: typeExistsInEntity(entity, "array") !== -1,
       apiType,
     };
 
@@ -283,23 +415,12 @@ export class GoGenerator extends BaseGenerator {
     const { entity, relationships, allEntities } = options;
     const { name: entityName, fields = [] } = entity;
 
-    const columns = this.getGoFieldsForTemplate(fields, entityName);
-    const relationshipsForTemplate = getRelationshipForTemplate(
-      entityName,
+    const columns = this.getGoFieldsForTemplate(fields, entity);
+    const goRelationships = this.goAssociations(
+      entity,
       relationships,
       allEntities
     );
-
-    // Add Go-specific properties to relationships
-    const goRelationships = relationshipsForTemplate.map((rel) => {
-      const referencedEntity = allEntities?.find((e) => e.name === rel.name);
-      const referencedPrimaryKeyType = referencedEntity?.primaryKeyType || "serial";
-      return {
-        ...rel,
-        primaryKeyGoType: this.getPrimaryKeyGoType(referencedPrimaryKeyType),
-        snakeReferenceName: snakeCase(rel.referenceName || rel.name),
-      };
-    });
 
     const pluralEntityName = pluralize(entityName);
     const primaryKeyType = entity.primaryKeyType || "serial";
@@ -334,27 +455,16 @@ export class GoGenerator extends BaseGenerator {
       entityScope(entity, Boolean(options.auth))?.fields.map((f) => f.field)
     );
 
-    const columns = this.getGoFieldsForTemplate(fields, entityName);
-    const relationshipsTemplate = getRelationshipForTemplate(
-      entityName,
+    const columns = this.getGoFieldsForTemplate(fields, entity);
+    const goRelationships = this.goAssociations(
+      entity,
       relationships,
       allEntities
-    );
-
-    // Add Go-specific properties to relationships
-    const goRelationships = relationshipsTemplate.map((rel) => {
-      const referencedEntity = allEntities?.find((e) => e.name === rel.name);
-      const referencedPrimaryKeyType = referencedEntity?.primaryKeyType || "serial";
-      return {
-        ...rel,
-        primaryKeyGoType: this.getPrimaryKeyGoType(referencedPrimaryKeyType),
-        camelReferenceName: camelCase(rel.referenceName || rel.name),
-        pluralName: pascalCase(pluralize(rel.name)),
-        camelPluralName: camelCase(pluralize(rel.name)),
-        // The service sets a scopeBy foreign key from the caller on create.
-        scoped: scopeFields.has(`${camelCase(rel.referenceName || rel.name)}Id`),
-      };
-    });
+    ).map((rel) => ({
+      ...rel,
+      // The service sets a scopeBy foreign key from the caller on create.
+      scoped: scopeFields.has(`${rel.camelReferenceName}Id`),
+    }));
 
     const primaryKeyColumns = columns.filter(
       (column: any) => column.primary === true
@@ -374,6 +484,9 @@ export class GoGenerator extends BaseGenerator {
       columns,
       associations: goRelationships,
       apiType: apiType ?? "rest",
+      importTime:
+        Boolean(createdAt || updatedAt) ||
+        columns.some((c: any) => c.goType === "time.Time"),
       importEnums: typeExistsInEntity(entity, "enum") !== -1,
     };
 
@@ -492,13 +605,12 @@ ${downStatements}
       hasAuth: Boolean(opts?.auth),
     });
 
-    // Generate model registry for AutoMigrate support
     const modelRefs = entities
       .map((e) => `\t\t&${pascalCase(e.name)}{},`)
       .join("\n");
     const registryContent = `package models
 
-// All returns all registered GORM models for AutoMigrate.
+// All returns all registered GORM models.
 // This file is auto-generated by the Apso CLI.
 func All() []interface{} {
 \treturn []interface{}{
@@ -516,7 +628,50 @@ ${modelRefs}
         path: "models/registry.go",
         content: registryContent,
       },
+      {
+        path: "models/schema.go",
+        content: await this.renderTemplate("./models/schema", this.schemaData(entities)),
+      },
     ];
+  }
+
+  /**
+   * DATABASE_SYNC's statements (the DDL writer's, creating only what is
+   * missing) and the join table columns gorm must be told about.
+   */
+  private schemaData(entities: Entity[]) {
+    const relationshipMap = this.config.relationshipMap ?? {};
+    const legacy: LegacyName[] = [];
+    const joinColumns = new Map<string, string>();
+    for (const entity of entities) {
+      const table = tableName(entity);
+      // Older Go models let gorm name columns: snake_case of the Go field.
+      const renames: [string, string][] = (entity.fields ?? []).map((f) => [
+        snakeCase(f.name),
+        f.name,
+      ]);
+      for (const a of this.goAssociations(
+        entity,
+        relationshipMap[entity.name] || [],
+        entities
+      )) {
+        if (a.owns) renames.push([`${snakeCase(a.relationshipName)}_id`, a.fkColumn]);
+        if (a.join)
+          for (const c of [a.join.ownCol, a.join.otherCol])
+            joinColumns.set(c.charAt(0).toUpperCase() + c.slice(1), c);
+      }
+      for (const [from, to] of renames)
+        if (from !== to) legacy.push(legacyColumn(table, from, to));
+    }
+    return {
+      statements: syncStatements({ entities, relationshipMap }, legacy).map(
+        (sql) => JSON.stringify(sql)
+      ),
+      joinColumns: [...joinColumns].map(([k, v]) => [
+        JSON.stringify(k),
+        JSON.stringify(v),
+      ]),
+    };
   }
 
   /**
@@ -567,7 +722,7 @@ ${modelRefs}
 
   /**
    * Scope data for a Go service: each direct scopeBy field's struct field and
-   * gorm column (snake_case of the Go field). A field declared on the entity is
+   * column (the .apsorc name, as the DDL writer names it). A field declared on the entity is
    * pascalCase; a relation's foreign key (organizationId) is OrganizationID.
    */
   private goScope(entity: Entity, hasAuth: boolean) {
@@ -582,7 +737,7 @@ ${modelRefs}
           declared.has(f.field) || !f.field.endsWith("Id")
             ? pascalCase(f.field)
             : `${pascalCase(f.field.slice(0, -2))}ID`,
-        column: snakeCase(f.field),
+        column: f.field,
       })),
     };
   }
@@ -603,8 +758,8 @@ ${modelRefs}
     } else if (isApiKeyAuth(auth)) {
       const apiKey = apiKeyTemplateData(resolveApiKeyAuth(auth), entities);
       const entity = entities.find((e) => e.name === apiKey.apiKeyEntity)!;
-      // gorm's default naming: snake_case of the Go field name.
-      const column = (name: string) => snakeCase(name);
+      // Columns keep their .apsorc names (the models tag each one).
+      const column = (name: string) => name;
       data = {
         apiKey: {
           ...apiKey,

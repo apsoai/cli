@@ -5,6 +5,12 @@ import * as path from "path";
 import { execFileSync } from "child_process";
 import { GoGenerator } from "../../../src/lib/generators/go";
 import { GeneratorConfig, Entity, Relationship } from "../../../src/lib/types";
+import { generateAll } from "../../helpers/generate-all";
+
+const parityFixture = path.join(
+  __dirname,
+  "../../fixtures/ddl/pygo-parity.apsorc"
+);
 
 function createConfig(
   entities: Entity[],
@@ -52,7 +58,8 @@ describe("GoGenerator", () => {
       const content = findFileContent(files, "user.go");
       expect(content).toBeDefined();
       expect(content).toContain("package models");
-      expect(content).toContain(`"time"`);
+      // No timestamps and no time fields: importing "time" would not compile.
+      expect(content).not.toContain(`"time"`);
       // gorm.io/gorm is no longer imported (unused imports are Go compile errors)
       expect(content).not.toContain(`"gorm.io/gorm"`);
       expect(content).toContain("type User struct {");
@@ -148,8 +155,9 @@ describe("GoGenerator", () => {
 
       const content = findFileContent(files, "item.go");
       expect(content).toBeDefined();
-      expect(content).toContain("ID        uint");
-      expect(content).toContain("primaryKey;autoIncrement");
+      expect(content).toContain(
+        'ID uint `gorm:"column:id;type:integer;primaryKey;autoIncrement"'
+      );
     });
 
     test("generates UUID primary key with gen_random_uuid", async () => {
@@ -168,9 +176,9 @@ describe("GoGenerator", () => {
 
       const content = findFileContent(files, "document.go");
       expect(content).toBeDefined();
-      expect(content).toContain("ID        string");
+      expect(content).toContain("ID string");
       expect(content).toContain(
-        "type:uuid;primaryKey;default:gen_random_uuid()"
+        "type:uuid;primaryKey;default:uuid_generate_v4()"
       );
     });
   });
@@ -208,8 +216,7 @@ describe("GoGenerator", () => {
       });
 
       const content = findFileContent(files, "profile.go")!;
-      expect(content).toContain("Bio *string");
-      expect(content).toContain("default:null");
+      expect(content).toContain('Bio *string `gorm:"column:bio;type:text"');
       expect(content).toContain("omitempty");
     });
 
@@ -228,7 +235,8 @@ describe("GoGenerator", () => {
 
       const content = findFileContent(files, "counter.go")!;
       expect(content).toContain("Count *int");
-      expect(content).toContain("type:integer");
+      // NOT NULL unless nullable: true, as the DDL writer creates it.
+      expect(content).toContain('gorm:"column:count;type:integer;not null"');
     });
 
     test("boolean field maps to *bool", async () => {
@@ -281,7 +289,7 @@ describe("GoGenerator", () => {
 
       const content = findFileContent(files, "price.go")!;
       expect(content).toContain("Amount *float64");
-      expect(content).toContain("decimal");
+      expect(content).toContain("type:numeric(10,2)");
     });
 
     test("date field maps to *time.Time", async () => {
@@ -405,9 +413,86 @@ describe("GoGenerator", () => {
       });
 
       const content = findFileContent(files, "book.go")!;
-      expect(content).toContain("authorID uint");
-      expect(content).toContain("author *Author");
-      expect(content).toContain("foreignKey:authorID");
+      // An exported field (author would be ignored by gorm) on the DDL's column.
+      expect(content).toContain(
+        'AuthorID uint `gorm:"column:authorId;type:integer;not null"'
+      );
+      expect(content).toContain('Author *Author `gorm:"foreignKey:AuthorID"');
+    });
+  });
+
+  describe("array fields match the DDL writer", () => {
+    test("pq array types with the elementType's Postgres type", async () => {
+      const entity: Entity = {
+        name: "Email",
+        fields: [
+          { name: "to", type: "array" },
+          { name: "ids", type: "array", elementType: "integer" },
+          { name: "old", type: "array", arrayItemType: "bigint" } as any,
+        ],
+      };
+      const files = await generator.generateEntity({
+        entity,
+        relationships: [],
+        allEntities: [entity],
+        apiType: "rest",
+      });
+      const content = findFileContent(files, "email.go")!;
+      expect(content).toContain('"github.com/lib/pq"');
+      expect(content).toContain('To pq.StringArray `gorm:"column:to;type:text[];not null"');
+      expect(content).toContain('Ids pq.Int32Array `gorm:"column:ids;type:integer[]');
+      expect(content).toContain('Old pq.Int64Array `gorm:"column:old;type:bigint[]');
+      // A JSON serializer would write ["a"] into a Postgres array column.
+      expect(content).not.toContain("serializer:json");
+    });
+
+    test("an elementType that is not a type name is refused", async () => {
+      const entity: Entity = {
+        name: "Email",
+        fields: [{ name: "x", type: "array", elementType: 'text" json:"y' }],
+      };
+      await expect(
+        generator.generateEntity({ entity, relationships: [], allEntities: [entity], apiType: "rest" })
+      ).rejects.toThrow(/invalid elementType/);
+    });
+  });
+
+  describe("OneToOne", () => {
+    const workspace: Entity = { name: "Workspace", fields: [{ name: "name", type: "text" }] };
+    const setting: Entity = { name: "Setting", fields: [{ name: "tz", type: "text" }] };
+    const owner: Relationship[] = [
+      { type: "OneToOne", name: "Workspace", join: true, referenceName: "Workspace", biDirectional: true, inverseReferenceName: "Setting" },
+    ];
+    const options = { entity: setting, relationships: owner, allEntities: [workspace, setting], apiType: "rest", relationshipMap: {} };
+
+    test("the owning side's FK column is workspaceId with UNIQUE, like the DDL", async () => {
+      const model = findFileContent(await generator.generateEntity(options), "setting.go")!;
+      // Nullable, as the DDL makes it; the UNIQUE comes from models.Migrate.
+      expect(model).toContain('WorkspaceID *uint `gorm:"column:workspaceId;type:integer"');
+      expect(model).toContain('gorm:"foreignKey:WorkspaceID;constraint:OnDelete:CASCADE"');
+      const service = findFileContent(await generator.generateService(options), "setting.go")!;
+      expect(service).toContain('"workspaceId": true');
+      expect(service).toContain('updates["workspaceId"]');
+      const dto = findFileContent(await generator.generateDto(options), "setting.go")!;
+      expect(dto).toContain('WorkspaceID *uint `json:"workspaceId"');
+    });
+
+    test("the inverse side has no FK column and cascades", async () => {
+      const model = findFileContent(
+        await generator.generateEntity({
+          entity: workspace,
+          relationships: [
+            { type: "OneToOne", name: "Setting", join: false, referenceName: "Setting", biDirectional: true, inverseReferenceName: "Workspace" },
+          ],
+          allEntities: [workspace, setting],
+          apiType: "rest",
+        }),
+        "workspace.go"
+      )!;
+      expect(model).toContain(
+        'Setting *Setting `gorm:"foreignKey:WorkspaceID;constraint:OnDelete:CASCADE"'
+      );
+      expect(model).not.toContain("SettingID");
     });
   });
 
@@ -857,6 +942,81 @@ describe("GoGenerator", () => {
     });
   });
 
+  describe("the database matches apso migrate's", () => {
+    let files: Map<string, string>;
+    beforeAll(async () => {
+      files = await generateAll("go", parityFixture);
+    });
+
+    test("columns keep their .apsorc names, types, NOT NULL and defaults", () => {
+      const account = files.get("models/account.go")!;
+      expect(account).toContain(
+        'SeenAt *time.Time `gorm:"column:seenAt;type:timestamptz" json:"seenAt,omitempty"`'
+      );
+      expect(account).toContain('gorm:"column:lastLogin;type:timestamp"');
+      expect(account).toContain('gorm:"column:greeting;type:text;not null;default:\'hi\'"');
+      // gorm parses number and boolean defaults itself, so they go unquoted.
+      expect(account).toContain('Visits *int64 `gorm:"column:visits;type:bigint;not null;default:0"');
+      expect(account).toContain('gorm:"column:verified;type:boolean;not null;default:true"');
+      expect(account).toContain('gorm:"column:planType;type:\\"account_planType_enum\\";default:\'premium\'"');
+      expect(account).toContain('gorm:"column:code;type:character(3)"');
+      expect(account).toContain('gorm:"column:score;type:double precision"');
+      expect(account).toContain(
+        'CreatedAt time.Time `gorm:"column:created_at;type:timestamp;not null;default:now();autoCreateTime"'
+      );
+    });
+
+    test("relations use the DDL's key columns and join tables", () => {
+      const post = files.get("models/post.go")!;
+      expect(post).toContain('AuthorID uint `gorm:"column:authorId;type:integer;not null"');
+      expect(post).toContain('Author *Account `gorm:"foreignKey:AuthorID;constraint:OnDelete:CASCADE"');
+      expect(post).toContain('ProfileID *uint `gorm:"column:profileId;type:integer"');
+      expect(post).toContain(
+        'Tags []Tag `gorm:"many2many:post_tags_tag;joinForeignKey:postId;joinReferences:tagId"'
+      );
+      // The has-many side names the child's real foreign key field (to_name author).
+      expect(files.get("models/account.go")).toContain('Posts []Post `gorm:"foreignKey:AuthorID"');
+      expect(files.get("models/comment.go")).toContain(
+        'DocumentID string `gorm:"column:documentId;type:uuid;not null"'
+      );
+      // An entity with no time field and no timestamps doesn't import time.
+      expect(files.get("models/tag.go")).not.toContain('"time"');
+      expect(files.get("dto/tag.go")).not.toContain('"time"');
+    });
+
+    test("DATABASE_SYNC runs the DDL writer's statements, not AutoMigrate", () => {
+      const schema = files.get("models/schema.go")!;
+      expect(schema).toContain("func Migrate(db *gorm.DB) error {");
+      expect(schema).toContain('CREATE TABLE IF NOT EXISTS \\"account\\"');
+      expect(schema).toContain(
+        'ALTER TABLE \\"account\\" RENAME COLUMN \\"seen_at\\" TO \\"seenAt\\"'
+      );
+      expect(schema).toContain('"PostId": "postId",');
+      expect(files.get("routes/routes.go")).toContain("models.UseNames(db)");
+    });
+
+    test("services filter, sort and update by the column names", () => {
+      const service = files.get("services/account.go")!;
+      expect(service).toContain('"seenAt": true,');
+      expect(service).toContain('updates["seenAt"] = *input.SeenAt');
+      expect(service).toContain('encoded, err := json.Marshal(input.Prefs)');
+      expect(files.get("services/post.go")).toContain('"authorId": true,');
+      expect(files.get("services/post.go")).toContain(
+        "related := (&AccountService{}).toResponse(item.Author)"
+      );
+      const query = files.get("utils/query.go")!;
+      expect(query).toContain("field = quoteColumn(field)");
+      expect(query).toContain("query = query.Preload(preloadName(j.Relation))");
+    });
+
+    test("the create DTO requires NOT NULL fields with no default", () => {
+      const dto = files.get("dto/account.go")!;
+      expect(dto).toMatch(/Handle \*string `json:"handle,omitempty" validate:"required"`/);
+      expect(dto).toMatch(/Greeting \*string `json:"greeting,omitempty"`/);
+      expect(dto).toContain('ProfileID *uint `json:"profileId,omitempty"`');
+    });
+  });
+
   // Real go-toolchain compile check: generate a full sample service and build
   // it. Skipped automatically when `go` is not on PATH.
   describe("generated Go compiles (go build)", () => {
@@ -882,6 +1042,8 @@ describe("GoGenerator", () => {
             { name: "name", type: "text" },
             { name: "price", type: "float" },
             { name: "active", type: "boolean" },
+            { name: "tags", type: "array" },
+            { name: "scores", type: "array", elementType: "integer" },
           ],
         };
         const entities = [entity];
@@ -967,6 +1129,47 @@ describe("GoGenerator", () => {
             env,
             stdio: "pipe",
           });
+        } finally {
+          fs.rmSync(dir, { recursive: true, force: true });
+        }
+      },
+      180_000
+    );
+
+    maybe(
+      "the parity fixture (every field type and relation) builds",
+      async () => {
+        const files = await generateAll("go", parityFixture);
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), "apso-go-build-"));
+        try {
+          for (const [file, content] of files) {
+            const full = path.join(dir, "autogen", file);
+            fs.mkdirSync(path.dirname(full), { recursive: true });
+            fs.writeFileSync(full, content);
+          }
+          fs.writeFileSync(
+            path.join(dir, "go.mod"),
+            [
+              "module app",
+              "",
+              "go 1.23",
+              "",
+              "require (",
+              "\tgithub.com/gin-gonic/gin v1.9.1",
+              "\tgithub.com/go-playground/validator/v10 v10.16.0",
+              "\tgithub.com/lib/pq v1.10.9",
+              "\tgorm.io/gorm v1.25.5",
+              ")",
+              "",
+            ].join("\n")
+          );
+          const env = {
+            ...process.env,
+            GOFLAGS: "-mod=mod",
+            GOPROXY: process.env.GOPROXY || "https://proxy.golang.org,direct",
+          };
+          execFileSync("go", ["mod", "tidy"], { cwd: dir, env, stdio: "pipe" });
+          execFileSync("go", ["build", "./..."], { cwd: dir, env, stdio: "pipe" });
         } finally {
           fs.rmSync(dir, { recursive: true, force: true });
         }

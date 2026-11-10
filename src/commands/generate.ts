@@ -385,6 +385,16 @@ export default class Generate extends BaseCommand {
           "[apso] app/main.py does not include autogen_router, so the generated routes are not served. Add: from app.autogen import autogen_router; app.include_router(autogen_router)"
         );
     }
+    if (language === "go") {
+      const main = path.join(process.cwd(), "cmd", "main.go");
+      if (
+        fs.existsSync(main) &&
+        fs.readFileSync(main, "utf8").includes("AutoMigrate(models.All()")
+      )
+        console.warn(
+          "[apso] cmd/main.go runs db.AutoMigrate(models.All()...) for DATABASE_SYNC. gorm can't create the enum types, constraints and names the migrations from apso migrate use, so the two databases would differ. Replace that call with: models.Migrate(db)"
+        );
+    }
 
     const totalBuildTime = performance.now() - totalBuildStart;
     console.log(

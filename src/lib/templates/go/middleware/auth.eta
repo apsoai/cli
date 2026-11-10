@@ -316,7 +316,7 @@ func AuthMiddleware(db *gorm.DB) gin.HandlerFunc {
 		sum := sha256.Sum256([]byte(key))
 		row := map[string]interface{}{}
 		err := db.Model(&models.<%= it.apiKey.goModel %>{}).
-			Where(<%~ JSON.stringify(it.apiKey.keyColumn + ' = ?') %>, hex.EncodeToString(sum[:])).
+			Where(<%~ JSON.stringify('"' + it.apiKey.keyColumn + '" = ?') %>, hex.EncodeToString(sum[:])).
 			Take(&row).Error
 		if err != nil {
 			unauthorized(c, "Invalid API key")

@@ -1,0 +1,72 @@
+<%~ includeFile('../../header.eta', it) %>
+
+package models
+
+import (
+	"gorm.io/gorm"
+	"gorm.io/gorm/schema"
+)
+
+// Migrate brings the database to the .apsorc schema exactly as the migrations
+// from `apso migrate` build it: it creates the tables, columns, indexes and
+// constraints that are missing, and never alters or drops anything. Call it
+// instead of db.AutoMigrate when DATABASE_SYNC=true; AutoMigrate can't create
+// the enum types, unique constraints and names those migrations use.
+//
+// It refuses, and prints the SQL to rename them, when the database still has
+// the snake_case columns older generated models made, rather than adding
+// empty columns beside them.
+func Migrate(db *gorm.DB) error {
+	UseNames(db)
+	sqlDB, err := db.DB()
+	if err != nil {
+		return err
+	}
+	tx, err := sqlDB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, statement := range schemaStatements {
+		if _, err := tx.Exec(statement); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+var schemaStatements = []string{
+<% it.statements.forEach((s) => { %>
+	<%~ s %>,
+<% }) %>
+}
+
+// joinColumns maps a join table column, as gorm titles it, to its name in the
+// database (gorm would otherwise snake_case "PostId" to "post_id").
+var joinColumns = map[string]string{
+<% it.joinColumns.forEach(([k, v]) => { %>
+	<%~ k %>: <%~ v %>,
+<% }) %>
+}
+
+type namer struct{ schema.Namer }
+
+func (n namer) ColumnName(table, column string) string {
+	if c, ok := joinColumns[column]; ok {
+		return c
+	}
+	return n.Namer.ColumnName(table, column)
+}
+
+// JoinTableName keeps the join table names from the many2many tags as written.
+func (n namer) JoinTableName(name string) string {
+	return name
+}
+
+// UseNames makes gorm use the join table column names the migrations create.
+// RegisterAllRoutes and Migrate call it before any model is read.
+func UseNames(db *gorm.DB) {
+	if _, ok := db.NamingStrategy.(namer); !ok {
+		db.NamingStrategy = namer{db.NamingStrategy}
+	}
+}
