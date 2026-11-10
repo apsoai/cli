@@ -8,7 +8,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { ScopeGuard } from './scope.guard';
 <% } %>
 <% if (it.hasAuth) { %>
-import { AuthGuard } from './auth.guard';
+import { AuthGuard<% if (it.mcpAuth) { %>, McpAuthProvider<% } %> } from './auth.guard';
 <% } %>
 <% if (it.permissions) { %>
 import { PermissionGuard } from './permission.guard';
@@ -80,6 +80,9 @@ import { <%= entity %> } from '../<%= entity %>/<%= entity %>.entity';
   providers: [
 <% if (it.hasAuth) { %>
     AuthGuard,
+<% } %>
+<% if (it.mcpAuth) { %>
+    McpAuthProvider,
 <% } %>
 <% if (it.permissions) { %>
     PermissionGuard,

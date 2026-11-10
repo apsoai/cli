@@ -51,6 +51,15 @@ export interface AuthContext {
 
 const ISSUER = process.env.AUTH_JWT_ISSUER || <%~ JSON.stringify(it.jwt.issuer) %>;
 const AUDIENCE = process.env.AUTH_JWT_AUDIENCE || <%~ JSON.stringify(it.jwt.audience || '') %>;
+<% if (it.mcpAuth) { %>
+// Public URL of the MCP endpoint (https://api.example.com/mcp). MCP clients ask
+// the identity provider for a token for this URL, so it is an accepted audience.
+const MCP_RESOURCE = process.env.MCP_RESOURCE_URL || '';
+// No configured audience means none is checked (Clerk and Cognito tokens carry no aud).
+const AUDIENCES = AUDIENCE ? [AUDIENCE, MCP_RESOURCE].filter(Boolean) : [];
+<% } else { %>
+const AUDIENCES = AUDIENCE ? [AUDIENCE] : [];
+<% } %>
 const JWKS_URI = process.env.AUTH_JWKS_URI || <%~ JSON.stringify(it.jwt.jwksUri) %>;
 const ALGORITHMS = <%~ JSON.stringify(it.jwt.algorithms) %>;
 const AUTHORIZED_PARTIES = (process.env.AUTH_JWT_AUTHORIZED_PARTIES || <%~ JSON.stringify(it.jwt.authorizedParties.join(',')) %>)
@@ -95,7 +104,15 @@ export class AuthGuard implements CanActivate {
       return true;
     }
 
-    const request = context.switchToHttp().getRequest();
+    await this.authenticate(context.switchToHttp().getRequest());
+    return true;
+  }
+
+  /**
+   * Verify the request's bearer token and attach the caller to the request.
+   * Throws UnauthorizedException when the token is missing or not accepted.
+   */
+  async authenticate(request: any): Promise<AuthContext> {
     const header: string | undefined = request.headers.authorization;
     if (!header || !header.startsWith('Bearer ')) {
       throw new UnauthorizedException('No bearer token provided');
@@ -107,7 +124,7 @@ export class AuthGuard implements CanActivate {
         issuer: ISSUER,
         algorithms: ALGORITHMS,
 <% if (it.jwt.provider !== 'cognito') { %>
-        audience: AUDIENCE || undefined,
+        audience: AUDIENCES.length > 0 ? AUDIENCES : undefined,
 <% } %>
       }));
     } catch {
@@ -115,9 +132,10 @@ export class AuthGuard implements CanActivate {
     }
 <% if (it.jwt.provider === 'cognito') { %>
     // Cognito ID tokens carry aud; access tokens carry client_id instead.
-    if (AUDIENCE) {
+    if (AUDIENCES.length > 0) {
       const aud = payload.aud ?? (payload as any).client_id;
-      if (!(Array.isArray(aud) ? aud.includes(AUDIENCE) : aud === AUDIENCE)) {
+      const given: unknown[] = Array.isArray(aud) ? aud : [aud];
+      if (!given.some((value) => AUDIENCES.includes(value as string))) {
         throw new UnauthorizedException('Invalid token');
       }
     }
@@ -150,9 +168,26 @@ export class AuthGuard implements CanActivate {
     // Read by ScopeGuard's scope lookup.
     request.workspaceId = tenant;
     request.organizationId = tenant;
-    return true;
+    return auth;
   }
 }
+<% if (it.mcpAuth) { %>
+
+/**
+ * Sign-in settings @apso/mcp reads (its MCP_AUTH token). An MCP client that
+ * calls /mcp without a valid token is pointed at the identity provider, and
+ * every MCP request is checked by the same AuthGuard as the REST API.
+ */
+export const McpAuthProvider = {
+  provide: 'APSO_MCP_AUTH',
+  inject: [AuthGuard],
+  useFactory: (guard: AuthGuard) => ({
+    authorizationServers: [ISSUER],
+    resource: MCP_RESOURCE || undefined,
+    verify: (request: any) => guard.authenticate(request),
+  }),
+};
+<% } %>
 
 /**
  * Helper function to get AuthContext from request

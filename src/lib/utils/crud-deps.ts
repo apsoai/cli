@@ -61,7 +61,7 @@ export function addMissingDeps(
 }
 
 /** MCP library the generated controllers import when an entity sets `mcp`. */
-export const MCP_DEP: Record<string, string> = { "@apso/mcp": "^0.1.0" };
+export const MCP_DEP: Record<string, string> = { "@apso/mcp": "^0.2.0" };
 
 const SWAGGER_SETUP = "SwaggerModule.setup('_docs', app, document);";
 

@@ -292,6 +292,13 @@ function generate(project, auth) {
   fs.writeFileSync(rcPath, JSON.stringify(rc, null, 2));
   sh(CLI, ["generate", "--language", language], { cwd: project });
   if (language === "typescript") {
+    // APSO_MCP_TARBALL tests an unreleased build of @apso/mcp (npm pack output).
+    if (process.env.APSO_MCP_TARBALL) {
+      const pkgPath = path.join(project, "package.json");
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
+      pkg.dependencies["@apso/mcp"] = `file:${path.resolve(process.env.APSO_MCP_TARBALL)}`;
+      fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
+    }
     sh("npm", ["install", "--no-audit", "--no-fund"], { cwd: project });
     sh("npm", ["run", "build"], { cwd: project });
   } else if (language === "go") {
@@ -325,6 +332,8 @@ async function start(project, db) {
       DATABASE_SYNC: "true",
       DATABASE_LOGGING: "false",
       APP_PORT: String(port),
+      // The public URL of the MCP endpoint; tokens issued for it are accepted.
+      MCP_RESOURCE_URL: `http://127.0.0.1:${port}/mcp`,
     });
     [cmd, args] = [process.execPath, ["dist/main"]];
   } else if (language === "go") {
@@ -479,7 +488,7 @@ async function jwtCase(name, p, base) {
   if (name === "jwt" && language === "typescript") {
     const as = (roles, org = "1", extra = {}) => bearer(sign({ ...p.claims(org), app_metadata: { org_id: org, roles }, ...extra }));
     await rolePermissions(base, t, as(["owner"]), as(["member"]), as(["member"], "2"), as(["member"], "1", { permissions: ["invoice:delete"] }));
-    await mcpTools(base, t, as(["owner"]), as(["member"]), as(["owner"], "2"));
+    await mcpTools(base, t, as(["owner"]), as(["member"]), as(["owner"], "2"), as(["owner"], "1", { aud: `${base}/mcp` }));
   }
   return t.failures;
 }
@@ -488,7 +497,7 @@ async function jwtCase(name, p, base) {
  * mcp: true on Invoice and mcp: ["read"] on Project. Tools are the API's own
  * routes, so every call below has to pass the same guards a REST call does.
  */
-async function mcpTools(base, t, owner, member, otherOwner) {
+async function mcpTools(base, t, owner, member, otherOwner, ownerForMcp) {
   const connect = async (headers) => {
     const client = new Client({ name: "auth-smoke", version: "1" });
     await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`), { requestInit: { headers } }));
@@ -496,14 +505,39 @@ async function mcpTools(base, t, owner, member, otherOwner) {
   };
   const text = (result) => result.content?.[0]?.text ?? "";
   const rowsOf = (result) => (result.isError ? undefined : rows(JSON.parse(text(result))));
-  const [asOwner, asMember, asOther, asNobody] = await Promise.all([connect(owner), connect(member), connect(otherOwner), connect({})]);
+  const [asOwner, asMember, asOther] = await Promise.all([connect(owner), connect(member), connect(otherOwner)]);
+
+  // OAuth sign-in discovery: no token gets the 401 that points a client at
+  // the metadata, and the metadata names the identity provider.
+  const rpc = { jsonrpc: "2.0", id: 1, method: "tools/list" };
+  const anonymous = await fetch(`${base}/mcp`, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
+    body: JSON.stringify(rpc),
+  });
+  const challenge = anonymous.headers.get("www-authenticate") ?? "";
+  const metadataUrl = /resource_metadata="([^"]+)"/.exec(challenge)?.[1];
+  t.assert("mcp without credentials is a 401 that names the sign-in metadata", anonymous.status === 401 && Boolean(metadataUrl), `${anonymous.status} ${challenge}`);
+  const metadata = metadataUrl ? await call("GET", metadataUrl) : { json: undefined, text: "" };
+  t.assert(
+    "mcp sign-in metadata names the token issuer and this endpoint",
+    metadata.json?.resource === `${base}/mcp` && Array.isArray(metadata.json?.authorization_servers) && metadata.json.authorization_servers.length === 1,
+    metadata.text
+  );
+  const badToken = await fetch(`${base}/mcp`, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json, text/event-stream", authorization: "Bearer not.a.jwt" },
+    body: JSON.stringify(rpc),
+  });
+  t.assert("mcp with a bad token is a 401 invalid_token", badToken.status === 401 && (badToken.headers.get("www-authenticate") ?? "").includes("invalid_token"));
+  // An MCP client asks the identity provider for a token for the MCP URL.
+  const issuedForMcp = await (await connect(ownerForMcp)).listTools().then((r) => r.tools.length, () => 0);
+  t.assert("mcp accepts a token issued for the MCP endpoint's URL", issuedForMcp > 0);
 
   const names = (await asOwner.listTools()).tools.map((tool) => tool.name).sort();
   const expected = ["create_invoice", "delete_invoice", "get_invoice", "get_project", "list_invoices", "list_projects", "update_invoice"];
   t.assert("mcp lists only the opted-in operations", JSON.stringify(names) === JSON.stringify(expected), names.join(","));
 
-  const anonymous = await asNobody.callTool({ name: "list_invoices", arguments: {} });
-  t.assert("mcp call without credentials is refused by the auth guard", anonymous.isError === true && text(anonymous).includes("401"), text(anonymous));
   const denied = await asMember.callTool({ name: "list_invoices", arguments: {} });
   t.assert("mcp call by a member lacks invoice:read", denied.isError === true && text(denied).includes("invoice:read"), text(denied));
 

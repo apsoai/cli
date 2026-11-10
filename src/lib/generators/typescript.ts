@@ -574,6 +574,9 @@ export class TypeScriptGenerator extends BaseGenerator {
       jwt,
       apiKey,
       permissions,
+      // OAuth sign-in for MCP clients: tokens come from the JWT issuer.
+      mcpAuth:
+        Boolean(jwt) && entities.some((e) => mcpOperations(e).length > 0),
     };
 
     // Generate auth.guard.ts if auth is configured
