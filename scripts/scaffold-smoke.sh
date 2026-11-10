@@ -89,7 +89,9 @@ case "$LANGUAGE" in
       rc.entities[0].fields.push({ name: "note", type: "text", nullable: true });
       fs.writeFileSync(".apsorc", JSON.stringify(rc, null, 2) + "\n");
     '
-    "$CLI_ROOT/bin/run" generate
+    # --language: fixtures carry no "language" key, and CI is headless. The
+    # headless resolution of a fresh scaffold is already checked above.
+    "$CLI_ROOT/bin/run" generate --language "$LANGUAGE"
     "$CLI_ROOT/bin/run" migrate generate --baseline "$WORKDIR/deployed.apsorc"
     MIGRATION="$(ls src/migrations/*-SchemaUpdate-migration.ts)"
     "$CLI_ROOT/bin/run" migrate verify --baseline "$WORKDIR/deployed.apsorc" --migration "$MIGRATION"
