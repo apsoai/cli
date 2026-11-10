@@ -5,7 +5,7 @@
     "": {
       "name": "@apso/cli",
       "dependencies": {
-        "@apso/schema-tools": "^0.2.0",
+        "@apso/schema-tools": "^0.2.2",
         "@biomejs/biome": "^1.9.4",
         "@electric-sql/pglite": "^0.2.17",
         "@modelcontextprotocol/sdk": "^1.29.0",
@@ -69,7 +69,7 @@
 
     "@apm-js-collab/tracing-hooks": ["@apm-js-collab/tracing-hooks@0.13.0", "", { "dependencies": { "@apm-js-collab/code-transformer": "^0.18.0", "debug": "^4.4.1", "module-details-from-path": "^1.0.4" } }, "sha512-mTvWz9rnQwx1U3h0XPTHaX7bgfkpipLLTQyjlC2cdhQpQEuoLT0AGzoydeoq2NxfEVv6fWOOETcSbb2nptleyw=="],
 
-    "@apso/schema-tools": ["@apso/schema-tools@0.2.0", "", { "dependencies": { "pluralize": "^8.0.0" } }, "sha512-EulC5vj7ErDkMhnfFyQdEO1k9LuELpg0FsBtkfgf/AaISiJPWvr6ZbJcvhzlqUisLq+G9AJO41egmN11A+tRrA=="],
+    "@apso/schema-tools": ["@apso/schema-tools@0.2.2", "", { "dependencies": { "pluralize": "^8.0.0" } }, "sha512-qLz49EyG6hwWMzjzwxp9L0+Ou7EAi7lu6TaxrJixqPm7/J8EMWzBePssmjTE6eotw9qMZNnh1dZ/ky8a9to1rw=="],
 
     "@babel/code-frame": ["@babel/code-frame@7.12.11", "", { "dependencies": { "@babel/highlight": "^7.10.4" } }, "sha512-Zt1yodBx1UcyiePMSkWnU4hPqhwq7hGi2nFL1LeA3EUl+q2LQx16MISgJ0+z7dnmgvP9QtIleuETGOiOH1RcIw=="],
 
