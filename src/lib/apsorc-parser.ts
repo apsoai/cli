@@ -2,10 +2,15 @@ import * as fs from "fs";
 import * as path from "path";
 import rc from "rc";
 import { Entity } from "./types/entity";
-import { ApsorcRelationship, RelationshipMap } from "./types/relationship";
+import {
+  ApsorcRelationship,
+  Relationship,
+  RelationshipMap,
+} from "./types/relationship";
 import { AuthConfig } from "./types/auth";
 import { TargetLanguage } from "./types/generator";
 import {
+  getRelationshipIdField,
   parseRelationships,
   parseV1Relationships,
 } from "./utils/relationships";
@@ -151,6 +156,34 @@ export const dedupeIndexes = (entity: Entity): Entity => {
     : { ...entity, indexes };
 };
 
+/**
+ * Drop a "uniques" entry on exactly the foreign key column of a OneToOne the
+ * entity owns. The relationship already makes that column UNIQUE (TypeORM's
+ * REL_ constraint), so a second constraint would only duplicate it. Composite
+ * entries that include the column are kept. `apso schema lint` warns about it.
+ *
+ * @param {Entity} entity - An entity from .apsorc.
+ * @param {Relationship[]} relationships - The entity's parsed relationships.
+ * @returns {Entity} The entity, with a filtered copy of its uniques when needed.
+ */
+export const dedupeOneToOneUniques = (
+  entity: Entity,
+  relationships: Relationship[] = []
+): Entity => {
+  if (!entity.uniques?.length) return entity;
+  const owned = new Set(
+    relationships
+      .filter((r) => r.type === "OneToOne" && r.join)
+      .map((r) => getRelationshipIdField(r))
+  );
+  const uniques = entity.uniques.filter(
+    (u) => !(u.fields.length === 1 && owned.has(u.fields[0]))
+  );
+  return uniques.length === entity.uniques.length
+    ? entity
+    : { ...entity, uniques };
+};
+
 export const parseApsorcV2 = (apsorc: ApsorcType): ParsedApsorcData => {
   // A raw .apsorc may omit "relationships" (fresh scaffolds do); parseRc
   // defaults it, but migrate and verify read the file directly.
@@ -158,7 +191,9 @@ export const parseApsorcV2 = (apsorc: ApsorcType): ParsedApsorcData => {
   assertCodegenSafeNames(apsorc);
   const relationshipMap = parseRelationships(apsoRelationships);
   return {
-    entities: entities.map((entity) => dedupeIndexes(entity)),
+    entities: entities.map((entity) =>
+      dedupeOneToOneUniques(dedupeIndexes(entity), relationshipMap[entity.name])
+    ),
     relationshipMap,
   };
 };
