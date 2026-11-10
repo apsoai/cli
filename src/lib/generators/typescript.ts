@@ -33,6 +33,7 @@ import {
   getPermissionConfig,
   getScopedEntities,
   hasScopedEntities,
+  mcpOperations,
 } from "../guards";
 import { getEventEmittingEntities } from "../events";
 import {
@@ -236,6 +237,21 @@ export class TypeScriptGenerator extends BaseGenerator {
           }
         : undefined;
 
+    const mcp = mcpOperations(entity);
+    if (mcp.length > 0) {
+      if (!auth)
+        throw new Error(
+          `${entityName}.mcp needs an auth block in .apsorc: MCP tools act as the signed-in caller`
+        );
+      // The template wires @apso/mcp in nest-app.config.ts. A service created
+      // before that has to add it, or the tools would silently not be served.
+      const appConfig = path.resolve(this.config.rootFolder, "config/nest-app.config.ts");
+      if (fs.existsSync(appConfig) && !fs.readFileSync(appConfig, "utf8").includes("mountMcp"))
+        throw new Error(
+          `${entityName}.mcp: this service does not serve MCP yet. Run "npm install @apso/mcp", then in ${appConfig} import { mountMcp } from '@apso/mcp' and call mountMcp(app, document) after SwaggerModule.createDocument.`
+        );
+    }
+
     const data = {
       svcName,
       ctrlName,
@@ -251,6 +267,10 @@ export class TypeScriptGenerator extends BaseGenerator {
       crudAuth: scopes.filter((s) => s.direct),
       crudAuthNested: scopes.filter((s) => s.fkField),
       scopeOptions,
+      // Operations exposed as MCP tools, and the names the tools get.
+      mcp,
+      mcpName: snakeCase(entityName),
+      mcpPluralName: snakeCase(pluralEntityName),
     };
 
     const controllerContent = await this.renderTemplate(

@@ -747,6 +747,10 @@ ${modelRefs}
     entities: Entity[],
     auth?: AuthConfig
   ): Promise<GeneratedFile[]> {
+    if (entities.some((entity) => entity.mcp))
+      throw new Error(
+        "mcp in .apsorc is served by TypeScript services only for now; remove it or generate with --language typescript"
+      );
     if (hasPermissions(entities))
       throw new Error(
         "permissions in .apsorc are enforced in TypeScript services only for now; remove them or generate with --language typescript"

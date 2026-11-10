@@ -74,6 +74,14 @@ export interface Entity {
   permissions?: EntityPermissions;
 
   /**
+   * Expose this entity's CRUD routes as MCP tools (TypeScript, needs `auth`
+   * and @apso/mcp). `true` exposes read, create, update and delete; a list
+   * exposes only those operations. Off by default.
+   * Example: ["read", "create"]
+   */
+  mcp?: boolean | PermissionOperation[];
+
+  /**
    * When true, state changes to this entity (insert/update/remove) emit a
    * durable DomainEvent row written in the SAME database transaction as the
    * change (transactional-outbox pattern, surfaced as generic "domain events").

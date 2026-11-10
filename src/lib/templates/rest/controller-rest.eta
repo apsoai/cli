@@ -3,6 +3,9 @@
 import { Controller, Body } from "@nestjs/common";
 import { Crud, <% if (it.crudAuth.length || it.crudAuthNested.length) { %>CrudAuth, <% } %>CrudController, Override, ParsedRequest, CrudRequest, ParsedBody, CreateManyDto } from '@apso/crud';
 import { ApiTags, ApiResponse, ApiOperation, ApiBody } from '@nestjs/swagger';
+<% if (it.mcp.length) { %>
+import { McpTool } from '@apso/mcp';
+<% } %>
 import {<%= it.entityName %>, <%= it.entityName %>Create, <%= it.entityName %>Update} from './dtos/<%= it.entityName%>.dto'
 import {<%= it.svcName %>} from './<%= it.entityName %>.service';
   
@@ -146,6 +149,9 @@ export class <%= it.ctrlName %> implements CrudController<<%= it.entityName %>>{
 
     @Override('getManyBase')
     @ApiOperation({ summary: 'Retrieve multiple <%= it.pluralEntityName %>' })
+<% if (it.mcp.includes('read')) { %>
+    @McpTool({ name: 'list_<%= it.mcpPluralName %>', description: 'List <%= it.pluralEntityName %>. Supports filter, sort, join, limit and page.' })
+<% } %>
     getMany(
         @ParsedRequest() req: CrudRequest,
     ) {
@@ -154,6 +160,9 @@ export class <%= it.ctrlName %> implements CrudController<<%= it.entityName %>>{
 
     @Override('getOneBase')
     @ApiOperation({ summary: 'Retrieve a single <%= it.entityName %>' })
+<% if (it.mcp.includes('read')) { %>
+    @McpTool({ name: 'get_<%= it.mcpName %>', description: 'Get one <%= it.entityName %> by id.' })
+<% } %>
     get(
         @ParsedRequest() req: CrudRequest,
     ) {
@@ -180,6 +189,9 @@ export class <%= it.ctrlName %> implements CrudController<<%= it.entityName %>>{
         } */ %>
 
     })
+<% if (it.mcp.includes('create')) { %>
+    @McpTool({ name: 'create_<%= it.mcpName %>', description: 'Create a <%= it.entityName %>.' })
+<% } %>
     create(
         @ParsedRequest() req: CrudRequest,
         @Body() dto: <%= it.entityName %>Create,
@@ -198,6 +210,9 @@ export class <%= it.ctrlName %> implements CrudController<<%= it.entityName %>>{
 
     @Override('updateOneBase')
     @ApiOperation({ summary: 'Update a single <%= it.entityName %>' })
+<% if (it.mcp.includes('update')) { %>
+    @McpTool({ name: 'update_<%= it.mcpName %>', description: 'Update fields of one <%= it.entityName %> by id.' })
+<% } %>
     update(
         @ParsedRequest() req: CrudRequest,
         @Body() dto: <%= it.entityName %>Update,
@@ -216,6 +231,9 @@ export class <%= it.ctrlName %> implements CrudController<<%= it.entityName %>>{
 
     @Override('deleteOneBase')
     @ApiOperation({ summary: 'Delete a single <%= it.entityName %>' })
+<% if (it.mcp.includes('delete')) { %>
+    @McpTool({ name: 'delete_<%= it.mcpName %>', description: 'Delete one <%= it.entityName %> by id. This cannot be undone.' })
+<% } %>
     delete(
         @ParsedRequest() req: CrudRequest,
     ) {

@@ -142,6 +142,23 @@ export function hasScopedEntities(entities: Entity[]): boolean {
   return entities.some((entity) => entity.scopeBy);
 }
 
+/**
+ * Operations an entity exposes as MCP tools, from its `mcp` setting.
+ * Empty when the entity has not opted in.
+ */
+export function mcpOperations(entity: Entity): PermissionOperation[] {
+  if (!entity.mcp) return [];
+  if (entity.mcp === true) return [...PERMISSION_OPERATIONS];
+  const bad =
+    !Array.isArray(entity.mcp) ||
+    entity.mcp.find((op) => !PERMISSION_OPERATIONS.includes(op));
+  if (bad)
+    throw new Error(
+      `${entity.name}.mcp must be true or a list of ${PERMISSION_OPERATIONS.join(", ")}`
+    );
+  return [...new Set(entity.mcp)];
+}
+
 export function hasPermissions(entities: Entity[]): boolean {
   return entities.some((entity) => entity.permissions);
 }
