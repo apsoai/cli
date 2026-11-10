@@ -60,6 +60,42 @@ export function addMissingDeps(
   return missing;
 }
 
+/** MCP library the generated controllers import when an entity sets `mcp`. */
+export const MCP_DEP: Record<string, string> = { "@apso/mcp": "^0.1.0" };
+
+const SWAGGER_SETUP = "SwaggerModule.setup('_docs', app, document);";
+
+/**
+ * Wire @apso/mcp into a TypeScript project: declare the package and call
+ * mountMcp where the app builds its OpenAPI document. Safe to run again.
+ *
+ * @param {string} projectDir - Directory holding the project's package.json.
+ * @param {string} rootFolder - Source folder from .apsorc (usually "src").
+ * @returns {string[]} Files changed (empty when the project was already wired).
+ */
+export function ensureMcpWiring(projectDir: string, rootFolder: string): string[] {
+  const changed =
+    addMissingDeps(projectDir, MCP_DEP).length > 0 ? ["package.json"] : [];
+  const relative = path.join(rootFolder, "config", "nest-app.config.ts");
+  const file = path.join(projectDir, relative);
+  const text = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+  if (text.includes("mountMcp")) return changed;
+  // A bootstrap that no longer looks like the template's is the owner's to edit.
+  if (!text.includes(SWAGGER_SETUP))
+    throw new Error(
+      `mcp in .apsorc: could not add the MCP endpoint to ${relative}. Where your app is configured, import { mountMcp } from '@apso/mcp' and call mountMcp(app, document) after SwaggerModule.createDocument. Without it no tools are served.`
+    );
+  fs.writeFileSync(
+    file,
+    "import { mountMcp } from '@apso/mcp';\n" +
+      text.replace(
+        SWAGGER_SETUP,
+        `${SWAGGER_SETUP}\n\n  // Serve the routes marked with @McpTool as MCP tools at /mcp.\n  mountMcp(app, document);`
+      )
+  );
+  return [...changed, relative];
+}
+
 /** JWT verification library the generated TypeScript JWT guard imports. */
 export const JOSE_DEP: Record<string, string> = { jose: "^5.10.0" };
 

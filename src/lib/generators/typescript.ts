@@ -238,19 +238,10 @@ export class TypeScriptGenerator extends BaseGenerator {
         : undefined;
 
     const mcp = mcpOperations(entity);
-    if (mcp.length > 0) {
-      if (!auth)
-        throw new Error(
-          `${entityName}.mcp needs an auth block in .apsorc: MCP tools act as the signed-in caller`
-        );
-      // The template wires @apso/mcp in nest-app.config.ts. A service created
-      // before that has to add it, or the tools would silently not be served.
-      const appConfig = path.resolve(this.config.rootFolder, "config/nest-app.config.ts");
-      if (fs.existsSync(appConfig) && !fs.readFileSync(appConfig, "utf8").includes("mountMcp"))
-        throw new Error(
-          `${entityName}.mcp: this service does not serve MCP yet. Run "npm install @apso/mcp", then in ${appConfig} import { mountMcp } from '@apso/mcp' and call mountMcp(app, document) after SwaggerModule.createDocument.`
-        );
-    }
+    if (mcp.length > 0 && !auth)
+      throw new Error(
+        `${entityName}.mcp needs an auth block in .apsorc: MCP tools act as the signed-in caller`
+      );
 
     const data = {
       svcName,

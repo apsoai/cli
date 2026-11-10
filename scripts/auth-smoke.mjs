@@ -17,6 +17,8 @@
  *     through ?join, and allow a role in it; a RolePermission row added by an
  *     owner grants a permission in that tenant only; a member cannot grant
  *     itself; a permission in the token is honored
+ *   - mcp (TypeScript) serves only the opted-in operations as tools at /mcp,
+ *     and a tool call meets the same auth, permission and scope guards as REST
  *
  * Tokens are minted locally with the claim shapes each provider issues, signed
  * by a key this script serves as a JWKS.
@@ -35,6 +37,8 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 const language = process.argv[2];
 const only = process.argv.slice(3);
@@ -228,7 +232,8 @@ const ENTITIES = [
       { name: "expiresAt", type: "date", nullable: true },
     ],
   },
-  { name: "Project", created_at: true, updated_at: true, scopeBy: "organizationId", fields: [{ name: "title", type: "text" }] },
+  // Projects are readable as MCP tools (TypeScript only; Python and Go refuse mcp).
+  { name: "Project", created_at: true, updated_at: true, scopeBy: "organizationId", ...(language === "typescript" ? { mcp: ["read"] } : {}), fields: [{ name: "title", type: "text" }] },
   // A tenant field that is not named workspaceId/organizationId (imported schemas).
   { name: "Note", created_at: true, updated_at: true, scopeBy: "orgId", fields: [{ name: "body", type: "text" }, { name: "orgId", type: "integer", nullable: true }] },
   // Scoped through its parent (TypeScript only; Python and Go warn and skip it).
@@ -240,7 +245,7 @@ const ENTITIES = [
     name: "Invoice",
     created_at: true,
     updated_at: true,
-    ...(language === "typescript" ? { permissions: { read: ["owner"], delete: ["owner"] } } : {}),
+    ...(language === "typescript" ? { permissions: { read: ["owner"], delete: ["owner"] }, mcp: true } : {}),
     fields: [{ name: "total", type: "integer" }],
   },
   // Runtime grants: an owner gives a role a permission in its own tenant (TypeScript only).
@@ -474,8 +479,53 @@ async function jwtCase(name, p, base) {
   if (name === "jwt" && language === "typescript") {
     const as = (roles, org = "1", extra = {}) => bearer(sign({ ...p.claims(org), app_metadata: { org_id: org, roles }, ...extra }));
     await rolePermissions(base, t, as(["owner"]), as(["member"]), as(["member"], "2"), as(["member"], "1", { permissions: ["invoice:delete"] }));
+    await mcpTools(base, t, as(["owner"]), as(["member"]), as(["owner"], "2"));
   }
   return t.failures;
+}
+
+/**
+ * mcp: true on Invoice and mcp: ["read"] on Project. Tools are the API's own
+ * routes, so every call below has to pass the same guards a REST call does.
+ */
+async function mcpTools(base, t, owner, member, otherOwner) {
+  const connect = async (headers) => {
+    const client = new Client({ name: "auth-smoke", version: "1" });
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`), { requestInit: { headers } }));
+    return client;
+  };
+  const text = (result) => result.content?.[0]?.text ?? "";
+  const rowsOf = (result) => (result.isError ? undefined : rows(JSON.parse(text(result))));
+  const [asOwner, asMember, asOther, asNobody] = await Promise.all([connect(owner), connect(member), connect(otherOwner), connect({})]);
+
+  const names = (await asOwner.listTools()).tools.map((tool) => tool.name).sort();
+  const expected = ["create_invoice", "delete_invoice", "get_invoice", "get_project", "list_invoices", "list_projects", "update_invoice"];
+  t.assert("mcp lists only the opted-in operations", JSON.stringify(names) === JSON.stringify(expected), names.join(","));
+
+  const anonymous = await asNobody.callTool({ name: "list_invoices", arguments: {} });
+  t.assert("mcp call without credentials is refused by the auth guard", anonymous.isError === true && text(anonymous).includes("401"), text(anonymous));
+  const denied = await asMember.callTool({ name: "list_invoices", arguments: {} });
+  t.assert("mcp call by a member lacks invoice:read", denied.isError === true && text(denied).includes("invoice:read"), text(denied));
+
+  // Invoice carries the permissions; Project carries the tenant scope.
+  const created = await asOwner.callTool({ name: "create_invoice", arguments: { body: { total: 7, organizationId: 1 } } });
+  const invoice = created.isError ? {} : JSON.parse(text(created));
+  t.assert("mcp create by the owner works", !created.isError && invoice.total === 7, text(created));
+  const mine = rowsOf(await asOwner.callTool({ name: "list_invoices", arguments: { limit: 100 } }));
+  t.assert("mcp list shows the owner its invoice", mine?.some((row) => row.id === invoice.id) === true);
+
+  const project = await call("POST", base + PROJECTS, { headers: owner, body: { title: "mcp scoped", organizationId: 2 } });
+  if (!t.expect("create a project over REST for the mcp scope checks", project, 200, 201)) return;
+  const own = rowsOf(await asOwner.callTool({ name: "list_projects", arguments: { limit: 100 } }));
+  t.assert("mcp list shows the owner its project", own?.some((row) => row.id === project.json.id) === true);
+  const theirs = rowsOf(await asOther.callTool({ name: "list_projects", arguments: { limit: 100 } }));
+  t.assert("mcp list hides it from another tenant", theirs !== undefined && !theirs.some((row) => row.id === project.json.id));
+  const crossGet = await asOther.callTool({ name: "get_project", arguments: { id: project.json.id } });
+  t.assert("mcp get by id is refused across tenants", crossGet.isError === true, text(crossGet));
+  const memberDelete = await asMember.callTool({ name: "delete_invoice", arguments: { id: invoice.id } });
+  t.assert("mcp delete by a member lacks invoice:delete", memberDelete.isError === true && text(memberDelete).includes("invoice:delete"), text(memberDelete));
+  const removed = await asOwner.callTool({ name: "delete_invoice", arguments: { id: invoice.id } });
+  t.assert("mcp delete by the owner works", !removed.isError, text(removed));
 }
 
 /**

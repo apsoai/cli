@@ -20,6 +20,7 @@ import {
   addMissingDeps,
   addMissingPythonDep,
   ensureCrudDeps,
+  ensureMcpWiring,
 } from "../lib/utils/crud-deps";
 import { upgradeOrmConfigForPglite } from "../lib/utils/pglite-upgrade";
 
@@ -352,6 +353,15 @@ export default class Generate extends BaseCommand {
           "[apso] Updated src/orm.config.ts so `apso migrate verify` and `apso test smoke` can run on a local PGlite database. Run npm install before building."
         );
       }
+    }
+
+    // Entities that opt in to MCP need the library and its endpoint.
+    if (language === "typescript" && entities.some((entity) => entity.mcp)) {
+      const wired = ensureMcpWiring(process.cwd(), rootFolder);
+      if (wired.length > 0)
+        console.log(
+          `[apso] Set up MCP tools at /mcp (updated ${wired.join(", ")}). Run npm install before building.`
+        );
     }
 
     // The generated auth code imports a JWT library; declare it.

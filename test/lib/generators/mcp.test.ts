@@ -1,4 +1,8 @@
 import { expect, describe, test } from "@jest/globals";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
+import { ensureMcpWiring } from "../../../src/lib/utils/crud-deps";
 import { mcpOperations } from "../../../src/lib/guards";
 import { GoGenerator } from "../../../src/lib/generators/go";
 import { PythonGenerator } from "../../../src/lib/generators/python";
@@ -54,5 +58,33 @@ describe("mcp in .apsorc", () => {
     await expect(generator(language, [invoice(true)]).generateGuards([invoice(true)], jwt)).rejects.toThrow(
       "TypeScript services only"
     );
+  });
+});
+
+const project = (bootstrap: string) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "apso-mcp-wiring-"));
+  fs.mkdirSync(path.join(dir, "src/config"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ dependencies: {} }));
+  fs.writeFileSync(path.join(dir, "src/config/nest-app.config.ts"), bootstrap);
+  return dir;
+};
+
+describe("ensureMcpWiring", () => {
+  const template = "const document = SwaggerModule.createDocument(app, options);\n  SwaggerModule.setup('_docs', app, document);\n";
+
+  test("adds the package and the mount call once", () => {
+    const dir = project(template);
+    expect(ensureMcpWiring(dir, "src")).toEqual(["package.json", path.join("src", "config", "nest-app.config.ts")]);
+    const bootstrap = fs.readFileSync(path.join(dir, "src/config/nest-app.config.ts"), "utf8");
+    expect(bootstrap).toContain("import { mountMcp } from '@apso/mcp';");
+    expect(bootstrap).toContain("mountMcp(app, document);");
+    expect(JSON.parse(String(fs.readFileSync(path.join(dir, "package.json")))).dependencies["@apso/mcp"]).toBeDefined();
+    expect(ensureMcpWiring(dir, "src")).toEqual([]);
+  });
+
+  test("a bootstrap it does not recognise is left alone, with the lines to add", () => {
+    const dir = project("export async function configureNestApp() {}\n");
+    expect(() => ensureMcpWiring(dir, "src")).toThrow("call mountMcp(app, document)");
+    expect(fs.readFileSync(path.join(dir, "src/config/nest-app.config.ts"), "utf8")).not.toContain("mountMcp");
   });
 });
