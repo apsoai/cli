@@ -29,6 +29,11 @@ export interface ScopeOptions {
   bypassRoles?: string[];
 }
 
+/** Operations a role list can guard (read covers list and get by id). */
+export const PERMISSION_OPERATIONS = ["read", "create", "update", "delete"] as const;
+export type PermissionOperation = typeof PERMISSION_OPERATIONS[number];
+export type EntityPermissions = Partial<Record<PermissionOperation, string[]>>;
+
 export interface Entity {
   name: string;
   /**
@@ -60,6 +65,13 @@ export interface Entity {
    * Optional configuration for how scope enforcement should behave.
    */
   scopeOptions?: ScopeOptions;
+
+  /**
+   * Roles allowed to perform each operation. A missing key lets any
+   * authenticated caller do it; an empty list lets nobody. Requires `auth`.
+   * Example: { "delete": ["admin"] }
+   */
+  permissions?: EntityPermissions;
 
   /**
    * When true, state changes to this entity (insert/update/remove) emit a

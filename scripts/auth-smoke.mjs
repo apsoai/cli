@@ -13,6 +13,10 @@
  *   - /health stays public
  *   - scopeBy keeps each tenant to its own rows, overrides a tenant id sent in
  *     a create body, and refuses a caller with no tenant
+ *   - permissions (TypeScript) refuse a role outside the list, directly and
+ *     through ?join, and allow a role in it; a RolePermission row added by an
+ *     owner grants a permission in that tenant only; a member cannot grant
+ *     itself; a permission in the token is honored
  *
  * Tokens are minted locally with the claim shapes each provider issues, signed
  * by a key this script serves as a JWKS.
@@ -231,12 +235,33 @@ const ENTITIES = [
   { name: "Task", created_at: true, updated_at: true, scopeBy: "project.organizationId", fields: [{ name: "title", type: "text" }] },
   // A "support" role reads every tenant's tickets (scopeOptions.bypassRoles).
   { name: "Ticket", created_at: true, updated_at: true, scopeBy: "organizationId", scopeOptions: { bypassRoles: ["support"] }, fields: [{ name: "title", type: "text" }] },
+  // Only owners read or delete invoices (permissions; TypeScript only, Python and Go refuse it).
+  {
+    name: "Invoice",
+    created_at: true,
+    updated_at: true,
+    ...(language === "typescript" ? { permissions: { read: ["owner"], delete: ["owner"] } } : {}),
+    fields: [{ name: "total", type: "integer" }],
+  },
+  // Runtime grants: an owner gives a role a permission in its own tenant (TypeScript only).
+  ...(language === "typescript"
+    ? [{
+        name: "RolePermission",
+        created_at: true,
+        updated_at: true,
+        scopeBy: "organizationId",
+        permissions: { create: ["owner"], update: ["owner"], delete: ["owner"] },
+        fields: [{ name: "role", type: "text" }, { name: "permission", type: "text" }],
+      }]
+    : []),
 ];
 const RELATIONSHIPS = [
   { from: "Organization", to: "ApiKey", type: "OneToMany" },
   { from: "Organization", to: "Project", type: "OneToMany" },
   { from: "Project", to: "Task", type: "OneToMany" },
   { from: "Organization", to: "Ticket", type: "OneToMany" },
+  { from: "Organization", to: "Invoice", type: "OneToMany" },
+  ...(language === "typescript" ? [{ from: "Organization", to: "RolePermission", type: "OneToMany" }] : []),
 ];
 
 const route = (plural) =>
@@ -446,7 +471,49 @@ async function jwtCase(name, p, base) {
   // Only the Supabase-shaped case maps a roles array we can set per token.
   const support = name === "jwt" ? (org) => bearer(sign({ ...p.claims(org), app_metadata: { org_id: org, roles: ["support"] } })) : undefined;
   await crudAndScope(base, t, valid, valid, bearer(sign(p.claims(undefined))), support);
+  if (name === "jwt" && language === "typescript") {
+    const as = (roles, org = "1", extra = {}) => bearer(sign({ ...p.claims(org), app_metadata: { org_id: org, roles }, ...extra }));
+    await rolePermissions(base, t, as(["owner"]), as(["member"]), as(["member"], "2"), as(["member"], "1", { permissions: ["invoice:delete"] }));
+  }
   return t.failures;
+}
+
+/**
+ * permissions: { read: ["owner"], delete: ["owner"] } on Invoice; create is open.
+ * Then runtime grants (RolePermission rows, scoped to the tenant) and a
+ * permission carried in the token extend that, and nothing else does.
+ */
+async function rolePermissions(base, t, owner, member, otherMember, memberWithDelete) {
+  const INVOICES = route("Invoices");
+  const GRANTS = route("RolePermissions");
+  const org = await call("POST", base + ORGS, { headers: owner, body: { name: "Billing Co" } });
+  if (!t.expect("create organization for invoices", org, 200, 201)) return;
+  const created = await call("POST", base + INVOICES, { headers: member, body: { total: 100, organizationId: org.json.id } });
+  if (!t.expect("member creates an invoice (create not restricted)", created, 200, 201)) return;
+  const iid = created.json.id;
+  t.expect("member cannot list invoices", await call("GET", base + INVOICES, { headers: member }), 403);
+  t.expect("member cannot read an invoice", await call("GET", `${base}${INVOICES}/${iid}`, { headers: member }), 403);
+  t.expect("member cannot read invoices through a join", await call("GET", `${base}${ORGS}?join=invoices`, { headers: member }), 403);
+  t.expect("member lists organizations without the join", await call("GET", base + ORGS, { headers: member }), 200);
+  t.expect("member cannot delete an invoice", await call("DELETE", `${base}${INVOICES}/${iid}`, { headers: member }), 403);
+  t.expect("owner lists invoices", await call("GET", base + INVOICES, { headers: owner }), 200);
+  t.expect("owner reads invoices through a join", await call("GET", `${base}${ORGS}?join=invoices`, { headers: owner }), 200);
+
+  // Runtime grants.
+  t.expect("member cannot grant itself a permission", await call("POST", base + GRANTS, { headers: member, body: { role: "member", permission: "invoice:read" } }), 403);
+  const grant = await call("POST", base + GRANTS, { headers: owner, body: { role: "member", permission: "invoice:read", organizationId: 2 } });
+  if (t.expect("owner grants members invoice:read", grant, 200, 201)) {
+    t.assert("grant is stored in the owner's tenant", String(grant.json?.organizationId) === "1", `organizationId=${grant.json?.organizationId}`);
+    t.expect("member lists invoices after the grant", await call("GET", base + INVOICES, { headers: member }), 200);
+    t.expect("member reads invoices through a join after the grant", await call("GET", `${base}${ORGS}?join=invoices`, { headers: member }), 200);
+    t.expect("member of another tenant still cannot list invoices", await call("GET", base + INVOICES, { headers: otherMember }), 403);
+    t.expect("the grant does not include delete", await call("DELETE", `${base}${INVOICES}/${iid}`, { headers: member }), 403);
+    t.expect("owner revokes the grant", await call("DELETE", `${base}${GRANTS}/${grant.json.id}`, { headers: owner }), 200, 204);
+    t.expect("member cannot list invoices after the revoke", await call("GET", base + INVOICES, { headers: member }), 403);
+  }
+
+  // A permission in the token (Auth0 RBAC style).
+  t.expect("member with invoice:delete in its token deletes the invoice", await call("DELETE", `${base}${INVOICES}/${iid}`, { headers: memberWithDelete }), 200, 204);
 }
 
 async function apiKeyCase(name, base, db) {

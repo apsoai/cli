@@ -1,4 +1,11 @@
-export { Entity, ScopeOptions, ScopeOperation } from "./entity";
+export {
+  Entity,
+  ScopeOptions,
+  ScopeOperation,
+  EntityPermissions,
+  PermissionOperation,
+  PERMISSION_OPERATIONS,
+} from "./entity";
 export { FieldType, Field, ComputedField } from "./field";
 export { Index } from "./indices";
 export { JSONValue } from "./json";

@@ -30,6 +30,7 @@ import * as os from "os";
 import { promisify } from "util";
 import {
   apiKeyTemplateData,
+  getPermissionConfig,
   getScopedEntities,
   hasScopedEntities,
 } from "../guards";
@@ -523,6 +524,15 @@ export class TypeScriptGenerator extends BaseGenerator {
         : undefined;
     const hasAuth = Boolean(normalizedAuth || jwt || apiKey);
 
+    // Roles come from the caller's identity; without auth there are none, and
+    // a permissions block that is silently not enforced is worse than an error.
+    const permissions = getPermissionConfig(entities, relationshipMap, auth);
+    if (permissions && !hasAuth) {
+      throw new Error(
+        "permissions in .apsorc need an auth block: roles come from the signed-in caller"
+      );
+    }
+
     if (!hasScopes && !hasAuth) {
       return [];
     }
@@ -552,6 +562,7 @@ export class TypeScriptGenerator extends BaseGenerator {
       authEntities,
       jwt,
       apiKey,
+      permissions,
     };
 
     // Generate auth.guard.ts if auth is configured
@@ -567,6 +578,16 @@ export class TypeScriptGenerator extends BaseGenerator {
       files.push({
         path: "guards/auth.guard.ts",
         content: authGuardContent,
+      });
+    }
+
+    if (permissions) {
+      files.push({
+        path: "guards/permission.guard.ts",
+        content: await this.renderTemplate(
+          "./guards/permission.guard.eta",
+          templateData
+        ),
       });
     }
 

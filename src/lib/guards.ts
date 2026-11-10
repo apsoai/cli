@@ -1,5 +1,8 @@
 import {
+  AuthConfig,
   Entity,
+  PERMISSION_OPERATIONS,
+  PermissionOperation,
   RelationshipMap,
   ResolvedApiKeyAuth,
   ScopeOptions,
@@ -137,6 +140,118 @@ export function getScopedEntities(
  */
 export function hasScopedEntities(entities: Entity[]): boolean {
   return entities.some((entity) => entity.scopeBy);
+}
+
+export function hasPermissions(entities: Entity[]): boolean {
+  return entities.some((entity) => entity.permissions);
+}
+
+/** One guarded operation: its permission name and the roles that have it by default. */
+export interface PermissionRule {
+  permission: string;
+  roles: string[];
+}
+
+/** What the permission guard template needs. */
+export interface PermissionConfig {
+  /** Guarded operations by route name (projects). */
+  routes: Record<string, Partial<Record<PermissionOperation, PermissionRule>>>;
+  /**
+   * Read rules a `?join` must satisfy, by relation name (singular and plural).
+   * A name shared by relations to different entities must satisfy all of them.
+   */
+  joins: Record<string, PermissionRule[]>;
+  /** The entity whose rows grant permissions to roles at runtime, if declared. */
+  grants?: { entity: string; tenantField?: string };
+}
+
+const permissionKey = (entityName: string): string =>
+  entityName.charAt(0).toLowerCase() + entityName.slice(1);
+
+/**
+ * The grants entity, checked so it cannot become an escalation path: its
+ * writes must be role-guarded, and in a multi-tenant schema it must be
+ * tenant-scoped so a grant made in one tenant does not apply in another.
+ */
+function resolveGrants(
+  entities: Entity[],
+  auth?: AuthConfig
+): PermissionConfig["grants"] {
+  const name = auth?.permissionEntity ?? "RolePermission";
+  const entity = entities.find((e) => e.name === name);
+  if (!entity) {
+    if (auth?.permissionEntity)
+      throw new Error(`auth.permissionEntity "${name}" is not an entity in .apsorc`);
+    return undefined;
+  }
+  const fields = new Set((entity.fields ?? []).map((f) => f.name));
+  for (const field of ["role", "permission"])
+    if (!fields.has(field))
+      throw new Error(`Entity ${name} needs a "${field}" text field to grant permissions`);
+  const writes = entity.permissions ?? {};
+  if (!writes.create || !writes.update || !writes.delete)
+    throw new Error(
+      `${name}.permissions must list roles for create, update and delete; otherwise any signed-in user can grant themselves any permission`
+    );
+  const scopes = entity.scopeBy ? [entity.scopeBy].flat() : [];
+  const tenantField = scopes.find((s) => !s.includes("."));
+  if (!tenantField && entities.some((e) => e !== entity && e.scopeBy))
+    throw new Error(
+      `${name} needs a direct scopeBy field: this schema is tenant-scoped, and an unscoped grant would apply in every tenant`
+    );
+  return { entity: name, tenantField };
+}
+
+/**
+ * Validates every entity's permissions and resolves them to permission names
+ * ("invoice:delete") by route and by join name, so a role that cannot read
+ * Task cannot read it through /projects?join=tasks either. Undefined when no
+ * entity has permissions.
+ */
+export function getPermissionConfig(
+  entities: Entity[],
+  relationshipMap?: RelationshipMap,
+  auth?: AuthConfig
+): PermissionConfig | undefined {
+  if (!hasPermissions(entities)) return undefined;
+  const byEntity: Record<string, Partial<Record<PermissionOperation, PermissionRule>>> = {};
+  for (const entity of entities) {
+    if (!entity.permissions) continue;
+    const rules: Partial<Record<PermissionOperation, PermissionRule>> = {};
+    for (const [op, roles] of Object.entries(entity.permissions)) {
+      if (!(PERMISSION_OPERATIONS as readonly string[]).includes(op))
+        throw new Error(
+          `${entity.name}.permissions: unknown operation "${op}"; use ${PERMISSION_OPERATIONS.join(", ")}`
+        );
+      if (!Array.isArray(roles) || roles.some((r) => typeof r !== "string" || !r))
+        throw new Error(`${entity.name}.permissions.${op} must be a list of role names`);
+      rules[op as PermissionOperation] = {
+        permission: `${permissionKey(entity.name)}:${op}`,
+        roles,
+      };
+    }
+    byEntity[entity.name] = rules;
+  }
+
+  const routes: PermissionConfig["routes"] = {};
+  for (const [name, rules] of Object.entries(byEntity))
+    routes[toRouteName(name)] = rules;
+
+  const joins: PermissionConfig["joins"] = {};
+  for (const relations of Object.values(relationshipMap ?? {})) {
+    for (const relation of relations) {
+      const read = byEntity[relation.name]?.read;
+      if (!read) continue;
+      const name = getRelationshipName(relation);
+      for (const key of new Set([name, pluralize(name)])) {
+        const list = joins[key] ?? [];
+        if (!list.some((rule) => rule.permission === read.permission))
+          list.push(read);
+        joins[key] = list;
+      }
+    }
+  }
+  return { routes, joins, grants: resolveGrants(entities, auth) };
 }
 
 /** API key settings plus what the key entity offers, as the guard templates use them. */

@@ -1,0 +1,136 @@
+<%~ includeFile('../header.eta') %>
+
+import {
+  Injectable,
+  CanActivate,
+  ExecutionContext,
+  ForbiddenException,
+} from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+<% if (it.permissions.grants) { %>
+import { DataSource, In, IsNull } from 'typeorm';
+<% } %>
+import { IS_PUBLIC_KEY } from './auth.guard';
+
+type Operation = 'read' | 'create' | 'update' | 'delete';
+
+/** A guarded operation: its permission name and the roles that have it by default. */
+interface Rule {
+  permission: string;
+  roles: string[];
+}
+
+/**
+ * Guarded operations by route, from .apsorc permissions. An operation that is
+ * not listed is open to any authenticated caller.
+ */
+export const ENTITY_PERMISSIONS: Record<string, Partial<Record<Operation, Rule>>> = <%~ JSON.stringify(it.permissions.routes, null, 2) %>;
+
+/**
+ * Read rules a ?join must satisfy, by relation name, so a caller who cannot
+ * read an entity cannot read it through a join either.
+ */
+const JOIN_PERMISSIONS: Record<string, Rule[]> = <%~ JSON.stringify(it.permissions.joins, null, 2) %>;
+
+const OPERATIONS: Record<string, Operation> = {
+  GET: 'read',
+  HEAD: 'read',
+  POST: 'create',
+  PUT: 'update',
+  PATCH: 'update',
+  DELETE: 'delete',
+};
+
+/**
+ * PermissionGuard - runs after AuthGuard. A caller may perform a guarded
+ * operation when any of these holds:
+ * - one of its roles is in the .apsorc default list
+ * - its token carries the permission (e.g. Auth0 RBAC "permissions")
+<% if (it.permissions.grants) { %>
+ * - a <%= it.permissions.grants.entity %> row grants the permission to one of its roles<% if (it.permissions.grants.tenantField) { %>
+ *   in its tenant (or in every tenant, when <%= it.permissions.grants.tenantField %> is null)<% } %>
+
+<% } %>
+ * Grants only add access; they never take away a default.
+ * Every interface that calls this API (REST, SDK, MCP) goes through it.
+ */
+@Injectable()
+export class PermissionGuard implements CanActivate {
+  constructor(
+    private reflector: Reflector,
+<% if (it.permissions.grants) { %>
+    private dataSource: DataSource,
+<% } %>
+  ) {}
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (isPublic) {
+      return true;
+    }
+
+    const request = context.switchToHttp().getRequest();
+    const path: string = request.route?.path || request.path;
+    const entity = path.match(/^\/([^\/]+)/)?.[1]?.toLowerCase();
+    const operation = OPERATIONS[request.method];
+    const rule = entity && operation ? ENTITY_PERMISSIONS[entity]?.[operation] : undefined;
+    if (rule && !(await this.allowed(request, rule))) {
+      throw new ForbiddenException(`Missing permission ${rule.permission}`);
+    }
+
+    const join = request.query?.join;
+    const joins: string[] = join === undefined ? [] : Array.isArray(join) ? join : [join];
+    for (const value of joins) {
+      for (const relation of String(value).split('||')[0].split('.')) {
+        for (const joined of JOIN_PERMISSIONS[relation] ?? []) {
+          if (!(await this.allowed(request, joined))) {
+            throw new ForbiddenException(`Missing permission ${joined.permission}`);
+          }
+        }
+      }
+    }
+
+    return true;
+  }
+
+  private async allowed(request: any, rule: Rule): Promise<boolean> {
+    const roles: string[] = request.auth?.roles ?? [];
+    if (rule.roles.some((role) => roles.includes(role))) {
+      return true;
+    }
+    return (await this.granted(request)).has(rule.permission);
+  }
+
+  /** The caller's permissions from its token and grants, loaded once per request. */
+  private async granted(request: any): Promise<Set<string>> {
+    if (request.apsoPermissions) {
+      return request.apsoPermissions;
+    }
+    const granted = new Set<string>(request.auth?.permissions ?? []);
+<% if (it.permissions.grants) { %>
+    const roles: string[] = request.auth?.roles ?? [];
+    if (roles.length > 0) {
+<% if (it.permissions.grants.tenantField) { %>
+      const tenant = request.auth?.workspaceId;
+      const where: any[] = [{ role: In(roles), <%= it.permissions.grants.tenantField %>: IsNull() }];
+      if (tenant != null) {
+        where.push({ role: In(roles), <%= it.permissions.grants.tenantField %>: tenant });
+      }
+<% } else { %>
+      const where: any = { role: In(roles) };
+<% } %>
+      // ponytail: one query per guarded request; cache per role and tenant
+      // with a short TTL if this shows up in latency.
+      const rows = await this.dataSource
+        .getRepository('<%= it.permissions.grants.entity %>')
+        .find({ select: { permission: true } as any, where });
+      rows.forEach((row: any) => granted.add(row.permission));
+    }
+<% } %>
+    request.apsoPermissions = granted;
+    return granted;
+  }
+}

@@ -35,6 +35,7 @@ import { getEventEmittingEntities } from "../events";
 import {
   apiKeyTemplateData,
   entityScope,
+  hasPermissions,
   nestedScopeEntities,
 } from "../guards";
 import { pyString } from "../ddl/migration-file";
@@ -735,6 +736,10 @@ ${downStatements || "    pass"}
     entities: Entity[],
     auth?: AuthConfig
   ): Promise<GeneratedFile[]> {
+    if (hasPermissions(entities))
+      throw new Error(
+        "permissions in .apsorc are enforced in TypeScript services only for now; remove them or generate with --language typescript"
+      );
     if (!auth) return [];
     const nested = nestedScopeEntities(entities);
     if (nested.length > 0)

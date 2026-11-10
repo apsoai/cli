@@ -10,6 +10,9 @@ import { ScopeGuard } from './scope.guard';
 <% if (it.hasAuth) { %>
 import { AuthGuard } from './auth.guard';
 <% } %>
+<% if (it.permissions) { %>
+import { PermissionGuard } from './permission.guard';
+<% } %>
 
 <% /* Import all entities for ScopeGuard (from sibling autogen folders) */ %>
 <% if (it.scopedEntities && it.scopedEntities.length > 0) { %>
@@ -78,6 +81,9 @@ import { <%= entity %> } from '../<%= entity %>/<%= entity %>.entity';
 <% if (it.hasAuth) { %>
     AuthGuard,
 <% } %>
+<% if (it.permissions) { %>
+    PermissionGuard,
+<% } %>
 <% if (it.scopedEntities && it.scopedEntities.length > 0) { %>
     ScopeGuard,
 <% } %>
@@ -92,6 +98,14 @@ import { <%= entity %> } from '../<%= entity %>/<%= entity %>.entity';
       useClass: AuthGuard,
     },
 <% } %>
+<% if (it.permissions) { %>
+    // Global guards run in this order: roles are checked after the caller is
+    // known and before the scope guard loads any rows.
+    {
+      provide: APP_GUARD,
+      useClass: PermissionGuard,
+    },
+<% } %>
 <% if (it.scopedEntities && it.scopedEntities.length > 0) { %>
     {
       provide: APP_GUARD,
@@ -102,6 +116,9 @@ import { <%= entity %> } from '../<%= entity %>/<%= entity %>.entity';
   exports: [
 <% if (it.hasAuth) { %>
     AuthGuard,
+<% } %>
+<% if (it.permissions) { %>
+    PermissionGuard,
 <% } %>
 <% if (it.scopedEntities && it.scopedEntities.length > 0) { %>
     ScopeGuard,

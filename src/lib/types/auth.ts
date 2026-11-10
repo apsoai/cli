@@ -18,6 +18,13 @@ export interface BaseAuthConfig {
    * The authentication provider type
    */
   provider: AuthProviderType;
+
+  /**
+   * Entity whose rows grant permissions to roles at runtime (fields `role`
+   * and `permission`, e.g. "invoice:delete"). Used only when the entity
+   * exists in .apsorc. Default: "RolePermission"
+   */
+  permissionEntity?: string;
 }
 
 /**
@@ -119,6 +126,12 @@ export interface JwtClaimsMapping {
    * Claim for user email
    */
   email?: string;
+
+  /**
+   * Claim holding permission strings ("invoice:delete"), for providers that
+   * manage permissions themselves (Auth0 RBAC). Default: "permissions"
+   */
+  permissions?: string;
 }
 
 /**
@@ -235,7 +248,7 @@ export interface AuthContext {
  * Default values for DB session auth configuration
  */
 export const DB_SESSION_AUTH_DEFAULTS: Required<
-  Omit<DbSessionAuthConfig, "provider" | "cookiePrefix">
+  Omit<DbSessionAuthConfig, "provider" | "cookiePrefix" | "permissionEntity">
 > & { cookiePrefix?: string } = {
   sessionEntity: "session",
   userEntity: "User",
@@ -262,7 +275,7 @@ export const JWT_AUTH_DEFAULTS: Required<
  * Default values for API key auth configuration
  */
 export const API_KEY_AUTH_DEFAULTS: Required<
-  Omit<ApiKeyAuthConfig, "provider" | "workspaceField" | "roleField">
+  Omit<ApiKeyAuthConfig, "provider" | "workspaceField" | "roleField" | "permissionEntity">
 > = {
   apiKeyHeader: "x-api-key",
   apiKeyEntity: "ApiKey",
@@ -317,7 +330,7 @@ export interface ResolvedJwtAuth {
 
 /** An API key auth config with every default filled in. */
 export type ResolvedApiKeyAuth = Required<
-  Omit<ApiKeyAuthConfig, "roleField">
+  Omit<ApiKeyAuthConfig, "roleField" | "permissionEntity">
 > &
   Pick<ApiKeyAuthConfig, "roleField">;
 
@@ -326,10 +339,10 @@ export type ResolvedApiKeyAuth = Required<
  * organization under `o`; Cognito puts group membership in `cognito:groups`.
  */
 const PROVIDER_CLAIMS: Record<JwtAuthConfig["provider"], JwtClaimsMapping> = {
-  auth0: { userId: "sub", email: "email" },
+  auth0: { userId: "sub", email: "email", permissions: "permissions" },
   clerk: { userId: "sub", email: "email", workspaceId: "o.id", roles: "o.rol" },
   cognito: { userId: "sub", email: "email", roles: "cognito:groups" },
-  jwt: { userId: "sub", email: "email", roles: "roles" },
+  jwt: { userId: "sub", email: "email", roles: "roles", permissions: "permissions" },
 };
 
 const ALLOWED_ALGORITHMS = new Set([

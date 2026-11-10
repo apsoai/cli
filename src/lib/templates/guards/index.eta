@@ -3,6 +3,9 @@
 <% if (it.hasAuth) { %>
 export * from './auth.guard';
 <% } %>
+<% if (it.permissions) { %>
+export { PermissionGuard, ENTITY_PERMISSIONS } from './permission.guard';
+<% } %>
 <% if (it.scopedEntities && it.scopedEntities.length > 0) { %>
 <% if (it.hasAuth) { %>
 // When auth is configured, only export scope-specific items from scope.guard

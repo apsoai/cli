@@ -44,6 +44,8 @@ export interface AuthContext {
   workspaceId?: string;
   organizationId?: string;
   roles: string[];
+  /** Permission strings from the token ("invoice:delete"), read by PermissionGuard. */
+  permissions: string[];
   claims: JWTPayload;
 }
 
@@ -139,6 +141,7 @@ export class AuthGuard implements CanActivate {
       workspaceId: tenant,
       organizationId: tenant,
       roles: roles(claim(payload, CLAIMS.roles)),
+      permissions: roles(claim(payload, CLAIMS.permissions)),
       claims: payload,
     };
 
