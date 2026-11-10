@@ -1,6 +1,7 @@
 import AdmZip from "adm-zip";
 import * as path from "path";
 import { codeApi, githubApi } from "../api/services";
+import { isSecretEnvFile } from "../git";
 
 // Never ship these into the code zip — the backend reconstitutes the runnable
 // base template and only needs the source + schema + user edits.
@@ -12,17 +13,6 @@ const EXCLUDE_DIRS = new Set([
   ".apso",
   "coverage",
 ]);
-
-/**
- * Never push local secrets to the repo. `.env` and `.env.*` (e.g. `.env.local`)
- * routinely hold DB passwords and session secrets; `.env.example` is the one
- * env file that is meant to be committed. The backend injects real production
- * env at runtime, so these are never needed in the pushed code.
- */
-function isSecretEnvFile(basename: string): boolean {
-  if (basename === ".env.example" || basename === ".env.sample") return false;
-  return basename === ".env" || basename.startsWith(".env.");
-}
 
 /** Zip the project source into a buffer, skipping build/vcs/dependency/secret files. */
 export function zipProject(cwd: string): Buffer {
