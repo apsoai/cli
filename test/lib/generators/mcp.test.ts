@@ -89,13 +89,13 @@ describe("ensureMcpWiring", () => {
   });
 });
 
-describe("OAuth sign-in for MCP clients", () => {
-  const guards = async (entity: Entity, auth: AuthConfig) => {
-    const files = await generator("typescript", [entity]).generateGuards([entity], auth, {});
-    const file = (name: string) => files.find((f) => f.path === `guards/${name}`)!.content;
-    return { guard: file("auth.guard.ts"), module: file("guards.module.ts") };
-  };
+const guards = async (entity: Entity, auth: AuthConfig) => {
+  const files = await generator("typescript", [entity]).generateGuards([entity], auth, {});
+  const file = (name: string) => files.find((f) => f.path === `guards/${name}`)!.content;
+  return { guard: file("auth.guard.ts"), module: file("guards.module.ts") };
+};
 
+describe("OAuth sign-in for MCP clients", () => {
   test("a JWT service with MCP tools shares its token check with @apso/mcp", async () => {
     const { guard, module } = await guards(invoice(true), jwt);
     expect(guard).toContain("provide: 'APSO_MCP_AUTH'");
