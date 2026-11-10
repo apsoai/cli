@@ -277,7 +277,7 @@ describe("extensions", () => {
     const r = await db.query<{ id: string }>(
       `INSERT INTO "event" ("kind") VALUES ('x') RETURNING "id"`
     );
-    expect(r.rows[0].id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(r.rows[0].id).toMatch(/^[\da-f-]{36}$/);
     await db.close();
   });
 
