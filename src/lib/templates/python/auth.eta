@@ -73,6 +73,15 @@ def _unauthorized(detail: str) -> HTTPException:
 
 _CONFIGURED = <%~ JSON.stringify(it.jwt) %>
 
+<% if (it.mcp) { %>
+# The public URL of the MCP endpoint (see mcp.py). An MCP client asks the
+# identity provider for a token for this URL, so it is an accepted audience
+# next to a provider's own. No configured audience means none is checked.
+MCP_RESOURCE = os.getenv("MCP_RESOURCE_URL") or ""
+<% } else { %>
+MCP_RESOURCE = ""
+<% } %>
+
 
 def _provider(i: int, p: dict) -> dict:
     """One trusted issuer: its own keys, audience and claim names."""
@@ -144,6 +153,7 @@ async def _require_user(request: Request) -> AuthContext:
     if p is None:
         raise _unauthorized("Invalid token")
     AUDIENCE, CLAIMS, cognito = p["audience"], p["claims"], p["provider"] == "cognito"
+    audiences = [a for a in (AUDIENCE, MCP_RESOURCE) if a] if AUDIENCE else []
     try:
         signing_key = await run_in_threadpool(p["jwks"].get_signing_key_from_jwt, token)
     except jwt.PyJWKClientConnectionError:
@@ -160,7 +170,7 @@ async def _require_user(request: Request) -> AuthContext:
             algorithms=p["algorithms"],
             issuer=p["issuer"],
             # Cognito's audience is checked below.
-            audience=None if cognito else AUDIENCE or None,
+            audience=None if cognito else audiences or None,
             options={"require": ["exp", "iss"], "verify_aud": bool(AUDIENCE) and not cognito},
         )
     except jwt.PyJWTError:
@@ -169,7 +179,7 @@ async def _require_user(request: Request) -> AuthContext:
     # Cognito ID tokens carry aud; access tokens carry client_id instead.
     if cognito and AUDIENCE:
         aud = payload.get("aud", payload.get("client_id"))
-        if not (AUDIENCE in aud if isinstance(aud, list) else aud == AUDIENCE):
+        if not set(aud if isinstance(aud, list) else [aud]) & set(audiences):
             raise _unauthorized("Invalid token")
 <% } %>
 

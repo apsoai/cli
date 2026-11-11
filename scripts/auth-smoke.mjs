@@ -25,7 +25,7 @@
  *     through ?join, and allow a role in it; a RolePermission row added by an
  *     owner grants a permission in that tenant only; a member cannot grant
  *     itself; a permission in the token is honored
- *   - mcp (TypeScript) serves only the opted-in operations as tools at /mcp,
+ *   - mcp serves only the opted-in operations as tools at /mcp,
  *     and a tool call meets the same auth, permission and scope guards as REST
  *
  * Tokens are minted locally with the claim shapes each provider issues, signed
@@ -235,10 +235,10 @@ function providers(base) {
 
 // ---------- project ----------
 
-// Permissions and MCP tools need sign-in. Only TypeScript serves MCP tools.
+// Permissions and MCP tools need sign-in.
 const entities = (auth) => {
   const full = Boolean(auth);
-  const mcp = (ops) => (full && language === "typescript" ? { mcp: ops } : {});
+  const mcp = (ops) => (full ? { mcp: ops } : {});
   return [
     { name: "Organization", created_at: true, updated_at: true, fields: [{ name: "name", type: "text" }] },
     // Projects are readable as MCP tools.
@@ -348,10 +348,10 @@ async function start(project, db, extra = {}) {
     });
     [cmd, args] = [process.execPath, ["dist/main"]];
   } else if (language === "go") {
-    Object.assign(env, { DATABASE_URL: `${PG}/${db}?sslmode=disable`, DATABASE_SYNC: "true", PORT: String(port), GIN_MODE: "release" });
+    Object.assign(env, { DATABASE_URL: `${PG}/${db}?sslmode=disable`, DATABASE_SYNC: "true", PORT: String(port), GIN_MODE: "release", MCP_RESOURCE_URL: `http://127.0.0.1:${port}/mcp` });
     [cmd, args] = [path.join(project, "bin", "server"), []];
   } else {
-    Object.assign(env, { DATABASE_URL: `${PG.replace(/^postgres(ql)?:/, "postgresql+asyncpg:")}/${db}`, DATABASE_SYNC: "true", PORT: String(port) });
+    Object.assign(env, { DATABASE_URL: `${PG.replace(/^postgres(ql)?:/, "postgresql+asyncpg:")}/${db}`, DATABASE_SYNC: "true", PORT: String(port), MCP_RESOURCE_URL: `http://127.0.0.1:${port}/mcp` });
     [cmd, args] = [path.join(project, ".venv", "bin", "python"), ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", String(port)]];
   }
   const child = spawn(cmd, args, { cwd: project, env: { ...env, ...extra } });
@@ -501,7 +501,7 @@ async function jwtCase(name, p, boot) {
   if (name === "jwt") {
     const as = (roles, org = "1", extra = {}) => bearer(sign({ ...p.claims(org), app_metadata: { org_id: org, roles }, ...extra }));
     await rolePermissions(base, t, as(["owner"]), as(["member"]), as(["member"], "2"), as(["member"], "1", { permissions: ["invoice:delete"] }), (permissions) => as(["member"], "1", { permissions }));
-    if (language === "typescript") await mcpTools(base, t, as(["owner"]), as(["member"]), as(["owner"], "2"), as(["owner"], "1", { aud: `${base}/mcp` }));
+    await mcpTools(base, t, as(["owner"]), as(["member"]), as(["owner"], "2"), as(["owner"], "1", { aud: `${base}/mcp` }));
   }
   if (name === "jwt") {
     await keyNextToSignIn(base, t, valid("1"));
@@ -554,9 +554,17 @@ async function mcpTools(base, t, owner, member, otherOwner, ownerForMcp) {
   const issuedForMcp = await (await connect(ownerForMcp)).listTools().then((r) => r.tools.length, () => 0);
   t.assert("mcp accepts a token issued for the MCP endpoint's URL", issuedForMcp > 0);
 
-  const names = (await asOwner.listTools()).tools.map((tool) => tool.name).sort();
+  const listed = (await asOwner.listTools()).tools;
+  const names = listed.map((tool) => tool.name).sort();
   const expected = ["create_invoice", "delete_invoice", "get_invoice", "get_project", "list_invoices", "list_projects", "update_invoice"];
   t.assert("mcp lists only the opted-in operations", JSON.stringify(names) === JSON.stringify(expected), names.join(","));
+  if (language !== "typescript") {
+    // Python reads these from its OpenAPI document; Go has none, so the CLI writes them from .apsorc.
+    const schema = (name) => listed.find((tool) => tool.name === name)?.inputSchema?.properties ?? {};
+    t.assert("mcp create tool's schema has the entity's fields under body", schema("create_invoice").body?.properties?.total?.type === "integer", JSON.stringify(schema("create_invoice")).slice(0, 300));
+    t.assert("mcp list tool's schema has limit, filter and join", ["limit", "filter", "join"].every((k) => k in schema("list_invoices")), Object.keys(schema("list_invoices")).join(","));
+    t.assert("mcp get tool's schema has id", "id" in schema("get_invoice"));
+  }
 
   const denied = await asMember.callTool({ name: "list_invoices", arguments: {} });
   t.assert("mcp call by a member lacks invoice:read", denied.isError === true && text(denied).includes("invoice:read"), text(denied));
@@ -764,7 +772,6 @@ async function keyNextToSignIn(base, t, user) {
     t.expect("[R13] key caller deletes an invoice without a role", await call("DELETE", `${base}${INVOICES}/${invoice.json.id}`, { headers: key(KEY) }), 200, 204);
   }
 
-  if (language !== "typescript") return;
   // /mcp follows the same rules.
   const rpc = (headers) =>
     fetch(`${base}/mcp`, {
@@ -901,7 +908,6 @@ const cases = { "no-auth": {}, ...providers(`http://127.0.0.1:${jwksPort}`) };
       t.expect("[R11] invoice:read in the second issuer's permissions claim (perms) lists invoices", await get(customer(id2, { perms: ["invoice:read"] }), INVOICES), 200);
       t.expect("[R11] a second-issuer token with invoice:read under the first issuer's claim name is refused", await get(customer(id2, { permissions: ["invoice:read"] }), INVOICES), 403);
       t.expect("[R11] invoice:read in the first issuer's permissions claim (permissions) lists invoices", await get(staff(id1, { permissions: ["invoice:read"] }), INVOICES), 200);
-      if (language !== "typescript") return t.failures;
 
       // MCP sign-in discovery names both issuers, and a token from either works.
       const rpc = (headers = {}) =>

@@ -36,6 +36,7 @@ import {
   entityScope,
   getPermissionConfig,
   hasPermissions,
+  mcpToolNames,
   nestedScopeEntities,
 } from "../guards";
 import { pyString } from "../ddl/migration-file";
@@ -409,6 +410,8 @@ export class PythonGenerator extends BaseGenerator {
       pluralEntityName,
       primaryKeyType,
       associations: [...new Set(relationshipsForTemplate)],
+      // Operations exposed as MCP tools, and the names the tools get.
+      ...mcpToolNames(entity, options.auth),
     };
 
     const content = await this.renderTemplate("./routers/router", data);
@@ -737,10 +740,7 @@ ${downStatements || "    pass"}
     auth?: AuthConfig,
     relationshipMap?: RelationshipMap
   ): Promise<GeneratedFile[]> {
-    if (entities.some((entity) => entity.mcp))
-      throw new Error(
-        "mcp in .apsorc is served by TypeScript services only for now; remove it or generate with --language typescript"
-      );
+    const mcp = entities.some((e) => mcpToolNames(e, auth).mcp.length > 0);
     // Fails on a grants entity that would be an escalation path.
     const permissions = getPermissionConfig(entities, relationshipMap, auth);
     if (permissions && !auth)
@@ -760,7 +760,7 @@ ${downStatements || "    pass"}
     // The API key check is part of every service; auth adds user sign-in.
     // One entry per trusted issuer; undefined when there is no sign-in.
     const jwt = resolveJwtProviders(auth);
-    const data = { jwt: jwt.length > 0 ? jwt : undefined };
+    const data = { jwt: jwt.length > 0 ? jwt : undefined, mcp };
     const files: GeneratedFile[] = [
       { path: "auth.py", content: await this.renderTemplate("./auth", data) },
     ];
@@ -769,6 +769,9 @@ ${downStatements || "    pass"}
         path: "permissions.py",
         content: await this.renderTemplate("./permissions", { permissions }),
       });
+    // The /mcp endpoint; app/main.py mounts it (see ensurePythonMcpWiring).
+    if (mcp)
+      files.push({ path: "mcp.py", content: await this.renderTemplate("./mcp", {}) });
     return files;
   }
 

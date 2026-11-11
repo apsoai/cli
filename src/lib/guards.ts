@@ -8,6 +8,7 @@ import {
   ScopeOptions,
 } from "./types";
 import pluralize from "pluralize";
+import { snakeCase } from "./utils/casing";
 import {
   getRelationshipIdField,
   getRelationshipName,
@@ -157,6 +158,23 @@ export function mcpOperations(entity: Entity): PermissionOperation[] {
       `${entity.name}.mcp must be true or a list of ${PERMISSION_OPERATIONS.join(", ")}`
     );
   return [...new Set(entity.mcp)];
+}
+
+/**
+ * An entity's MCP operations and the names its tools get, the same in every
+ * language: list_line_items, get_line_item, create_line_item and so on.
+ */
+export function mcpToolNames(entity: Entity, auth?: AuthConfig) {
+  const mcp = mcpOperations(entity);
+  if (mcp.length > 0 && !auth)
+    throw new Error(
+      `${entity.name}.mcp needs an auth block in .apsorc: MCP tools act as the signed-in caller`
+    );
+  return {
+    mcp,
+    mcpName: snakeCase(entity.name),
+    mcpPluralName: snakeCase(pluralize(entity.name)),
+  };
 }
 
 export function hasPermissions(entities: Entity[]): boolean {

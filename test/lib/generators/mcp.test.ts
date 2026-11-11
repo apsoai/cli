@@ -2,7 +2,7 @@ import { expect, describe, test } from "@jest/globals";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { ensureMcpWiring } from "../../../src/lib/utils/crud-deps";
+import { ensureAppMcpWiring, ensureMcpWiring } from "../../../src/lib/utils/crud-deps";
 import { mcpOperations } from "../../../src/lib/guards";
 import { GoGenerator } from "../../../src/lib/generators/go";
 import { PythonGenerator } from "../../../src/lib/generators/python";
@@ -54,10 +54,85 @@ describe("mcp in .apsorc", () => {
     await expect(controller(invoice(true))).rejects.toThrow("LineItem.mcp needs an auth block");
   });
 
-  test.each(["python", "go"] as const)("%s refuses it for now", async (language) => {
-    await expect(generator(language, [invoice(true)]).generateGuards([invoice(true)], jwt)).rejects.toThrow(
-      "TypeScript services only"
+});
+
+describe.each(["python", "go"] as const)("mcp in a %s service", (language) => {
+  const names = ["list_line_items", "get_line_item", "create_line_item", "update_line_item", "delete_line_item"];
+  // Python marks the routes; Go lists the tools next to the MCP endpoint.
+  const tools = async (entity: Entity, auth?: AuthConfig) => {
+    const g = generator(language, [entity]);
+    const files =
+      language === "python"
+        ? await g.generateController({ entity, relationships: [], relationshipMap: {}, allEntities: [entity], apiType: "rest", auth })
+        : await g.generateGuards([entity], auth, {});
+    return files.find((f) => f.path === (language === "python" ? "routers/lineitem.py" : "routes/mcp.go"))?.content ?? "";
+  };
+
+  test("the tool names match TypeScript, and only opted-in operations are tools", async () => {
+    const all = await tools(invoice(true), jwt);
+    for (const name of names) expect(all).toContain(`"${name}"`);
+    const readOnly = await tools(invoice(["read"]), jwt);
+    expect(readOnly).toContain('"list_line_items"');
+    expect(readOnly).toContain('"get_line_item"');
+    expect(readOnly).not.toContain("create_line_item");
+    expect(readOnly).not.toContain("delete_line_item");
+    const off = await tools(invoice(), jwt);
+    for (const name of names) expect(off).not.toContain(name);
+  });
+
+  test("the endpoint is generated only when an entity opts in, and needs sign-in", async () => {
+    const file = language === "python" ? "mcp.py" : "routes/mcp.go";
+    const on = await generator(language, [invoice(true)]).generateGuards([invoice(true)], jwt, {});
+    const endpoint = on.find((f) => f.path === file)!.content;
+    expect(endpoint).toContain("oauth-protected-resource");
+    // Go names the issuer in the file; Python imports it from auth.py.
+    expect(endpoint).toContain(language === "python" ? "list(PROVIDERS)" : "https://issuer.example.com/");
+    const off = await generator(language, [invoice()]).generateGuards([invoice()], jwt, {});
+    expect(off.some((f) => f.path === file)).toBe(false);
+    await expect(generator(language, [invoice(true)]).generateGuards([invoice(true)], undefined, {})).rejects.toThrow(
+      "LineItem.mcp needs an auth block"
     );
+  });
+
+  test("a token issued for the MCP endpoint's URL is an accepted audience", async () => {
+    const files = await generator(language, [invoice(true)]).generateGuards([invoice(true)], jwt, {});
+    expect(files.find((f) => /auth\.(py|go)$/.test(f.path))!.content).toContain("MCP_RESOURCE_URL");
+  });
+});
+
+// A project with one entry point file and a pyproject.toml.
+const app = (file: string, text: string) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "apso-mcp-wiring-"));
+  fs.mkdirSync(path.join(dir, path.dirname(file)), { recursive: true });
+  fs.writeFileSync(path.join(dir, file), text);
+  fs.writeFileSync(path.join(dir, "pyproject.toml"), 'dependencies = [\n    "fastapi>=0.109.0",\n]\n');
+  return dir;
+};
+
+describe("ensureAppMcpWiring", () => {
+
+  test("python: adds the SDK and mounts after the generated router, once", () => {
+    const dir = app("app/main.py", "app = FastAPI()\napp.include_router(autogen_router)\n");
+    expect(ensureAppMcpWiring(dir, "python")).toEqual(["pyproject.toml", path.join("app", "main.py")]);
+    const main = fs.readFileSync(path.join(dir, "app/main.py"), "utf8");
+    expect(main.indexOf("mount_mcp(app)")).toBeGreaterThan(main.indexOf("app.include_router(autogen_router)"));
+    expect(fs.readFileSync(path.join(dir, "pyproject.toml"), "utf8")).toContain('"mcp>=2.3,<3"');
+    expect(ensureAppMcpWiring(dir, "python")).toEqual([]);
+  });
+
+  test("go: mounts after the generated routes, once", () => {
+    const dir = app("cmd/main.go", "\tapi := r.Group(\"/api\")\n\troutes.RegisterAllRoutes(api, db)\n");
+    expect(ensureAppMcpWiring(dir, "go")).toEqual([path.join("cmd", "main.go")]);
+    expect(fs.readFileSync(path.join(dir, "cmd/main.go"), "utf8")).toContain("routes.MountMCP(r, api)");
+    expect(ensureAppMcpWiring(dir, "go")).toEqual([]);
+  });
+
+  test("an entry point it does not recognise is left alone, with the lines to add", () => {
+    const py = app("app/main.py", "app = make_app()\n");
+    expect(() => ensureAppMcpWiring(py, "python")).toThrow("mount_mcp(app)");
+    expect(fs.readFileSync(path.join(py, "app/main.py"), "utf8")).toBe("app = make_app()\n");
+    const go = app("cmd/main.go", "package main\n");
+    expect(() => ensureAppMcpWiring(go, "go")).toThrow("routes.MountMCP");
   });
 });
 
