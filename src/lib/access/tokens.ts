@@ -114,11 +114,13 @@ export async function startIssuer(auth: ResolvedJwtAuth): Promise<Issuer> {
   });
   const { port } = server.address() as { port: number };
   const issuer = `http://127.0.0.1:${port}/`;
+  // A Better Auth service with no audience set expects the origin of its issuer as the audience.
+  const audience = auth.audience ?? (auth.provider === "better-auth" ? new URL(issuer).origin : undefined);
 
   const claims = ({ tenant, roles }: Caller = {}): Record<string, unknown> => {
     const payload: Record<string, unknown> = {
       iss: issuer,
-      aud: auth.audience,
+      aud: audience,
       azp: auth.authorizedParties[0],
       // Cognito access tokens carry client_id where others carry aud.
       // eslint-disable-next-line camelcase
@@ -142,7 +144,7 @@ export async function startIssuer(auth: ResolvedJwtAuth): Promise<Issuer> {
       bad("a token that is not a JWT", "not.a.jwt"),
       bad("an expired token", sign({ ...valid, exp: Math.floor(Date.now() / 1000) - 60 }, alg, keys.privateKey)),
       bad("a token from another issuer", sign({ ...valid, iss: "https://evil.example/" }, alg, keys.privateKey)),
-      ...(auth.audience
+      ...(audience
         ? // eslint-disable-next-line camelcase
           [bad("a token for another audience", sign({ ...valid, aud: "https://other.example", client_id: "other" }, alg, keys.privateKey))]
         : []),
