@@ -150,6 +150,8 @@ export class ApiKeyGuard implements CanActivate {
 <% if (it.authRoutes.length > 0) { %>
     const route = String(request.route?.path || request.path).match(/^\/([^\/]+)/)?.[1];
     if (route && AUTH_ENTITY_ROUTES.has(route.toLowerCase())) {
+      // The log line names the signed-in user that was refused.
+      this.userCaller(request);
       request.apso = { ...request.apso, denied: 'auth entity, service callers only' };
       throw new ForbiddenException('This route is for service callers only');
     }

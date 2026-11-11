@@ -23,6 +23,7 @@ import {
   searchExistingIssues,
   fileIssue,
 } from "../../lib/doctor/runner";
+import { writeAccessManifest } from "../../lib/utils/crud-deps";
 import { createFile } from "../../lib/utils/file-system";
 import { apsorcToServiceSchema } from "../../lib/utils/schema-convert";
 import { registerSchemaTools } from "../../lib/mcp-schema-tools";
@@ -508,6 +509,10 @@ export default class McpServe extends BaseCommand {
             await createFile(fullPath, file.content);
             filesGenerated.push(file.path);
           }
+          // The access marker, as apso generate writes it: the generated
+          // code has the built-in access check.
+          if (guardFiles.length > 0)
+            writeAccessManifest(process.cwd(), this.config.version);
 
           // Generate index module
           const indexFiles = await generator.generateIndexModule(

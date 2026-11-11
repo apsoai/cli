@@ -46,16 +46,6 @@ export default class Dev extends BaseCommand {
   async run(): Promise<void> {
     const { flags } = await this.parse(Dev);
 
-    if (flags.docker) {
-      return this.runDocker(flags);
-    }
-
-    const language = this.detectLanguage();
-    const databaseType = this.readDatabaseType();
-
-    this.log(`Detected language: ${language}`);
-    this.log(`Database type: ${databaseType}`);
-
     // Every generated service refuses requests without a key or a signed-in
     // user. A project cloned from git has no .env key, so create one.
     const created = process.env.APSO_API_KEY
@@ -68,6 +58,16 @@ export default class Dev extends BaseCommand {
     // Python and Go services do not read .env themselves.
     const key = process.env.APSO_API_KEY ?? this.readEnvValue("APSO_API_KEY");
     this.devEnv = { APSO_LOCAL: "1", ...(key ? { APSO_API_KEY: key } : {}) };
+
+    if (flags.docker) {
+      return this.runDocker(flags);
+    }
+
+    const language = this.detectLanguage();
+    const databaseType = this.readDatabaseType();
+
+    this.log(`Detected language: ${language}`);
+    this.log(`Database type: ${databaseType}`);
 
     // Set up signal forwarding for clean shutdown
     process.on("SIGINT", this.cleanup);
@@ -196,8 +196,11 @@ export default class Dev extends BaseCommand {
     if (flags.detach) args.push("-d");
 
     this.log(`Running: ${args.join(" ")}`);
+    // The templates' docker-compose.yml passes the key and the local flag on
+    // to the service's container.
     await this.spawnAndWait(args[0], args.slice(1), {
       AUTH_DISABLED: "true",
+      ...this.devEnv,
     });
   }
 

@@ -29,7 +29,9 @@ export function zipProject(cwd: string): Buffer {
   const zip = new AdmZip();
   zip.addLocalFolder(cwd, "", (filename: string) => {
     const parts = filename.split(path.sep);
-    if (parts.some((p) => EXCLUDE_DIRS.has(p))) return false;
+    // .apso is local state, except the manifest the platform reads.
+    const kept = parts.join("/") === ".apso/manifest.json";
+    if (!kept && parts.some((p) => EXCLUDE_DIRS.has(p))) return false;
     const base = parts[parts.length - 1];
     if (isSecretEnvFile(base)) return false;
     return true;

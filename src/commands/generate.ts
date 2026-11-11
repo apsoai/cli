@@ -21,8 +21,10 @@ import {
   addMissingPythonDep,
   ensureCrudDeps,
   ensureAppMcpWiring,
+  ensureLoggingWiring,
   ensureMcpWiring,
   removeAppMcpWiring,
+  writeAccessManifest,
 } from "../lib/utils/crud-deps";
 import { upgradeOrmConfigForPglite } from "../lib/utils/pglite-upgrade";
 
@@ -392,6 +394,19 @@ export default class Generate extends BaseCommand {
         );
     }
 
+    // Request logging: who called, the request id, and why a guard refused.
+    if (language === "typescript" && generatedFileCount > 0) {
+      const logging = ensureLoggingWiring(process.cwd(), rootFolder);
+      if (logging.changed.length > 0)
+        console.log(
+          `[apso] Set up request logging with @apso/logging (updated ${logging.changed.join(", ")}). Run npm install before building.`
+        );
+      if (logging.manual.length > 0)
+        console.warn(
+          `[apso] Could not add request logging to ${logging.manual.join(", ")}. There, import { useApsoLogging } from '@apso/logging', create the app with NestFactory.create(AppModule, { bufferLogs: true }) and call useApsoLogging(app) on the next line.`
+        );
+    }
+
     // The generated auth code (the API key check in every service, and JWT
     // sign-in) imports a JWT library; declare it.
     if (
@@ -432,6 +447,16 @@ export default class Generate extends BaseCommand {
           "[apso] cmd/main.go runs db.AutoMigrate(models.All()...) for DATABASE_SYNC. gorm can't create the enum types, constraints and names the migrations from apso migrate use, so the two databases would differ. Replace that call with: models.Migrate(db)"
         );
     }
+
+    // The marker the hosted platform reads from the pushed source: this code
+    // has the built-in access check.
+    if (
+      guardFiles.length > 0 &&
+      writeAccessManifest(process.cwd(), this.config.version)
+    )
+      console.warn(
+        "[apso] .apso/manifest.json is git-ignored. Commit it: the Apso platform reads it from the pushed code to confirm the service checks API keys itself."
+      );
 
     const totalBuildTime = performance.now() - totalBuildStart;
     console.log(

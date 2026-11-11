@@ -265,6 +265,13 @@ export const MUTATIONS = [
     go: [[GO.auth, /jwt\.WithAudience\(s\.serviceID\),/, ""]],
   },
   {
+    id: "request-log",
+    removes: "the request log from the server entry point",
+    rules: ["R24"],
+    legs: ["no-auth"],
+    typescript: [["src/main.ts", /useApsoLogging\(app\);/, ""]],
+  },
+  {
     id: "mcp-opt-in",
     removes: "the opt-in for MCP tools (delete on Project becomes a tool)",
     rules: ["R21"],
@@ -287,6 +294,7 @@ export const MUTATIONS = [
 /** Rules with no removal, and why. A rule marked enforced must be here or in MUTATIONS. */
 export const NOT_BREAKABLE = {
   R23: "A tool call is the REST route run through the app's own HTTP pipeline: inside @apso/mcp in TypeScript, and as an in-memory request to the app in Python and Go. There is no separate tool path to remove a check from.",
+  R25: "What a log line holds is decided inside @apso/logging, a library. The generated guards hand it the caller and the reason, never a credential, so there is no generated redaction to remove.",
   R26: "Enforced by `apso generate`, not by generated code. The suite's cases run the CLI; test/lib covers the check itself.",
   R27: "Enforced by `apso generate`, not by generated code. The suite's cases run the CLI; test/lib covers the check itself.",
 };

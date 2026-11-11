@@ -171,14 +171,14 @@
       "id": "R24",
       "group": "Logging",
       "rule": "Every request, allowed or refused, writes one line with the caller, the request id, the route or tool, and the status.",
-      "status": { "typescript": "pending", "python": "pending", "go": "pending" },
+      "status": { "typescript": "enforced", "python": "pending", "go": "pending" },
       "issue": "apsoai/apso-packages#75"
     },
     {
       "id": "R25",
       "group": "Logging",
       "rule": "No token, key or cookie value appears in any log line.",
-      "status": { "typescript": "pending", "python": "pending", "go": "pending" },
+      "status": { "typescript": "enforced", "python": "pending", "go": "pending" },
       "issue": "apsoai/apso-packages#75",
       "note": "API keys have cases today. Tokens and cookies wait for the logging library."
     },

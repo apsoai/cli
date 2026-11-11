@@ -107,6 +107,14 @@ export class TypeScriptGenerator extends BaseGenerator {
       );
     }
 
+    // The GraphQL templates are incomplete, and no access guard runs on
+    // GraphQL resolvers, so a GraphQL service would answer without credentials.
+    if (config.apiType === "graphql") {
+      errors.push(
+        'apiType "Graphql" cannot be generated for TypeScript: the built-in API key and sign-in checks cover REST routes only, so a GraphQL service would answer requests with no credentials. Set "apiType": "Rest" in .apsorc.'
+      );
+    }
+
     return this.createValidationResult(errors, warnings);
   }
 
