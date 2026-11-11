@@ -114,11 +114,52 @@ export const MUTATIONS = [
     rules: ["R8"],
     legs: ["jwt"],
     typescript: [
-      [TS.scope, /request\.body\[scope\.field\] = scopeValue;/, ""],
+      [TS.scope, /item\[scope\.field\] = scopeValue;/, ""],
       [TS.controllers, /persist: \(req: any\) =>\s*(skipScope\(req\)[^?]*\?\s*\{\}\s*:)?/g, "persist: (req: any) => true ? {} :"],
     ],
     python: [[PY.services, /payload\[field\] = value/g, "pass"], [PY.services, /(update|replace)_data\.pop\(field, None\)/g, "pass"]],
     go: [[GO.services, /if err := setFromString\(&item, "\w+", v\); err != nil \{/g, "if err := error(nil); err != nil && v != \"\" {"], [GO.services, /delete\(updates, col\)/g, "_ = col"]],
+  },
+  {
+    id: "relation-to-column",
+    removes: "the step that turns a relation object in a body into its foreign key",
+    rules: ["R8"],
+    legs: ["jwt"],
+    typescript: [[TS.scope, /delete item\[key\];\s*if \(id !== undefined\) item\[join\.propertyName\] = id;/, ""]],
+  },
+  {
+    id: "related-rows-check",
+    removes: "the check on rows a body lists under a relation",
+    rules: ["R8"],
+    legs: ["jwt"],
+    typescript: [
+      [TS.scope, /if \(!scopeConfig\) throw denied\(\);/, ""],
+      [TS.scope, /if \(!\(await this\.verifyResourceAccess\(targetRoute, String\(id\), request, targetScope\)\)\)\s*throw denied\(\);/, ""],
+    ],
+  },
+  {
+    id: "body-id",
+    removes: "the steps that drop or refuse a row id sent in a body",
+    rules: ["R8"],
+    legs: ["jwt"],
+    typescript: [
+      [TS.scope, /if \(column\.isGenerated \|\| request\.method !== "POST"\) \{\s*delete item\[column\.propertyName\];/, "if (false) {"],
+      [TS.scope, /if \(Object\.keys\(chosen\)\.length > 0\) \{/, "if (false) {"],
+    ],
+  },
+  {
+    id: "parent-check",
+    removes: "the check that a row scoped through its parent names a parent of the caller's tenant",
+    rules: ["R8"],
+    legs: ["jwt"],
+    typescript: [[TS.scope, /if \(fk != null && !ids\.some\(\(id: any\) => String\(id\) === String\(fk\)\)\) \{/, "if (false) {"]],
+  },
+  {
+    id: "relations-on-plain-reads",
+    removes: "the rule that a relation is loaded only when a request joins it",
+    rules: ["R6"],
+    legs: ["jwt"],
+    python: [["app/autogen/models/*.py", /lazy="raise"/g, 'lazy="selectin"']],
   },
   {
     id: "no-tenant-refused",

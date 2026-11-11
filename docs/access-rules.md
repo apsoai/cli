@@ -32,7 +32,7 @@ The tenant filter limits the entity a request starts from. Which relations a req
 | Language | Where |
 |---|---|
 | TypeScript | `guards/relations.interceptor.ts`, on every controller after the request is parsed |
-| Python | `relation_refused` in `auth.py`, called by the query builder for every relation a request names. A relation that needs the check is `lazy="noload"` in the model, so it loads only when a request names it |
+| Python | `relation_refused` in `auth.py`, called by the query builder for every relation a request names. Every relation is `lazy="raise"` in the model, so one loads only when a request names it, and a response carries only the relations its query loaded. |
 | Go | `RelationRefused` in `middleware/auth.go`, called where the query preloads relations |
 
 A user caller may load a relation onto a tenant-scoped entity when it holds a role that skips that entity's scope, or when it is limited to its tenant on the entity the relation starts from and the target is scoped by the same keys (`Project.tasks`). Any other load answers 403, for `join`, a `select` embed and every nesting depth. A filter or sort on a related entity's field needs the relation loaded, so it meets the same check. A service caller is not limited. In TypeScript the same place checks `permissions.read` of the related entity (R11).

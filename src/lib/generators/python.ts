@@ -350,22 +350,8 @@ export class PythonGenerator extends BaseGenerator {
         const j = joinTableOf(entity, r, byName.get(r.name)!);
         return { name: j.name, ...columnsOf(j.name) };
       });
-    // Relations load with each row (lazy="selectin"). One that would load
-    // another tenant's rows loads only when a request asks for it, where the
-    // caller is checked (auth.py relation_refused).
-    const scopes = relationScopes(
-      this.config.entities ?? allEntities,
-      this.config.relationshipMap,
-      Boolean(this.config.auth)
-    );
-    const lazy = (target: string) => {
-      const hop = Object.values(scopes?.[name]?.relations ?? {}).find(
-        ([to]) => to === target
-      );
-      return scopes?.[target]?.bypassRoles && !hop?.[1] ? "noload" : "selectin";
-    };
     // A non-owning ManyToMany names the join table its owner declares.
-    const associations = relationshipsForTemplate.map((r) => ({ ...r, lazy: lazy(r.name) })).map((r) => {
+    const associations = relationshipsForTemplate.map((r) => {
       if (r.type === "OneToOne" && r.joinTable)
         return { ...r, fkColumn: relationColumn(r) };
       if (r.type !== "ManyToMany" || !byName.get(r.name)) return r;
