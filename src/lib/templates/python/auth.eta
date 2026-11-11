@@ -312,6 +312,11 @@ async def _service_caller(request: Request) -> Optional[AuthContext]:
     return AuthContext(service_id=key_id)
 
 
+<% if (it.jwt && it.authRoutes.length > 0) { %>
+AUTH_ENTITY_ROUTES = {<%~ it.authRoutes.map((r) => JSON.stringify(r)).join(', ') %>}
+
+
+<% } %>
 async def require_auth(request: Request, response: Response) -> AuthContext:
     """FastAPI dependency: accept a valid API key<% if (it.jwt) { %>, else a signed-in user<% } %>; attach the AuthContext."""
     request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
@@ -326,6 +331,11 @@ async def require_auth(request: Request, response: Response) -> AuthContext:
             if e.status_code != status.HTTP_401_UNAUTHORIZED:
                 raise
             _refuse(request, f"{e.detail}. Send a signed-in user's token, or an API key in the x-api-key header.")
+<% if (it.authRoutes.length > 0) { %>
+        # Auth entities are for service callers only.
+        if request.url.path.split("/")[2:3] and request.url.path.split("/")[2].lower() in AUTH_ENTITY_ROUTES:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This route is for service callers only")
+<% } %>
 <% } else { %>
         _refuse(request, NO_CREDENTIAL if _KEYS or _SERVICE_JWKS else NO_SOURCE)
 <% } %>

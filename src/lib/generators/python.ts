@@ -30,7 +30,8 @@ import {
 import { camelCase } from "../utils/casing";
 import { getEventEmittingEntities } from "../events";
 import {
-  authEntityNames,
+  authEntityRoutes,
+  hidesRelation,
   entityScope,
   hasPermissions,
   nestedScopeEntities,
@@ -510,7 +511,12 @@ export class PythonGenerator extends BaseGenerator {
       createdAt,
       updatedAt,
       columns,
-      associations: relationshipsTemplate,
+      // Auth entities are for service callers only, so no other entity's
+      // response carries one.
+      associations: relationshipsTemplate.map((r: any) => ({
+        ...r,
+        hidden: hidesRelation(entityName, r.name, allEntities, options.auth),
+      })),
       apiType: apiType ?? "rest",
       importEnums: typeExistsInEntity(entity, "enum") !== -1,
     };
@@ -743,17 +749,14 @@ ${downStatements || "    pass"}
       console.warn(
         `[apso] Nested scopeBy paths are enforced in TypeScript services only; ${nested.join(", ")} will not be filtered by those paths in this Python service`
       );
-    // Auth entities are for service callers only, which only TypeScript
-    // services enforce so far.
-    const stored = authEntityNames(entities, auth);
-    if (stored.length > 0)
-      throw new Error(
-        `${stored.join(", ")}: the entities that store Better Auth's rows are served by TypeScript services only for now. Generate with --language typescript, or keep Better Auth's tables out of this Python service (auth.userEntity, auth.sessionEntity and auth.accountUserEntity name the ones in it).`
-      );
     // The API key check is part of every service; auth adds user sign-in.
     // One entry per trusted issuer; undefined when there is no sign-in.
     const jwt = resolveJwtProviders(auth);
-    const data = { jwt: jwt.length > 0 ? jwt : undefined };
+    const data = {
+      jwt: jwt.length > 0 ? jwt : undefined,
+      // Routes only a service caller reaches (sessions, accounts, ...).
+      authRoutes: authEntityRoutes(entities, auth),
+    };
     return [
       { path: "auth.py", content: await this.renderTemplate("./auth", data) },
     ];

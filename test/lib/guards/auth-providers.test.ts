@@ -283,11 +283,23 @@ describe("better-auth is a JWT preset; the session providers are gone", () => {
     expect(await guardFile("typescript", jwt("auth0"))).not.toContain("at+jwt");
   });
 
-  test("Go and Python refuse Better Auth's storage entities, which they do not keep to service callers yet", async () => {
-    const stored: Entity[] = [...entities, { name: "session", fields: [{ name: "token", type: "text" }] }];
-    for (const language of ["go", "python"] as TargetLanguage[]) {
-      await expect(generators[language].generateGuards(stored, betterAuth)).rejects.toThrow(/session: the entities that store Better Auth's rows are served by TypeScript services only/);
-    }
+  test("Go and Python keep Better Auth's storage entities to service callers", async () => {
+    const stored: Entity[] = [
+      ...entities,
+      { name: "session", fields: [{ name: "token", type: "text" }] },
+      { name: "AccountUser", fields: [{ name: "role", type: "text" }] },
+    ];
+    const goFiles = await generators.go.generateGuards(stored, betterAuth);
+    const go = goFiles.find((f) => f.path === "middleware/auth.go")!.content;
+    expect(go).toContain('var authEntityRoutes = map[string]bool{"sessions": true, "account-users": true}');
+    expect(go).toContain("This route is for service callers only");
+    const pythonFiles = await generators.python.generateGuards(stored, betterAuth);
+    const python = pythonFiles.find((f) => f.path === "auth.py")!.content;
+    expect(python).toContain('AUTH_ENTITY_ROUTES = {"sessions", "accountusers"}');
+    expect(python).toContain("HTTP_403_FORBIDDEN");
+    // Nothing is generated for it without the provider.
+    for (const language of ["go", "python"] as TargetLanguage[])
+      expect(await guardFile(language, jwt("auth0"))).not.toMatch(/authEntityRoutes|AUTH_ENTITY_ROUTES/);
   });
 });
 

@@ -792,22 +792,24 @@ async function gatewayNextToSignIn(base, t, user) {
 
 // Better Auth's tables as its adapter expects them, plus the membership
 // entity. Users sign in with Better Auth's JWT (see the Better Auth section
-// below); the stored sessions are rows only. TypeScript only for now.
+// below); the stored sessions are rows only.
 const uuid = { created_at: true, updated_at: true, primaryKeyType: "uuid" };
+// Go's generator needs capitalised entity names; the tables are recognised in any case.
+const T = Object.fromEntries(["account", "session", "verification"].map((n) => [n, language === "go" ? n[0].toUpperCase() + n.slice(1) : n]));
 const SESSION_AUTH = {
   schema: {
     entities: [
       { name: "User", ...uuid, fields: [{ name: "email", type: "text", length: 255, is_email: true }, { name: "name", type: "text", nullable: true }] },
-      { name: "account", ...uuid, fields: [{ name: "providerId", type: "text", length: 50 }, { name: "accountId", type: "text", length: 255 }, { name: "password", type: "text", nullable: true }] },
-      { name: "session", ...uuid, fields: [{ name: "token", type: "text", length: 255, unique: true }, { name: "expiresAt", type: "timestamptz" }] },
-      { name: "verification", ...uuid, fields: [{ name: "identifier", type: "text", length: 255 }, { name: "value", type: "text", length: 255 }, { name: "expiresAt", type: "timestamptz" }] },
+      { name: T.account, ...uuid, fields: [{ name: "providerId", type: "text", length: 50 }, { name: "accountId", type: "text", length: 255 }, { name: "password", type: "text", nullable: true }] },
+      { name: T.session, ...uuid, fields: [{ name: "token", type: "text", length: 255, unique: true }, { name: "expiresAt", type: "timestamptz" }] },
+      { name: T.verification, ...uuid, fields: [{ name: "identifier", type: "text", length: 255 }, { name: "value", type: "text", length: 255 }, { name: "expiresAt", type: "timestamptz" }] },
       { name: "Organization", ...uuid, fields: [{ name: "name", type: "text" }] },
       { name: "AccountUser", ...uuid, fields: [{ name: "role", type: "text" }] },
       { name: "Project", ...uuid, scopeBy: "organizationId", fields: [{ name: "title", type: "text" }] },
     ],
     relationships: [
-      { from: "account", to: "User", type: "ManyToOne" },
-      { from: "session", to: "User", type: "ManyToOne" },
+      { from: T.account, to: "User", type: "ManyToOne" },
+      { from: T.session, to: "User", type: "ManyToOne" },
       { from: "AccountUser", to: "User", type: "ManyToOne" },
       { from: "AccountUser", to: "Organization", type: "ManyToOne" },
       { from: "Organization", to: "Project", type: "OneToMany" },
@@ -820,7 +822,11 @@ const SESSION_AUTH = {
 /** [R28] The auth entities answer a service caller only: not a signed-in user, a join or an MCP tool. */
 async function authEntitiesCase(name, _p, boot, project) {
   const t = checker(name);
-  const { base } = await boot({ APSO_API_KEY: KEY });
+  const server = await boot({ APSO_API_KEY: KEY });
+  // Routes are written the TypeScript way below; Python and Go serve them
+  // under /api, and Go names the membership route account-users.
+  const base = server.base + (language === "typescript" ? "" : "/api");
+  const MEMBERSHIPS = language === "go" ? "/account-users" : "/accountusers";
   const expiresAt = new Date(Date.now() + 3600e3).toISOString();
   const seeded = {};
   for (const who of ["ana", "ben"]) {
@@ -833,7 +839,7 @@ async function authEntitiesCase(name, _p, boot, project) {
     };
     const userId = await add("a user", "/users", { email: `${who}@apso.test`, name: who });
     const organizationId = await add("an organization", "/organizations", { name: `${who} org` });
-    await add("a membership", "/accountusers", { role: "member", userId, organizationId });
+    await add("a membership", MEMBERSHIPS, { role: "member", userId, organizationId });
     await add("an account", "/accounts", { providerId: "credential", accountId: String(userId), password: `hash-of-${who}`, userId });
     await add("a session", "/sessions", { token: `session-of-${who}`, expiresAt, userId });
     await add("a verification", "/verifications", { identifier: `reset-password:${who}`, value: `reset-of-${who}`, expiresAt });
@@ -854,7 +860,7 @@ async function authEntitiesCase(name, _p, boot, project) {
     "/accounts": { providerId: "credential", accountId: "x", password: "chosen", userId: seeded.ben.userId },
     "/sessions": { token: "forged", expiresAt, userId: seeded.ben.userId },
     "/verifications": { identifier: "reset-password:ben", value: "known", expiresAt },
-    "/accountusers": { role: "owner", userId: seeded.ana.userId, organizationId: seeded.ben.organizationId },
+    [MEMBERSHIPS]: { role: "owner", userId: seeded.ana.userId, organizationId: seeded.ben.organizationId },
   };
   for (const [url, body] of Object.entries(bodies)) {
     const theirs = `${base}${url}/${seeded.ben[url]}`;
@@ -863,7 +869,8 @@ async function authEntitiesCase(name, _p, boot, project) {
     t.expect(`[R28] user cannot read another user's row in ${url}`, await call("GET", theirs, { headers: ana }), 403);
     t.expect(`[R28] user cannot read its own row in ${url}`, await call("GET", mine, { headers: ana }), 403);
     t.expect(`[R28] user cannot create in ${url}`, await call("POST", base + url, { headers: ana, body }), 403);
-    t.expect(`[R28] user cannot create in bulk in ${url}`, await call("POST", `${base}${url}/bulk`, { headers: ana, body: { bulk: [body] } }), 403);
+    // Go services have no bulk route.
+    if (language !== "go") t.expect(`[R28] user cannot create in bulk in ${url}`, await call("POST", `${base}${url}/bulk`, { headers: ana, body: language === "python" ? [body] : { bulk: [body] } }), 403);
     t.expect(`[R28] user cannot update its own row in ${url}`, await call("PATCH", mine, { headers: ana, body }), 403);
     t.expect(`[R28] user cannot replace another user's row in ${url}`, await call("PUT", theirs, { headers: ana, body }), 403);
     t.expect(`[R28] user cannot delete another user's row in ${url}`, await call("DELETE", theirs, { headers: ana }), 403);
@@ -874,13 +881,18 @@ async function authEntitiesCase(name, _p, boot, project) {
   t.assert("[R28] a refused request changed nothing: the user is still in its own tenant", rows(still.json).length === 1 && rows(still.json)[0].title === "ana project", still.text.slice(0, 200));
 
   // No route of another entity loads an auth entity, in either query dialect.
+  // (Python answers 500 to a select that names columns next to an embed, with
+  // or without auth entities, so its embed case selects every column.)
   const postgrest = { ...ana, "x-crud-dialect": "postgrest" };
   clean("[R28] user: ?join=user on projects loads no user row", await call("GET", `${base}/projects?join=user`, { headers: ana }));
   clean("[R28] user: nested joins through user load no account or session", await call("GET", `${base}/projects?join=user&join=user.accounts&join=user.sessions`, { headers: ana }));
   clean("[R28] user: nested joins from organizations load no membership, user or account", await call("GET", `${base}/organizations?join=accountUsers&join=accountUsers.user&join=projects&join=projects.user&join=projects.user.accounts`, { headers: ana }));
-  clean("[R28] user: a select embed loads no membership, user, account or session", await call("GET", `${base}/organizations?select=name,accountUsers(role,user(email,accounts(password),sessions(token))),projects(title,user(email))`, { headers: postgrest }));
-  const oracle = await call("GET", `${base}/organizations?join=projects&join=projects.user&filter=projects.user.email||$eq||ben@apso.test`, { headers: ana });
-  t.assert("[R28] user: a filter on an auth entity's column through a relation returns no rows", oracle.status !== 200 || rows(oracle.json).length === 0, `${oracle.status} ${oracle.text.slice(0, 200)}`);
+  clean("[R28] user: a select embed loads no membership, user, account or session", await call("GET", `${base}/organizations?select=${language === "python" ? "*" : "name"},accountUsers(role,user(email,accounts(password),sessions(token))),projects(title,user(email))`, { headers: postgrest }));
+  // Either the filter is refused or matches nothing, or it is ignored: then the
+  // answer is the same whether or not a user has that email.
+  const byEmail = (email) => call("GET", `${base}/organizations?join=projects&join=projects.user&filter=projects.user.email||$eq||${email}`, { headers: ana });
+  const [oracle, control] = [await byEmail("ben@apso.test"), await byEmail("nobody@apso.test")];
+  t.assert("[R28] user: a filter on an auth entity's column through a relation tells nothing", oracle.status !== 200 || rows(oracle.json).length === 0 || oracle.text === control.text, `${oracle.status} ${oracle.text.slice(0, 200)}`);
 
   // The service caller (the Better Auth adapter on the app's server) is not limited.
   for (const url of Object.keys(bodies)) {
@@ -893,6 +905,8 @@ async function authEntitiesCase(name, _p, boot, project) {
   t.expect("[R28] key caller deletes a session", await call("DELETE", `${base}/sessions/${seeded.ben["/sessions"]}`, { headers: key(KEY) }), 200, 204);
   t.expect("a stored session's token is not a credential", await call("GET", `${base}/projects`, { headers: { authorization: "Bearer session-of-ana" } }), 401);
 
+  // Only TypeScript services serve MCP tools.
+  if (language !== "typescript") return t.failures;
   // MCP: generate refuses to make an auth entity's routes tools. Last, because
   // it leaves the project half generated; the next case generates it again.
   for (const entity of ["User", "account", "session", "verification", "AccountUser"]) {
@@ -1324,7 +1338,7 @@ cases["better-auth"] = {
   },
 };
 // The auth entities case above, on the same provider.
-if (language === "typescript") cases["auth-entities"] = { ...SESSION_AUTH, auth: BETTER_AUTH };
+cases["auth-entities"] = { ...SESSION_AUTH, auth: BETTER_AUTH };
 
 const work = fs.mkdtempSync(path.join(os.tmpdir(), "apso-auth-smoke-"));
 const failures = [];
