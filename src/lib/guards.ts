@@ -2,11 +2,13 @@ import {
   AuthConfig,
   authProviders,
   resolveJwtProviders,
+  DB_SESSION_AUTH_DEFAULTS,
   Entity,
   PERMISSION_OPERATIONS,
   PermissionOperation,
   RelationshipMap,
   ScopeOptions,
+  isDbSessionAuth,
 } from "./types";
 import pluralize from "pluralize";
 import {
@@ -159,6 +161,66 @@ export function mcpOperations(entity: Entity): PermissionOperation[] {
     );
   return [...new Set(entity.mcp)];
 }
+
+/**
+ * Better Auth's tables by entity name (any case) and the fields that mark
+ * them, so a domain entity that shares a name (a billing Account) is not
+ * taken for one. The OAuth provider's tables have names no domain entity
+ * would use, so the name is enough.
+ */
+const BETTER_AUTH_TABLES: Record<string, string[]> = {
+  session: ["token"],
+  account: ["providerId", "accountId"],
+  verification: ["identifier", "value"],
+  // Organization plugin: who belongs to which tenant, with which role.
+  member: ["role"],
+  invitation: ["email", "status"],
+  // JWT plugin: the signing keys.
+  jwks: ["publicKey", "privateKey"],
+  oauthclient: [],
+  oauthresource: [],
+  oauthclientresource: [],
+  oauthrefreshtoken: [],
+  oauthaccesstoken: [],
+  oauthconsent: [],
+  oauthclientassertion: [],
+};
+
+/**
+ * The entities that store Better Auth's own rows when the better-auth
+ * provider is listed: the auth block's session, user and membership
+ * (accountUserEntity) entities, and Better Auth's other tables (account,
+ * verification, the organization plugin's member and invitation, the JWT
+ * plugin's jwks, the OAuth provider's tables). Only a service caller (API
+ * key) reaches them: the key guard refuses a signed-in user on their routes,
+ * no other entity's controller joins onto them, and they cannot be MCP tools.
+ */
+export function authEntityNames(entities: Entity[], auth?: AuthConfig): string[] {
+  const betterAuth = authProviders(auth).find((a) => isDbSessionAuth(a));
+  if (!betterAuth) return [];
+  const { sessionEntity, userEntity, accountUserEntity } = {
+    ...DB_SESSION_AUTH_DEFAULTS,
+    ...betterAuth,
+  };
+  const named = new Set([sessionEntity, userEntity, accountUserEntity]);
+  const found = entities.filter((entity) => {
+    const fields = new Set((entity.fields ?? []).map((f) => f.name));
+    return (
+      named.has(entity.name) ||
+      BETTER_AUTH_TABLES[entity.name.toLowerCase()]?.every((f) => fields.has(f))
+    );
+  });
+  const tool = found.find((entity) => mcpOperations(entity).length > 0);
+  if (tool)
+    throw new Error(
+      `${tool.name}.mcp: ${tool.name} is an auth entity, which only a service caller (API key) may call, so it cannot be exposed as MCP tools`
+    );
+  return found.map((entity) => entity.name);
+}
+
+/** The auth entities' route names (sessions), for the key guard. */
+export const authEntityRoutes = (entities: Entity[], auth?: AuthConfig): string[] =>
+  authEntityNames(entities, auth).map((name) => toRouteName(name));
 
 export function hasPermissions(entities: Entity[]): boolean {
   return entities.some((entity) => entity.permissions);
@@ -333,9 +395,8 @@ export function nestedScopeEntities(entities: Entity[]): string[] {
 }
 
 /**
- * One warning per JWT provider that maps no tenant claim while entities are
+ * One warning per provider that maps no tenant claim while entities are
  * tenant-scoped: its users would get 403 on every one of those entities.
- * Session providers read the tenant from the database, so they are skipped.
  */
 export function tenantClaimWarnings(
   entities: Entity[],

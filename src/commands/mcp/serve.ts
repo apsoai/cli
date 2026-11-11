@@ -133,7 +133,6 @@ export default class McpServe extends BaseCommand {
             "auth0",
             "clerk",
             "cognito",
-            "custom-db-session",
             "none",
           ])
           .optional()
@@ -167,7 +166,10 @@ export default class McpServe extends BaseCommand {
         };
 
         if (auth) {
-          schemaTemplate.auth = { provider: auth };
+          schemaTemplate.auth =
+            auth === "better-auth"
+              ? { provider: auth, url: "https://YOUR_APP/api/auth" }
+              : { provider: auth };
         }
 
         const instructions = [
@@ -562,7 +564,6 @@ export default class McpServe extends BaseCommand {
             "clerk",
             "cognito",
             "jwt",
-            "custom-db-session",
           ])
           .optional()
           .describe("Authentication provider (default: better-auth)"),
@@ -572,7 +573,17 @@ export default class McpServe extends BaseCommand {
 
         const authConfigs: Record<string, object> = {
           "better-auth": {
-            auth: { provider: "better-auth" },
+            // The service verifies the JWTs Better Auth issues (JWT plugin); it does not look sessions up.
+            auth: {
+              provider: "better-auth",
+              // Better Auth's base URL. Keys are read from <url>/jwks.
+              url: "https://YOUR_APP/api/auth",
+              // The names your definePayload puts in the token.
+              claims: {
+                workspaceId: "activeOrganizationId",
+                roles: "roles",
+              },
+            },
             entities: [
               {
                 name: "User",
@@ -694,11 +705,6 @@ export default class McpServe extends BaseCommand {
             entities: [],
             relationships: [],
           },
-          "custom-db-session": {
-            auth: { provider: "custom-db-session" },
-            entities: [],
-            relationships: [],
-          },
         };
 
         const config = authConfigs[authProvider] || authConfigs["better-auth"];
@@ -707,7 +713,7 @@ export default class McpServe extends BaseCommand {
           content: [
             {
               type: "text" as const,
-              text: `# Auth Setup: ${authProvider}\n\nMerge the following into your .apsorc file:\n\n\`\`\`json\n${JSON.stringify(config, null, 2)}\n\`\`\`\n\nAfter updating .apsorc:\n1. Run \`apso generate\` (or use the scaffold_api tool) to regenerate code\n2. Run \`npm install\` if new dependencies are needed\n3. Run \`apso dev\` to start the server and create auth tables\n\n${authProvider === "better-auth" ? "**Important:** BetterAuth stores passwords in the `account` table (not User). The `providerId` field must be set to \"credential\" for email/password login to work. Use `@apso/better-auth-adapter@latest` in your frontend." : "Replace the issuer, audience and claim names with your " + authProvider + " tenant's values. The service checks each token's signature against the issuer's JWKS. See https://docs.apso.ai/develop/auth/byoa."}`,
+              text: `# Auth Setup: ${authProvider}\n\nMerge the following into your .apsorc file:\n\n\`\`\`json\n${JSON.stringify(config, null, 2)}\n\`\`\`\n\nAfter updating .apsorc:\n1. Run \`apso generate\` (or use the scaffold_api tool) to regenerate code\n2. Run \`npm install\` if new dependencies are needed\n3. Run \`apso dev\` to start the server and create auth tables\n\n${authProvider === "better-auth" ? "**How sign-in works:** the service verifies JWTs from Better Auth; a session cookie or session token gets 401. In your Better Auth config add the `jwt()` plugin, and add the tenant and roles to the token with its `definePayload` option, for example `{ email: user.email, activeOrganizationId: session.activeOrganizationId, roles: [memberRole] }`. The front end gets the token from `GET /api/auth/token` (`authClient.token()` with the `jwtClient` plugin) and sends it as `Authorization: Bearer <token>`. Set `url` to your Better Auth base URL.\n\n**The tables below are for the server only:** `@apso/better-auth-adapter` stores Better Auth's rows through this API with an API key (`x-api-key`). A signed-in user gets 403 on their routes. BetterAuth stores passwords in the `account` table (not User); the `providerId` field must be set to \"credential\" for email/password login to work." : "Replace the issuer, audience and claim names with your " + authProvider + " tenant's values. The service checks each token's signature against the issuer's JWKS. See https://docs.apso.ai/develop/auth/byoa."}`,
             },
           ],
         };

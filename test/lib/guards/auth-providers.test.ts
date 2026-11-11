@@ -236,10 +236,57 @@ describe("the API key check built into every service", () => {
   });
 });
 
-describe("session providers outside TypeScript", () => {
-  test("Go and Python refuse better-auth instead of generating an open API", async () => {
+describe("better-auth is a JWT preset; the session providers are gone", () => {
+  const url = "https://app.example.com/api/auth";
+  const betterAuth: AuthConfig = { provider: "better-auth", url };
+
+  test("issuer and JWKS URL default from the base URL, EdDSA is always accepted", () => {
+    expect(resolveJwtAuth({ provider: "better-auth", url: `${url}/` })).toMatchObject({
+      provider: "better-auth",
+      issuer: url,
+      jwksUri: `${url}/jwks`,
+      algorithms: ["EdDSA"],
+      audience: undefined,
+      claims: { userId: "sub", email: "email", workspaceId: "activeOrganizationId", roles: "roles", permissions: "permissions" },
+    });
+    const custom = resolveJwtAuth({
+      ...betterAuth,
+      jwt: { issuer: "https://id.example.com", audience: "api", jwksUri: "https://cdn.example.com/jwks.json", algorithms: ["ES256"] },
+      claims: { workspaceId: "org", roles: "role" },
+    });
+    expect(custom).toMatchObject({ issuer: "https://id.example.com", audience: "api", jwksUri: "https://cdn.example.com/jwks.json", algorithms: ["EdDSA", "ES256"] });
+    expect(custom.claims).toMatchObject({ workspaceId: "org", roles: "role" });
+  });
+
+  test("generate fails, naming the replacement, without a URL and for custom-db-session", () => {
+    expect(() => authProviders({ provider: "better-auth" } as any)).toThrow(/auth.url is required.*no longer looks sessions up.*JWT plugin/);
+    expect(() => authProviders({ provider: "better-auth", url: "app.example.com" } as any)).toThrow(/auth.url is required/);
+    expect(() => authProviders({ provider: "custom-db-session" } as any)).toThrow(/"custom-db-session" was removed.*Use "jwt".*or "better-auth" with auth.url/);
+  });
+
+  test("can be listed with other providers, but not with one that uses its origin as issuer", () => {
+    const staff: AuthConfig = { provider: "jwt", jwt: { issuer: "https://staff.example.com" } };
+    expect(authProviders([betterAuth, staff])).toHaveLength(2);
+    expect(() => authProviders([betterAuth, { provider: "jwt", jwt: { issuer: "https://app.example.com" } }])).toThrow(/issuer "https:\/\/app.example.com" twice/);
+  });
+
+  test("every language verifies it as a JWT: both issuers, EdDSA, azp on at+jwt, no session lookup", async () => {
+    for (const language of ["typescript", "python", "go"] as TargetLanguage[]) {
+      const guard = await guardFile(language, betterAuth);
+      for (const text of [url, `${url}/jwks`, "EdDSA", "at+jwt", "azp", "activeOrganizationId"]) expect(guard).toContain(text);
+      expect(guard).not.toMatch(/session_token|sessionRepository|\.cookies/);
+    }
+    const files = await generators.typescript.generateGuards([{ ...entities[2], mcp: true }], betterAuth);
+    const guard = files.find((f) => f.path === "guards/auth.guard.ts")!.content;
+    expect(guard).toContain("authorizationServers: PROVIDERS.map((p) => p.issuer)");
+    // Other providers' guards carry none of the Better Auth rules.
+    expect(await guardFile("typescript", jwt("auth0"))).not.toContain("at+jwt");
+  });
+
+  test("Go and Python refuse Better Auth's storage entities, which they do not keep to service callers yet", async () => {
+    const stored: Entity[] = [...entities, { name: "session", fields: [{ name: "token", type: "text" }] }];
     for (const language of ["go", "python"] as TargetLanguage[]) {
-      await expect(generators[language].generateGuards(entities, { provider: "better-auth" })).rejects.toThrow(/TypeScript services only/);
+      await expect(generators[language].generateGuards(stored, betterAuth)).rejects.toThrow(/session: the entities that store Better Auth's rows are served by TypeScript services only/);
     }
   });
 });
@@ -338,7 +385,6 @@ describe("a list of providers", () => {
   test("lists that cannot be generated fail with the reason", () => {
     expect(() => authProviders([])).toThrow(/empty list/);
     expect(() => authProviders([a, a])).toThrow(/issuer "https:\/\/staff.example.com" twice/);
-    expect(() => authProviders([a, { provider: "better-auth" }])).toThrow(/"better-auth" has to be the only provider/);
     expect(() => authProviders([a, { provider: "api-key" } as any])).toThrow(/was removed/);
     expect(() => authProviders([a, { ...b, jwt: { issuer: "" } }])).toThrow(/issuer is required/);
   });
@@ -384,7 +430,10 @@ describe("tenant-scoped entities and a provider with no tenant claim", () => {
   test("does not warn when a claim is set, by the config or by the provider's defaults", () => {
     expect(tenantClaimWarnings(entities, { ...plain, claims: { organizationId: "org_id" } })).toEqual([]);
     expect(tenantClaimWarnings(entities, { provider: "clerk", jwt: { issuer } })).toEqual([]);
-    expect(tenantClaimWarnings(entities, { provider: "better-auth" })).toEqual([]);
+    // Better Auth has a default tenant claim name; mapping it to nothing is warned like any other provider.
+    const betterAuth = { provider: "better-auth" as const, url: "https://app.example.com/api/auth" };
+    expect(tenantClaimWarnings(entities, betterAuth)).toEqual([]);
+    expect(tenantClaimWarnings(entities, { ...betterAuth, claims: { workspaceId: "" } })).toHaveLength(1);
     expect(tenantClaimWarnings(entities)).toEqual([]);
   });
 

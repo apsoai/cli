@@ -54,7 +54,7 @@ Add to your MCP configuration:
 | `design_schema` | Design a database schema from application requirements |
 | `validate_schema` | Validate an `.apsorc` schema file |
 | `scaffold_api` | Generate API code from schema (TypeScript, Python, or Go) |
-| `setup_auth` | Configure authentication (BetterAuth, Auth0, Clerk, Cognito, API Keys) |
+| `setup_auth` | Configure authentication (Better Auth, Auth0, Clerk, Cognito, any JWT issuer) |
 | `start_dev_server` | Start local dev environment via Docker Compose |
 | `deploy_api` | Deploy to the Apso platform |
 

@@ -30,7 +30,7 @@ export {
   DB_SESSION_AUTH_DEFAULTS,
   JWT_AUTH_DEFAULTS,
   isDbSessionAuth,
-  isJwtAuth,
+  BetterAuthConfig,
   assertSignInProvider,
   ResolvedJwtAuth,
   resolveJwtAuth,

@@ -14,11 +14,10 @@ import {
   Entity,
   AuthConfig,
   Field,
-  isJwtAuth,
-  authProviders,
   resolveJwtProviders,
 } from "../types";
 import {
+  authEntityNames,
   entityScope,
   hasPermissions,
   nestedScopeEntities,
@@ -757,10 +756,12 @@ ${modelRefs}
       console.warn(
         `[apso] Nested scopeBy paths are enforced in TypeScript services only; ${nested.join(", ")} will not be filtered by those paths in this Go service`
       );
-    const session = authProviders(auth).find((a) => !isJwtAuth(a));
-    if (session)
+    // Auth entities are for service callers only, which only TypeScript
+    // services enforce so far.
+    const stored = authEntityNames(entities, auth);
+    if (stored.length > 0)
       throw new Error(
-        `auth.provider "${session.provider}" is generated for TypeScript services only. For Go, use "jwt" (Better Auth issues JWTs with its JWT plugin).`
+        `${stored.join(", ")}: the entities that store Better Auth's rows are served by TypeScript services only for now. Generate with --language typescript, or keep Better Auth's tables out of this Go service (auth.userEntity, auth.sessionEntity and auth.accountUserEntity name the ones in it).`
       );
     // The API key check is part of every service; auth adds user sign-in.
     // One entry per trusted issuer; undefined when there is no sign-in.

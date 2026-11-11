@@ -23,14 +23,6 @@ import { <%= entity.name %> } from '../<%= entity.name %>/<%= entity.name %>.ent
 <% }) %>
 <% } %>
 
-<% /* Import entities for AuthGuard (from sibling autogen folders) */ %>
-<% if (it.authEntities.length > 0) { %>
-// Entities for AuthGuard
-<% it.authEntities.forEach((entity) => { %>
-import { <%= entity %> } from '../<%= entity %>/<%= entity %>.entity';
-<% }) %>
-<% } %>
-
 /**
  * GuardsModule turns on the service's global guards. Every request is refused
  * unless a guard lets it through; a route opts out with @Public().
@@ -70,7 +62,6 @@ import { <%= entity %> } from '../<%= entity %>/<%= entity %>.entity';
 <% /* Collect all unique entities */ %>
 <% const allEntities = new Set(); %>
 <% if (it.scopedEntities) { it.scopedEntities.forEach(e => allEntities.add(e.name)); } %>
-<% it.authEntities.forEach(e => allEntities.add(e)); %>
 <% const entityArray = Array.from(allEntities); %>
 <% entityArray.forEach((entity, index) => { %>
       <%= entity %><%= index < entityArray.length - 1 ? ',' : '' %>
