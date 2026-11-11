@@ -165,7 +165,7 @@ export const MUTATIONS = [
     legs: ["jwt"],
     typescript: [
       [TS.scope, /if \(!scopeConfig\) throw denied\(\);/, ""],
-      [TS.scope, /if \(!\(await this\.verifyResourceAccess\(targetRoute, String\(id\), request, targetScope\)\)\)\s*throw denied\(\);/, ""],
+      [TS.scope, /if \(!\(await readable\(targetRoute, id, targetScope\)\)\) throw denied\(\);/, ""],
     ],
   },
   {
