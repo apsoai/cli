@@ -49,7 +49,7 @@
       "group": "Tenant scope",
       "rule": "A user caller reads and changes only rows of their own tenant.",
       "status": { "typescript": "enforced", "python": "enforced", "go": "enforced" },
-      "note": "A scopeBy path through a parent (project.organizationId) is enforced in TypeScript and refused at generate in Python and Go."
+      "note": "A scopeBy path through a parent (project.organizationId) is enforced in TypeScript and refused at generate in Python and Go. The scope covers every operation: `apso generate` refuses `scopeOptions.enforceOn`."
     },
     {
       "id": "R7",

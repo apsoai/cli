@@ -106,6 +106,18 @@ export const MUTATIONS = [
     go: [[GO.services, /q = q\.Where\(`CAST\("`\+table\+`"\."`\+col\+`" AS TEXT\) = \?`, v\)/g, "_, _ = table, col"]],
   },
   {
+    id: "write-scope",
+    removes: "the tenant limit on update and delete by id, leaving it on reads only",
+    rules: ["R6"],
+    legs: ["jwt"],
+    typescript: [
+      [TS.controllers, /filter: \(req: any\) =>\s*(skipScope\(req\)\s*\?\s*\{\}\s*:)?/g, 'filter: (req: any) => req.method !== "GET" ? {} :'],
+      [TS.scope, /\(operation === "get" \|\| operation === "update" \|\| operation === "delete"\) &&/, '(operation === "get") &&'],
+    ],
+    python: [[PY.services, /(def _scope_values\(self, op: str\) -> dict:\n(?:.*\n)*?)(        a = self\.auth\n)/g, '$1        if op in ("update", "delete"):\n            return {}\n$2']],
+    go: [[GO.services, /\t_ = op\n/g, '\tif op == "update" || op == "delete" {\n\t\treturn q, nil, nil\n\t}\n']],
+  },
+  {
     id: "tenant-filter-not-forced",
     removes: "the forced tenant condition, leaving the tenant as a query filter a caller can add to",
     rules: ["R7"],

@@ -58,8 +58,6 @@ export const Public = () =>
 export interface ScopeConfig {
   /** The scope fields or paths (e.g., 'workspaceId' or 'task.workspaceId') */
   scopes: ScopeField[];
-  /** Which operations to enforce scope on */
-  enforceOn: string[];
   /** Roles that can bypass scope enforcement */
   bypassRoles: string[];
 }
@@ -105,7 +103,6 @@ export const ENTITY_SCOPES: Record<string, ScopeConfig> = {
       }<%= scopeIndex < entity.scopes.length - 1 ? ',' : '' %>
 <% }) %>
     ],
-    enforceOn: [<%~ entity.enforceOn.map(op => `'${op}'`).join(', ') %>],
     bypassRoles: [<%~ entity.bypassRoles.map(role => `'${role}'`).join(', ') %>],
   }<%= index < it.scopedEntities.length - 1 ? ',' : '' %>
 <% }) %>
@@ -206,8 +203,7 @@ export class ScopeGuard implements CanActivate {
       return true;
     }
 
-    // Whatever enforceOn says for this entity, a body must not reach another
-    // entity's rows or write over an existing row.
+    // A body must not reach another entity's rows or write over an existing row.
     if (writes) {
       await this.checkBody(request, entityType, scopeConfig);
     }
@@ -215,10 +211,6 @@ export class ScopeGuard implements CanActivate {
     // Map HTTP method to operation
     const operation = this.mapMethodToOperation(method, request.params?.id);
 
-    // Check if this operation should be enforced
-    if (!scopeConfig.enforceOn.includes(operation)) {
-      return true;
-    }
 <% if (it.hasNestedFk) { %>
 
     // Nested paths (task.workspaceId): load the caller's parent ids for the
@@ -407,10 +399,7 @@ export class ScopeGuard implements CanActivate {
     const roles: string[] = request.auth?.roles ?? request.user?.roles ?? request.roles ?? [];
     // An entity whose rows the caller reads only inside its tenant.
     const limited = (scope?: ScopeConfig): scope is ScopeConfig =>
-      Boolean(scope) &&
-      scope!.enforceOn.includes('find') &&
-      scope!.enforceOn.includes('get') &&
-      !scope!.bypassRoles.some((role) => roles.includes(role));
+      Boolean(scope) && !scope!.bypassRoles.some((role) => roles.includes(role));
     const lookups = new Map<string, Promise<boolean>>();
     const readable = (route: string, id: unknown, scope: ScopeConfig): Promise<boolean> => {
       const key = `${route}:${id}`;

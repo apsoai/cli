@@ -240,7 +240,6 @@ export class TypeScriptGenerator extends BaseGenerator {
     // Which requests the tenant filter covers; a service caller (API key)
     // always skips it.
     const scopeOptions = scoped && {
-      enforceOn: scoped.enforceOn,
       bypassRoles: scoped.bypassRoles,
     };
 

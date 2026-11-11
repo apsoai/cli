@@ -8,7 +8,7 @@ const entities: Entity[] = [
   { name: "Task", scopeBy: "project.organizationId" },
   { name: "Ticket", scopeBy: "organizationId", scopeOptions: { bypassRoles: ["support"] } },
   { name: "Note", scopeBy: "userId" },
-  { name: "Draft", scopeBy: "organizationId", scopeOptions: { enforceOn: ["create", "update", "delete"] } },
+  { name: "Draft" },
 ];
 const relationshipMap: RelationshipMap = {
   Organization: [
@@ -41,7 +41,7 @@ describe("relationScopes", () => {
     expect(table.Organization.bypassRoles).toBeUndefined();
     expect(table.Project.bypassRoles).toEqual([]);
     expect(table.Ticket.bypassRoles).toEqual(["support"]);
-    // Reads of Draft are not filtered, so it is not scoped for a relation.
+    // Draft has no scopeBy.
     expect(table.Draft.bypassRoles).toBeUndefined();
   });
 
@@ -96,7 +96,7 @@ describe("scopedReferences", () => {
 });
 
 describe("removedScopeOptionErrors", () => {
-  test("refuses scopeOptions.injectOnCreate, whatever its value, and says where the tenant comes from", () => {
+  test("refuses scopeOptions.injectOnCreate and enforceOn, and names the replacement", () => {
     for (const value of [true, false]) {
       const doc: Entity = { name: "Doc", scopeBy: "organizationId", scopeOptions: { injectOnCreate: value } as any };
       const [error, ...rest] = removedScopeOptionErrors([doc, ...entities]);
@@ -105,6 +105,11 @@ describe("removedScopeOptionErrors", () => {
       expect(error).toContain("always comes from the caller");
       expect(error).toContain("A service caller (API key) can set any tenant");
     }
+    const drafts: Entity = { name: "Doc", scopeBy: "organizationId", scopeOptions: { enforceOn: ["find", "get"] } as any };
+    const [enforce] = removedScopeOptionErrors([drafts]);
+    expect(enforce).toContain("Doc.scopeOptions.enforceOn is no longer an option");
+    expect(enforce).toContain("on every operation");
+    expect(enforce).toContain("service caller (API key)");
     expect(removedScopeOptionErrors(entities)).toEqual([]);
   });
 });

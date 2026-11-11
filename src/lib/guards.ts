@@ -43,7 +43,6 @@ export interface ScopedEntityConfig {
   routeName: string;
   repoName: string;
   scopes: ScopeFieldConfig[];
-  enforceOn: string[];
   bypassRoles: string[];
 }
 
@@ -51,25 +50,27 @@ export interface ScopedEntityConfig {
  * Default scope options when not specified
  */
 const DEFAULT_SCOPE_OPTIONS: Required<ScopeOptions> = {
-  enforceOn: ["find", "get", "create", "update", "delete"],
   bypassRoles: [],
 };
 
+/** scopeOptions keys that no longer exist, and what `apso generate` says about each. */
+const REMOVED_SCOPE_OPTIONS: Record<string, string> = {
+  injectOnCreate:
+    "The tenant on a create always comes from the caller, never from the request body. A service caller (API key) can set any tenant.",
+  enforceOn:
+    "Every read and write of a tenant-scoped entity by a user caller is limited to the caller's tenant, on every operation. A caller that works across tenants is a service caller (API key).",
+};
+
 /**
- * One error per entity that sets scopeOptions.injectOnCreate, an option that
- * no longer exists. `apso generate` and `apso schema validate` both refuse it.
+ * One error per removed scopeOptions key an entity still sets. `apso generate`
+ * and `apso schema validate` both refuse it.
  */
 export function removedScopeOptionErrors(entities: Entity[]): string[] {
-  return entities
-    .filter(
-      (entity) =>
-        (entity.scopeOptions as { injectOnCreate?: unknown } | undefined)
-          ?.injectOnCreate !== undefined
-    )
-    .map(
-      (entity) =>
-        `${entity.name}.scopeOptions.injectOnCreate is no longer an option; remove it. The tenant on a create always comes from the caller, never from the request body. A service caller (API key) can set any tenant.`
-    );
+  return entities.flatMap((entity) =>
+    Object.entries(REMOVED_SCOPE_OPTIONS)
+      .filter(([key]) => (entity.scopeOptions as Record<string, unknown> | undefined)?.[key] !== undefined)
+      .map(([key, why]) => `${entity.name}.scopeOptions.${key} is no longer an option; remove it. ${why}`)
+  );
 }
 
 /**
@@ -147,7 +148,6 @@ export function getScopedEntities(
         scopes: relationshipMap
           ? scopes.map((s) => resolveNestedScope(entity.name, s, relationshipMap))
           : scopes,
-        enforceOn: options.enforceOn,
         bypassRoles: options.bypassRoles,
       };
     });
@@ -398,7 +398,6 @@ export interface DirectScopeField {
 /** What Go and Python services need to scope one entity. */
 export interface EntityScopeData {
   fields: DirectScopeField[];
-  enforceOn: string[];
   bypassRoles: string[];
 }
 
@@ -423,10 +422,9 @@ export function entityScope(
           ? (s.contextKey as "userId" | "email")
           : ("tenant" as const),
     }));
-  if (fields.length === 0 || config.enforceOn.length === 0) return undefined;
+  if (fields.length === 0) return undefined;
   return {
     fields,
-    enforceOn: config.enforceOn,
     bypassRoles: config.bypassRoles,
   };
 }
@@ -463,9 +461,7 @@ export interface RelationScope {
  * on every stored foreign key pointing inside the tenant. A service caller is
  * not limited. Each language walks this table at run time.
  *
- * An entity counts as scoped only when both find and get are filtered;
- * otherwise its rows are readable anyway. Undefined without auth or when no
- * entity is scoped.
+ * Undefined without auth or when no entity is scoped.
  */
 export function relationScopes(
   entities: Entity[],
@@ -478,8 +474,6 @@ export function relationScopes(
     { keys: Set<string>; bypassRoles: string[]; scope: Record<string, string>; parents: string[] }
   >();
   for (const config of getScopedEntities(entities, relationshipMap)) {
-    if (!config.enforceOn.includes("find") || !config.enforceOn.includes("get"))
-      continue;
     scoped.set(config.name, {
       keys: new Set(config.scopes.map((s) => s.contextKey)),
       bypassRoles: config.bypassRoles,

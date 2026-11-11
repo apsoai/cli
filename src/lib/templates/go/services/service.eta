@@ -48,15 +48,11 @@ func New<%= it.entityName %>Service(db *gorm.DB) *<%= it.entityName %>Service {
 }
 <% if (it.scope) { %>
 
-// scoped limits q to the caller's tenant for op ("find", "get", "create",
-// "update", "delete") per .apsorc scopeBy, and returns the scope column values.
-// Both are unchanged when op is not enforced or the caller holds a bypass role.
+// scoped limits q to the caller's tenant per .apsorc scopeBy, on every
+// operation (op names it), and returns the scope column values. Both are
+// unchanged for a service caller or a bypass role.
 func (s *<%= it.entityName %>Service) scoped(ctx context.Context, q *gorm.DB, op string) (*gorm.DB, map[string]string, error) {
-	switch op {
-	case <%~ it.scope.enforceOn.map((o) => JSON.stringify(o)).join(', ') %>:
-	default:
-		return q, nil, nil
-	}
+	_ = op
 	a, ok := middleware.FromContext(ctx)
 	if !ok {
 		return nil, nil, ErrForbidden

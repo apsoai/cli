@@ -45,7 +45,7 @@ A same-key relation does not rely on the stored foreign key. The rows it loads a
 
 ## Writes
 
-The tenant on a write always comes from the caller (R8). There is no schema option that keeps a tenant from the request body: `apso generate` and `apso schema validate` refuse `scopeOptions.injectOnCreate`. A service caller (API key) can set any tenant.
+The tenant on a write always comes from the caller (R8), and a user caller is limited to its tenant on every operation (R6). No schema option turns either off: `apso generate` and `apso schema validate` refuse `scopeOptions.injectOnCreate` and `scopeOptions.enforceOn`. A caller that must set another tenant or work across tenants is a service caller (API key). The one remaining option, `scopeOptions.bypassRoles`, names roles that skip an entity's scope entirely (R10).
 
 A foreign key in a write body must name a row the caller could read. This holds on create, bulk create, update and replace, for every foreign key that points at a tenant-scoped entity, whether the body sends the column (`projectId`), the relation as an object, or a list under a to-many relation. Otherwise the write is refused with 403, the same answer as for a parent outside the tenant. A key set to null is accepted. A service caller, and a role that skips the target entity's scope, are not checked. Each referenced row is looked up once per request: one lookup per distinct row in TypeScript, one query per referenced entity in Python and Go.
 

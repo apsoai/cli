@@ -73,7 +73,7 @@ export interface AccessEntity {
    * The column a caller's rows are limited by: the scopeBy field, or for a
    * path through a parent (project.organizationId) the foreign key to it.
    */
-  scope?: { field: string; parent?: string; bypassRoles: string[]; reads: boolean };
+  scope?: { field: string; parent?: string; bypassRoles: string[] };
   permissions?: EntityPermissions;
   /** MCP tool names by operation, for the operations the schema opts in. */
   tools: { list?: string; get?: string; create?: string; update?: string; delete?: string };
@@ -133,16 +133,14 @@ export function buildModel(
     // Only TypeScript enforces a path through a parent; Python and Go refuse it at generate.
     const nested = language === "typescript" ? config?.scopes.find((s) => s.fkField) : undefined;
     let scope: AccessEntity["scope"];
-    // Reads are limited to the tenant only when both list and read by id are enforced.
-    const reads = Boolean(config && ["find", "get"].every((op) => config.enforceOn.includes(op)));
     if (config && direct) {
-      scope = { field: direct.field, bypassRoles: config.bypassRoles, reads };
+      scope = { field: direct.field, bypassRoles: config.bypassRoles };
       const parent = (relationships[entity.name] ?? []).find(
         (r) => r.type !== "OneToMany" && r.type !== "ManyToMany" && getRelationshipIdField(r) === direct.field
       );
       tenantRoot = tenantRoot ?? parent?.name;
     } else if (config && nested) {
-      scope = { field: nested.fkField!, parent: nested.parentEntity, bypassRoles: config.bypassRoles, reads };
+      scope = { field: nested.fkField!, parent: nested.parentEntity, bypassRoles: config.bypassRoles };
     } else if (config) {
       skipped.push({ name: entity.name, reason: "its scopeBy is the caller's user id or email, which these cases do not cover" });
     }
@@ -747,7 +745,7 @@ async function foreignKeys(ctx: AccessContext, entity: AccessEntity, a: Tenant, 
   for (const relation of entity.relations) {
     const fk = relation.fk;
     const target = model.entities.find((e) => e.name === relation.entity);
-    if (!fk || !target?.scope?.reads || fk === entity.scope?.field) continue;
+    if (!fk || !target?.scope || fk === entity.scope?.field) continue;
     const [own, theirs] = [a.rows[target.name], b.rows[target.name]];
     if (!own || !theirs) continue;
     const p = relation.property;
@@ -835,7 +833,7 @@ async function foreignKeys(ctx: AccessContext, entity: AccessEntity, a: Tenant, 
       const told = await oracle(url, asA, p, target, theirs);
       t.assert(`[R7] ${n}: a filter on a field of ${p} does not reveal ${what} through a stored ${fk}`, told === "", `GET ${entity.route} ${told}`);
       // The other way round: the other tenant's caller loads its own row's relation back to this entity.
-      for (const back of entity.scope?.reads ? target.relations.filter((r) => r.entity === n) : []) {
+      for (const back of entity.scope ? target.relations.filter((r) => r.entity === n) : []) {
         const q = back.property;
         const joined = model.language === "typescript" ? select(`*,${q}(*)`) : `join=${enc(q)}`;
         for (const [where, to, headers] of [["a list", `${base}${target.route}?${select(`*,${q}(*)`)}&limit=1000`, POSTGREST], ["a read by id", `${base}${target.route}/${theirs.id}?${joined}`, model.language === "typescript" ? POSTGREST : {}]] as [string, string, Headers][]) {

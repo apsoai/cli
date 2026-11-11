@@ -90,7 +90,6 @@ describe("guards module", () => {
             path: undefined,
           },
         ],
-        enforceOn: ["find", "get", "create", "update", "delete"],
         bypassRoles: [],
       });
     });
@@ -119,7 +118,6 @@ describe("guards module", () => {
             path: "task.workspaceId",
           },
         ],
-        enforceOn: ["find", "get", "create", "update", "delete"],
         bypassRoles: [],
       });
     });
@@ -159,7 +157,6 @@ describe("guards module", () => {
           fields: [{ name: "action", type: "text" }],
           scopeBy: "workspaceId",
           scopeOptions: {
-            enforceOn: ["find", "get"],
             bypassRoles: ["admin", "superadmin"],
           },
         },
@@ -168,7 +165,6 @@ describe("guards module", () => {
       const result = getScopedEntities(entities);
 
       expect(result).toHaveLength(1);
-      expect(result[0].enforceOn).toEqual(["find", "get"]);
       expect(result[0].bypassRoles).toEqual(["admin", "superadmin"]);
     });
 
@@ -187,13 +183,6 @@ describe("guards module", () => {
       const result = getScopedEntities(entities);
 
       expect(result).toHaveLength(1);
-      expect(result[0].enforceOn).toEqual([
-        "find",
-        "get",
-        "create",
-        "update",
-        "delete",
-      ]); // default
       expect(result[0].bypassRoles).toEqual(["admin"]); // custom
     });
 

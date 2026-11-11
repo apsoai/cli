@@ -29,12 +29,9 @@ class <%= it.entityName %>Service:
 
     def _scope_values(self, op: str) -> dict:
         """
-        The caller's value for each scopeBy field for op ("find", "get",
-        "create", "update", "delete"); empty when op is not enforced or the
-        caller holds a bypass role. 403 when the caller has no tenant.
+        The caller's value for each scopeBy field, for every operation; empty
+        for a service caller or a bypass role. 403 when the caller has no tenant.
         """
-        if op not in <%~ JSON.stringify(it.scope.enforceOn) %>:
-            return {}
         a = self.auth
         if a is None:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tenant in the auth context")

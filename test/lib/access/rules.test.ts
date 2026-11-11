@@ -124,7 +124,7 @@ describe("the schema as the cases see it", () => {
     const model = buildModel(entities, relationshipMap, "typescript", {});
     expect(model.tenantRoot).toBe("Organization");
     const by = (name: string) => model.entities.find((e) => e.name === name)!;
-    expect(by("Project").scope).toEqual({ field: "organizationId", bypassRoles: ["support"], reads: true });
+    expect(by("Project").scope).toEqual({ field: "organizationId", bypassRoles: ["support"] });
     expect(by("Task").scope).toMatchObject({ field: "projectId", parent: "Project" });
     expect(by("Organization").relations).toEqual([{ property: "projects", entity: "Project" }]);
     expect(by("Project").tools).toEqual({ list: "list_projects", get: "get_project" });

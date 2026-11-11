@@ -13,11 +13,6 @@ export type ScopeOperation = "find" | "get" | "create" | "update" | "delete";
  */
 export interface ScopeOptions {
   /**
-   * Which operations should enforce scope. Defaults to all operations.
-   */
-  enforceOn?: ScopeOperation[];
-
-  /**
    * Roles allowed to bypass scope enforcement (e.g., 'system_admin').
    */
   bypassRoles?: string[];
