@@ -42,6 +42,7 @@ from urllib.parse import urlsplit
 import jwt
 from fastapi import HTTPException, Request, Response, status
 from jwt import PyJWKClient
+from sqlalchemy import String, cast, func, select
 from starlette.concurrency import run_in_threadpool
 
 
@@ -398,6 +399,71 @@ def relation_refused(auth: Optional[AuthContext], root: str, path: str) -> Optio
             return name
         start = to
     return None
+
+
+def tenant_values(auth: Optional[AuthContext], entity: str) -> Optional[dict]:
+    """
+    The caller's value for each scopeBy field of `entity`, or None when the
+    caller is not limited to a tenant there: the entity's reads are not
+    tenant-scoped, or the caller is a service caller or holds a role that
+    skips its scope.
+    """
+    scoped = RELATION_SCOPES.get(entity) or {}
+    if scoped.get("bypassRoles") is None or (auth is not None and auth.service_id):
+        return None
+    if auth is not None and set(auth.roles) & set(scoped["bypassRoles"]):
+        return None
+    by_key = {"userId": "user_id", "email": "email"}
+    return {
+        field: getattr(auth, by_key.get(key, "workspace_id"), None)
+        for field, key in (scoped.get("scope") or {}).items()
+    }
+
+
+def _tenant_conditions(model: Any, values: dict) -> list:
+    """SQL conditions that keep rows of `model` to the caller's tenant (compared as text)."""
+    if any(v in (None, "") for v in values.values()):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tenant in the auth context")
+    return [cast(getattr(model, field), String) == str(value) for field, value in values.items()]
+
+
+def relation_conditions(auth: Optional[AuthContext], root: str, name: str, target: Any) -> list:
+    """
+    The conditions the rows loaded through relation `name` of `root` must
+    meet. A relation the rule above allows because both ends are scoped by the
+    same keys still loads only rows of the caller's tenant, so a row that
+    points at another tenant's row does not carry it into a response.
+    """
+    hop = ((RELATION_SCOPES.get(root) or {}).get("relations") or {}).get(name)
+    # Only a hop the rule allows as a same-tenant one; any other is refused or not limited.
+    values = tenant_values(auth, hop[0]) if hop and hop[1] else None
+    return _tenant_conditions(target, values) if values else []
+
+
+async def check_references(auth: Optional[AuthContext], db: Any, references: dict) -> None:
+    """
+    The one place that checks the foreign keys of a write (R8). `references`
+    maps a tenant-scoped entity to the ids a body names in foreign keys to it.
+    Every id must be a row the caller could read; otherwise 403. A key set to
+    null is not checked, and a service caller or a role that skips the
+    target's scope is not limited. One query per referenced entity.
+    """
+    from . import models
+
+    for entity, sent in references.items():
+        ids = {i for i in sent if i is not None}
+        values = tenant_values(auth, entity)
+        if not ids or values is None:
+            continue
+        model = getattr(models, entity)
+        found = await db.execute(
+            select(func.count()).select_from(model).where(model.id.in_(ids), *_tenant_conditions(model, values))
+        )
+        if found.scalar() != len(ids):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have access to a row this request references",
+            )
 
 
 def check_relation(auth: Optional[AuthContext], root: str, path: str) -> None:

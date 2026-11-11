@@ -760,10 +760,14 @@ func ApplyQueryE(db *gorm.DB, opts QueryOptions, allowedFields map[string]bool) 
 	// Joins (Preloads)
 	for _, j := range opts.Joins {
 		// Every relation a request loads (join or select embed) is checked for the caller.
-		if refused := middleware.RelationRefused(query.Statement.Context, modelName(query), j.Relation); refused != "" {
+		loads, refused := middleware.RelationLoads(query.Statement.Context, modelName(query), j.Relation)
+		if refused != "" {
 			return query, 0, 1, &QueryError{Forbidden: true, Msg: fmt.Sprintf("The relation %q cannot be loaded from %s: its rows are tenant-scoped", refused, modelName(query))}
 		}
-		query = query.Preload(preloadName(j.Relation))
+		// Each step of the path, so a tenant-scoped step loads the caller's rows only.
+		for _, load := range loads {
+			query = query.Preload(preloadName(load.Path), load.Conds...)
+		}
 	}
 
 	// Pagination

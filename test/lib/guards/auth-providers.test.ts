@@ -134,18 +134,20 @@ describe("generated wiring", () => {
     expect(without.find((f) => f.path.endsWith(".controller.ts"))!.content).not.toContain("@CrudAuth");
   });
 
-  test("TypeScript @CrudAuth honors bypassRoles, enforceOn and injectOnCreate", async () => {
+  test("TypeScript @CrudAuth honors bypassRoles on every operation", async () => {
     const scoped: Entity = {
       ...entities[2],
-      scopeOptions: { bypassRoles: ["support"], enforceOn: ["find", "get"], injectOnCreate: false },
+      scopeOptions: { bypassRoles: ["support"] },
     };
     const opts = { entity: scoped, relationships: [], allEntities: entities, apiType: "rest", relationshipMap: {} };
     const files = await generators.typescript.generateController({ ...opts, auth: jwt("jwt") });
     const ctrl = files.find((f) => f.path.endsWith(".controller.ts"))!.content;
-    expect(ctrl).toContain("const ENFORCE_ON = ['find', 'get'];");
+    // No operation is left out of the tenant filter.
+    expect(ctrl).not.toContain("ENFORCE_ON");
     expect(ctrl).toContain("const BYPASS_ROLES: string[] = ['support'];");
     expect(ctrl).toContain("filter: (req: any) => skipScope(req) ? {} : ({");
-    expect(ctrl).toContain("persist: (req: any) => skipScope(req) || scopeOperation(req) === 'create' ? {} : ({");
+    // The tenant on a write always comes from the caller: persist has no create exception.
+    expect(ctrl).toContain("persist: (req: any) => skipScope(req) ? {} : ({");
 
     // A service caller (API key) skips the tenant filter on every scoped controller.
     const plain = await generators.typescript.generateController({ ...opts, entity: entities[2], auth: jwt("jwt") });

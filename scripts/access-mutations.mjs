@@ -106,6 +106,18 @@ export const MUTATIONS = [
     go: [[GO.services, /q = q\.Where\(`CAST\("`\+table\+`"\."`\+col\+`" AS TEXT\) = \?`, v\)/g, "_, _ = table, col"]],
   },
   {
+    id: "write-scope",
+    removes: "the tenant limit on update and delete by id, leaving it on reads only",
+    rules: ["R6"],
+    legs: ["jwt"],
+    typescript: [
+      [TS.controllers, /filter: \(req: any\) =>\s*(skipScope\(req\)\s*\?\s*\{\}\s*:)?/g, 'filter: (req: any) => req.method !== "GET" ? {} :'],
+      [TS.scope, /\(operation === "get" \|\| operation === "update" \|\| operation === "delete"\) &&/, '(operation === "get") &&'],
+    ],
+    python: [[PY.services, /(def _scope_values\(self, op: str\) -> dict:\n(?:.*\n)*?)(        a = self\.auth\n)/g, '$1        if op in ("update", "delete"):\n            return {}\n$2']],
+    go: [[GO.services, /\t_ = op\n/g, '\tif op == "update" || op == "delete" {\n\t\treturn q, nil, nil\n\t}\n']],
+  },
+  {
     id: "tenant-filter-not-forced",
     removes: "the forced tenant condition, leaving the tenant as a query filter a caller can add to",
     rules: ["R7"],
@@ -117,9 +129,27 @@ export const MUTATIONS = [
     removes: "the tenant check on the relations a request loads",
     rules: ["R7"],
     legs: ["jwt"],
-    typescript: [[TS.relations, /const relation = relationOutsideTenant\(root, path, roles\);/, "const relation = relationOutsideTenant(root, path, roles) && undefined;"]],
+    typescript: [[TS.relations, /if \(refused\) \{/, "if (false) {"]],
     python: [[PY.auth, /refused = relation_refused\(auth, root, path\)/, "refused = None"]],
     go: [[GO.auth, /if to\.Scoped && !skips\(to\) && !inTenant \{/, "if false && to.Scoped && !skips(to) && !inTenant {"]],
+  },
+  {
+    id: "relation-row-tenant",
+    removes: "the tenant condition on the rows a same-tenant relation loads",
+    rules: ["R7"],
+    legs: ["jwt"],
+    typescript: [[TS.relations, /join\.on = \[\s*\.\.\.\(join\.on \?\? \[\]\),\s*\{ field, operator: "\$eq", value \},?\s*\];/, ""]],
+    python: [[PY.auth, /return _tenant_conditions\(target, values\) if values else \[\]/, "return []"]],
+    go: [[GO.auth, /load\.Conds = append\(\[\]interface\{\}\{where\}, args\.\.\.\)/, "_ = args"]],
+  },
+  {
+    id: "reference-check",
+    removes: "the check that a foreign key in a body names a row the caller can read",
+    rules: ["R8"],
+    legs: ["jwt"],
+    typescript: [[TS.scope, /if \(\s*typeof id === "object" \|\|\s*!\(await readable\(targetRoute, id, targetScope\)\)\s*\)\s*throw denied\(\);/, ""]],
+    python: [[PY.auth, /if found\.scalar\(\) != len\(ids\):/, "if False:"]],
+    go: [[GO.auth, /if found != int64\(len\(ids\)\) \{/, "if false {"]],
   },
   {
     id: "tenant-overwrite",
@@ -147,7 +177,7 @@ export const MUTATIONS = [
     legs: ["jwt"],
     typescript: [
       [TS.scope, /if \(!scopeConfig\) throw denied\(\);/, ""],
-      [TS.scope, /if \(!\(await this\.verifyResourceAccess\(targetRoute, String\(id\), request, targetScope\)\)\)\s*throw denied\(\);/, ""],
+      [TS.scope, /if \(!\(await readable\(targetRoute, id, targetScope\)\)\) throw denied\(\);/, ""],
     ],
   },
   {

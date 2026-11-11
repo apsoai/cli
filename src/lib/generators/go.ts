@@ -25,6 +25,8 @@ import {
   mcpToolNames,
   nestedScopeEntities,
   relationScopes,
+  removedScopeOptionErrors,
+  scopedReferences,
 } from "../guards";
 import {
   arrayElementType,
@@ -145,6 +147,7 @@ export class GoGenerator extends BaseGenerator {
     if (!config.entities || config.entities.length === 0) {
       errors.push("No entities defined in configuration");
     }
+    errors.push(...removedScopeOptionErrors(config.entities ?? []));
 
     // Validate each entity
     for (const entity of config.entities) {
@@ -410,6 +413,14 @@ export class GoGenerator extends BaseGenerator {
       primaryKeySwaggerType: this.getPrimaryKeySwaggerType(primaryKeyType),
       associations: [...new Set(relationshipsForTemplate)],
       scope: entityScope(entity, Boolean(options.auth)),
+      // A write that names a row the caller cannot read is answered like a scope error.
+      references:
+        this.goReferences(
+          entity,
+          this.goAssociations(entity, relationships, options.allEntities),
+          options.allEntities,
+          options.auth
+        ).length > 0,
     };
 
     const content = await this.renderTemplate("./handlers/handler", data);
@@ -454,6 +465,7 @@ export class GoGenerator extends BaseGenerator {
         hidden: hidesRelation(entityName, r.name, allEntities, options.auth),
       })),
       scope: this.goScope(entity, Boolean(options.auth)),
+      references: this.goReferences(entity, goRelationships, allEntities, options.auth),
     };
 
     const content = await this.renderTemplate("./services/service", data);
@@ -761,6 +773,27 @@ ${modelRefs}
   }
 
   /**
+   * The foreign keys of an entity that a write must check: those onto
+   * tenant-scoped entities, with the Go field and column of each.
+   */
+  private goReferences(
+    entity: Entity,
+    associations: any[],
+    allEntities: Entity[],
+    auth?: AuthConfig
+  ): { target: string; goField: string; column: string }[] {
+    const owned = associations.filter((a) => a.owns);
+    const scoped = scopedReferences(
+      entity,
+      owned.map((a) => [`${a.camelReferenceName}Id`, a.name]),
+      relationScopes(allEntities, this.config.relationshipMap, Boolean(auth))
+    );
+    return owned
+      .filter((a) => scoped[`${a.camelReferenceName}Id`])
+      .map((a) => ({ target: a.name, goField: a.fkField, column: a.fkColumn }));
+  }
+
+  /**
    * The MCP tools of every entity that opts in. Gin has no OpenAPI document at
    * run time, so each tool's input schema is written from .apsorc here, from
    * the same columns and foreign keys as the DTOs.
@@ -845,6 +878,7 @@ ${modelRefs}
         kebabCase(pluralize(name))
       ),
       relationScopes: relationScopes(entities, relationshipMap, Boolean(auth)) ?? {},
+      tables: Object.fromEntries(entities.map((e) => [e.name, tableName(e)])),
     };
     const content = await this.renderTemplate("./middleware/auth", data);
     const files: GeneratedFile[] = [{ path: "middleware/auth.go", content }];

@@ -22,25 +22,13 @@ const nestedScope = (req: any, fk: string) => {
 };
 <% } %>
 <% if (it.scopeOptions && (it.crudAuth.length || it.crudAuthNested.length)) { %>
-// Which requests the tenant filter covers (.apsorc scopeOptions) and which
-// callers skip it.
-const ENFORCE_ON = [<%~ it.scopeOptions.enforceOn.map((op) => `'${op}'`).join(', ') %>];
+// The callers that skip the tenant filter (.apsorc scopeOptions.bypassRoles).
 const BYPASS_ROLES: string[] = [<%~ it.scopeOptions.bypassRoles.map((r) => `'${r}'`).join(', ') %>];
-const scopeOperation = (req: any) => {
-    switch (req.method) {
-        case 'GET': return req.params?.id ? 'get' : 'find';
-        case 'POST': return 'create';
-        case 'PUT':
-        case 'PATCH': return 'update';
-        case 'DELETE': return 'delete';
-        default: return 'find';
-    }
-};
 const skipScope = (req: any) => {
     // A service caller (valid API key) is not tenant-scoped.
     if (req.auth?.serviceId) return true;
     const roles: string[] = req.auth?.roles ?? req.user?.roles ?? [];
-    return roles.some((r) => BYPASS_ROLES.includes(r)) || !ENFORCE_ON.includes(scopeOperation(req));
+    return roles.some((r) => BYPASS_ROLES.includes(r));
 };
 <% } %>
 <% if (it.relationAccess) { %>
@@ -104,7 +92,7 @@ const skipScope = (req: any) => {
         ...nestedScope(req, '<%= s.fkField %>'),
 <% }) %>
     }),
-    persist: (req: any) => <% if (it.scopeOptions) { %>skipScope(req)<% if (!it.scopeOptions.injectOnCreate) { %> || scopeOperation(req) === 'create'<% } %> ? {} : <% } %>({
+    persist: (req: any) => <% if (it.scopeOptions) { %>skipScope(req) ? {} : <% } %>({
 <% it.crudAuth.forEach((s) => { %>
         <%= s.field %>: req.<%= s.contextKey %> ?? req.user?.<%= s.contextKey %> ?? req.auth?.<%= s.contextKey %> ?? req.auth?.workspaceId,
 <% }) %>

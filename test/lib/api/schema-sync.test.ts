@@ -43,7 +43,7 @@ const cases: [string, ApsorcType][] = [
     "scopeOptions",
     withEntity({
       scopeBy: "workspaceId",
-      scopeOptions: { injectOnCreate: false, enforceOn: ["find"], bypassRoles: ["system_admin"] },
+      scopeOptions: { bypassRoles: ["system_admin"] },
     }),
   ],
   [

@@ -306,6 +306,8 @@ const relationships = (auth) => [
   { from: "Organization", to: "Project", type: "OneToMany" },
   { from: "Project", to: "Task", type: "OneToMany" },
   { from: "Organization", to: "Ticket", type: "OneToMany" },
+  // A foreign key between two tenant-scoped entities that is not the scope column.
+  { from: "Project", to: "Ticket", type: "OneToMany", nullable: true },
   { from: "Organization", to: "Invoice", type: "OneToMany" },
   ...(auth ? [{ from: "Organization", to: "RolePermission", type: "OneToMany" }] : []),
 ];
@@ -679,6 +681,10 @@ function buildTimeCases(project) {
   refuses("[R27] generate refuses a grants entity anyone can write", { auth: jwtAuth, entities: [doc({ permissions: { read: ["owner"] } }), { name: "RolePermission", fields: [{ name: "role", type: "text" }, { name: "permission", type: "text" }] }] }, /grant themselves any permission/);
   refuses("[R27] generate refuses a grants entity with no tenant in a tenant-scoped schema", { auth: jwtAuth, entities: [org, doc({ scopeBy: "organizationId", permissions: { read: ["owner"] } }), { name: "RolePermission", permissions: { create: ["owner"], update: ["owner"], delete: ["owner"] }, fields: [{ name: "role", type: "text" }, { name: "permission", type: "text" }] }], relationships: [{ from: "Organization", to: "Doc", type: "OneToMany" }] }, /every tenant/);
   refuses("[R27] generate refuses MCP tools without sign-in", { entities: [doc({ mcp: true })] }, /mcp.*auth block/i);
+  // The tenant on a create always comes from the caller, so the option that kept the body's tenant is gone.
+  refuses("[R6,R8] generate refuses scopeOptions.enforceOn", { auth: jwtAuth, entities: [org, doc({ scopeBy: "organizationId", scopeOptions: { enforceOn: ["find", "get"] } })], relationships: [{ from: "Organization", to: "Doc", type: "OneToMany" }] }, /enforceOn is no longer an option.*on[\s›]+every[\s›]+operation.*service[\s›]+caller/);
+  for (const value of [false, true])
+    refuses(`[R8] generate refuses scopeOptions.injectOnCreate (${value})`, { auth: jwtAuth, entities: [org, doc({ scopeBy: "organizationId", scopeOptions: { injectOnCreate: value } })], relationships: [{ from: "Organization", to: "Doc", type: "OneToMany" }] }, /injectOnCreate is no longer an option.*always[\s›]+comes[\s›]+from[\s›]+the[\s›]+caller.*can[\s›]+set[\s›]+any[\s›]+tenant/);
   if (language !== "typescript") {
     // What this language cannot enforce it refuses, so the rule is never silently missing.
     refuses("[R26,R6] generate refuses a scopeBy path through a parent for this language", { auth: jwtAuth, entities: [org, { name: "Project", scopeBy: "organizationId", fields: [{ name: "title", type: "text" }] }, doc({ scopeBy: "project.organizationId" })], relationships: [{ from: "Organization", to: "Project", type: "OneToMany" }, { from: "Project", to: "Doc", type: "OneToMany" }] }, /path through a parent/);

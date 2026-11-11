@@ -13,17 +13,6 @@ export type ScopeOperation = "find" | "get" | "create" | "update" | "delete";
  */
 export interface ScopeOptions {
   /**
-   * If true (default), scope fields are automatically injected from
-   * the request context on create when not provided.
-   */
-  injectOnCreate?: boolean;
-
-  /**
-   * Which operations should enforce scope. Defaults to all operations.
-   */
-  enforceOn?: ScopeOperation[];
-
-  /**
    * Roles allowed to bypass scope enforcement (e.g., 'system_admin').
    */
   bypassRoles?: string[];

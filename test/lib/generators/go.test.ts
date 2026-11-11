@@ -1006,7 +1006,7 @@ describe("GoGenerator", () => {
       );
       const query = files.get("utils/query.go")!;
       expect(query).toContain("field = quoteColumn(field)");
-      expect(query).toContain("query = query.Preload(preloadName(j.Relation))");
+      expect(query).toContain("query = query.Preload(preloadName(load.Path), load.Conds...)");
     });
 
     test("the create DTO requires NOT NULL fields with no default", () => {

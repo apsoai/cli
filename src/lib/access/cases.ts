@@ -67,8 +67,8 @@ export interface AccessEntity {
   payload: Row;
   /** Required foreign keys: property -> the entity it points to. */
   parents: { property: string; entity: string }[];
-  /** Relations a `join` can name: property -> the entity it loads. */
-  relations: { property: string; entity: string }[];
+  /** Relations a `join` can name: property -> the entity it loads, and for a many-to-one its foreign key. */
+  relations: { property: string; entity: string; fk?: string }[];
   /**
    * The column a caller's rows are limited by: the scopeBy field, or for a
    * path through a parent (project.organizationId) the foreign key to it.
@@ -124,6 +124,7 @@ export function buildModel(
           ? pluralize(getRelationshipName(r))
           : getRelationshipName(r),
       entity: r.name,
+      ...(r.type === "ManyToOne" ? { fk: getRelationshipIdField(r) } : {}),
     }));
     const config = scoped.find((s) => s.name === entity.name);
     const direct = config?.scopes.find(
@@ -717,6 +718,139 @@ async function relationWrites(ctx: AccessContext, entity: AccessEntity, a: Tenan
   }
 }
 
+const upperFirst = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** True when a stored row's foreign key names the row with this id. */
+const names = (row: Row | undefined, fk: string, id: unknown): boolean =>
+  row !== undefined && row[fk] !== null && row[fk] !== undefined && String(row[fk]) === String(id);
+
+/** A row as stored, read by a service caller. */
+async function storedRow(ctx: AccessContext, url: string): Promise<Row | undefined> {
+  const res = await call("GET", url, { headers: ctx.key });
+  return res.json;
+}
+
+/**
+ * A foreign key to a tenant-scoped entity must name a row the caller can
+ * read (R8), and a stored key that names another tenant's row must not carry
+ * that row into a response (R7). Runs for every such key of `entity` other
+ * than its own scope column, with every body shape the tenant cases use.
+ */
+async function foreignKeys(ctx: AccessContext, entity: AccessEntity, a: Tenant, b: Tenant, asA: Headers, asB: Headers): Promise<void> {
+  const { base, model, t, key } = ctx;
+  const mine = a.rows[entity.name];
+  const url = base + entity.route;
+  const n = entity.name;
+  const upper = upperFirst;
+  for (const relation of entity.relations) {
+    const fk = relation.fk;
+    const target = model.entities.find((e) => e.name === relation.entity);
+    if (!fk || !target?.scope || fk === entity.scope?.field) continue;
+    const [own, theirs] = [a.rows[target.name], b.rows[target.name]];
+    if (!own || !theirs) continue;
+    const p = relation.property;
+    const what = `another tenant's ${target.name}`;
+    const required = entity.parents.some((parent) => parent.property === fk);
+    const made: unknown[] = [];
+    const fresh = (i: number): Row => ({
+      ...payloadFor(entity, i),
+      ...parentsOf(entity, a),
+      ...(entity.scope?.parent ? { [entity.scope.field]: mine[entity.scope.field] } : {}),
+    });
+    const restore: [string, string, { headers: Headers; body: Row }] = ["PATCH", `${url}/${mine.id}`, { headers: key, body: { [fk]: mine[fk] ?? null } }];
+
+    // R8: the plain forms are refused with 403, in every language.
+    const plain = { [fk]: theirs.id };
+    t.expect(`[R8] ${n}: a create that names ${what} in ${fk} is refused`, await call("POST", url, { headers: asA, body: { ...fresh(61), ...plain } }), 403);
+    t.expect(`[R8] ${n}: an update that names ${what} in ${fk} is refused`, await call("PATCH", `${url}/${mine.id}`, { headers: asA, body: plain }), 403);
+    t.expect(`[R8] ${n}: a replace that names ${what} in ${fk} is refused`, await call("PUT", `${url}/${mine.id}`, { headers: asA, body: { ...fresh(1), ...plain } }), 403, 405);
+    await call(...restore);
+
+    // R8: whatever the body's shape, the reference is never stored.
+    const namings: [string, Row][] = [
+      [`in ${fk}`, plain],
+      [`in ${fk} as text`, { [fk]: String(theirs.id) }],
+      [`as an object in ${fk}`, { [fk]: { id: theirs.id } }],
+      [`in ${fk} beside an empty bulk list`, { [fk]: theirs.id, bulk: [] }],
+      [`as ${upper(fk)}`, { [upper(fk)]: theirs.id }],
+      ...(snakeCase(fk) === fk ? [] : [[`as ${snakeCase(fk)}`, { [snakeCase(fk)]: theirs.id }] as [string, Row]]),
+      [`through ${p}`, { [p]: { id: theirs.id } }],
+      [`through ${p} beside its own ${target.name} in ${fk}`, { [fk]: own.id, [p]: { id: theirs.id } }],
+      [`through ${p} as a list`, { [p]: [{ id: theirs.id }] }],
+      [`through ${p} as a bare id`, { [p]: theirs.id }],
+      [`through ${upper(p)}`, { [upper(p)]: { id: theirs.id } }],
+    ];
+    let k = 62;
+    for (const [how, extra] of namings) {
+      k += 3;
+      const created = await call("POST", url, { headers: asA, body: { ...fresh(k), ...extra } });
+      if (created.json?.id !== undefined && created.status < 300) made.push(created.json.id);
+      t.assert(`[R8] ${n}: a create that names ${what} ${how} does not store that reference (${created.status})`, created.status !== 0 && created.status < 500 && (created.status >= 400 || !names(await storedRow(ctx, `${url}/${created.json?.id}`), fk, theirs.id)), created.text.slice(0, 200));
+      const bulk = await call("POST", `${url}/bulk`, { headers: asA, body: { bulk: [{ ...fresh(k + 1), [fk]: own.id }, { ...fresh(k + 2), ...extra }] } });
+      const bulkRows: Row[] = bulk.status < 300 && Array.isArray(bulk.json) ? bulk.json : [];
+      let kept = false;
+      for (const row of bulkRows) {
+        made.push(row.id);
+        kept = kept || names(await storedRow(ctx, `${url}/${row.id}`), fk, theirs.id);
+      }
+      t.assert(`[R8] ${n}: a bulk create with a row that names ${what} ${how} does not store that reference (${bulk.status})`, bulk.status !== 0 && bulk.status < 500 && !kept, bulk.text.slice(0, 200));
+      for (const [method, verb, body] of [["PATCH", "update", extra], ["PUT", "replace", { ...fresh(1), ...extra }]] as [string, string, Row][]) {
+        const res = await call(method, `${url}/${mine.id}`, { headers: asA, body });
+        t.assert(`[R8] ${n}: ${verb === "update" ? "an" : "a"} ${verb} that names ${what} ${how} does not store that reference (${res.status})`, res.status !== 0 && res.status < 500 && !names(await storedRow(ctx, `${url}/${mine.id}`), fk, theirs.id), res.text.slice(0, 200));
+        await call(...restore);
+      }
+    }
+
+    // R8: the caller's own row, and no row at all, are still accepted.
+    const ok = await call("POST", url, { headers: asA, body: { ...fresh(98), [fk]: own.id } });
+    if (t.expect(`[R8] ${n}: a create that names its own tenant's ${target.name} in ${fk}`, ok, 200, 201)) made.push(ok.json?.id);
+    t.expect(`[R8] ${n}: an update that names its own tenant's ${target.name} in ${fk}`, await call("PATCH", `${url}/${mine.id}`, { headers: asA, body: { [fk]: own.id } }), 200);
+    if (!required) t.expect(`[R8] ${n}: an update that sets ${fk} to null`, await call("PATCH", `${url}/${mine.id}`, { headers: asA, body: { [fk]: null } }), 200);
+    await call(...restore);
+
+    // R7: a row written by a service caller that names the other tenant's row.
+    const seeded = await call("POST", url, { headers: key, body: { ...fresh(99), ...(entity.scope && !entity.scope.parent ? { [entity.scope.field]: mine[entity.scope.field] } : {}), [fk]: theirs.id } });
+    if (t.assert(`[R7] ${n}: a service caller stores a row that names ${what} in ${fk} (${seeded.status})`, seeded.status < 300 && names(seeded.json, fk, theirs.id), seeded.text.slice(0, 200))) {
+      const row = seeded.json as Row;
+      made.push(row.id);
+      const select = (embed: string) => `select=${enc(embed)}`;
+      const loads: [string, string][] = [
+        [`select embed ${p}`, select(`*,${p}(*)`)],
+        [`select embed ${p} with chosen columns`, select(`id,${p}(id)`)],
+        [`select embed ${p} under an alias`, select(`*,${alias(p)}:${p}(*)`)],
+        [`select embed ${p} with an inner join hint`, select(`*,${p}!inner(*)`)],
+        // Python and Go load a relation on a read by id only through the join parameter.
+        ...(model.language === "typescript" ? [] : [[`join ${p}`, `join=${enc(p)}`] as [string, string]]),
+      ];
+      for (const [name, query] of loads) {
+        for (const [where, to] of [["a list", `${url}?${query}&limit=1000`], ["a read by id", `${url}/${row.id}?${query}`]]) {
+          const res = await call("GET", to, { headers: query.startsWith("join=") ? asA : { ...asA, ...POSTGREST } });
+          if (res.status >= 500) ctx.warn?.(`${n}: GET ${to.slice(base.length)} answered ${res.status}`);
+          const leaked = res.status === 200 ? foreignRows(model, n, res.json?.data ?? res.json, b.rows) : [];
+          t.assert(`[R7] ${n}: ${where} with ${name} does not return ${what} through a stored ${fk} (${res.status})`, res.status !== 0 && leaked.length === 0, `GET ${to.slice(base.length)} returned ${leaked.join(", ")}`);
+        }
+      }
+      const told = await oracle(url, asA, p, target, theirs);
+      t.assert(`[R7] ${n}: a filter on a field of ${p} does not reveal ${what} through a stored ${fk}`, told === "", `GET ${entity.route} ${told}`);
+      // The other way round: the other tenant's caller loads its own row's relation back to this entity.
+      for (const back of entity.scope ? target.relations.filter((r) => r.entity === n) : []) {
+        const q = back.property;
+        const joined = model.language === "typescript" ? select(`*,${q}(*)`) : `join=${enc(q)}`;
+        for (const [where, to, headers] of [["a list", `${base}${target.route}?${select(`*,${q}(*)`)}&limit=1000`, POSTGREST], ["a read by id", `${base}${target.route}/${theirs.id}?${joined}`, model.language === "typescript" ? POSTGREST : {}]] as [string, string, Headers][]) {
+          const res = await call("GET", to, { headers: { ...asB, ...headers } });
+          const leaked = res.status === 200 ? rowsWhere(model, target.name, res.json?.data ?? res.json, (e, r) => e.name === n && String(r.id) === String(row.id)) : [];
+          t.assert(`[R7] ${target.name}: ${where} that loads ${q} does not return another tenant's ${n} that names it in ${fk} (${res.status})`, res.status !== 0 && leaked.length === 0, `GET ${to.slice(base.length)} returned ${leaked.join(", ")}`);
+        }
+      }
+      // A relation inside the tenant still loads.
+      const within = ok.json?.id === undefined ? undefined : await call("GET", `${url}?select=${enc(`*,${p}(*)`)}&id=${enc(`eq.${ok.json.id}`)}`, { headers: { ...asA, ...POSTGREST } });
+      if (within?.status === 200) t.assert(`[R7] ${n}: a list with select embed ${p} returns its own tenant's ${target.name}`, String(rowsOf(within.json)[0]?.[p]?.id) === String(own.id), within.text.slice(0, 200));
+    }
+    for (const id of made)
+      if (id !== undefined && String(id) !== String(mine.id)) await call("DELETE", `${url}/${id}`, { headers: key });
+  }
+}
+
 const NO_ROLE = "apso-access-no-such-role";
 
 async function permissions(ctx: AccessContext, entity: AccessEntity, a: Tenant, b: Tenant): Promise<void> {
@@ -863,10 +997,12 @@ export async function runAccessCases(ctx: AccessContext): Promise<void> {
       const bypass = new Set(model.entities.flatMap((e) => e.scope?.bypassRoles ?? []));
       const roles = [...new Set(model.entities.flatMap((e) => Object.values(e.permissions ?? {}).flat()))].filter((r) => !bypass.has(r as string)) as string[];
       const asA = ctx.user({ tenant: a.value, roles });
+      const asB = ctx.user({ tenant: b.value, roles });
       for (const entity of model.entities) {
         if (entity.scope && a.rows[entity.name] && b.rows[entity.name]) await tenantScope(ctx, entity, a, b, asA);
         else if (!entity.scope) await joinsFromShared(ctx, entity, b, asA);
         if (a.rows[entity.name]) await relationWrites(ctx, entity, a, b, asA);
+        if (a.rows[entity.name]) await foreignKeys(ctx, entity, a, b, asA, asB);
       }
       await mcpCases(ctx, a, b, asA);
       for (const entity of model.entities) await permissions(ctx, entity, a, b);

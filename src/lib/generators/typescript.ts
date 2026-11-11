@@ -36,6 +36,7 @@ import {
   hasPermissions,
   hasScopedEntities,
   relationScopes,
+  removedScopeOptionErrors,
   toRouteName,
   mcpOperations,
 } from "../guards";
@@ -79,6 +80,7 @@ export class TypeScriptGenerator extends BaseGenerator {
     if (!config.entities || config.entities.length === 0) {
       errors.push("No entities defined in configuration");
     }
+    errors.push(...removedScopeOptionErrors(config.entities ?? []));
 
     // Validate each entity
     for (const entity of config.entities) {
@@ -238,9 +240,7 @@ export class TypeScriptGenerator extends BaseGenerator {
     // Which requests the tenant filter covers; a service caller (API key)
     // always skips it.
     const scopeOptions = scoped && {
-      enforceOn: scoped.enforceOn,
       bypassRoles: scoped.bypassRoles,
-      injectOnCreate: scoped.injectOnCreate,
     };
 
     const mcp = mcpOperations(entity);
