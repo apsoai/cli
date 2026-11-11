@@ -1,5 +1,7 @@
 import {
   AuthConfig,
+  isJwtAuth,
+  resolveJwtAuth,
   Entity,
   PERMISSION_OPERATIONS,
   PermissionOperation,
@@ -315,7 +317,25 @@ export function entityScope(
   };
 }
 
-/** Entities whose scopeBy uses a nested path, which Go and Python do not enforce. */
+/**
+ * A tenant scope needs a claim to read the caller's tenant from. Auth0 and
+ * Cognito have no standard one, so without auth.claims.workspaceId every
+ * token would have no tenant and every scoped request would be a 403.
+ */
+export function assertTenantClaim(entities: Entity[], auth?: AuthConfig): void {
+  if (!auth || !isJwtAuth(auth)) return;
+  const claims = resolveJwtAuth(auth).claims;
+  if (claims.workspaceId || claims.organizationId) return;
+  const scoped = getScopedEntities(entities).filter((e) =>
+    e.scopes.some((s) => s.contextKey !== "userId" && s.contextKey !== "email")
+  );
+  if (scoped.length > 0)
+    throw new Error(
+      `${scoped.map((e) => e.name).join(", ")}: scopeBy needs the caller's tenant, and the "${auth.provider}" provider has no tenant claim configured. Set auth.claims.workspaceId to the claim that holds it (for example "org_id").`
+    );
+}
+
+/** Entities whose scopeBy uses a nested path, which Go and Python cannot enforce. */
 export function nestedScopeEntities(entities: Entity[]): string[] {
   return getScopedEntities(entities)
     .filter((e) => e.scopes.some((s) => !s.direct))

@@ -1,0 +1,79 @@
+name: break each rule
+
+# Proves the access suite can fail: generates a service per language, removes
+# one protection at a time from the generated code (scripts/access-mutations.mjs)
+# and requires scripts/auth-smoke.mjs to fail a case for the matching rule.
+# One build per removal, so it does not run on every commit: only when the
+# guards or the suite change, weekly, and on demand before a release.
+# See docs/access-rules.md.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 8 * * 1"
+  pull_request:
+    paths:
+      - "src/lib/guards.ts"
+      - "src/lib/access/**"
+      - "src/lib/templates/guards/**"
+      - "src/lib/templates/rest/controller-rest.eta"
+      - "src/lib/templates/python/auth.eta"
+      - "src/lib/templates/python/services/**"
+      - "src/lib/templates/go/middleware/**"
+      - "src/lib/templates/go/services/**"
+      - "scripts/auth-smoke.mjs"
+      - "scripts/access-mutations.mjs"
+      - "scripts/break-each-rule.mjs"
+      - ".github/workflows/break-each-rule.yml"
+
+jobs:
+  break-each-rule:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [typescript, python, go]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    name: break-each-rule (${{ matrix.language }})
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@mavric"
+
+      - name: Setup Go
+        if: matrix.language == 'go'
+        uses: actions/setup-go@v5
+        with:
+          go-version: "stable"
+
+      - name: Setup Python
+        if: matrix.language == 'python'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build the CLI
+        run: |
+          npm ci
+          npm run build
+
+      - name: Remove each protection and run the suite
+        env:
+          AUTH_SMOKE_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432
+        run: node scripts/break-each-rule.mjs "${{ matrix.language }}"

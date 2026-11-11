@@ -29,6 +29,7 @@ import * as fs from "fs";
 import * as os from "os";
 import { promisify } from "util";
 import {
+  assertTenantClaim,
   getPermissionConfig,
   getScopedEntities,
   hasScopedEntities,
@@ -516,6 +517,7 @@ export class TypeScriptGenerator extends BaseGenerator {
     const normalizedAuth = this.normalizeAuthConfig(auth);
     const jwt = auth && isJwtAuth(auth) ? resolveJwtAuth(auth) : undefined;
     const hasAuth = Boolean(normalizedAuth || jwt);
+    assertTenantClaim(entities, auth);
 
     // Roles come from the caller's identity; without auth there are none, and
     // a permissions block that is silently not enforced is worse than an error.

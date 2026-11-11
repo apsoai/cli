@@ -21,6 +21,7 @@ import {
   entityScope,
   hasPermissions,
   nestedScopeEntities,
+  assertTenantClaim,
 } from "../guards";
 import {
   arrayElementType,
@@ -753,9 +754,10 @@ ${modelRefs}
       );
     const nested = auth ? nestedScopeEntities(entities) : [];
     if (nested.length > 0)
-      console.warn(
-        `[apso] Nested scopeBy paths are enforced in TypeScript services only; ${nested.join(", ")} will not be filtered by those paths in this Go service`
+      throw new Error(
+        `${nested.join(", ")}: a scopeBy path through a parent (for example "project.organizationId") is enforced in TypeScript services only for now. In Go, put the tenant field on the entity and scope by it, or generate with --language typescript.`
       );
+    assertTenantClaim(entities, auth);
     if (auth && !isJwtAuth(auth))
       throw new Error(
         `auth.provider "${auth.provider}" is generated for TypeScript services only. For Go, use "jwt" (Better Auth issues JWTs with its JWT plugin).`
