@@ -29,7 +29,6 @@ import * as fs from "fs";
 import * as os from "os";
 import { promisify } from "util";
 import {
-  apiKeyTemplateData,
   getPermissionConfig,
   getScopedEntities,
   hasScopedEntities,
@@ -37,10 +36,8 @@ import {
 } from "../guards";
 import { getEventEmittingEntities } from "../events";
 import {
-  isApiKeyAuth,
   isDbSessionAuth,
   isJwtAuth,
-  resolveApiKeyAuth,
   resolveJwtAuth,
   DB_SESSION_AUTH_DEFAULTS,
   DbSessionAuthConfig,
@@ -221,21 +218,13 @@ export class TypeScriptGenerator extends BaseGenerator {
       ? getScopedEntities([entity], relationshipMap)[0]
       : undefined;
     const scopes = scoped?.scopes ?? [];
-    // Only emitted when scopeOptions differ from the defaults, so services
-    // without them keep the same generated controller.
-    const scopeOptions =
-      scoped &&
-      (scoped.bypassRoles.length > 0 ||
-        !scoped.injectOnCreate ||
-        ["find", "get", "create", "update", "delete"].some(
-          (op) => !scoped.enforceOn.includes(op)
-        ))
-        ? {
-            enforceOn: scoped.enforceOn,
-            bypassRoles: scoped.bypassRoles,
-            injectOnCreate: scoped.injectOnCreate,
-          }
-        : undefined;
+    // Which requests the tenant filter covers; a service caller (API key)
+    // always skips it.
+    const scopeOptions = scoped && {
+      enforceOn: scoped.enforceOn,
+      bypassRoles: scoped.bypassRoles,
+      injectOnCreate: scoped.injectOnCreate,
+    };
 
     const mcp = mcpOperations(entity);
     if (mcp.length > 0 && !auth)
@@ -501,16 +490,13 @@ export class TypeScriptGenerator extends BaseGenerator {
   async generateIndexModule(
     entities: Entity[],
     apiType: string,
-    opts?: { emitEvents?: boolean; auth?: AuthConfig }
+    _opts?: { emitEvents?: boolean; auth?: AuthConfig }
   ): Promise<GeneratedFile[]> {
-    // generateGuards emits GuardsModule whenever auth or scopeBy is configured;
-    // listing it here is what turns its global guards on.
+    // Listing GuardsModule is what turns the global guards on; every service
+    // has at least the API key check.
     const content = await this.renderTemplate(
       `./${apiType}/index-module-${apiType}`,
-      {
-        entities,
-        hasGuards: Boolean(opts?.auth) || hasScopedEntities(entities),
-      }
+      { entities }
     );
 
     return [
@@ -529,11 +515,7 @@ export class TypeScriptGenerator extends BaseGenerator {
     const hasScopes = hasScopedEntities(entities);
     const normalizedAuth = this.normalizeAuthConfig(auth);
     const jwt = auth && isJwtAuth(auth) ? resolveJwtAuth(auth) : undefined;
-    const apiKey =
-      auth && isApiKeyAuth(auth)
-        ? apiKeyTemplateData(resolveApiKeyAuth(auth), entities)
-        : undefined;
-    const hasAuth = Boolean(normalizedAuth || jwt || apiKey);
+    const hasAuth = Boolean(normalizedAuth || jwt);
 
     // Roles come from the caller's identity; without auth there are none, and
     // a permissions block that is silently not enforced is worse than an error.
@@ -542,10 +524,6 @@ export class TypeScriptGenerator extends BaseGenerator {
       throw new Error(
         "permissions in .apsorc need an auth block: roles come from the signed-in caller"
       );
-    }
-
-    if (!hasScopes && !hasAuth) {
-      return [];
     }
 
     const scopedEntities = getScopedEntities(entities, relationshipMap);
@@ -559,8 +537,6 @@ export class TypeScriptGenerator extends BaseGenerator {
             ? [normalizedAuth.accountUserEntity]
             : []),
         ]
-      : apiKey
-      ? [apiKey.apiKeyEntity]
       : [];
     const templateData = {
       scopedEntities,
@@ -572,21 +548,22 @@ export class TypeScriptGenerator extends BaseGenerator {
       authProvider: auth?.provider,
       authEntities,
       jwt,
-      apiKey,
       permissions,
       // OAuth sign-in for MCP clients: tokens come from the JWT issuer.
       mcpAuth:
         Boolean(jwt) && entities.some((e) => mcpOperations(e).length > 0),
     };
 
+    // The API key check is part of every service.
+    files.push({
+      path: "guards/key.guard.ts",
+      content: await this.renderTemplate("./guards/key.guard.eta", templateData),
+    });
+
     // Generate auth.guard.ts if auth is configured
     if (hasAuth) {
       const authGuardContent = await this.renderTemplate(
-        jwt
-          ? "./guards/jwt-auth.guard.eta"
-          : apiKey
-          ? "./guards/api-key-auth.guard.eta"
-          : "./guards/auth.guard.eta",
+        jwt ? "./guards/jwt-auth.guard.eta" : "./guards/auth.guard.eta",
         templateData
       );
       files.push({

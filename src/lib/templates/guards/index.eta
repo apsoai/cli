@@ -1,5 +1,6 @@
 <%~ includeFile('../header.eta') %>
 
+export * from './key.guard';
 <% if (it.hasAuth) { %>
 export * from './auth.guard';
 <% } %>

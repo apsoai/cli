@@ -4,49 +4,51 @@ package middleware
 
 // AuthMiddleware authenticates every route registered on the /api group.
 // Routes registered outside that group (such as /health) stay public.
+//
+// The API key check is built into every Apso service and is not configurable
+// in .apsorc. The key source is chosen once, when the service starts, first
+// match wins:
+//  1. APSO_API_KEY is set: the x-api-key header must match it. The variable
+//     holds the key itself (not a hash); several keys separated by commas are
+//     accepted, so a key can be rotated without downtime.
+//  2. APSO_SERVICE_TOKEN_JWKS_URL is set: the platform's gateway has checked
+//     the key and sends a signed token in x-apso-service-token.
+//  3. Neither: API keys are off and only signed-in users are accepted. A
+//     service with no sign-in configured then refuses every request.
+//
+// A caller with a valid key is a service caller (AuthContext.ServiceID): it may
+// call any route and is not tenant-scoped. A request whose key fails is
+// refused, whatever else it carries.
 <% if (it.jwt) { %>
 //
-// It verifies <%= it.jwt.provider %> JWTs from the Authorization: Bearer header against the
-// issuer's published keys (JWKS), checks issuer, expiry<% if (it.jwt.audience) { %>, audience<% } %> and algorithm,
-// and maps the token's claims into an AuthContext.
+// A request with no key needs a <%= it.jwt.provider %> JWT in the Authorization: Bearer header,
+// verified against the issuer's published keys (JWKS) with issuer, expiry<% if (it.jwt.audience) { %>, audience<% } %> and
+// algorithm checked; its claims become the AuthContext.
 // AUTH_JWT_ISSUER, AUTH_JWT_AUDIENCE and AUTH_JWKS_URI override the .apsorc values.
-<% } else { %>
-//
-// It reads an API key from the <%= it.apiKey.apiKeyHeader %> header and looks up the
-// <%= it.apiKey.apiKeyEntity %> row whose <%= it.apiKey.keyField %> is the key's hex SHA-256.
 <% } %>
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
 <% if (it.jwt) { %>
 	"encoding/json"
-<% } else { %>
-	"crypto/sha256"
-	"encoding/hex"
-	"fmt"
 <% } %>
+	"log"
 	"net/http"
-<% if (it.jwt) { %>
 	"os"
+<% if (it.jwt) { %>
 	"strconv"
+<% } %>
 	"strings"
 	"sync"
-<% } else if (it.apiKey.hasExpiresAt) { %>
-	"time"
-<% } %>
 
-<% if (it.jwt) { %>
 	"github.com/MicahParks/keyfunc/v3"
-<% } %>
 	"github.com/gin-gonic/gin"
-<% if (it.jwt) { %>
 	"github.com/golang-jwt/jwt/v5"
-<% } %>
 	"gorm.io/gorm"
-<% if (it.apiKey) { %>
-
-	"app/autogen/models"
-<% } %>
 )
 
 // AuthContext is the normalized identity of the caller.
@@ -88,10 +90,31 @@ func GetAuthContext(c *gin.Context) (*AuthContext, bool) {
 	return a, ok
 }
 
-func unauthorized(c *gin.Context, msg string) {
-	c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": msg})
+const (
+	noSource         = `This service has no API key source and no sign-in configured, so it refuses every request. Set APSO_API_KEY in its environment; "apso dev" creates a development key in .env.`
+	noCredential     = "No credential on the request. Send the API key in the x-api-key header."
+	wrongKey         = "The key in the x-api-key header does not match APSO_API_KEY."
+	noServiceToken   = "This service takes API keys through the platform gateway, and the request has no valid x-apso-service-token. Call the service at its gateway URL with a key issued for it."
+	keysOff          = "An x-api-key header was sent, but API keys are off on this service. Set APSO_API_KEY to turn them on."
+	hasSignIn        = <%= it.jwt ? 'true' : 'false' %>
+
+	requestIDHeader = "x-request-id"
+)
+
+// The detailed 401 is for a developer's machine only: "apso dev" sets
+// APSO_LOCAL, and Lambda ignores it.
+var local = os.Getenv("APSO_LOCAL") == "1" && os.Getenv("AWS_LAMBDA_FUNCTION_NAME") == ""
+
+// refuse answers 401. The reason goes to the log, and to the caller only on a
+// developer's machine.
+func refuse(c *gin.Context, reason string) {
+	id := c.Request.Header.Get(requestIDHeader)
+	log.Printf("[apso] 401 %s %s request=%s: %s", c.Request.Method, c.Request.URL.Path, id, reason)
+	if !local {
+		reason = "Unauthorized"
+	}
+	c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": reason, "requestId": id})
 }
-<% if (it.jwt) { %>
 
 func splitList(s string) []string {
 	out := []string{}
@@ -101,6 +124,171 @@ func splitList(s string) []string {
 		}
 	}
 	return out
+}
+
+// lazyJWKS fetches a JWKS on first use, retrying on later requests if the
+// issuer was unreachable. keyfunc refreshes the set in the background.
+type lazyJWKS struct {
+	url string
+	mu  sync.Mutex
+	k   keyfunc.Keyfunc
+}
+
+func (j *lazyJWKS) get() (keyfunc.Keyfunc, error) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.k != nil {
+		return j.k, nil
+	}
+	k, err := keyfunc.NewDefaultCtx(context.Background(), []string{j.url})
+	if err != nil {
+		return nil, err
+	}
+	j.k = k
+	return k, nil
+}
+
+// keySource is where API keys are checked, chosen once at start-up.
+type keySource struct {
+	keys      [][sha256.Size]byte
+	jwks      *lazyJWKS
+	issuer    string
+	serviceID string
+}
+
+func chooseKeySource() *keySource {
+	s := &keySource{
+		issuer:    os.Getenv("APSO_SERVICE_TOKEN_ISSUER"),
+		serviceID: os.Getenv("APSO_SERVICE_ID"),
+	}
+	for _, k := range splitList(os.Getenv("APSO_API_KEY")) {
+		s.keys = append(s.keys, sha256.Sum256([]byte(k)))
+	}
+	switch url := os.Getenv("APSO_SERVICE_TOKEN_JWKS_URL"); {
+	case len(s.keys) > 0:
+		log.Printf("[apso] API keys: checked against APSO_API_KEY (%d set)", len(s.keys))
+	case url != "":
+		s.jwks = &lazyJWKS{url: url}
+		log.Print("[apso] API keys: checked by the platform gateway (APSO_SERVICE_TOKEN_JWKS_URL)")
+		if s.issuer == "" || s.serviceID == "" {
+			log.Print("[apso] WARNING: APSO_SERVICE_TOKEN_ISSUER and APSO_SERVICE_ID must both be set; until then every API key is refused.")
+		}
+	default:
+		log.Print("[apso] API keys: off (neither APSO_API_KEY nor APSO_SERVICE_TOKEN_JWKS_URL is set)")
+		if !hasSignIn {
+			log.Print("[apso] WARNING: " + noSource)
+		}
+	}
+	return s
+}
+
+// keyID returns the key id from the gateway's token (sub "apikey:<id>"), or ""
+// when the token is not valid for this service.
+func (s *keySource) keyID(token string) string {
+	if token == "" || s.issuer == "" || s.serviceID == "" {
+		return ""
+	}
+	k, err := s.jwks.get()
+	if err != nil {
+		return ""
+	}
+	claims := jwt.RegisteredClaims{}
+	parsed, err := jwt.ParseWithClaims(token, &claims, k.Keyfunc,
+		jwt.WithIssuer(s.issuer),
+		jwt.WithAudience(s.serviceID),
+		jwt.WithValidMethods([]string{"ES256"}),
+		jwt.WithExpirationRequired(),
+	)
+	if err != nil || !parsed.Valid {
+		return ""
+	}
+	id, _ := strings.CutPrefix(claims.Subject, "apikey:")
+	if id == claims.Subject {
+		return ""
+	}
+	return id
+}
+
+// serviceCaller returns the service caller when the request carries a valid
+// key, and refused=true after answering 401 for a key that fails the chosen
+// source; no other source and no user token is tried. Both are zero when the
+// request presents no key.
+func (s *keySource) serviceCaller(c *gin.Context) (caller *AuthContext, refused bool) {
+	key := c.GetHeader("x-api-key")
+	id := ""
+	switch {
+	case len(s.keys) > 0:
+		if key == "" {
+			return nil, false
+		}
+		sum := sha256.Sum256([]byte(key))
+		// Every key is compared, in constant time.
+		for _, k := range s.keys {
+			if subtle.ConstantTimeCompare(k[:], sum[:]) == 1 && id == "" {
+				id = hex.EncodeToString(k[:4])
+			}
+		}
+		if id == "" {
+			refuse(c, wrongKey)
+			return nil, true
+		}
+	case s.jwks != nil:
+		token := c.GetHeader("x-apso-service-token")
+		if key == "" && token == "" {
+			return nil, false
+		}
+		if id = s.keyID(token); id == "" {
+			refuse(c, noServiceToken)
+			return nil, true
+		}
+	default:
+		if key == "" {
+			return nil, false
+		}
+		refuse(c, keysOff)
+		return nil, true
+	}
+	return &AuthContext{ServiceID: id, Roles: []string{}}, false
+}
+
+// AuthMiddleware accepts a valid API key<% if (it.jwt) { %>, else a signed-in user<% } %>. The database is unused.
+func AuthMiddleware(_ *gorm.DB) gin.HandlerFunc {
+	source := chooseKeySource()
+	return func(c *gin.Context) {
+		// The caller's x-request-id is kept, or one is created; the response echoes it.
+		id := c.GetHeader(requestIDHeader)
+		if id == "" {
+			b := make([]byte, 16)
+			_, _ = rand.Read(b)
+			id = hex.EncodeToString(b)
+			c.Request.Header.Set(requestIDHeader, id)
+		}
+		c.Header(requestIDHeader, id)
+
+		caller, refused := source.serviceCaller(c)
+		if refused {
+			return
+		}
+		if caller != nil {
+			setAuth(c, caller)
+			c.Next()
+			return
+		}
+<% if (it.jwt) { %>
+		userAuth(c)
+<% } else { %>
+		if len(source.keys) > 0 || source.jwks != nil {
+			refuse(c, noCredential)
+		} else {
+			refuse(c, noSource)
+		}
+<% } %>
+	}
+}
+<% if (it.jwt) { %>
+
+func unauthorized(c *gin.Context, msg string) {
+	refuse(c, msg+". Send a signed-in user's token, or an API key in the x-api-key header.")
 }
 
 func env(name, fallback string) string {
@@ -113,30 +301,12 @@ func env(name, fallback string) string {
 var (
 	issuer     = env("AUTH_JWT_ISSUER", <%~ JSON.stringify(it.jwt.issuer) %>)
 	audience   = env("AUTH_JWT_AUDIENCE", <%~ JSON.stringify(it.jwt.audience || '') %>)
-	jwksURI    = env("AUTH_JWKS_URI", <%~ JSON.stringify(it.jwt.jwksUri) %>)
 	algorithms = []string{<%~ it.jwt.algorithms.map((a) => JSON.stringify(a)).join(', ') %>}
 	// Origins allowed in the azp claim; empty allows any.
 	authorizedParties = splitList(env("AUTH_JWT_AUTHORIZED_PARTIES", <%~ JSON.stringify(it.jwt.authorizedParties.join(',')) %>))
 
-	jwksMu sync.Mutex
-	jwks   keyfunc.Keyfunc
+	jwks = &lazyJWKS{url: env("AUTH_JWKS_URI", <%~ JSON.stringify(it.jwt.jwksUri) %>)}
 )
-
-// keys fetches the issuer's JWKS on first use, retrying on later requests if
-// the issuer was unreachable. keyfunc refreshes the set in the background.
-func keys() (keyfunc.Keyfunc, error) {
-	jwksMu.Lock()
-	defer jwksMu.Unlock()
-	if jwks != nil {
-		return jwks, nil
-	}
-	k, err := keyfunc.NewDefaultCtx(context.Background(), []string{jwksURI})
-	if err != nil {
-		return nil, err
-	}
-	jwks = k
-	return k, nil
-}
 
 // claim reads a claim by exact name (Auth0 namespaced URLs contain dots),
 // else by dotted path into nested objects.
@@ -196,74 +366,72 @@ func roles(v interface{}) []string {
 	return out
 }
 
-// AuthMiddleware verifies the caller's JWT. The database is unused for JWT auth.
-func AuthMiddleware(_ *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		header := c.GetHeader("Authorization")
-		if !strings.HasPrefix(header, "Bearer ") {
-			unauthorized(c, "No bearer token provided")
-			return
-		}
-		k, err := keys()
-		if err != nil {
-			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "Token signing keys unavailable"})
-			return
-		}
-		opts := []jwt.ParserOption{
-			jwt.WithIssuer(issuer),
-			jwt.WithValidMethods(algorithms),
-			jwt.WithExpirationRequired(),
-		}
-<% if (it.jwt.provider !== 'cognito') { %>
-		if audience != "" {
-			opts = append(opts, jwt.WithAudience(audience))
-		}
-<% } %>
-		mc := jwt.MapClaims{}
-		token, err := jwt.ParseWithClaims(strings.TrimPrefix(header, "Bearer "), mc, k.Keyfunc, opts...)
-		if err != nil || !token.Valid {
-			unauthorized(c, "Invalid token")
-			return
-		}
-		claims := map[string]interface{}(mc)
-<% if (it.jwt.provider === 'cognito') { %>
-		// Cognito ID tokens carry aud; access tokens carry client_id instead.
-		if audience != "" {
-			aud := claims["aud"]
-			if aud == nil {
-				aud = claims["client_id"]
-			}
-			if !containsAudience(aud, audience) {
-				unauthorized(c, "Invalid token")
-				return
-			}
-		}
-<% } %>
-
-		if azp, ok := claims["azp"].(string); ok && len(authorizedParties) > 0 && !contains(authorizedParties, azp) {
-			unauthorized(c, "Invalid token")
-			return
-		}
-
-		userID := str(claim(claims, <%~ JSON.stringify(it.jwt.claims.userId) %>))
-		if userID == "" {
-			unauthorized(c, "Token has no user id")
-			return
-		}
-		tenant := str(claim(claims, <%~ JSON.stringify(it.jwt.claims.workspaceId || '') %>))
-		if tenant == "" {
-			tenant = str(claim(claims, <%~ JSON.stringify(it.jwt.claims.organizationId || '') %>))
-		}
-		setAuth(c, &AuthContext{
-			UserID:         userID,
-			Email:          str(claim(claims, <%~ JSON.stringify(it.jwt.claims.email || '') %>)),
-			WorkspaceID:    tenant,
-			OrganizationID: tenant,
-			Roles:          roles(claim(claims, <%~ JSON.stringify(it.jwt.claims.roles || '') %>)),
-			Claims:         claims,
-		})
-		c.Next()
+// userAuth verifies the caller's JWT and attaches the signed-in user.
+func userAuth(c *gin.Context) {
+	header := c.GetHeader("Authorization")
+	if !strings.HasPrefix(header, "Bearer ") {
+		unauthorized(c, "No bearer token provided")
+		return
 	}
+	k, err := jwks.get()
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "Token signing keys unavailable"})
+		return
+	}
+	opts := []jwt.ParserOption{
+		jwt.WithIssuer(issuer),
+		jwt.WithValidMethods(algorithms),
+		jwt.WithExpirationRequired(),
+	}
+<% if (it.jwt.provider !== 'cognito') { %>
+	if audience != "" {
+		opts = append(opts, jwt.WithAudience(audience))
+	}
+<% } %>
+	mc := jwt.MapClaims{}
+	token, err := jwt.ParseWithClaims(strings.TrimPrefix(header, "Bearer "), mc, k.Keyfunc, opts...)
+	if err != nil || !token.Valid {
+		unauthorized(c, "Invalid token")
+		return
+	}
+	claims := map[string]interface{}(mc)
+<% if (it.jwt.provider === 'cognito') { %>
+	// Cognito ID tokens carry aud; access tokens carry client_id instead.
+	if audience != "" {
+		aud := claims["aud"]
+		if aud == nil {
+			aud = claims["client_id"]
+		}
+		if !containsAudience(aud, audience) {
+			unauthorized(c, "Invalid token")
+			return
+		}
+	}
+<% } %>
+
+	if azp, ok := claims["azp"].(string); ok && len(authorizedParties) > 0 && !contains(authorizedParties, azp) {
+		unauthorized(c, "Invalid token")
+		return
+	}
+
+	userID := str(claim(claims, <%~ JSON.stringify(it.jwt.claims.userId) %>))
+	if userID == "" {
+		unauthorized(c, "Token has no user id")
+		return
+	}
+	tenant := str(claim(claims, <%~ JSON.stringify(it.jwt.claims.workspaceId || '') %>))
+	if tenant == "" {
+		tenant = str(claim(claims, <%~ JSON.stringify(it.jwt.claims.organizationId || '') %>))
+	}
+	setAuth(c, &AuthContext{
+		UserID:         userID,
+		Email:          str(claim(claims, <%~ JSON.stringify(it.jwt.claims.email || '') %>)),
+		WorkspaceID:    tenant,
+		OrganizationID: tenant,
+		Roles:          roles(claim(claims, <%~ JSON.stringify(it.jwt.claims.roles || '') %>)),
+		Claims:         claims,
+	})
+	c.Next()
 }
 <% if (it.jwt.provider === 'cognito') { %>
 
@@ -281,76 +449,4 @@ func containsAudience(aud interface{}, want string) bool {
 	return false
 }
 <% } %>
-<% } else { %>
-
-<% if (it.apiKey.hasExpiresAt) { %>
-// before reports whether an expiresAt value read from the database is still
-// in the future. A value it cannot read counts as expired.
-func before(v interface{}, now time.Time) bool {
-	switch t := v.(type) {
-	case time.Time:
-		return now.Before(t)
-	case *time.Time:
-		return t == nil || now.Before(*t)
-	case string:
-		for _, layout := range []string{time.RFC3339Nano, "2006-01-02 15:04:05", "2006-01-02"} {
-			if p, err := time.Parse(layout, t); err == nil {
-				return now.Before(p)
-			}
-		}
-	case []byte:
-		return before(string(t), now)
-	}
-	return false
-}
-
-<% } %>
-// AuthMiddleware authenticates the caller's API key against <%= it.apiKey.apiKeyEntity %>.
-func AuthMiddleware(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		key := c.GetHeader(<%~ JSON.stringify(it.apiKey.apiKeyHeader) %>)
-		if key == "" {
-			unauthorized(c, "No API key provided")
-			return
-		}
-		sum := sha256.Sum256([]byte(key))
-		row := map[string]interface{}{}
-		err := db.Model(&models.<%= it.apiKey.goModel %>{}).
-			Where(<%~ JSON.stringify('"' + it.apiKey.keyColumn + '" = ?') %>, hex.EncodeToString(sum[:])).
-			Take(&row).Error
-		if err != nil {
-			unauthorized(c, "Invalid API key")
-			return
-		}
-<% if (it.apiKey.hasStatus) { %>
-		if fmt.Sprint(row["status"]) != "active" {
-			unauthorized(c, "API key is not active")
-			return
-		}
-<% } %>
-<% if (it.apiKey.hasExpiresAt) { %>
-		if v := row[<%~ JSON.stringify(it.apiKey.expiresColumn) %>]; v != nil && !before(v, time.Now()) {
-			unauthorized(c, "API key has expired")
-			return
-		}
-<% } %>
-		tenant := ""
-		if v := row[<%~ JSON.stringify(it.apiKey.workspaceColumn) %>]; v != nil {
-			tenant = fmt.Sprint(v)
-		}
-		roles := []string{}
-<% if (it.apiKey.roleField) { %>
-		if v := row[<%~ JSON.stringify(it.apiKey.roleColumn) %>]; v != nil {
-			roles = append(roles, fmt.Sprint(v))
-		}
-<% } %>
-		setAuth(c, &AuthContext{
-			ServiceID:      fmt.Sprint(row["id"]),
-			WorkspaceID:    tenant,
-			OrganizationID: tenant,
-			Roles:          roles,
-		})
-		c.Next()
-	}
-}
 <% } %>

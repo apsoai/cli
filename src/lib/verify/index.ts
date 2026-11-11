@@ -6,6 +6,7 @@
  */
 
 import { ChildProcess, spawn } from "child_process";
+import { randomBytes } from "crypto";
 import * as fs from "fs";
 import * as http from "http";
 import * as net from "net";
@@ -542,15 +543,20 @@ const freePort = () =>
 
 type Res = { status: number; body: string };
 
+// The smoke test's own API key: the service is started with it and every
+// request sends it, so the checks pass whatever the project's .env holds.
+const SMOKE_KEY = randomBytes(16).toString("hex");
+
 const request = (method: string, url: string, body?: unknown) =>
   new Promise<Res>((resolve) => {
     const data = body === undefined ? undefined : JSON.stringify(body);
-    const headers: http.OutgoingHttpHeaders = data
-      ? {
-          "content-type": "application/json",
-          "content-length": Buffer.byteLength(data),
-        }
-      : {};
+    const headers: http.OutgoingHttpHeaders = {
+      "x-api-key": SMOKE_KEY,
+      ...(data && {
+        "content-type": "application/json",
+        "content-length": Buffer.byteLength(data),
+      }),
+    };
     http
       .request(url, { method, headers, timeout: 15_000 }, (res) => {
         let text = "";
@@ -763,7 +769,12 @@ export async function smokeTest(
     const port = await freePort();
     const server = spawn(process.execPath, ["dist/main"], {
       cwd: projectDir,
-      env: { ...process.env, ...pgliteEnv(dataDir), APP_PORT: String(port) },
+      env: {
+        ...process.env,
+        ...pgliteEnv(dataDir),
+        APP_PORT: String(port),
+        APSO_API_KEY: SMOKE_KEY,
+      },
     });
     await serve(server, port, timeoutMs, done, (base) =>
       checkEndpoints(base, language, entities, relationships, done)
@@ -847,7 +858,7 @@ async function smokeTestOnDatabaseUrl(
     return s.ok;
   };
   const port = await freePort();
-  const serverEnv = { ...env, PORT: String(port) };
+  const serverEnv = { ...env, PORT: String(port), APSO_API_KEY: SMOKE_KEY };
   const binDir = fs.mkdtempSync(path.join(os.tmpdir(), "apso-smoke-"));
   try {
     let server: ChildProcess;

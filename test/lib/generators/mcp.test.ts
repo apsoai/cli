@@ -92,26 +92,24 @@ describe("ensureMcpWiring", () => {
 const guards = async (entity: Entity, auth: AuthConfig) => {
   const files = await generator("typescript", [entity]).generateGuards([entity], auth, {});
   const file = (name: string) => files.find((f) => f.path === `guards/${name}`)!.content;
-  return { guard: file("auth.guard.ts"), module: file("guards.module.ts") };
+  return { guard: file("auth.guard.ts"), key: file("key.guard.ts"), module: file("guards.module.ts") };
 };
 
 describe("OAuth sign-in for MCP clients", () => {
   test("a JWT service with MCP tools shares its token check with @apso/mcp", async () => {
-    const { guard, module } = await guards(invoice(true), jwt);
-    expect(guard).toContain("provide: 'APSO_MCP_AUTH'");
-    expect(guard).toContain("verify: (request: any) => guard.authenticate(request)");
+    const { guard, key, module } = await guards(invoice(true), jwt);
+    // The API key check comes first on /mcp too, then the user's token.
+    expect(key).toContain("provide: 'APSO_MCP_AUTH'");
+    expect(key).toContain("inject: [ApiKeyGuard]");
+    expect(key).toContain("verify: (request: any) => guard.authenticate(request)");
     expect(guard).toContain("process.env.MCP_RESOURCE_URL");
     expect(module).toContain("McpAuthProvider,");
   });
 
   test("no MCP tools, or no JWT issuer to sign in with, means no sign-in settings", async () => {
     const plain = await guards(invoice(), jwt);
-    expect(plain.guard).not.toContain("APSO_MCP_AUTH");
+    expect(plain.key).not.toContain("APSO_MCP_AUTH");
     expect(plain.guard).toContain("async authenticate(request: any)");
     expect(plain.module).not.toContain("McpAuthProvider");
-
-    const apiKey = { name: "ApiKey", fields: [{ name: "keyHash", type: "text" as const }] };
-    const files = await generator("typescript", [invoice(true), apiKey]).generateGuards([invoice(true), apiKey], { provider: "api-key" }, {});
-    expect(files.find((f) => f.path === "guards/guards.module.ts")!.content).not.toContain("McpAuthProvider");
   });
 });

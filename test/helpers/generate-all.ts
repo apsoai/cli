@@ -40,6 +40,9 @@ export async function generateAll(
     ]))
       files.push(...generated);
   }
-  files.push(...(await generator.generateIndexModule(entities, apiType)));
+  files.push(
+    ...(await generator.generateGuards(entities)),
+    ...(await generator.generateIndexModule(entities, apiType))
+  );
   return new Map(files.map((f) => [f.path, f.content]));
 }

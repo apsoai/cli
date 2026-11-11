@@ -3,38 +3,39 @@
 """
 Authentication for every route on the generated /api router.
 
+The API key check is built into every Apso service and is not configurable in
+.apsorc. The key source is chosen once, when the service starts, first match
+wins:
+1. APSO_API_KEY is set: the x-api-key header must match it. The variable holds
+   the key itself (not a hash); several keys separated by commas are accepted,
+   so a key can be rotated without downtime.
+2. APSO_SERVICE_TOKEN_JWKS_URL is set: the platform's gateway has checked the
+   key and sends a signed token in x-apso-service-token.
+3. Neither: API keys are off and only signed-in users are accepted. A service
+   with no sign-in configured then refuses every request.
+
+A caller with a valid key is a service caller (AuthContext.service_id): it may
+call any route and is not tenant-scoped. A request whose key fails is refused,
+whatever else it carries.
 <% if (it.jwt) { %>
-Verifies <%= it.jwt.provider %> JWTs from the Authorization: Bearer header against the
-issuer's published keys (JWKS), checks issuer, expiry<% if (it.jwt.audience) { %>, audience<% } %> and algorithm,
-and maps the token's claims into an AuthContext on request.state.auth.
+
+A request with no key needs a <%= it.jwt.provider %> JWT in the Authorization: Bearer header,
+verified against the issuer's published keys (JWKS) with issuer, expiry<% if (it.jwt.audience) { %>, audience<% } %> and
+algorithm checked; its claims become the AuthContext on request.state.auth.
 AUTH_JWT_ISSUER, AUTH_JWT_AUDIENCE and AUTH_JWKS_URI override the .apsorc values.
-<% } else { %>
-Reads an API key from the <%= it.apiKey.apiKeyHeader %> header and looks up the <%= it.apiKey.apiKeyEntity %> row
-whose <%= it.apiKey.keyField %> is the key's hex SHA-256.
 <% } %>
 """
-<% if (it.apiKey) { %>
 import hashlib
-from datetime import date, datetime, timezone
-<% } else { %>
+import hmac
 import os
-<% } %>
+import uuid
 from dataclasses import dataclass, field
-from typing import Any, List, Optional
+from typing import Any, List, NoReturn, Optional
 
-<% if (it.jwt) { %>
 import jwt
-from fastapi import HTTPException, Request, status
+from fastapi import HTTPException, Request, Response, status
 from jwt import PyJWKClient
 from starlette.concurrency import run_in_threadpool
-<% } else { %>
-from fastapi import Depends, HTTPException, Request, status
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.database import get_db
-from .models.<%= it.apiKey.pyModule %> import <%= it.apiKey.apiKeyEntity %>
-<% } %>
 
 
 @dataclass
@@ -104,8 +105,8 @@ def _roles(value: Any) -> List[str]:
     return [value] if isinstance(value, str) and value else []
 
 
-async def require_auth(request: Request) -> AuthContext:
-    """FastAPI dependency: verify the bearer token and attach the AuthContext."""
+async def _require_user(request: Request) -> AuthContext:
+    """Verify the bearer token and return the signed-in user's AuthContext."""
     header = request.headers.get("authorization", "")
     if not header.startswith("Bearer "):
         raise _unauthorized("No bearer token provided")
@@ -160,58 +161,131 @@ async def require_auth(request: Request) -> AuthContext:
         roles=_roles(_claim(payload, CLAIMS.get("roles"))),
         claims=payload,
     )
-    request.state.auth = ctx
-    return ctx
-<% } else { %>
-
-
-def _expired(value: Any) -> bool:
-    if value is None:
-        return False
-    if isinstance(value, datetime):
-        if value.tzinfo is None:
-            value = value.replace(tzinfo=timezone.utc)
-        return value <= datetime.now(timezone.utc)
-    if isinstance(value, date):
-        return value <= date.today()
-    return False
-
-
-async def require_auth(request: Request, db: AsyncSession = Depends(get_db)) -> AuthContext:
-    """FastAPI dependency: authenticate the API key and attach the AuthContext."""
-    key = request.headers.get(<%~ JSON.stringify(it.apiKey.apiKeyHeader) %>)
-    if not key:
-        raise _unauthorized("No API key provided")
-    digest = hashlib.sha256(key.encode()).hexdigest()
-    result = await db.execute(
-        select(<%= it.apiKey.apiKeyEntity %>).where(<%= it.apiKey.apiKeyEntity %>.<%= it.apiKey.keyField %> == digest)
-    )
-    record = result.scalar_one_or_none()
-    if record is None:
-        raise _unauthorized("Invalid API key")
-<% if (it.apiKey.hasStatus) { %>
-    if getattr(record.status, "value", record.status) != "active":
-        raise _unauthorized("API key is not active")
-<% } %>
-<% if (it.apiKey.hasExpiresAt) { %>
-    if _expired(record.expiresAt):
-        raise _unauthorized("API key has expired")
-<% } %>
-
-    tenant = getattr(record, <%~ JSON.stringify(it.apiKey.workspaceField) %>, None)
-    tenant = str(tenant) if tenant is not None else None
-<% if (it.apiKey.roleField) { %>
-    role = getattr(record, <%~ JSON.stringify(it.apiKey.roleField) %>, None)
-    roles = [str(getattr(role, "value", role))] if role is not None else []
-<% } else { %>
-    roles: List[str] = []
-<% } %>
-    ctx = AuthContext(
-        service_id=str(record.id),
-        workspace_id=tenant,
-        organization_id=tenant,
-        roles=roles,
-    )
-    request.state.auth = ctx
     return ctx
 <% } %>
+
+
+NO_SOURCE = (
+    "This service has no API key source and no sign-in configured, so it refuses every request. "
+    'Set APSO_API_KEY in its environment; "apso dev" creates a development key in .env.'
+)
+NO_CREDENTIAL = "No credential on the request. Send the API key in the x-api-key header."
+WRONG_KEY = "The key in the x-api-key header does not match APSO_API_KEY."
+NO_SERVICE_TOKEN = (
+    "This service takes API keys through the platform gateway, and the request has no valid "
+    "x-apso-service-token. Call the service at its gateway URL with a key issued for it."
+)
+KEYS_OFF = "An x-api-key header was sent, but API keys are off on this service. Set APSO_API_KEY to turn them on."
+HAS_SIGN_IN = <%= it.jwt ? 'True' : 'False' %>
+
+# The detailed 401 is for a developer's machine only: "apso dev" sets
+# APSO_LOCAL, and Lambda ignores it.
+LOCAL = os.getenv("APSO_LOCAL") == "1" and not os.getenv("AWS_LAMBDA_FUNCTION_NAME")
+
+# The key source, chosen once at start-up.
+_KEYS = [
+    hashlib.sha256(k.strip().encode()).digest()
+    for k in os.getenv("APSO_API_KEY", "").split(",")
+    if k.strip()
+]
+_SERVICE_JWKS_URL = "" if _KEYS else os.getenv("APSO_SERVICE_TOKEN_JWKS_URL", "")
+_SERVICE_JWKS = PyJWKClient(_SERVICE_JWKS_URL, cache_keys=True) if _SERVICE_JWKS_URL else None
+_SERVICE_ISSUER = os.getenv("APSO_SERVICE_TOKEN_ISSUER", "")
+_SERVICE_ID = os.getenv("APSO_SERVICE_ID", "")
+
+if _KEYS:
+    print(f"[apso] API keys: checked against APSO_API_KEY ({len(_KEYS)} set)", flush=True)
+elif _SERVICE_JWKS:
+    print("[apso] API keys: checked by the platform gateway (APSO_SERVICE_TOKEN_JWKS_URL)", flush=True)
+    if not (_SERVICE_ISSUER and _SERVICE_ID):
+        print(
+            "[apso] WARNING: APSO_SERVICE_TOKEN_ISSUER and APSO_SERVICE_ID must both be set; "
+            "until then every API key is refused.",
+            flush=True,
+        )
+else:
+    print("[apso] API keys: off (neither APSO_API_KEY nor APSO_SERVICE_TOKEN_JWKS_URL is set)", flush=True)
+    if not HAS_SIGN_IN:
+        print(f"[apso] WARNING: {NO_SOURCE}", flush=True)
+
+
+def _refuse(request: Request, reason: str) -> NoReturn:
+    """401. The reason goes to the log, and to the caller only on a developer's machine."""
+    request_id = request.state.request_id
+    print(f"[apso] 401 {request.method} {request.url.path} request={request_id}: {reason}", flush=True)
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail={"message": reason if LOCAL else "Unauthorized", "requestId": request_id},
+        headers={"x-request-id": request_id},
+    )
+
+
+def _service_token_key_id(token: str) -> Optional[str]:
+    """The key id from the gateway's token (sub "apikey:<id>"), when the token is valid for this service."""
+    if not (_SERVICE_JWKS and _SERVICE_ISSUER and _SERVICE_ID):
+        return None
+    try:
+        signing_key = _SERVICE_JWKS.get_signing_key_from_jwt(token)
+        payload = jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=["ES256"],
+            issuer=_SERVICE_ISSUER,
+            audience=_SERVICE_ID,
+            options={"require": ["exp", "iss", "aud", "sub"]},
+        )
+    except jwt.PyJWTError:
+        return None
+    sub = payload["sub"]
+    return sub[len("apikey:"):] or None if isinstance(sub, str) and sub.startswith("apikey:") else None
+
+
+async def _service_caller(request: Request) -> Optional[AuthContext]:
+    """
+    The service caller when the request carries a valid key, None when it
+    presents none. A key that fails the chosen source is refused here; no
+    other source and no user token is tried.
+    """
+    key = request.headers.get("x-api-key")
+    if _KEYS:
+        if not key:
+            return None
+        digest = hashlib.sha256(key.encode()).digest()
+        # Every key is compared, in constant time.
+        matches = [k for k in _KEYS if hmac.compare_digest(k, digest)]
+        if not matches:
+            _refuse(request, WRONG_KEY)
+        key_id = matches[0].hex()[:8]
+    elif _SERVICE_JWKS:
+        token = request.headers.get("x-apso-service-token")
+        if not key and not token:
+            return None
+        key_id = await run_in_threadpool(_service_token_key_id, token) if token else None
+        if not key_id:
+            _refuse(request, NO_SERVICE_TOKEN)
+    else:
+        if not key:
+            return None
+        _refuse(request, KEYS_OFF)
+    return AuthContext(service_id=key_id)
+
+
+async def require_auth(request: Request, response: Response) -> AuthContext:
+    """FastAPI dependency: accept a valid API key<% if (it.jwt) { %>, else a signed-in user<% } %>; attach the AuthContext."""
+    request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
+    request.state.request_id = request_id
+    response.headers["x-request-id"] = request_id
+    ctx = await _service_caller(request)
+    if ctx is None:
+<% if (it.jwt) { %>
+        try:
+            ctx = await _require_user(request)
+        except HTTPException as e:
+            if e.status_code != status.HTTP_401_UNAUTHORIZED:
+                raise
+            _refuse(request, f"{e.detail}. Send a signed-in user's token, or an API key in the x-api-key header.")
+<% } else { %>
+        _refuse(request, NO_CREDENTIAL if _KEYS or _SERVICE_JWKS else NO_SOURCE)
+<% } %>
+    request.state.auth = ctx
+    return ctx

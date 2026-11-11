@@ -126,6 +126,20 @@ export class ScopeGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    try {
+      return await this.check(context);
+    } catch (error) {
+      if (error instanceof ForbiddenException) {
+        // The reason, for the log.
+        const request = context.switchToHttp().getRequest();
+        const denied = /tenant/.test(error.message) ? 'no tenant' : 'outside the tenant scope';
+        request.apso = { ...request.apso, denied };
+      }
+      throw error;
+    }
+  }
+
+  private async check(context: ExecutionContext): Promise<boolean> {
     // Check if route should skip scope check
     const skipCheck = this.reflector.getAllAndOverride<boolean>(
       SKIP_SCOPE_CHECK,
@@ -147,6 +161,11 @@ export class ScopeGuard implements CanActivate {
     }
 
     const request = context.switchToHttp().getRequest();
+
+    // A service caller (valid API key) is not tenant-scoped.
+    if (request.auth?.serviceId) {
+      return true;
+    }
 
     // Get the resource path from the request
     const path = request.route?.path || request.path;

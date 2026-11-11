@@ -133,7 +133,6 @@ export default class McpServe extends BaseCommand {
             "auth0",
             "clerk",
             "cognito",
-            "api-key",
             "custom-db-session",
             "none",
           ])
@@ -563,7 +562,6 @@ export default class McpServe extends BaseCommand {
             "clerk",
             "cognito",
             "jwt",
-            "api-key",
             "custom-db-session",
           ])
           .optional()
@@ -696,34 +694,6 @@ export default class McpServe extends BaseCommand {
             entities: [],
             relationships: [],
           },
-          "api-key": {
-            auth: {
-              provider: "api-key",
-              apiKeyHeader: "x-api-key",
-              apiKeyEntity: "ApiKey",
-            },
-            entities: [
-              {
-                name: "ApiKey",
-                created_at: true,
-                updated_at: true,
-                scopeBy: "organizationId",
-                fields: [
-                  { name: "name", type: "text", length: 100 },
-                  { name: "keyHash", type: "text", length: 255 },
-                  { name: "prefix", type: "text", length: 10 },
-                  { name: "scopes", type: "json-plain", nullable: true },
-                  { name: "expiresAt", type: "date", nullable: true },
-                  { name: "lastUsedAt", type: "date", nullable: true },
-                  { name: "status", type: "enum", values: ["active", "revoked"], default: "active" },
-                ],
-              },
-            ],
-            relationships: [
-              { from: "Organization", to: "ApiKey", type: "OneToMany" },
-              { from: "ApiKey", to: "Organization", type: "ManyToOne" },
-            ],
-          },
           "custom-db-session": {
             auth: { provider: "custom-db-session" },
             entities: [],
@@ -737,7 +707,7 @@ export default class McpServe extends BaseCommand {
           content: [
             {
               type: "text" as const,
-              text: `# Auth Setup: ${authProvider}\n\nMerge the following into your .apsorc file:\n\n\`\`\`json\n${JSON.stringify(config, null, 2)}\n\`\`\`\n\nAfter updating .apsorc:\n1. Run \`apso generate\` (or use the scaffold_api tool) to regenerate code\n2. Run \`npm install\` if new dependencies are needed\n3. Run \`apso dev\` to start the server and create auth tables\n\n${authProvider === "better-auth" ? "**Important:** BetterAuth stores passwords in the `account` table (not User). The `providerId` field must be set to \"credential\" for email/password login to work. Use `@apso/better-auth-adapter@latest` in your frontend." : authProvider === "api-key" ? "Store each key's hex SHA-256 in ApiKey.keyHash, never the key itself; callers send the key in the x-api-key header." : "Replace the issuer, audience and claim names with your " + authProvider + " tenant's values. The service checks each token's signature against the issuer's JWKS. See https://docs.apso.ai/develop/auth/byoa."}`,
+              text: `# Auth Setup: ${authProvider}\n\nMerge the following into your .apsorc file:\n\n\`\`\`json\n${JSON.stringify(config, null, 2)}\n\`\`\`\n\nAfter updating .apsorc:\n1. Run \`apso generate\` (or use the scaffold_api tool) to regenerate code\n2. Run \`npm install\` if new dependencies are needed\n3. Run \`apso dev\` to start the server and create auth tables\n\n${authProvider === "better-auth" ? "**Important:** BetterAuth stores passwords in the `account` table (not User). The `providerId` field must be set to \"credential\" for email/password login to work. Use `@apso/better-auth-adapter@latest` in your frontend." : "Replace the issuer, audience and claim names with your " + authProvider + " tenant's values. The service checks each token's signature against the issuer's JWKS. See https://docs.apso.ai/develop/auth/byoa."}`,
             },
           ],
         };

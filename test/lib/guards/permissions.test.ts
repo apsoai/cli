@@ -94,14 +94,14 @@ describe("grants entity", () => {
     expect(() => getPermissionConfig([...entities, grantsEntity({ fields: [{ name: "role", type: "text" }] })])).toThrow(
       '"permission" text field'
     );
-    expect(() => getPermissionConfig(entities, {}, { provider: "api-key", permissionEntity: "Grant" })).toThrow(
+    expect(() => getPermissionConfig(entities, {}, { provider: "better-auth", permissionEntity: "Grant" })).toThrow(
       'auth.permissionEntity "Grant" is not an entity'
     );
   });
 });
 
 describe("TypeScript permission guard", () => {
-  test("renders the role table and registers it between auth and scope", async () => {
+  test("renders the role table and registers it between the key check and scope", async () => {
     const files = await generator("typescript").generateGuards(entities, jwt, relationshipMap);
     const guard = files.find((f) => f.path === "guards/permission.guard.ts")!.content;
     expect(guard).toContain('"permission": "invoice:create"');
@@ -114,7 +114,7 @@ describe("TypeScript permission guard", () => {
     expect(grantGuard).toContain("organizationId: IsNull()");
 
     const mod = files.find((f) => f.path === "guards/guards.module.ts")!.content;
-    const order = ["useClass: AuthGuard", "useClass: PermissionGuard", "useClass: ScopeGuard"].map((s) => mod.indexOf(s));
+    const order = ["useExisting: ApiKeyGuard", "useClass: PermissionGuard", "useClass: ScopeGuard"].map((s) => mod.indexOf(s));
     expect(order.every((i) => i >= 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
   });

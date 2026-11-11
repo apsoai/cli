@@ -1087,6 +1087,7 @@ describe("GoGenerator", () => {
           }))
         );
         files.push(
+          ...(await generator.generateGuards(entities)),
           ...(await generator.generateIndexModule(entities, "rest"))
         );
 

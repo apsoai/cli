@@ -35,6 +35,9 @@ class <%= it.entityName %>Service:
         a = self.auth
         if a is None:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tenant in the auth context")
+        # A service caller (valid API key) is not tenant-scoped.
+        if a.service_id:
+            return {}
 <% if (it.scope.bypassRoles.length > 0) { %>
         if set(a.roles) & set(<%~ JSON.stringify(it.scope.bypassRoles) %>):
             return {}

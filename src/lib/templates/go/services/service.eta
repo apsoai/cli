@@ -61,6 +61,10 @@ func (s *<%= it.entityName %>Service) scoped(ctx context.Context, q *gorm.DB, op
 	if !ok {
 		return nil, nil, ErrForbidden
 	}
+	// A service caller (valid API key) is not tenant-scoped.
+	if a.ServiceID != "" {
+		return q, nil, nil
+	}
 <% if (it.scope.bypassRoles.length > 0) { %>
 	if hasAnyRole(a.Roles, <%~ it.scope.bypassRoles.map((r) => JSON.stringify(r)).join(', ') %>) {
 		return q, nil, nil

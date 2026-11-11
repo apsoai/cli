@@ -11,20 +11,15 @@ import {
   Entity,
   GeneratorConfig,
   TargetLanguage,
+  assertSignInProvider,
   resolveJwtAuth,
 } from "../../../src/lib/types";
 import { addMissingPythonDep } from "../../../src/lib/utils/crud-deps";
+import { ensureDevKey } from "../../../src/lib/utils/template";
 
 const entities: Entity[] = [
   { name: "Organization", fields: [{ name: "name", type: "text" }] },
-  {
-    name: "ApiKey",
-    fields: [
-      { name: "keyHash", type: "text" },
-      { name: "status", type: "enum", values: ["active", "revoked"] },
-      { name: "expiresAt", type: "date", nullable: true },
-    ],
-  },
+  { name: "Member", fields: [{ name: "name", type: "text" }] },
   {
     name: "Project",
     scopeBy: "organizationId",
@@ -57,6 +52,13 @@ const jwt = (provider: "auth0" | "clerk" | "cognito" | "jwt"): AuthConfig => ({
   provider,
   jwt: { issuer: "https://issuer.example.com/", audience: "api" },
 });
+
+/** The file holding the API key check (TypeScript keeps it apart from user sign-in). */
+const keyFile = async (language: TargetLanguage, auth?: AuthConfig) => {
+  const files = await generators[language].generateGuards(entities, auth);
+  const name = { typescript: "guards/key.guard.ts", go: "middleware/auth.go", python: "auth.py" }[language];
+  return files.find((f) => f.path === name)?.content ?? "";
+};
 
 const guardFile = async (language: TargetLanguage, auth: AuthConfig) => {
   const files = await generators[language].generateGuards(entities, auth);
@@ -113,11 +115,11 @@ describe("generated auth for JWT providers", () => {
 });
 
 describe("generated wiring", () => {
-  test("TypeScript lists GuardsModule so its global guards run", async () => {
+  test("TypeScript lists GuardsModule so its global guards run, with or without auth", async () => {
     const [index] = await generators.typescript.generateIndexModule(entities, "rest", { auth: jwt("jwt") });
     expect(index.content).toContain("GuardsModule");
     const [noAuth] = await generators.typescript.generateIndexModule([entities[0]], "rest", {});
-    expect(noAuth.content).not.toContain("GuardsModule");
+    expect(noAuth.content).toContain("GuardsModule");
   });
 
   test("TypeScript adds @CrudAuth to scoped controllers only when auth is set", async () => {
@@ -143,9 +145,9 @@ describe("generated wiring", () => {
     expect(ctrl).toContain("filter: (req: any) => skipScope(req) ? {} : ({");
     expect(ctrl).toContain("persist: (req: any) => skipScope(req) || scopeOperation(req) === 'create' ? {} : ({");
 
-    // Default options keep the controller unchanged.
+    // A service caller (API key) skips the tenant filter on every scoped controller.
     const plain = await generators.typescript.generateController({ ...opts, entity: entities[2], auth: jwt("jwt") });
-    expect(plain.find((f) => f.path.endsWith(".controller.ts"))!.content).not.toContain("skipScope");
+    expect(plain.find((f) => f.path.endsWith(".controller.ts"))!.content).toContain("if (req.auth?.serviceId) return true;");
   });
 
   test("Go create DTO does not require a scopeBy foreign key the service sets", async () => {
@@ -167,35 +169,68 @@ describe("generated wiring", () => {
   test("Go registers the middleware on the /api group", async () => {
     const [routes] = await generators.go.generateIndexModule(entities, "rest", { auth: jwt("jwt") });
     expect(routes.content).toContain("r.Use(middleware.AuthMiddleware(db))");
-    expect(await generators.go.generateGuards(entities)).toEqual([]);
+    const [noAuth] = await generators.go.generateIndexModule(entities, "rest", {});
+    expect(noAuth.content).toContain("r.Use(middleware.AuthMiddleware(db))");
   });
 
   test("Python makes the generated router depend on require_auth", async () => {
     const [index] = await generators.python.generateIndexModule(entities, "rest", { auth: jwt("jwt") });
     expect(index.content).toContain("dependencies=[Depends(require_auth)]");
     const [noAuth] = await generators.python.generateIndexModule(entities, "rest", {});
-    expect(noAuth.content).not.toContain("require_auth");
+    expect(noAuth.content).toContain("dependencies=[Depends(require_auth)]");
   });
 });
 
-describe("generated auth for API keys", () => {
-  const apiKey: AuthConfig = { provider: "api-key" };
-
-  test("every language hashes the key and enforces status and expiry", async () => {
+describe("the API key check built into every service", () => {
+  test("is generated in every language, with and without an auth block", async () => {
     for (const language of ["typescript", "go", "python"] as TargetLanguage[]) {
-      const code = await guardFile(language, apiKey);
-      expect(code.toLowerCase()).toContain("sha256");
-      expect(code).toContain("x-api-key");
-      expect(code).toMatch(/not active/);
-      expect(code).toMatch(/expired/);
+      for (const auth of [undefined, jwt("jwt")]) {
+        const code = await keyFile(language, auth);
+        for (const name of [
+          "APSO_API_KEY",
+          "APSO_SERVICE_TOKEN_JWKS_URL",
+          "APSO_SERVICE_TOKEN_ISSUER",
+          "APSO_SERVICE_ID",
+          "APSO_LOCAL",
+          "AWS_LAMBDA_FUNCTION_NAME",
+          "x-api-key",
+          "x-apso-service-token",
+          "x-request-id",
+          "ES256",
+        ])
+          expect(code).toContain(name);
+      }
     }
   });
 
-  test("a missing key entity or hash field fails generation", async () => {
-    await expect(generators.go.generateGuards([entities[0]], apiKey)).rejects.toThrow(/not an entity/);
-    await expect(
-      generators.python.generateGuards([{ name: "ApiKey", fields: [{ name: "name", type: "text" }] }], apiKey)
-    ).rejects.toThrow(/keyHash/);
+  test("TypeScript runs it as the first global guard and records the caller for logging", async () => {
+    const files = await generators.typescript.generateGuards([entities[0]]);
+    const module = files.find((f) => f.path === "guards/guards.module.ts")!.content;
+    expect(module).toContain("useExisting: ApiKeyGuard");
+    const guard = files.find((f) => f.path === "guards/key.guard.ts")!.content;
+    expect(guard).toContain("caller: { type: 'service', keyId: caller.serviceId }");
+    expect(guard).toContain("request.apso = { ...request.apso, denied }");
+    expect(guard).toContain("export const Public");
+  });
+
+  test('the removed "api-key" provider fails with what replaced it', () => {
+    expect(() => assertSignInProvider({ provider: "api-key" })).toThrow(/was removed.*APSO_API_KEY.*x-api-key/);
+    expect(() => assertSignInProvider(jwt("jwt"))).not.toThrow();
+    expect(() => assertSignInProvider()).not.toThrow();
+  });
+
+  test("ensureDevKey writes a key and the local flag to .env once", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "apso-devkey-"));
+    fs.writeFileSync(path.join(dir, ".env"), "PORT=3000");
+    const key = ensureDevKey(dir);
+    const env = fs.readFileSync(path.join(dir, ".env"), "utf8");
+    expect(key).toMatch(/^apso_dev_[\da-f]{48}$/);
+    expect(env).toContain(`PORT=3000\n`);
+    expect(env).toContain(`APSO_API_KEY=${key}\n`);
+    expect(env).toContain("APSO_LOCAL=1\n");
+    expect(ensureDevKey(dir)).toBeUndefined();
+    expect(fs.readFileSync(path.join(dir, ".env"), "utf8")).toBe(env);
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 });
 
@@ -275,8 +310,8 @@ describe("scopeBy in Go and Python services", () => {
 });
 
 describe("guard regeneration (cli#129)", () => {
-  test("JWT and API-key guards render the same when nothing changed", async () => {
-    for (const auth of [jwt("auth0"), { provider: "api-key" } as AuthConfig]) {
+  test("JWT guards render the same when nothing changed", async () => {
+    for (const auth of [jwt("auth0")]) {
       const first = await guardFile("typescript", auth);
       await new Promise((resolve) => {
         setTimeout(resolve, 5);

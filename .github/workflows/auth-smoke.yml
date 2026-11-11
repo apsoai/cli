@@ -1,9 +1,10 @@
 name: auth smoke test
 
-# Generates a service per language and auth provider (Auth0, Clerk, Cognito,
-# generic JWT, API key), starts it on Postgres, and checks that bad
-# credentials get 401, good ones can do CRUD, and (TypeScript) tenants only
-# see their own rows. See scripts/auth-smoke.mjs.
+# Generates a service per language with no auth block and with each sign-in
+# provider (Auth0, Clerk, Cognito, generic JWT), starts it on Postgres, and
+# checks the built-in API key check (APSO_API_KEY, the platform gateway's
+# service token, nothing configured), that bad credentials get 401, good ones
+# can do CRUD, and tenants only see their own rows. See scripts/auth-smoke.mjs.
 on:
   workflow_dispatch:
   schedule:
@@ -15,6 +16,7 @@ on:
       - "src/lib/generators/**"
       - "src/lib/templates/**"
       - "src/lib/utils/crud-deps.ts"
+      - "src/lib/utils/template.ts"
       - "src/commands/generate.ts"
       - "scripts/auth-smoke.mjs"
       - ".github/workflows/auth-smoke.yml"

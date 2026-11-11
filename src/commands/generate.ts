@@ -8,7 +8,7 @@ import {
   isLanguageSupported,
   getImplementedLanguages,
 } from "../lib";
-import { TargetLanguage, GeneratorConfig, isJwtAuth } from "../lib/types";
+import { TargetLanguage, GeneratorConfig } from "../lib/types";
 import BaseCommand from "../lib/base-command";
 import { isInteractive, missingFlag } from "../lib/utils/interactive";
 import { performance } from "perf_hooks";
@@ -364,27 +364,26 @@ export default class Generate extends BaseCommand {
         );
     }
 
-    // The generated auth code imports a JWT library; declare it.
-    if (auth && isJwtAuth(auth)) {
-      if (
-        language === "typescript" &&
-        addMissingDeps(process.cwd(), JOSE_DEP).length > 0
-      )
-        console.log(
-          "[apso] Added jose to package.json (the generated auth guard imports it). Run npm install before building."
-        );
-      if (
-        language === "python" &&
-        addMissingPythonDep(process.cwd(), PYJWT_DEP)
-      )
-        console.log(
-          `[apso] Added ${PYJWT_DEP} to pyproject.toml (the generated auth module imports it). Reinstall the project's dependencies.`
-        );
-      if (language === "go")
-        console.log(
-          "[apso] The generated auth middleware imports github.com/golang-jwt/jwt/v5 and github.com/MicahParks/keyfunc/v3. Run go mod tidy before building."
-        );
-    }
+    // The generated auth code (the API key check in every service, and JWT
+    // sign-in) imports a JWT library; declare it.
+    if (
+      language === "typescript" &&
+      addMissingDeps(process.cwd(), JOSE_DEP).length > 0
+    )
+      console.log(
+        "[apso] Added jose to package.json (the generated guards import it). Run npm install before building."
+      );
+    if (
+      language === "python" &&
+      addMissingPythonDep(process.cwd(), PYJWT_DEP)
+    )
+      console.log(
+        `[apso] Added ${PYJWT_DEP} to pyproject.toml (the generated auth module imports it). Reinstall the project's dependencies.`
+      );
+    if (language === "go")
+      console.log(
+        "[apso] The generated auth middleware imports github.com/golang-jwt/jwt/v5 and github.com/MicahParks/keyfunc/v3. Run go mod tidy before building."
+      );
     if (language === "python") {
       const main = path.join(process.cwd(), "app", "main.py");
       if (

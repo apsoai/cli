@@ -42,7 +42,7 @@ const OPERATIONS: Record<string, Operation> = {
 };
 
 /**
- * PermissionGuard - runs after AuthGuard. A caller may perform a guarded
+ * PermissionGuard - runs after ApiKeyGuard. A user may perform a guarded
  * operation when any of these holds:
  * - one of its roles is in the .apsorc default list
  * - its token carries the permission (e.g. Auth0 RBAC "permissions")
@@ -73,12 +73,16 @@ export class PermissionGuard implements CanActivate {
     }
 
     const request = context.switchToHttp().getRequest();
+    // A service caller (valid API key) is not limited by role.
+    if (request.auth?.serviceId) {
+      return true;
+    }
     const path: string = request.route?.path || request.path;
     const entity = path.match(/^\/([^\/]+)/)?.[1]?.toLowerCase();
     const operation = OPERATIONS[request.method];
     const rule = entity && operation ? ENTITY_PERMISSIONS[entity]?.[operation] : undefined;
     if (rule && !(await this.allowed(request, rule))) {
-      throw new ForbiddenException(`Missing permission ${rule.permission}`);
+      this.deny(request, rule.permission);
     }
 
     const join = request.query?.join;
@@ -87,13 +91,19 @@ export class PermissionGuard implements CanActivate {
       for (const relation of String(value).split('||')[0].split('.')) {
         for (const joined of JOIN_PERMISSIONS[relation] ?? []) {
           if (!(await this.allowed(request, joined))) {
-            throw new ForbiddenException(`Missing permission ${joined.permission}`);
+            this.deny(request, joined.permission);
           }
         }
       }
     }
 
     return true;
+  }
+
+  /** 403, with the reason on request.apso.denied for the log. */
+  private deny(request: any, permission: string): never {
+    request.apso = { ...request.apso, denied: `missing permission ${permission}` };
+    throw new ForbiddenException(`Missing permission ${permission}`);
   }
 
   private async allowed(request: any, rule: Rule): Promise<boolean> {

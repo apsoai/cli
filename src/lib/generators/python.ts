@@ -13,9 +13,7 @@ import {
   MigrationGenerationOptions,
   Entity,
   AuthConfig,
-  isApiKeyAuth,
   isJwtAuth,
-  resolveApiKeyAuth,
   resolveJwtAuth,
   Field,
   ComputedField,
@@ -33,7 +31,6 @@ import {
 import { camelCase } from "../utils/casing";
 import { getEventEmittingEntities } from "../events";
 import {
-  apiKeyTemplateData,
   entityScope,
   hasPermissions,
   nestedScopeEntities,
@@ -623,12 +620,9 @@ ${downStatements || "    pass"}
   async generateIndexModule(
     entities: Entity[],
     _apiType: string,
-    opts?: { auth?: AuthConfig }
+    _opts?: { auth?: AuthConfig }
   ): Promise<GeneratedFile[]> {
-    const content = await this.renderTemplate("./index-module", {
-      entities,
-      hasAuth: Boolean(opts?.auth),
-    });
+    const content = await this.renderTemplate("./index-module", { entities });
 
     return [
       {
@@ -744,25 +738,17 @@ ${downStatements || "    pass"}
       throw new Error(
         "permissions in .apsorc are enforced in TypeScript services only for now; remove them or generate with --language typescript"
       );
-    if (!auth) return [];
-    const nested = nestedScopeEntities(entities);
+    const nested = auth ? nestedScopeEntities(entities) : [];
     if (nested.length > 0)
       console.warn(
         `[apso] Nested scopeBy paths are enforced in TypeScript services only; ${nested.join(", ")} will not be filtered by those paths in this Python service`
       );
-    let data: Record<string, unknown>;
-    if (isJwtAuth(auth)) {
-      data = { jwt: resolveJwtAuth(auth) };
-    } else if (isApiKeyAuth(auth)) {
-      const apiKey = apiKeyTemplateData(resolveApiKeyAuth(auth), entities);
-      data = {
-        apiKey: { ...apiKey, pyModule: apiKey.apiKeyEntity.toLowerCase() },
-      };
-    } else {
+    if (auth && !isJwtAuth(auth))
       throw new Error(
-        `auth.provider "${auth.provider}" is generated for TypeScript services only. For Python, use "jwt" (Better Auth issues JWTs with its JWT plugin) or "api-key".`
+        `auth.provider "${auth.provider}" is generated for TypeScript services only. For Python, use "jwt" (Better Auth issues JWTs with its JWT plugin).`
       );
-    }
+    // The API key check is part of every service; auth adds user sign-in.
+    const data = { jwt: auth && resolveJwtAuth(auth) };
     return [
       { path: "auth.py", content: await this.renderTemplate("./auth", data) },
     ];

@@ -14,13 +14,10 @@ import {
   Entity,
   AuthConfig,
   Field,
-  isApiKeyAuth,
   isJwtAuth,
-  resolveApiKeyAuth,
   resolveJwtAuth,
 } from "../types";
 import {
-  apiKeyTemplateData,
   entityScope,
   hasPermissions,
   nestedScopeEntities,
@@ -603,7 +600,6 @@ ${downStatements}
 
     const content = await this.renderTemplate("./index-module", {
       entities: entitiesData,
-      hasAuth: Boolean(opts?.auth),
     });
 
     const modelRefs = entities
@@ -755,39 +751,21 @@ ${modelRefs}
       throw new Error(
         "permissions in .apsorc are enforced in TypeScript services only for now; remove them or generate with --language typescript"
       );
-    if (!auth) return [];
-    const nested = nestedScopeEntities(entities);
+    const nested = auth ? nestedScopeEntities(entities) : [];
     if (nested.length > 0)
       console.warn(
         `[apso] Nested scopeBy paths are enforced in TypeScript services only; ${nested.join(", ")} will not be filtered by those paths in this Go service`
       );
-    let data: Record<string, unknown>;
-    if (isJwtAuth(auth)) {
-      data = { jwt: resolveJwtAuth(auth) };
-    } else if (isApiKeyAuth(auth)) {
-      const apiKey = apiKeyTemplateData(resolveApiKeyAuth(auth), entities);
-      const entity = entities.find((e) => e.name === apiKey.apiKeyEntity)!;
-      // Columns keep their .apsorc names (the models tag each one).
-      const column = (name: string) => name;
-      data = {
-        apiKey: {
-          ...apiKey,
-          goModel: pascalCase(entity.name),
-          keyColumn: column(apiKey.keyField),
-          expiresColumn: column("expiresAt"),
-          workspaceColumn: column(apiKey.workspaceField),
-          roleColumn: apiKey.roleField ? column(apiKey.roleField) : undefined,
-        },
-      };
-    } else {
+    if (auth && !isJwtAuth(auth))
       throw new Error(
-        `auth.provider "${auth.provider}" is generated for TypeScript services only. For Go, use "jwt" (Better Auth issues JWTs with its JWT plugin) or "api-key".`
+        `auth.provider "${auth.provider}" is generated for TypeScript services only. For Go, use "jwt" (Better Auth issues JWTs with its JWT plugin).`
       );
-    }
+    // The API key check is part of every service; auth adds user sign-in.
+    const data = { jwt: auth && resolveJwtAuth(auth) };
     const content = await this.renderTemplate("./middleware/auth", data);
     const files: GeneratedFile[] = [{ path: "middleware/auth.go", content }];
     // Shared helpers for services and handlers of entities with a direct scopeBy.
-    if (entities.some((e) => entityScope(e, true))) {
+    if (auth && entities.some((e) => entityScope(e, true))) {
       files.push(
         {
           path: "services/scope.go",

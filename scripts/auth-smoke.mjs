@@ -2,14 +2,22 @@
 /**
  * End-to-end auth check for generated services, one language per run.
  *
- * Scaffolds a project with the CLI from this checkout, then for each auth
- * provider (Auth0, Clerk, Cognito, generic JWT, API key) regenerates it,
- * starts it on a fresh Postgres database, and checks that:
+ * Scaffolds a project with the CLI from this checkout, then for a service
+ * with no auth block and for each sign-in provider (Auth0, Clerk, Cognito,
+ * generic JWT) regenerates it, starts it on a fresh Postgres database, and
+ * checks that:
+ *   - the API key check built into every service follows the access rules in
+ *     apsoai/cli#208 (cases are named with their rule, R0 to R17): nothing
+ *     configured refuses everything; APSO_API_KEY accepts those keys and no
+ *     other; the platform gateway's service token is verified; a key that
+ *     fails is refused even next to a valid user token; a key caller reaches
+ *     every route and every tenant's rows
+ *   - a 401 says why only when APSO_LOCAL=1 and the service is not on Lambda,
+ *     and always carries a request id
  *   - requests without valid credentials get 401 (missing, garbage, expired,
  *     wrong issuer, wrong audience, wrong signing key, alg "none", HS256
- *     signed with the public key, no subject; for API keys wrong, revoked,
- *     expired keys)
- *   - a valid token or key can list, create, read and delete rows
+ *     signed with the public key, no subject)
+ *   - a valid token can list, create, read and delete rows
  *   - /health stays public
  *   - scopeBy keeps each tenant to its own rows, overrides a tenant id sent in
  *     a create body, and refuses a caller with no tenant
@@ -21,7 +29,8 @@
  *     and a tool call meets the same auth, permission and scope guards as REST
  *
  * Tokens are minted locally with the claim shapes each provider issues, signed
- * by a key this script serves as a JWKS.
+ * by a key this script serves as a JWKS. Service tokens are signed the way the
+ * platform gateway signs them (ES256), with a key served as a second JWKS.
  *
  * Usage: node scripts/auth-smoke.mjs <typescript|python|go> [provider...]
  * Needs: `npm run build` first; psql; AUTH_SMOKE_DATABASE_URL pointing at a
@@ -90,9 +99,9 @@ async function call(method, url, { headers = {}, body } = {}) {
     } catch {
       json = undefined;
     }
-    return { status: res.status, text, json };
+    return { status: res.status, text, json, requestId: res.headers.get("x-request-id") };
   } catch (e) {
-    return { status: 0, text: String(e), json: undefined };
+    return { status: 0, text: String(e), json: undefined, requestId: null };
   }
 }
 
@@ -112,6 +121,13 @@ const JWKS = {
   ],
 };
 
+// The platform gateway's signing key for service tokens, and one it does not hold.
+const gateway = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
+const notGateway = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
+const GATEWAY_JWKS = {
+  keys: [{ ...gateway.publicKey.export({ format: "jwk" }), kid: "gw1", alg: "ES256", use: "sig" }],
+};
+
 function mint(payload, { key = signing.privateKey, alg = "RS256", kid = "k1" } = {}) {
   const now = Math.floor(Date.now() / 1000);
   const body = { iat: now, exp: now + 600, ...payload };
@@ -121,6 +137,7 @@ function mint(payload, { key = signing.privateKey, alg = "RS256", kid = "k1" } =
   if (alg === "RS256") sig = crypto.sign("sha256", Buffer.from(head), key).toString("base64url");
   if (alg === "HS256") sig = crypto.createHmac("sha256", key).update(head).digest("base64url");
   if (alg === "EdDSA") sig = crypto.sign(null, Buffer.from(head), key).toString("base64url");
+  if (alg === "ES256") sig = crypto.sign("sha256", Buffer.from(head), { key, dsaEncoding: "ieee-p1363" }).toString("base64url");
   return `${head}.${sig}`;
 }
 
@@ -213,60 +230,51 @@ function providers(base) {
       }),
       wrongAudience: { aud: "https://other.example" },
     },
-    "api-key": { auth: { provider: "api-key" } },
   };
 }
 
 // ---------- project ----------
 
-const ENTITIES = [
-  { name: "Organization", created_at: true, updated_at: true, fields: [{ name: "name", type: "text" }] },
-  {
-    name: "ApiKey",
-    created_at: true,
-    updated_at: true,
-    fields: [
-      { name: "name", type: "text" },
-      { name: "keyHash", type: "text", length: 64, unique: true },
-      { name: "status", type: "enum", values: ["active", "revoked"], default: "active" },
-      { name: "expiresAt", type: "date", nullable: true },
-    ],
-  },
-  // Projects are readable as MCP tools (TypeScript only; Python and Go refuse mcp).
-  { name: "Project", created_at: true, updated_at: true, scopeBy: "organizationId", ...(language === "typescript" ? { mcp: ["read"] } : {}), fields: [{ name: "title", type: "text" }] },
-  // A tenant field that is not named workspaceId/organizationId (imported schemas).
-  { name: "Note", created_at: true, updated_at: true, scopeBy: "orgId", fields: [{ name: "body", type: "text" }, { name: "orgId", type: "integer", nullable: true }] },
-  // Scoped through its parent (TypeScript only; Python and Go warn and skip it).
-  { name: "Task", created_at: true, updated_at: true, scopeBy: "project.organizationId", fields: [{ name: "title", type: "text" }] },
-  // A "support" role reads every tenant's tickets (scopeOptions.bypassRoles).
-  { name: "Ticket", created_at: true, updated_at: true, scopeBy: "organizationId", scopeOptions: { bypassRoles: ["support"] }, fields: [{ name: "title", type: "text" }] },
-  // Only owners read or delete invoices (permissions; TypeScript only, Python and Go refuse it).
-  {
-    name: "Invoice",
-    created_at: true,
-    updated_at: true,
-    ...(language === "typescript" ? { permissions: { read: ["owner"], delete: ["owner"] }, mcp: true } : {}),
-    fields: [{ name: "total", type: "integer" }],
-  },
-  // Runtime grants: an owner gives a role a permission in its own tenant (TypeScript only).
-  ...(language === "typescript"
-    ? [{
-        name: "RolePermission",
-        created_at: true,
-        updated_at: true,
-        scopeBy: "organizationId",
-        permissions: { create: ["owner"], update: ["owner"], delete: ["owner"] },
-        fields: [{ name: "role", type: "text" }, { name: "permission", type: "text" }],
-      }]
-    : []),
-];
-const RELATIONSHIPS = [
-  { from: "Organization", to: "ApiKey", type: "OneToMany" },
+// Permissions and MCP tools need sign-in, and only TypeScript serves them.
+const entities = (auth) => {
+  const full = language === "typescript" && Boolean(auth);
+  return [
+    { name: "Organization", created_at: true, updated_at: true, fields: [{ name: "name", type: "text" }] },
+    // Projects are readable as MCP tools.
+    { name: "Project", created_at: true, updated_at: true, scopeBy: "organizationId", ...(full ? { mcp: ["read"] } : {}), fields: [{ name: "title", type: "text" }] },
+    // A tenant field that is not named workspaceId/organizationId (imported schemas).
+    { name: "Note", created_at: true, updated_at: true, scopeBy: "orgId", fields: [{ name: "body", type: "text" }, { name: "orgId", type: "integer", nullable: true }] },
+    // Scoped through its parent (TypeScript only; Python and Go warn and skip it).
+    { name: "Task", created_at: true, updated_at: true, scopeBy: "project.organizationId", fields: [{ name: "title", type: "text" }] },
+    // A "support" role reads every tenant's tickets (scopeOptions.bypassRoles).
+    { name: "Ticket", created_at: true, updated_at: true, scopeBy: "organizationId", scopeOptions: { bypassRoles: ["support"] }, fields: [{ name: "title", type: "text" }] },
+    // Only owners read or delete invoices.
+    {
+      name: "Invoice",
+      created_at: true,
+      updated_at: true,
+      ...(full ? { permissions: { read: ["owner"], delete: ["owner"] }, mcp: true } : {}),
+      fields: [{ name: "total", type: "integer" }],
+    },
+    // Runtime grants: an owner gives a role a permission in its own tenant.
+    ...(full
+      ? [{
+          name: "RolePermission",
+          created_at: true,
+          updated_at: true,
+          scopeBy: "organizationId",
+          permissions: { create: ["owner"], update: ["owner"], delete: ["owner"] },
+          fields: [{ name: "role", type: "text" }, { name: "permission", type: "text" }],
+        }]
+      : []),
+  ];
+};
+const relationships = (auth) => [
   { from: "Organization", to: "Project", type: "OneToMany" },
   { from: "Project", to: "Task", type: "OneToMany" },
   { from: "Organization", to: "Ticket", type: "OneToMany" },
   { from: "Organization", to: "Invoice", type: "OneToMany" },
-  ...(language === "typescript" ? [{ from: "Organization", to: "RolePermission", type: "OneToMany" }] : []),
+  ...(language === "typescript" && auth ? [{ from: "Organization", to: "RolePermission", type: "OneToMany" }] : []),
 ];
 
 const route = (plural) =>
@@ -277,18 +285,13 @@ const rows = (json) => (Array.isArray(json) ? json : json?.data ?? json?.items ?
 
 function scaffold(dir) {
   sh(CLI, ["init", "--name", "authapp", "--language", language, "--skip-platform"], { cwd: dir });
-  const project = path.join(dir, "authapp");
-  const rcPath = path.join(project, ".apsorc");
-  const rc = JSON.parse(fs.readFileSync(rcPath, "utf8"));
-  Object.assign(rc, { version: 2, entities: ENTITIES, relationships: RELATIONSHIPS });
-  fs.writeFileSync(rcPath, JSON.stringify(rc, null, 2));
-  return project;
+  return path.join(dir, "authapp");
 }
 
 function generate(project, auth) {
   const rcPath = path.join(project, ".apsorc");
   const rc = JSON.parse(fs.readFileSync(rcPath, "utf8"));
-  rc.auth = auth;
+  Object.assign(rc, { version: 2, entities: entities(auth), relationships: relationships(auth), auth });
   fs.writeFileSync(rcPath, JSON.stringify(rc, null, 2));
   sh(CLI, ["generate", "--language", language], { cwd: project });
   if (language === "typescript") {
@@ -314,10 +317,13 @@ function generate(project, auth) {
   }
 }
 
-async function start(project, db) {
+/** Start the service with `extra` as its only APSO_* settings. */
+async function start(project, db, extra = {}) {
   const port = await freePort();
   const u = new URL(`${PG}/${db}`);
-  const env = { ...process.env };
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(([k]) => !k.startsWith("APSO_") && k !== "AWS_LAMBDA_FUNCTION_NAME")
+  );
   let cmd;
   let args;
   if (language === "typescript") {
@@ -343,7 +349,7 @@ async function start(project, db) {
     Object.assign(env, { DATABASE_URL: `${PG.replace(/^postgres(ql)?:/, "postgresql+asyncpg:")}/${db}`, DATABASE_SYNC: "true", PORT: String(port) });
     [cmd, args] = [path.join(project, ".venv", "bin", "python"), ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", String(port)]];
   }
-  const child = spawn(cmd, args, { cwd: project, env });
+  const child = spawn(cmd, args, { cwd: project, env: { ...env, ...extra } });
   let log = "";
   child.stdout.on("data", (d) => (log += d));
   child.stderr.on("data", (d) => (log += d));
@@ -462,8 +468,10 @@ async function nestedScope(base, t, as1, as2, pid) {
   t.expect("delete other tenant's project", await call("DELETE", `${base}${PROJECTS}/${pid2}`, { headers: as2 }), 200, 204);
 }
 
-async function jwtCase(name, p, base) {
+async function jwtCase(name, p, boot) {
   const t = checker(name);
+  // The Supabase-shaped case also runs with an API key set; the others run with keys off.
+  const { base } = await boot(name === "jwt" ? { APSO_API_KEY: KEY } : {});
   const bearer = (token) => ({ authorization: `Bearer ${token}` });
   const sign = (claims, opts = {}) => mint(claims, { ...p.signWith, ...opts });
   const valid = (org) => bearer(sign(p.claims(org ?? "1")));
@@ -489,6 +497,13 @@ async function jwtCase(name, p, base) {
     const as = (roles, org = "1", extra = {}) => bearer(sign({ ...p.claims(org), app_metadata: { org_id: org, roles }, ...extra }));
     await rolePermissions(base, t, as(["owner"]), as(["member"]), as(["member"], "2"), as(["member"], "1", { permissions: ["invoice:delete"] }));
     await mcpTools(base, t, as(["owner"]), as(["member"]), as(["owner"], "2"), as(["owner"], "1", { aud: `${base}/mcp` }));
+  }
+  if (name === "jwt") {
+    await keyNextToSignIn(base, t, valid("1"));
+    const platform = await boot(PLATFORM);
+    await gatewayNextToSignIn(platform.base, t, bearer(sign(p.claims("1"))));
+  } else {
+    t.expect("[R14] keys off: a request that sends x-api-key is refused, valid user token or not", await call("GET", base + ORGS, { headers: { ...valid("1"), "x-api-key": KEY } }), 401);
   }
   return t.failures;
 }
@@ -600,61 +615,178 @@ async function rolePermissions(base, t, owner, member, otherMember, memberWithDe
   t.expect("member with invoice:delete in its token deletes the invoice", await call("DELETE", `${base}${INVOICES}/${iid}`, { headers: memberWithDelete }), 200, 204);
 }
 
-async function apiKeyCase(name, base, db) {
-  const t = checker(name);
-  const table = psql(db, "select table_name from information_schema.tables where table_schema='public' and replace(table_name,'_','') ilike 'apikey'");
-  const orgTable = psql(db, "select table_name from information_schema.tables where table_schema='public' and table_name ilike 'organization'");
-  const cols = (tbl) => psql(db, `select column_name from information_schema.columns where table_name='${tbl}'`).split("\n");
-  const pick = (list, re) => list.find((c) => re.test(c));
-  const kc = cols(table);
-  const oc = cols(orgTable);
-  const q = (c) => `"${c}"`;
-  const stamps = (list) => [pick(list, /^created_?at$/i), pick(list, /^updated_?at$/i)].filter(Boolean);
-  const orgId = (name) =>
-    psql(db, `insert into ${q(orgTable)} (name${stamps(oc).map((c) => `, ${q(c)}`).join("")}) values ('${name}'${stamps(oc).map(() => ", now()").join("")}) returning id`);
-  const id1 = orgId("Acme");
-  const id2 = orgId("Beta");
-  const insertKey = (plain, status, expires, org) => {
-    const hash = crypto.createHash("sha256").update(plain).digest("hex");
-    const c = [pick(kc, /^name$/), pick(kc, /^key_?hash$/i), pick(kc, /^status$/), pick(kc, /^expires_?at$/i), pick(kc, /^organization_?id$/i), ...stamps(kc)];
-    const v = [`'${plain.slice(0, 8)}'`, `'${hash}'`, `'${status}'`, expires ? `'${expires}'` : "null", org, ...stamps(kc).map(() => "now()")];
-    psql(db, `insert into ${q(table)} (${c.map(q).join(", ")}) values (${v.join(", ")})`);
-  };
-  insertKey("sk_test_good_1", "active", null, id1);
-  insertKey("sk_test_good_2", "active", "2999-01-01", id2);
-  insertKey("sk_test_revoked", "revoked", null, id1);
-  insertKey("sk_test_expired", "active", "2000-01-01", id1);
+// ---------- API keys (apsoai/cli#207; rules from apsoai/cli#208) ----------
 
-  const key = (k) => ({ "x-api-key": k });
-  const reject = async (label, headers) => t.expect(label, await call("GET", base + ORGS, { headers }), 401);
-  t.expect("/health is public", await call("GET", `${base}/health`), 200);
-  await reject("no key", {});
-  await reject("unknown key", key("sk_test_nope"));
-  await reject("revoked key", key("sk_test_revoked"));
-  await reject("expired key", key("sk_test_expired"));
+const KEY = "sk_smoke_current";
+const OLD_KEY = "sk_smoke_previous";
+const SERVICE_ID = "svc_smoke";
+let PLATFORM; // the environment the platform's provisioner sets; filled in once the JWKS server is up
 
-  // The key decides the tenant; the org argument is ignored.
-  const auth = () => key("sk_test_good_1");
-  const created = await call("POST", base + PROJECTS, { headers: auth(), body: { title: "Roadmap", organizationId: Number(id2) } });
-  if (t.expect("create project", created, 200, 201)) {
-    const pid = created.json.id;
-    const read = await call("GET", `${base}${PROJECTS}/${pid}`, { headers: auth() });
-    t.expect("read project", read, 200);
-    {
-      t.assert("create body cannot pick another tenant", String(read.json?.organizationId) === id1, `organizationId=${read.json?.organizationId}`);
-      t.expect("other tenant's key cannot read the project", await call("GET", `${base}${PROJECTS}/${pid}`, { headers: key("sk_test_good_2") }), 403, 404);
-      const theirs = await call("GET", base + PROJECTS, { headers: key("sk_test_good_2") });
-      t.assert("other tenant's list excludes the project", theirs.status === 200 && !rows(theirs.json).some((p) => p.id === pid), `${theirs.status}`);
-    }
-    t.expect("delete project", await call("DELETE", `${base}${PROJECTS}/${pid}`, { headers: auth() }), 200, 204);
+const key = (k) => ({ "x-api-key": k });
+const message = (res) => res.json?.message ?? res.json?.error ?? res.json?.detail?.message ?? "";
+const bodyRequestId = (res) => res.json?.requestId ?? res.json?.detail?.requestId;
+/** A token as the gateway signs it for a checked key. */
+const serviceToken = (claims = {}, opts = {}) => {
+  const now = Math.floor(Date.now() / 1000);
+  return { "x-apso-service-token": mint({ iss: PLATFORM.APSO_SERVICE_TOKEN_ISSUER, aud: SERVICE_ID, sub: "apikey:key_123", exp: now + 60, ...claims }, { key: gateway.privateKey, alg: "ES256", kid: "gw1", ...opts }) };
+};
+
+/** A 401 that explains nothing: the reason is in the service log under the request id. */
+function plain401(t, label, res, log) {
+  const id = bodyRequestId(res);
+  t.assert(`${label}: plain 401 with a request id`, res.status === 401 && message(res) === "Unauthorized" && Boolean(id) && res.requestId === id, `${res.status} ${res.text.slice(0, 200)}`);
+  t.assert(`${label}: the log line carries the request id`, Boolean(id) && log().includes(`request=${id}`));
+}
+
+/** A service caller: any route, every tenant's rows, its own tenant on create. */
+async function serviceCaller(base, t, headers) {
+  const org1 = await call("POST", base + ORGS, { headers, body: { name: "Acme" } });
+  const org2 = await call("POST", base + ORGS, { headers, body: { name: "Beta" } });
+  if (!t.expect("[R13] key caller creates an organization", org1, 200, 201) || !t.expect("[R13] key caller creates a second organization", org2, 200, 201)) return;
+  const made = [];
+  for (const org of [org1, org2]) {
+    const p = await call("POST", base + PROJECTS, { headers, body: { title: `For ${org.json.name}`, organizationId: org.json.id } });
+    if (!t.expect("[R13] key caller creates a project for a tenant it names", p, 200, 201)) return;
+    t.assert("[R13] the project keeps the tenant the key caller sent", String(p.json?.organizationId) === String(org.json.id), `organizationId=${p.json?.organizationId}`);
+    made.push(p.json.id);
   }
+  const list = await call("GET", base + PROJECTS, { headers });
+  t.assert("[R10] key caller lists every tenant's projects", list.status === 200 && made.every((id) => rows(list.json).some((p) => p.id === id)), `${list.status} ${list.text.slice(0, 200)}`);
+  t.expect("[R10] key caller reads a project by id", await call("GET", `${base}${PROJECTS}/${made[1]}`, { headers }), 200);
+  t.expect("[R13] key caller updates a project", await call("PATCH", `${base}${PROJECTS}/${made[1]}`, { headers, body: { title: "Renamed" } }), 200);
+  for (const id of made) t.expect("[R13] key caller deletes a project", await call("DELETE", `${base}${PROJECTS}/${id}`, { headers }), 200, 204);
+}
+
+/** A service with no auth block: nothing configured, then each key source. */
+async function keyCase(name, boot) {
+  const t = checker(name);
+  const everyRoute = async (label, headers, base) => {
+    for (const [method, url] of [["GET", ORGS], ["POST", ORGS], ["GET", `${ORGS}/1`], ["PATCH", `${ORGS}/1`], ["DELETE", `${ORGS}/1`], ["GET", PROJECTS]])
+      t.expect(`${label}: ${method} ${url}`, await call(method, base + url, { headers, body: method === "GET" || method === "DELETE" ? undefined : { name: "x" } }), 401);
+  };
+
+  // Nothing configured.
+  let s = await boot();
+  t.assert("[R14] start-up line: API keys are off", s.log().includes("[apso] API keys: off"), s.log().slice(-500));
+  t.assert("[R0] start-up warning: the service will refuse every request, and the fix", /WARNING: .*refuses every request.*APSO_API_KEY/.test(s.log()));
+  t.expect("[R1] /health is public", await call("GET", `${s.base}/health`), 200);
+  await everyRoute("[R0] nothing configured, no credential", {}, s.base);
+  await everyRoute("[R0] nothing configured, a key is sent", key(KEY), s.base);
+  plain401(t, "[R0] no local flag", await call("GET", s.base + ORGS), s.log);
+  const kept = await call("GET", s.base + ORGS, { headers: { "x-request-id": "req-from-caller-1" } });
+  t.assert("a request id the caller sent is kept and echoed", kept.requestId === "req-from-caller-1" && bodyRequestId(kept) === "req-from-caller-1", `${kept.requestId} ${kept.text.slice(0, 200)}`);
+
+  // The same service on a developer's machine, then with a copied .env on Lambda.
+  s = await boot({ APSO_LOCAL: "1" });
+  const noSource = await call("GET", s.base + ORGS);
+  t.assert("[R0] local: the 401 says no key source is configured and names APSO_API_KEY", noSource.status === 401 && /no API key source/.test(message(noSource)) && message(noSource).includes("APSO_API_KEY") && Boolean(bodyRequestId(noSource)), noSource.text.slice(0, 300));
+  s = await boot({ APSO_LOCAL: "1", AWS_LAMBDA_FUNCTION_NAME: "copied-env" });
+  plain401(t, "[R0] local flag on Lambda is ignored", await call("GET", s.base + ORGS), s.log);
+
+  // A key in the environment (self-hosted). Two keys, so one can be rotated out.
+  // The platform's variables are set too: the first match wins and they are not used.
+  s = await boot({ APSO_API_KEY: `${OLD_KEY}, ${KEY}`, APSO_LOCAL: "1", ...PLATFORM });
+  t.assert("[R14] start-up line: keys are checked against APSO_API_KEY", s.log().includes("[apso] API keys: checked against APSO_API_KEY (2 set)"), s.log().slice(-500));
+  t.assert("[R25] the start-up log does not contain a key", !s.log().includes(KEY) && !s.log().includes(OLD_KEY));
+  t.expect("[R1] /health is public", await call("GET", `${s.base}/health`), 200);
+  const none = await call("GET", s.base + ORGS);
+  t.assert("[R1] local: no credential is a 401 that names the x-api-key header", none.status === 401 && /No credential/.test(message(none)) && message(none).includes("x-api-key"), none.text.slice(0, 300));
+  const wrong = await call("GET", s.base + ORGS, { headers: key("sk_smoke_nope") });
+  t.assert("[R5] local: a wrong key is a 401 that says the key does not match APSO_API_KEY", wrong.status === 401 && /does not match/.test(message(wrong)) && message(wrong).includes("APSO_API_KEY"), wrong.text.slice(0, 300));
+  t.assert("[R25] a refused key is not written to the log or the response", !s.log().includes("sk_smoke_nope") && !wrong.text.includes("sk_smoke_nope"));
+  t.expect("[R5] a key that only shares a prefix is refused", await call("GET", s.base + ORGS, { headers: key(KEY.slice(0, -1)) }), 401);
+  t.expect("[R5] the whole APSO_API_KEY value is not a key", await call("GET", s.base + ORGS, { headers: key(`${OLD_KEY}, ${KEY}`) }), 401);
+  t.expect("[R14] a service token is not tried when APSO_API_KEY is the source", await call("GET", s.base + ORGS, { headers: serviceToken() }), 401);
+  t.expect("[R14] the current key is accepted", await call("GET", s.base + ORGS, { headers: key(KEY) }), 200);
+  t.expect("[R14] the previous key is accepted until it is removed", await call("GET", s.base + ORGS, { headers: key(OLD_KEY) }), 200);
+  await serviceCaller(s.base, t, key(KEY));
+  s = await boot({ APSO_API_KEY: KEY });
+  plain401(t, "[R5] wrong key, no local flag", await call("GET", s.base + ORGS, { headers: key("sk_smoke_nope") }), s.log);
+  t.expect("[R14] a key removed from APSO_API_KEY is refused after a restart", await call("GET", s.base + ORGS, { headers: key(OLD_KEY) }), 401);
+
+  // The platform's gateway token (hosted).
+  s = await boot({ ...PLATFORM, APSO_LOCAL: "1" });
+  await gateway401s(s, t);
+  t.expect("[R0] platform mode, no credential and no sign-in", await call("GET", s.base + ORGS), 401);
+  await serviceCaller(s.base, t, serviceToken());
   return t.failures;
+}
+
+/** Platform mode: only a token the gateway signed for this service is accepted. */
+async function gateway401s(s, t) {
+  const now = Math.floor(Date.now() / 1000);
+  const get = (headers) => call("GET", s.base + ORGS, { headers });
+  t.assert("[R14] start-up line: keys are checked by the platform gateway", s.log().includes("[apso] API keys: checked by the platform gateway"), s.log().slice(-500));
+  t.expect("[R15] a valid service token is accepted", await get(serviceToken()), 200);
+  const bare = await get(key(KEY));
+  t.assert("[R14] x-api-key with no service token is a 401 that names the gateway", bare.status === 401 && message(bare).includes("x-apso-service-token"), bare.text.slice(0, 300));
+  t.expect("[R16] expired service token", await get(serviceToken({ exp: now - 5 })), 401);
+  t.expect("[R16] service token issued for another service", await get(serviceToken({ aud: "svc_other" })), 401);
+  t.expect("[R16] service token from another issuer", await get(serviceToken({ iss: "https://evil.example" })), 401);
+  t.expect("[R16] service token with no expiry", await get(serviceToken({ exp: undefined, iat: undefined })), 401);
+  t.expect("[R16] service token whose subject is not an API key", await get(serviceToken({ sub: "user_1" })), 401);
+  const [h, p, sig] = serviceToken()["x-apso-service-token"].split(".");
+  const changed = `${h}.${b64url({ ...JSON.parse(Buffer.from(p, "base64url")), aud: SERVICE_ID, sub: "apikey:other" })}.${sig}`;
+  t.expect("[R16] service token changed after signing", await get({ "x-apso-service-token": changed }), 401);
+  t.expect("[R17] service token signed by a key the gateway does not hold", await get(serviceToken({}, { key: notGateway.privateKey })), 401);
+  t.expect("[R17] service token signed with the user sign-in key (RS256)", await get(serviceToken({}, { key: signing.privateKey, alg: "RS256", kid: "k1" })), 401);
+  t.expect('[R17] service token with alg "none"', await get(serviceToken({}, { alg: "none" })), 401);
+  t.expect("[R17] a garbage service token next to a key", await get({ ...key(KEY), "x-apso-service-token": "not.a.jwt" }), 401);
+}
+
+/** APSO_API_KEY set on a service that also has sign-in. */
+async function keyNextToSignIn(base, t, user) {
+  t.expect("[R14] a wrong key is refused even with a valid user token", await call("GET", base + ORGS, { headers: { ...user, ...key("sk_smoke_nope") } }), 401);
+  t.expect("[R4] a valid user token with no key still signs in", await call("GET", base + ORGS, { headers: user }), 200);
+  t.expect("[R1] no key and no token", await call("GET", base + ORGS), 401);
+  await serviceCaller(base, t, key(KEY));
+  if (language !== "typescript") return;
+
+  // Invoices are limited to owners; a key caller has no role and is not limited.
+  const INVOICES = route("Invoices");
+  const invoice = await call("POST", base + INVOICES, { headers: key(KEY), body: { total: 5, organizationId: 1 } });
+  if (t.expect("[R13] key caller creates an invoice", invoice, 200, 201)) {
+    t.expect("[R13] key caller lists invoices without a role", await call("GET", base + INVOICES, { headers: key(KEY) }), 200);
+    t.expect("[R13] key caller reads invoices through a join", await call("GET", `${base}${ORGS}?join=invoices`, { headers: key(KEY) }), 200);
+    t.expect("[R13] key caller deletes an invoice without a role", await call("DELETE", `${base}${INVOICES}/${invoice.json.id}`, { headers: key(KEY) }), 200, 204);
+  }
+
+  // /mcp follows the same rules.
+  const rpc = (headers) =>
+    fetch(`${base}/mcp`, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json, text/event-stream", ...headers },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+    });
+  t.assert("[R22] mcp with a wrong key is a 401", (await rpc(key("sk_smoke_nope"))).status === 401);
+  t.assert("[R14] mcp with a wrong key and a valid user token is a 401", (await rpc({ ...user, ...key("sk_smoke_nope") })).status === 401);
+  const client = new Client({ name: "auth-smoke-key", version: "1" });
+  try {
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`), { requestInit: { headers: key(KEY) } }));
+    t.assert("[R22] mcp lists tools for a key caller", (await client.listTools()).tools.length > 0);
+    const listed = await client.callTool({ name: "list_invoices", arguments: {} });
+    t.assert("[R23] mcp tool call by a key caller gets the REST answer (no role needed)", !listed.isError, listed.content?.[0]?.text);
+  } catch (e) {
+    t.assert("[R22] mcp accepts a key caller", false, String(e));
+  }
+}
+
+/** The platform's gateway token on a service that also has sign-in. */
+async function gatewayNextToSignIn(base, t, user) {
+  t.expect("[R18] platform mode, no key: a valid user token signs in", await call("GET", base + ORGS, { headers: user }), 200);
+  t.expect("[R14] platform mode: x-api-key with no service token is refused even with a valid user token", await call("GET", base + ORGS, { headers: { ...user, ...key(KEY) } }), 401);
+  t.expect("[R16] platform mode: a bad service token is refused even with a valid user token", await call("GET", base + ORGS, { headers: { ...user, ...serviceToken({ aud: "svc_other" }) } }), 401);
+  t.expect("[R15] platform mode: a valid service token is a service caller", await call("GET", base + PROJECTS, { headers: serviceToken() }), 200);
+  t.expect("[R1] platform mode: no credential", await call("GET", base + ORGS), 401);
 }
 
 // ---------- main ----------
 
 const jwks = http.createServer((req, res) => {
-  if (req.url.endsWith("/.well-known/jwks.json") || req.url.endsWith("/api/auth/jwks")) {
+  if (req.url === "/platform/jwks.json") {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify(GATEWAY_JWKS));
+  } else if (req.url.endsWith("/.well-known/jwks.json") || req.url.endsWith("/api/auth/jwks")) {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify(JWKS));
   } else {
@@ -663,24 +795,50 @@ const jwks = http.createServer((req, res) => {
 });
 const jwksPort = await freePort();
 await new Promise((r) => jwks.listen(jwksPort, "127.0.0.1", r));
-const cases = providers(`http://127.0.0.1:${jwksPort}`);
+PLATFORM = {
+  APSO_SERVICE_TOKEN_JWKS_URL: `http://127.0.0.1:${jwksPort}/platform/jwks.json`,
+  APSO_SERVICE_TOKEN_ISSUER: "https://gateway.apso.test",
+  APSO_SERVICE_ID: SERVICE_ID,
+};
+// "no-auth" is a service generated with no auth block at all.
+const cases = { "no-auth": {}, ...providers(`http://127.0.0.1:${jwksPort}`) };
 
 const work = fs.mkdtempSync(path.join(os.tmpdir(), "apso-auth-smoke-"));
 const failures = [];
 try {
   console.log(`==> Scaffolding a ${language} project in ${work}`);
   const project = scaffold(work);
+  {
+    // A new project gets a development key in .env, which git ignores. The
+    // cases below set the service's key source themselves, so take it out
+    // (the TypeScript service reads .env).
+    const t = checker("init");
+    const envPath = path.join(project, ".env");
+    const env = fs.readFileSync(envPath, "utf8");
+    t.assert("apso init writes a development key and the local flag to .env", /^APSO_API_KEY=apso_dev_\w{32,}$/m.test(env) && /^APSO_LOCAL=1$/m.test(env));
+    t.assert(".env is git-ignored in the scaffold", spawnSync("git", ["check-ignore", "-q", ".env"], { cwd: project }).status === 0);
+    fs.writeFileSync(envPath, env.replace(/^APSO_.*\n/gm, ""));
+    failures.push(...t.failures);
+  }
   for (const [name, p] of Object.entries(cases)) {
     if (only.length > 0 && !only.includes(name)) continue;
     console.log(`==> ${language} / ${name}`);
     const db = `auth_smoke_${language}_${name.replace(/\W/g, "_")}`;
     let server;
+    // (Re)start the service on an empty database with these APSO_* settings.
+    const boot = async (env = {}) => {
+      if (server) {
+        server.child.kill();
+        await sleep(300);
+      }
+      psql("postgres", `drop database if exists ${db} with (force)`);
+      psql("postgres", `create database ${db}`);
+      server = await start(project, db, env);
+      return server;
+    };
     try {
       generate(project, p.auth);
-      psql("postgres", `drop database if exists ${db}`);
-      psql("postgres", `create database ${db}`);
-      server = await start(project, db);
-      const f = name === "api-key" ? await apiKeyCase(name, server.base, db) : await jwtCase(name, p, server.base);
+      const f = p.auth ? await jwtCase(name, p, boot) : await keyCase(name, boot);
       if (f.length > 0) console.log(server.log().slice(-2000));
       failures.push(...f);
     } catch (e) {

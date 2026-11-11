@@ -1,5 +1,7 @@
 /**
- * Supported authentication provider types
+ * Supported authentication provider types. The auth block is for user sign-in
+ * only: the API key check is built into every generated service and is set
+ * through its environment (APSO_API_KEY), not here.
  */
 export type AuthProviderType =
   | "better-auth"
@@ -7,8 +9,7 @@ export type AuthProviderType =
   | "auth0"
   | "clerk"
   | "cognito"
-  | "jwt"
-  | "api-key";
+  | "jwt";
 
 /**
  * Base configuration common to all auth providers
@@ -158,45 +159,9 @@ export interface JwtAuthConfig extends BaseAuthConfig {
 }
 
 /**
- * Configuration for API key authentication
- */
-export interface ApiKeyAuthConfig extends BaseAuthConfig {
-  provider: "api-key";
-
-  /**
-   * Header name for API key. Default: "x-api-key"
-   */
-  apiKeyHeader?: string;
-
-  /**
-   * Entity name for API keys. Default: "ApiKey"
-   */
-  apiKeyEntity?: string;
-
-  /**
-   * Field on apiKeyEntity holding the hex SHA-256 of the key. Default: "keyHash"
-   */
-  keyField?: string;
-
-  /**
-   * Field name on apiKeyEntity for workspace/organization ID.
-   * Default: "organizationId"
-   */
-  workspaceField?: string;
-
-  /**
-   * Field name on apiKeyEntity for role/permissions
-   */
-  roleField?: string;
-}
-
-/**
  * Union type of all auth configurations
  */
-export type AuthConfig =
-  | DbSessionAuthConfig
-  | JwtAuthConfig
-  | ApiKeyAuthConfig;
+export type AuthConfig = DbSessionAuthConfig | JwtAuthConfig;
 
 /**
  * The normalized AuthContext that all providers produce.
@@ -229,7 +194,7 @@ export interface AuthContext {
   roles: string[];
 
   /**
-   * For API key auth: the service/key identifier
+   * Set for a service caller (a valid API key): the key's identifier
    */
   serviceId?: string;
 
@@ -272,17 +237,6 @@ export const JWT_AUTH_DEFAULTS: Required<
 };
 
 /**
- * Default values for API key auth configuration
- */
-export const API_KEY_AUTH_DEFAULTS: Required<
-  Omit<ApiKeyAuthConfig, "provider" | "workspaceField" | "roleField" | "permissionEntity">
-> = {
-  apiKeyHeader: "x-api-key",
-  apiKeyEntity: "ApiKey",
-  keyField: "keyHash",
-};
-
-/**
  * Type guard: Check if auth config is DB session based
  * @param {AuthConfig} auth - The auth configuration to check
  * @returns {boolean} True if the auth config is DB session based
@@ -307,15 +261,6 @@ export function isJwtAuth(auth: AuthConfig): auth is JwtAuthConfig {
   );
 }
 
-/**
- * Type guard: Check if auth config is API key based
- * @param {AuthConfig} auth - The auth configuration to check
- * @returns {boolean} True if the auth config is API key based
- */
-export function isApiKeyAuth(auth: AuthConfig): auth is ApiKeyAuthConfig {
-  return auth.provider === "api-key";
-}
-
 /** A JWT auth config with every default filled in, as the templates use it. */
 export interface ResolvedJwtAuth {
   provider: JwtAuthConfig["provider"];
@@ -327,12 +272,6 @@ export interface ResolvedJwtAuth {
   claims: Required<Pick<JwtClaimsMapping, "userId">> &
     Omit<JwtClaimsMapping, "userId">;
 }
-
-/** An API key auth config with every default filled in. */
-export type ResolvedApiKeyAuth = Required<
-  Omit<ApiKeyAuthConfig, "roleField" | "permissionEntity">
-> &
-  Pick<ApiKeyAuthConfig, "roleField">;
 
 /**
  * Claim defaults per provider. Clerk's v2 session token nests the active
@@ -385,16 +324,12 @@ export function resolveJwtAuth(auth: JwtAuthConfig): ResolvedJwtAuth {
   };
 }
 
-/** Fill API key defaults. */
-export function resolveApiKeyAuth(auth: ApiKeyAuthConfig): ResolvedApiKeyAuth {
-  return {
-    provider: "api-key",
-    apiKeyHeader: (
-      auth.apiKeyHeader || API_KEY_AUTH_DEFAULTS.apiKeyHeader
-    ).toLowerCase(),
-    apiKeyEntity: auth.apiKeyEntity || API_KEY_AUTH_DEFAULTS.apiKeyEntity,
-    keyField: auth.keyField || API_KEY_AUTH_DEFAULTS.keyField,
-    workspaceField: auth.workspaceField || "organizationId",
-    roleField: auth.roleField,
-  };
+/**
+ * Reject the removed "api-key" provider with what replaced it.
+ */
+export function assertSignInProvider(auth?: { provider?: string }): void {
+  if (auth?.provider === "api-key")
+    throw new Error(
+      'auth.provider "api-key" was removed. The API key check is now built into every generated service: remove the auth block (or set it to your user sign-in provider), set APSO_API_KEY in the service\'s environment, and send the key in the x-api-key header. The ApiKey entity is no longer read.'
+    );
 }

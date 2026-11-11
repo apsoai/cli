@@ -4,6 +4,7 @@ import * as fs from "fs";
 import * as path from "path";
 import shell from "shelljs";
 import BaseCommand from "../lib/base-command";
+import { ensureDevKey } from "../lib/utils/template";
 
 export default class Dev extends BaseCommand {
   static description =
@@ -33,6 +34,9 @@ export default class Dev extends BaseCommand {
 
   private children: ChildProcess[] = [];
 
+  /** Set on the service: the local flag and the development API key. */
+  private devEnv: Record<string, string> = {};
+
   private cleanup = (): void => {
     for (const child of this.children) {
       child.kill("SIGTERM");
@@ -51,6 +55,19 @@ export default class Dev extends BaseCommand {
 
     this.log(`Detected language: ${language}`);
     this.log(`Database type: ${databaseType}`);
+
+    // Every generated service refuses requests without a key or a signed-in
+    // user. A project cloned from git has no .env key, so create one.
+    const created = process.env.APSO_API_KEY
+      ? undefined
+      : ensureDevKey(process.cwd());
+    if (created)
+      this.log(
+        `Created a development API key in .env. Send it in the x-api-key header:\n  ${created}`
+      );
+    // Python and Go services do not read .env themselves.
+    const key = process.env.APSO_API_KEY ?? this.readEnvValue("APSO_API_KEY");
+    this.devEnv = { APSO_LOCAL: "1", ...(key ? { APSO_API_KEY: key } : {}) };
 
     // Set up signal forwarding for clean shutdown
     process.on("SIGINT", this.cleanup);
@@ -94,7 +111,7 @@ export default class Dev extends BaseCommand {
       );
     }
     this.log(`Starting TypeScript dev server (npm run ${script})...`);
-    await this.spawnAndWait("npm", ["run", script]);
+    await this.spawnAndWait("npm", ["run", script], this.devEnv);
   }
 
   /**
@@ -135,7 +152,7 @@ export default class Dev extends BaseCommand {
       "0.0.0.0",
       "--port",
       this.readEnvValue("PORT") || "3000",
-    ]);
+    ], this.devEnv);
   }
 
   /**
@@ -150,7 +167,7 @@ export default class Dev extends BaseCommand {
     }
 
     this.log("Starting Go dev server...");
-    await this.spawnAndWait("go", ["run", "cmd/main.go"]);
+    await this.spawnAndWait("go", ["run", "cmd/main.go"], this.devEnv);
   }
 
   /**

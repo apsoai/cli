@@ -173,19 +173,10 @@ export class AuthGuard implements CanActivate {
 }
 <% if (it.mcpAuth) { %>
 
-/**
- * Sign-in settings @apso/mcp reads (its MCP_AUTH token). An MCP client that
- * calls /mcp without a valid token is pointed at the identity provider, and
- * every MCP request is checked by the same AuthGuard as the REST API.
- */
-export const McpAuthProvider = {
-  provide: 'APSO_MCP_AUTH',
-  inject: [AuthGuard],
-  useFactory: (guard: AuthGuard) => ({
-    authorizationServers: [ISSUER],
-    resource: MCP_RESOURCE || undefined,
-    verify: (request: any) => guard.authenticate(request),
-  }),
+/** Where MCP clients sign in. ApiKeyGuard adds the credential check for @apso/mcp. */
+export const MCP_SIGN_IN = {
+  authorizationServers: [ISSUER],
+  resource: MCP_RESOURCE || undefined,
 };
 <% } %>
 

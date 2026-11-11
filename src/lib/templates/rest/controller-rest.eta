@@ -19,8 +19,8 @@ const nestedScope = (req: any, fk: string) => {
 };
 <% } %>
 <% if (it.scopeOptions && (it.crudAuth.length || it.crudAuthNested.length)) { %>
-// .apsorc scopeOptions: which requests the tenant filter covers and which
-// roles skip it.
+// Which requests the tenant filter covers (.apsorc scopeOptions) and which
+// callers skip it.
 const ENFORCE_ON = [<%~ it.scopeOptions.enforceOn.map((op) => `'${op}'`).join(', ') %>];
 const BYPASS_ROLES: string[] = [<%~ it.scopeOptions.bypassRoles.map((r) => `'${r}'`).join(', ') %>];
 const scopeOperation = (req: any) => {
@@ -34,6 +34,8 @@ const scopeOperation = (req: any) => {
     }
 };
 const skipScope = (req: any) => {
+    // A service caller (valid API key) is not tenant-scoped.
+    if (req.auth?.serviceId) return true;
     const roles: string[] = req.auth?.roles ?? req.user?.roles ?? [];
     return roles.some((r) => BYPASS_ROLES.includes(r)) || !ENFORCE_ON.includes(scopeOperation(req));
 };
