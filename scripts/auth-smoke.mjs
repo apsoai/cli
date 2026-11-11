@@ -21,7 +21,7 @@
  *   - /health stays public
  *   - scopeBy keeps each tenant to its own rows, overrides a tenant id sent in
  *     a create body, and refuses a caller with no tenant
- *   - permissions (TypeScript) refuse a role outside the list, directly and
+ *   - permissions refuse a role outside the list, directly and
  *     through ?join, and allow a role in it; a RolePermission row added by an
  *     owner grants a permission in that tenant only; a member cannot grant
  *     itself; a permission in the token is honored
@@ -235,13 +235,14 @@ function providers(base) {
 
 // ---------- project ----------
 
-// Permissions and MCP tools need sign-in, and only TypeScript serves them.
+// Permissions and MCP tools need sign-in. Only TypeScript serves MCP tools.
 const entities = (auth) => {
-  const full = language === "typescript" && Boolean(auth);
+  const full = Boolean(auth);
+  const mcp = (ops) => (full && language === "typescript" ? { mcp: ops } : {});
   return [
     { name: "Organization", created_at: true, updated_at: true, fields: [{ name: "name", type: "text" }] },
     // Projects are readable as MCP tools.
-    { name: "Project", created_at: true, updated_at: true, scopeBy: "organizationId", ...(full ? { mcp: ["read"] } : {}), fields: [{ name: "title", type: "text" }] },
+    { name: "Project", created_at: true, updated_at: true, scopeBy: "organizationId", ...mcp(["read"]), fields: [{ name: "title", type: "text" }] },
     // A tenant field that is not named workspaceId/organizationId (imported schemas).
     { name: "Note", created_at: true, updated_at: true, scopeBy: "orgId", fields: [{ name: "body", type: "text" }, { name: "orgId", type: "integer", nullable: true }] },
     // Scoped through its parent (TypeScript only; Python and Go warn and skip it).
@@ -253,7 +254,8 @@ const entities = (auth) => {
       name: "Invoice",
       created_at: true,
       updated_at: true,
-      ...(full ? { permissions: { read: ["owner"], delete: ["owner"] }, mcp: true } : {}),
+      ...(full ? { permissions: { read: ["owner"], delete: ["owner"] } } : {}),
+      ...mcp(true),
       fields: [{ name: "total", type: "integer" }],
     },
     // Runtime grants: an owner gives a role a permission in its own tenant.
@@ -274,11 +276,14 @@ const relationships = (auth) => [
   { from: "Project", to: "Task", type: "OneToMany" },
   { from: "Organization", to: "Ticket", type: "OneToMany" },
   { from: "Organization", to: "Invoice", type: "OneToMany" },
-  ...(language === "typescript" && auth ? [{ from: "Organization", to: "RolePermission", type: "OneToMany" }] : []),
+  ...(auth ? [{ from: "Organization", to: "RolePermission", type: "OneToMany" }] : []),
 ];
 
+// Go routes are kebab-case (/api/role-permissions).
 const route = (plural) =>
-  language === "typescript" ? `/${plural}` : `/api/${plural.toLowerCase()}`;
+  language === "typescript"
+    ? `/${plural}`
+    : `/api/${(language === "go" ? plural.replace(/(?<=[a-z])(?=[A-Z])/g, "-") : plural).toLowerCase()}`;
 const ORGS = route("Organizations");
 const PROJECTS = route("Projects");
 const rows = (json) => (Array.isArray(json) ? json : json?.data ?? json?.items ?? []);
@@ -493,10 +498,10 @@ async function jwtCase(name, p, boot) {
   // Only the Supabase-shaped case maps a roles array we can set per token.
   const support = name === "jwt" ? (org) => bearer(sign({ ...p.claims(org), app_metadata: { org_id: org, roles: ["support"] } })) : undefined;
   await crudAndScope(base, t, valid, valid, bearer(sign(p.claims(undefined))), support);
-  if (name === "jwt" && language === "typescript") {
+  if (name === "jwt") {
     const as = (roles, org = "1", extra = {}) => bearer(sign({ ...p.claims(org), app_metadata: { org_id: org, roles }, ...extra }));
-    await rolePermissions(base, t, as(["owner"]), as(["member"]), as(["member"], "2"), as(["member"], "1", { permissions: ["invoice:delete"] }));
-    await mcpTools(base, t, as(["owner"]), as(["member"]), as(["owner"], "2"), as(["owner"], "1", { aud: `${base}/mcp` }));
+    await rolePermissions(base, t, as(["owner"]), as(["member"]), as(["member"], "2"), as(["member"], "1", { permissions: ["invoice:delete"] }), (permissions) => as(["member"], "1", { permissions }));
+    if (language === "typescript") await mcpTools(base, t, as(["owner"]), as(["member"]), as(["owner"], "2"), as(["owner"], "1", { aud: `${base}/mcp` }));
   }
   if (name === "jwt") {
     await keyNextToSignIn(base, t, valid("1"));
@@ -582,7 +587,7 @@ async function mcpTools(base, t, owner, member, otherOwner, ownerForMcp) {
  * Then runtime grants (RolePermission rows, scoped to the tenant) and a
  * permission carried in the token extend that, and nothing else does.
  */
-async function rolePermissions(base, t, owner, member, otherMember, memberWithDelete) {
+async function rolePermissions(base, t, owner, member, otherMember, memberWithDelete, memberWith) {
   const INVOICES = route("Invoices");
   const GRANTS = route("RolePermissions");
   const org = await call("POST", base + ORGS, { headers: owner, body: { name: "Billing Co" } });
@@ -594,6 +599,12 @@ async function rolePermissions(base, t, owner, member, otherMember, memberWithDe
   t.expect("member cannot read an invoice", await call("GET", `${base}${INVOICES}/${iid}`, { headers: member }), 403);
   t.expect("member cannot read invoices through a join", await call("GET", `${base}${ORGS}?join=invoices`, { headers: member }), 403);
   t.expect("member lists organizations without the join", await call("GET", base + ORGS, { headers: member }), 200);
+  if (language !== "typescript") {
+    // Python and Go load relations two more ways; both meet the same rule.
+    t.expect("[R11] member cannot read invoices through a PostgREST embed", await call("GET", `${base}${ORGS}?select=invoices(*)`, { headers: member }), 403);
+    t.expect("[R11] owner reads invoices through a PostgREST embed", await call("GET", `${base}${ORGS}?select=invoices(*)`, { headers: owner }), 200);
+  }
+  if (language === "go") t.expect("[R11] member cannot read invoices through a join spelled Invoices", await call("GET", `${base}${ORGS}?join=Invoices`, { headers: member }), 403);
   t.expect("member cannot delete an invoice", await call("DELETE", `${base}${INVOICES}/${iid}`, { headers: member }), 403);
   t.expect("owner lists invoices", await call("GET", base + INVOICES, { headers: owner }), 200);
   t.expect("owner reads invoices through a join", await call("GET", `${base}${ORGS}?join=invoices`, { headers: owner }), 200);
@@ -611,7 +622,10 @@ async function rolePermissions(base, t, owner, member, otherMember, memberWithDe
     t.expect("member cannot list invoices after the revoke", await call("GET", base + INVOICES, { headers: member }), 403);
   }
 
-  // A permission in the token (Auth0 RBAC style).
+  // A permission in the token (Auth0 RBAC style). The claim is a list, or one
+  // permission as a string; a string is never split on spaces.
+  t.expect("[R11] a permissions claim that is one string grants that permission", await call("GET", base + INVOICES, { headers: memberWith("invoice:read") }), 200);
+  t.expect("[R11] a space-separated permissions string is one name, not a list", await call("GET", base + INVOICES, { headers: memberWith("invoice:read invoice:delete") }), 403);
   t.expect("member with invoice:delete in its token deletes the invoice", await call("DELETE", `${base}${INVOICES}/${iid}`, { headers: memberWithDelete }), 200, 204);
 }
 
@@ -740,7 +754,6 @@ async function keyNextToSignIn(base, t, user) {
   t.expect("[R4] a valid user token with no key still signs in", await call("GET", base + ORGS, { headers: user }), 200);
   t.expect("[R1] no key and no token", await call("GET", base + ORGS), 401);
   await serviceCaller(base, t, key(KEY));
-  if (language !== "typescript") return;
 
   // Invoices are limited to owners; a key caller has no role and is not limited.
   const INVOICES = route("Invoices");
@@ -751,6 +764,7 @@ async function keyNextToSignIn(base, t, user) {
     t.expect("[R13] key caller deletes an invoice without a role", await call("DELETE", `${base}${INVOICES}/${invoice.json.id}`, { headers: key(KEY) }), 200, 204);
   }
 
+  if (language !== "typescript") return;
   // /mcp follows the same rules.
   const rpc = (headers) =>
     fetch(`${base}/mcp`, {
@@ -879,7 +893,6 @@ const cases = { "no-auth": {}, ...providers(`http://127.0.0.1:${jwksPort}`) };
         t.assert("[R10] support role in the second issuer's claim (groups) lists another tenant's ticket", has(await get(customer(id2, { groups: ["support"] }), TICKETS), tid));
         t.assert("[R10] a second-issuer token with the role under the first issuer's claim name is not support", lacks(await get(customer(id2, { roles: ["support"] }), TICKETS), tid));
       }
-      if (language !== "typescript") return t.failures;
 
       // Permissions: Invoice read is for owners, or a permission in the token.
       const INVOICES = route("Invoices");
@@ -888,6 +901,7 @@ const cases = { "no-auth": {}, ...providers(`http://127.0.0.1:${jwksPort}`) };
       t.expect("[R11] invoice:read in the second issuer's permissions claim (perms) lists invoices", await get(customer(id2, { perms: ["invoice:read"] }), INVOICES), 200);
       t.expect("[R11] a second-issuer token with invoice:read under the first issuer's claim name is refused", await get(customer(id2, { permissions: ["invoice:read"] }), INVOICES), 403);
       t.expect("[R11] invoice:read in the first issuer's permissions claim (permissions) lists invoices", await get(staff(id1, { permissions: ["invoice:read"] }), INVOICES), 200);
+      if (language !== "typescript") return t.failures;
 
       // MCP sign-in discovery names both issuers, and a token from either works.
       const rpc = (headers = {}) =>

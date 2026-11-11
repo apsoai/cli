@@ -56,6 +56,8 @@ class AuthContext:
     # The issuer that signed the caller in, and its provider type in .apsorc.
     issuer: Optional[str] = None
     provider: Optional[str] = None
+    # Permission strings from the token ("invoice:delete"), read by permissions.py.
+    permissions: List[str] = field(default_factory=list)
     claims: dict = field(default_factory=dict)
 
 
@@ -189,6 +191,7 @@ async def _require_user(request: Request) -> AuthContext:
         roles=_roles(_claim(payload, CLAIMS.get("roles"))),
         issuer=p["issuer"],
         provider=p["provider"],
+        permissions=_roles(_claim(payload, CLAIMS.get("permissions"))),
         claims=payload,
     )
     return ctx

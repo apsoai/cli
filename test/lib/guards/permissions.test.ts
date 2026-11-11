@@ -134,7 +134,57 @@ describe("TypeScript permission guard", () => {
 });
 
 describe.each(["python", "go"] as const)("%s", (language) => {
-  test("refuses permissions it cannot enforce yet", async () => {
-    await expect(generator(language).generateGuards(entities, jwt)).rejects.toThrow("TypeScript services only");
+  const file = language === "python" ? "permissions.py" : "middleware/permission.go";
+  const grants: Entity = {
+    name: "RolePermission",
+    scopeBy: "organizationId",
+    permissions: { create: ["admin"], update: ["admin"], delete: ["admin"] },
+    fields: [{ name: "role", type: "text" }, { name: "permission", type: "text" }],
+  };
+
+  test("generates the permission check with the same names as TypeScript", async () => {
+    const files = await generator(language).generateGuards(entities, jwt, relationshipMap);
+    const content = files.find((f) => f.path === file)!.content;
+    for (const name of ["project:delete", "invoice:read", "invoice:create"]) expect(content).toContain(name);
+    // The join rule is keyed by relation name, singular and plural.
+    expect(content).toMatch(/"invoices": [[{]/);
+    // No grants entity in this schema: no table is read.
+    expect(content).not.toContain("RolePermission");
+    const auth = files.find((f) => f.path.endsWith(language === "python" ? "auth.py" : "auth.go"))!.content;
+    expect(auth).toMatch(language === "python" ? /permissions=_roles\(/ : /Permissions:\s+roles\(/);
+  });
+
+  test("reads grants for the caller's tenant, or for every tenant when it is null", async () => {
+    const files = await generator(language).generateGuards([...entities, grants], jwt, relationshipMap);
+    const content = files.find((f) => f.path === file)!.content;
+    expect(content).toContain(language === "python" ? "RolePermission.organizationId" : `"organizationId" IS NULL OR`);
+  });
+
+  test("the index wires the check in after authentication", async () => {
+    const [index] = await generator(language).generateIndexModule(entities, "rest", { auth: jwt });
+    expect(index.content).toContain(language === "python" ? "Depends(require_permission)" : "middleware.PermissionMiddleware(db, r.BasePath())");
+    const plain = entities.map((e) => ({ ...e, permissions: undefined }));
+    const [none] = await generator(language).generateIndexModule(plain, "rest", { auth: jwt });
+    expect(none.content).not.toMatch(/require_permission|PermissionMiddleware/);
+  });
+
+  test("no permissions, no file", async () => {
+    const plain = entities.map((e) => ({ ...e, permissions: undefined }));
+    const files = await generator(language).generateGuards(plain, jwt, relationshipMap);
+    expect(files.some((f) => f.path === file)).toBe(false);
+  });
+
+  test("refuses the same unsafe schemas as TypeScript", async () => {
+    await expect(generator(language).generateGuards(entities, undefined, relationshipMap)).rejects.toThrow(
+      "permissions in .apsorc need an auth block"
+    );
+    const open = { ...grants, permissions: { create: ["admin"] } };
+    await expect(generator(language).generateGuards([...entities, open], jwt, relationshipMap)).rejects.toThrow(
+      "must list roles for create, update and delete"
+    );
+    const unscoped = { ...grants, scopeBy: undefined };
+    await expect(generator(language).generateGuards([...entities, unscoped], jwt, relationshipMap)).rejects.toThrow(
+      "needs a direct scopeBy field"
+    );
   });
 });

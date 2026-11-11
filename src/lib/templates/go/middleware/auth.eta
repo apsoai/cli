@@ -67,6 +67,8 @@ type AuthContext struct {
 	// The issuer that signed the caller in, and its provider type in .apsorc.
 	Issuer         string                 `json:"issuer,omitempty"`
 	Provider       string                 `json:"provider,omitempty"`
+	// Permission strings from the token ("invoice:delete"), read by PermissionMiddleware.
+	Permissions    []string               `json:"permissions,omitempty"`
 	Claims         map[string]interface{} `json:"claims,omitempty"`
 }
 
@@ -319,6 +321,7 @@ type provider struct {
 	organization      string
 	email             string
 	roles             string
+	permissions       string
 }
 
 // providers by issuer. The first provider reads AUTH_JWT_ISSUER, the second
@@ -337,6 +340,7 @@ var providers = byIssuer(
 		organization:      <%~ JSON.stringify(p.claims.organizationId || '') %>,
 		email:             <%~ JSON.stringify(p.claims.email || '') %>,
 		roles:             <%~ JSON.stringify(p.claims.roles || '') %>,
+		permissions:       <%~ JSON.stringify(p.claims.permissions || '') %>,
 	},
 <% }) %>
 )
@@ -489,6 +493,7 @@ func userAuth(c *gin.Context) {
 		Roles:          roles(claim(claims, p.roles)),
 		Issuer:         p.issuer,
 		Provider:       p.name,
+		Permissions:    roles(claim(claims, p.permissions)),
 		Claims:         claims,
 	})
 	c.Next()
