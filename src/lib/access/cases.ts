@@ -26,6 +26,8 @@ export interface Res {
   status: number;
   text: string;
   json?: any;
+  /** The Content-Range response header, when the service sent one. */
+  range?: string;
 }
 
 export async function call(
@@ -46,7 +48,7 @@ export async function call(
     } catch {
       json = undefined;
     }
-    return { status: res.status, text, json };
+    return { status: res.status, text, json, range: res.headers.get("content-range") ?? undefined };
   } catch (error) {
     return { status: 0, text: String(error) };
   }
@@ -56,6 +58,12 @@ const rowsOf = (json: any): Row[] => {
   if (Array.isArray(json)) return json;
   const list = json?.data ?? json?.items;
   return Array.isArray(list) ? list : [];
+};
+
+/** The total in a Content-Range header: 7 for "0-4/7" and for "*\/7", undefined for "0-4/*" or no header. */
+const rangeTotal = (res: Res): number | undefined => {
+  const total = /\/(\d+)$/.exec(res.range ?? "")?.[1];
+  return total === undefined ? undefined : Number(total);
 };
 
 // ---------- the schema, as the cases need it ----------
@@ -318,6 +326,17 @@ function rowsWhere(
 
 const POSTGREST = { "x-crud-dialect": "postgrest" };
 
+/** A TypeScript service accepts the PostgREST query syntax only; Python and Go still accept nestjsx as well. */
+const postgrestOnly = (model: AccessModel): boolean => model.language === "typescript";
+
+/**
+ * The forms a service of this language parses. Where nestjsx is refused its
+ * forms are left out: each has a PostgREST form beside it, and the refusal
+ * itself is proven once per parameter by nestjsxRefused.
+ */
+const forms = <T extends { nestjsx?: boolean }>(model: AccessModel, list: T[]): T[] =>
+  postgrestOnly(model) ? list.filter((item) => !item.nestjsx) : list;
+
 /**
  * Every way a request can load `relation` of `entity` (and, one step further,
  * each relation of that): the join parameter, and select embeds with and
@@ -326,26 +345,26 @@ const POSTGREST = { "x-crud-dialect": "postgrest" };
 function relationLoads(model: AccessModel, relation: AccessEntity["relations"][number], nested = true): Attempt[] {
   const p = relation.property;
   const out: Attempt[] = [
-    { name: `join ${p}`, query: `join=${enc(p)}` },
-    { name: `join ${p} with chosen fields`, query: `join=${enc(`${p}||id`)}` },
+    nx(`join ${p}`, `join=${enc(p)}`),
+    nx(`join ${p} with chosen fields`, `join=${enc(`${p}||id`)}`),
     { name: `select embed ${p}`, query: `select=${enc(`*,${p}(*)`)}`, headers: POSTGREST },
     { name: `select embed ${p}, no dialect header`, query: `select=${enc(`*,${p}(*)`)}` },
     { name: `select embed ${p} with chosen columns, no dialect header`, query: `select=${enc(`id,${p}(id)`)}` },
     { name: `select embed ${p} under an alias`, query: `select=${enc(`*,${alias(p)}:${p}(*)`)}` },
     { name: `select embed ${p} with an inner join hint`, query: `select=${enc(`*,${p}!inner(*)`)}` },
   ];
-  if (!nested) return out;
+  if (!nested) return forms(model, out);
   for (const second of model.entities.find((e) => e.name === relation.entity)?.relations ?? []) {
     const q = second.property;
     out.push(
-      { name: `join ${p}.${q}`, query: `join=${enc(p)}&join=${enc(`${p}.${q}`)}` },
-      { name: `join ${p}.${q} without joining ${p}`, query: `join=${enc(`${p}.${q}`)}` },
+      nx(`join ${p}.${q}`, `join=${enc(p)}&join=${enc(`${p}.${q}`)}`),
+      nx(`join ${p}.${q} without joining ${p}`, `join=${enc(`${p}.${q}`)}`),
       { name: `select embed ${p}(${q})`, query: `select=${enc(`*,${p}(*,${q}(*))`)}`, headers: POSTGREST },
       { name: `select embed ${p}(${q}), no dialect header`, query: `select=${enc(`id,${p}(id,${q}(*))`)}` },
       { name: `select embed ${p}(${q}) under aliases`, query: `select=${enc(`*,${alias(p)}:${p}(*,${alias(q)}:${q}(*))`)}` }
     );
   }
-  return out;
+  return forms(model, out);
 }
 
 /** A field of an entity's seeded row to test for through a relation, and a value no row has. */
@@ -354,23 +373,28 @@ function probe(entity: AccessEntity, row: Row): { field: string; value: string; 
   return { field, value: String(row[field]), absent: field === "id" ? "987654321" : "apso-access-absent" };
 }
 
+/** A value less its last character, for a "starts with" filter. */
+const start = (v: string) => v.slice(0, Math.max(1, v.length - 1));
+
 /**
  * Filters on a field of a related entity the caller cannot read. If the
  * filter matches for the real value and not for a value no row has, the
  * caller can learn the field one guess at a time without ever being sent it.
  */
-async function oracle(url: string, headers: Headers, property: string, target: AccessEntity, row: Row): Promise<string> {
+async function oracle(model: AccessModel, url: string, headers: Headers, property: string, target: AccessEntity, row: Row): Promise<string> {
   const { field, value, absent } = probe(target, row);
-  const forms: [string, (v: string) => string, Headers?][] = [
-    ["filter", (v) => `filter=${f(`${property}.${field}`, "$eq", v)}`],
-    ["filter with join", (v) => `join=${enc(property)}&filter=${f(`${property}.${field}`, "$eq", v)}`],
-    ["filter $starts", (v) => `filter=${f(`${property}.${field}`, "$starts", v.slice(0, Math.max(1, v.length - 1)))}`],
-    ["s search", (v) => `s=${enc(JSON.stringify({ [`${property}.${field}`]: num(v) }))}`],
-    ["postgrest filter", (v) => `${property}.${field}=${enc(`eq.${v}`)}`, POSTGREST],
-    ["postgrest inner embed filter", (v) => `select=${enc(`id,${property}!inner(id)`)}&${property}.${field}=${enc(`eq.${v}`)}`],
+  const tries: { name: string; query: (v: string) => string; extra?: Headers; nestjsx?: boolean }[] = [
+    { name: "filter", query: (v) => `filter=${f(`${property}.${field}`, "$eq", v)}`, nestjsx: true },
+    { name: "filter with join", query: (v) => `join=${enc(property)}&filter=${f(`${property}.${field}`, "$eq", v)}`, nestjsx: true },
+    { name: "filter $starts", query: (v) => `filter=${f(`${property}.${field}`, "$starts", start(v))}`, nestjsx: true },
+    { name: "s search", query: (v) => `s=${enc(JSON.stringify({ [`${property}.${field}`]: num(v) }))}`, nestjsx: true },
+    { name: "postgrest filter", query: (v) => `${property}.${field}=${enc(`eq.${v}`)}`, extra: POSTGREST },
+    { name: "postgrest inner embed filter", query: (v) => `select=${enc(`id,${property}!inner(id)`)}&${property}.${field}=${enc(`eq.${v}`)}` },
+    { name: "postgrest inner embed filter, like", query: (v) => `select=${enc(`id,${property}!inner(id)`)}&${property}.${field}=${enc(`like.${start(v)}*`)}` },
+    { name: "postgrest inner embed filter, in", query: (v) => `select=${enc(`id,${property}!inner(id)`)}&${property}.${field}=${enc(`in.(${v})`)}` },
   ];
   const leaks: string[] = [];
-  for (const [name, query, extra] of forms) {
+  for (const { name, query, extra } of forms(model, tries)) {
     const real = await call("GET", `${url}?${query(value)}`, { headers: { ...headers, ...extra } });
     if (real.status !== 200 || rowsOf(real.json).length === 0) continue;
     // "$starts" of a value no row has, cut the same way, still matches nothing.
@@ -387,7 +411,12 @@ interface Attempt {
   /** The query string, already encoded as it should go on the wire. */
   query: string;
   headers?: Headers;
+  /** True for nestjsx syntax, which a PostgREST-only service refuses with a 400. */
+  nestjsx?: boolean;
 }
+
+/** An attempt in nestjsx syntax. */
+const nx = (name: string, query: string): Attempt => ({ name, query, nestjsx: true });
 
 const enc = encodeURIComponent;
 /** A token claim is text; a numeric column is filtered as a number in JSON. */
@@ -399,7 +428,8 @@ const f = (...parts: string[]) => enc(parts.join("||"));
  * Query strings a caller of one tenant would try in order to read another
  * tenant's rows of `entity`: both query dialects, nested and encoded forms.
  * `mine` and `theirs` are the two tenants' values of the scope column and
- * `theirId` is the id of the other tenant's row.
+ * `theirId` is the id of the other tenant's row. Every nestjsx attempt has a
+ * PostgREST form in the list; a PostgREST-only service runs only those.
  */
 function widenAttempts(model: AccessModel, entity: AccessEntity, mine: string, theirs: string, theirId: string): Attempt[] {
   const col = entity.scope!.field;
@@ -407,53 +437,53 @@ function widenAttempts(model: AccessModel, entity: AccessEntity, mine: string, t
   const postgrest = POSTGREST;
   const out: Attempt[] = [
     // filter
-    { name: "filter names the other tenant", query: `filter=${f(col, "$eq", theirs)}` },
-    { name: "filter $in lists both tenants", query: `filter=${f(col, "$in", `${mine},${theirs}`)}` },
-    { name: "filter $ne excludes the caller's tenant", query: `filter=${f(col, "$ne", mine)}` },
-    { name: "filter $notnull on the tenant column", query: `filter=${f(col, "$notnull")}` },
-    { name: "filter by the other tenant's row id", query: `filter=${f("id", "$eq", theirId)}` },
-    { name: "filter sent twice (own tenant, then the other)", query: `filter=${f(col, "$eq", mine)}&filter=${f(col, "$eq", theirs)}` },
-    { name: "filter as an array parameter", query: `filter[]=${f(col, "$eq", theirs)}` },
-    { name: "filter as an indexed array parameter", query: `filter[0]=${f(col, "$eq", theirs)}&filter[1]=${f("id", "$eq", theirId)}` },
-    { name: "filter with unencoded separators", query: `filter=${col}||$eq||${theirs}` },
-    { name: "filter double-encoded", query: `filter=${enc(f(col, "$eq", theirs))}` },
-    { name: "filter on the column's snake_case name", query: `filter=${f(snakeCase(col), "$eq", theirs)}` },
-    { name: "filter on the column in upper case", query: `filter=${f(col.toUpperCase(), "$eq", theirs)}` },
+    nx("filter names the other tenant", `filter=${f(col, "$eq", theirs)}`),
+    nx("filter $in lists both tenants", `filter=${f(col, "$in", `${mine},${theirs}`)}`),
+    nx("filter $ne excludes the caller's tenant", `filter=${f(col, "$ne", mine)}`),
+    nx("filter $notnull on the tenant column", `filter=${f(col, "$notnull")}`),
+    nx("filter by the other tenant's row id", `filter=${f("id", "$eq", theirId)}`),
+    nx("filter sent twice (own tenant, then the other)", `filter=${f(col, "$eq", mine)}&filter=${f(col, "$eq", theirs)}`),
+    nx("filter as an array parameter", `filter[]=${f(col, "$eq", theirs)}`),
+    nx("filter as an indexed array parameter", `filter[0]=${f(col, "$eq", theirs)}&filter[1]=${f("id", "$eq", theirId)}`),
+    nx("filter with unencoded separators", `filter=${col}||$eq||${theirs}`),
+    nx("filter double-encoded", `filter=${enc(f(col, "$eq", theirs))}`),
+    nx("filter on the column's snake_case name", `filter=${f(snakeCase(col), "$eq", theirs)}`),
+    nx("filter on the column in upper case", `filter=${f(col.toUpperCase(), "$eq", theirs)}`),
     { name: "the guard's own filter key", query: `filter.${col}=${enc(`$eq:${theirs}`)}` },
     { name: "the guard's own filter key, sent twice", query: `filter.${col}=${enc(`$eq:${theirs}`)}&filter.${col}=${enc(`$eq:${theirs}`)}` },
-    { name: "filter as a nested object parameter", query: `filter[${col}]=${enc(theirs)}` },
+    nx("filter as a nested object parameter", `filter[${col}]=${enc(theirs)}`),
     // or
-    { name: "or names the other tenant", query: `or=${f(col, "$eq", theirs)}` },
-    { name: "filter own tenant, or the other", query: `filter=${f(col, "$eq", mine)}&or=${f(col, "$eq", theirs)}` },
-    { name: "two or conditions", query: `or=${f(col, "$eq", theirs)}&or=${f("id", "$eq", theirId)}` },
-    { name: "filter and or by the other tenant's row id", query: `filter=${f("id", "$eq", theirId)}&or=${f("id", "$eq", theirId)}` },
-    { name: "or matching every row", query: `or=${f("id", "$notnull")}&or=${f("id", "$isnull")}` },
-    { name: "or as an array parameter", query: `or[]=${f(col, "$eq", theirs)}&or[]=${f("id", "$eq", theirId)}` },
+    nx("or names the other tenant", `or=${f(col, "$eq", theirs)}`),
+    nx("filter own tenant, or the other", `filter=${f(col, "$eq", mine)}&or=${f(col, "$eq", theirs)}`),
+    nx("two or conditions", `or=${f(col, "$eq", theirs)}&or=${f("id", "$eq", theirId)}`),
+    nx("filter and or by the other tenant's row id", `filter=${f("id", "$eq", theirId)}&or=${f("id", "$eq", theirId)}`),
+    nx("or matching every row", `or=${f("id", "$notnull")}&or=${f("id", "$isnull")}`),
+    nx("or as an array parameter", `or[]=${f(col, "$eq", theirs)}&or[]=${f("id", "$eq", theirId)}`),
     // s (JSON search)
-    { name: "s names the other tenant", query: s({ [col]: num(theirs) }) },
-    { name: "s $or of both tenants", query: s({ $or: [{ [col]: num(mine) }, { [col]: num(theirs) }] }) },
-    { name: "s $or of the other tenant and its row id", query: s({ $or: [{ [col]: num(theirs) }, { id: num(theirId) }] }) },
-    { name: "s $ne the caller's tenant", query: s({ [col]: { $ne: num(mine) } }) },
-    { name: "s $in both tenants", query: s({ [col]: { $in: [num(mine), num(theirs)] } }) },
-    { name: "s $or nested in $and", query: s({ $and: [{ $or: [{ [col]: num(theirs) }, { id: { $notnull: true } }] }] }) },
-    { name: "s $or nested in $or", query: s({ $or: [{ $or: [{ [col]: num(theirs) }] }, { $and: [{ id: num(theirId) }] }] }) },
-    { name: "s by the other tenant's row id", query: s({ id: num(theirId) }) },
-    { name: "s $or inside the column's condition", query: s({ [col]: { $or: { $eq: num(theirs), $notnull: true } } }) },
-    { name: "s as a nested object parameter", query: `s[${col}]=${enc(theirs)}` },
-    { name: "s double-encoded", query: `s=${enc(enc(JSON.stringify({ [col]: num(theirs) })))}` },
-    { name: "s with filter and or together", query: `${s({ [col]: num(theirs) })}&filter=${f(col, "$eq", theirs)}&or=${f(col, "$eq", theirs)}` },
+    nx("s names the other tenant", s({ [col]: num(theirs) })),
+    nx("s $or of both tenants", s({ $or: [{ [col]: num(mine) }, { [col]: num(theirs) }] })),
+    nx("s $or of the other tenant and its row id", s({ $or: [{ [col]: num(theirs) }, { id: num(theirId) }] })),
+    nx("s $ne the caller's tenant", s({ [col]: { $ne: num(mine) } })),
+    nx("s $in both tenants", s({ [col]: { $in: [num(mine), num(theirs)] } })),
+    nx("s $or nested in $and", s({ $and: [{ $or: [{ [col]: num(theirs) }, { id: { $notnull: true } }] }] })),
+    nx("s $or nested in $or", s({ $or: [{ $or: [{ [col]: num(theirs) }] }, { $and: [{ id: num(theirId) }] }] })),
+    nx("s by the other tenant's row id", s({ id: num(theirId) })),
+    nx("s $or inside the column's condition", s({ [col]: { $or: { $eq: num(theirs), $notnull: true } } })),
+    nx("s as a nested object parameter", `s[${col}]=${enc(theirs)}`),
+    nx("s double-encoded", `s=${enc(enc(JSON.stringify({ [col]: num(theirs) })))}`),
+    nx("s with filter and or together", `${s({ [col]: num(theirs) })}&filter=${f(col, "$eq", theirs)}&or=${f(col, "$eq", theirs)}`),
     // sort and pagination
-    { name: "sort by tenant descending, first row only", query: `sort=${enc(`${col},DESC`)}&limit=1` },
-    { name: "sort by tenant ascending, first row only", query: `sort=${enc(`${col},ASC`)}&limit=1` },
-    { name: "sort by id, a very large page", query: `sort=${enc("id,DESC")}&limit=100000` },
+    nx("sort by tenant descending, first row only", `sort=${enc(`${col},DESC`)}&limit=1`),
+    nx("sort by tenant ascending, first row only", `sort=${enc(`${col},ASC`)}&limit=1`),
+    nx("sort by id, a very large page", `sort=${enc("id,DESC")}&limit=100000`),
     { name: "limit 0", query: "limit=0" },
     { name: "negative limit", query: "limit=-1" },
-    { name: "second page", query: "limit=1&page=2" },
+    nx("second page", "limit=1&page=2"),
     { name: "offset past the caller's rows", query: "limit=100&offset=1" },
     { name: "negative offset", query: "offset=-1" },
-    { name: "per_page and take", query: "per_page=1000&take=1000" },
-    { name: "fields limited to the tenant column", query: `fields=${enc(col)}` },
-    { name: "cache off", query: "cache=0" },
+    nx("per_page and take", "per_page=1000&take=1000"),
+    nx("fields limited to the tenant column", `fields=${enc(col)}`),
+    nx("cache off", "cache=0"),
     // the PostgREST dialect
     { name: "postgrest: column eq the other tenant", query: `${col}=${enc(`eq.${theirs}`)}`, headers: postgrest },
     { name: "postgrest: column eq, dialect inferred", query: `${col}=${enc(`eq.${theirs}`)}` },
@@ -470,29 +500,61 @@ function widenAttempts(model: AccessModel, entity: AccessEntity, mine: string, t
     { name: "postgrest: offset", query: "limit=100&offset=1", headers: postgrest },
     { name: "postgrest: select all", query: `select=${enc("*")}`, headers: postgrest },
     { name: "postgrest: Range header", query: "", headers: { ...postgrest, range: "0-999", prefer: "count=exact" } },
+    // the PostgREST form of each nestjsx attempt above that had none
+    { name: "postgrest: tenant column is not null", query: `${col}=${enc("not.is.null")}` },
+    { name: "postgrest: tenant column is.not_null", query: `${col}=${enc("is.not_null")}` },
+    { name: "postgrest: column filter sent twice (own tenant, then the other)", query: `${col}=${enc(`eq.${mine}`)}&${col}=${enc(`eq.${theirs}`)}` },
+    { name: "postgrest: column filter sent twice (the other tenant, then own)", query: `${col}=${enc(`eq.${theirs}`)}&${col}=${enc(`eq.${mine}`)}` },
+    { name: "postgrest: column filter as an array parameter", query: `${col}[]=${enc(`eq.${theirs}`)}` },
+    { name: "postgrest: column filter as an indexed array parameter", query: `${col}[0]=${enc(`eq.${theirs}`)}&${col}[1]=${enc(`eq.${theirs}`)}` },
+    { name: "postgrest: column filter as a nested object parameter", query: `${col}[eq]=${enc(theirs)}` },
+    { name: "postgrest: or group with unencoded separators", query: `or=(${col}.eq.${theirs},id.eq.${theirId})` },
+    { name: "postgrest: or group double-encoded", query: `or=${enc(enc(`(${col}.eq.${theirs},id.eq.${theirId})`))}` },
+    { name: "postgrest: column filter on the snake_case name", query: `${snakeCase(col)}=${enc(`eq.${theirs}`)}` },
+    { name: "postgrest: column filter on the name in upper case", query: `${col.toUpperCase()}=${enc(`eq.${theirs}`)}` },
+    { name: "postgrest: filter own tenant, or group the other", query: `${col}=${enc(`eq.${mine}`)}&or=${enc(`(${col}.eq.${theirs})`)}` },
+    { name: "postgrest: or group of both tenants", query: `or=${enc(`(${col}.eq.${mine},${col}.eq.${theirs})`)}` },
+    { name: "postgrest: or group matching every row", query: `or=${enc("(id.not.is.null,id.is.null)")}` },
+    { name: "postgrest: or group as an array parameter", query: `or[]=${enc(`(${col}.eq.${theirs})`)}&or[]=${enc(`(id.eq.${theirId})`)}` },
+    { name: "postgrest: or nested in or", query: `or=${enc(`(or(${col}.eq.${theirs}),and(id.eq.${theirId}))`)}` },
+    { name: "postgrest: negated condition in an or group", query: `or=${enc(`(${col}.not.eq.${mine},id.eq.${theirId})`)}` },
+    { name: "postgrest: column filter with or and and groups together", query: `${col}=${enc(`eq.${theirs}`)}&or=${enc(`(${col}.eq.${theirs})`)}&and=${enc(`(${col}.eq.${theirs})`)}` },
+    { name: "postgrest: order by tenant ascending, first row", query: `order=${enc(`${col}.asc`)}&limit=1` },
+    { name: "postgrest: order by id, a very large page", query: `order=${enc("id.desc")}&limit=100000` },
+    { name: "postgrest: second page", query: "limit=1&offset=1" },
+    { name: "postgrest: select limited to the tenant column", query: `select=${enc(col)}` },
+    { name: "postgrest: count of both tenants", query: `${col}=${enc(`in.(${mine},${theirs})`)}`, headers: { prefer: "count=exact" } },
+    { name: "postgrest: count only, the other tenant", query: `${col}=${enc(`eq.${theirs}`)}&limit=0`, headers: { prefer: "count=exact" } },
+    { name: "postgrest: count with an or group of both tenants", query: `or=${enc(`(${col}.eq.${mine},${col}.eq.${theirs})`)}`, headers: { prefer: "count=exact" } },
   ];
   // every way to load a relation, and every relation of those
   for (const relation of entity.relations) {
     out.push(
       ...relationLoads(model, relation),
-      { name: `join ${relation.property} with a filter on it`, query: `join=${enc(relation.property)}&filter=${f(`${relation.property}.id`, "$notnull")}&or=${f(`${relation.property}.id`, "$isnull")}` },
-      { name: `sort by a field of ${relation.property}`, query: `join=${enc(relation.property)}&sort=${enc(`${relation.property}.id,DESC`)}&limit=1` }
+      nx(`join ${relation.property} with a filter on it`, `join=${enc(relation.property)}&filter=${f(`${relation.property}.id`, "$notnull")}&or=${f(`${relation.property}.id`, "$isnull")}`),
+      nx(`sort by a field of ${relation.property}`, `join=${enc(relation.property)}&sort=${enc(`${relation.property}.id,DESC`)}&limit=1`),
+      { name: `select embed ${relation.property} with a filter on it`, query: `select=${enc(`*,${relation.property}(*)`)}&${relation.property}.id=${enc("not.is.null")}` },
+      { name: `select inner embed ${relation.property} with a filter on it`, query: `select=${enc(`*,${relation.property}!inner(*)`)}&${relation.property}.id=${enc("not.is.null")}` },
+      { name: `select inner embed ${relation.property} with a filter on it and a count`, query: `select=${enc(`id,${relation.property}!inner(id)`)}&${relation.property}.id=${enc("not.is.null")}`, headers: { prefer: "count=exact" } },
+      { name: `order by a field of ${relation.property}`, query: `select=${enc(`*,${relation.property}(id)`)}&order=${enc(`${relation.property}(id).desc`)}&limit=1` }
     );
   }
-  return out;
+  return forms(model, out);
 }
 
 /** A list answer is clean when it is refused, or holds none of the other tenant's rows and no more rows than the caller owns. */
 function widened(model: AccessModel, entity: AccessEntity, res: Res, theirs: Record<string, Row>, own: number): string {
   // Refused. A 5xx returned no rows either: it is a defect, reported as a warning, not a leak.
   if (res.status >= 400) return "";
-  if (res.status !== 200) return `status ${res.status} ${res.text.slice(0, 200)}`;
+  // 206 is a page of a longer list (PostgREST).
+  if (res.status !== 200 && res.status !== 206) return `status ${res.status} ${res.text.slice(0, 200)}`;
   // A list answers with an envelope or a bare array; a read by id with the row.
   const isList = Array.isArray(res.json) || Array.isArray(res.json?.data) || Array.isArray(res.json?.items);
   const leaked = foreignRows(model, entity.name, isList ? rowsOf(res.json) : res.json, theirs);
   if (leaked.length > 0) return `returned another tenant's rows: ${[...new Set(leaked)].join(", ")}`;
   const n = rowsOf(res.json).length;
-  const total = typeof res.json?.total === "number" ? res.json.total : n;
+  // The total a list reports: in the nestjsx envelope, or in Content-Range.
+  const total = typeof res.json?.total === "number" ? res.json.total : rangeTotal(res) ?? n;
   if (entity.scope && (n > own || total > own)) return `returned ${n} rows (total ${total}); the caller owns ${own}`;
   return "";
 }
@@ -512,6 +574,56 @@ async function whoIsCalling(ctx: AccessContext): Promise<void> {
   t.expect("[R13] the service's key is a service caller", await call("GET", base + first.route, { headers: key }), 200);
   if (ctx.user)
     t.expect("[R14] a wrong key is refused even with a valid user token", await call("GET", base + first.route, { headers: { ...ctx.user({ tenant: "1" }), "x-api-key": "apso-access-wrong-key" } }), 401);
+}
+
+/**
+ * The roles the test callers hold: every role a permissions list names, so a
+ * role check does not hide a tenant check. Bypass roles are left out.
+ */
+function callerRoles(model: AccessModel): string[] {
+  const bypass = new Set(model.entities.flatMap((e) => e.scope?.bypassRoles ?? []));
+  return [...new Set(model.entities.flatMap((e) => Object.values(e.permissions ?? {}).flat()))].filter((r) => !bypass.has(r as string)) as string[];
+}
+
+/** True for the 400 a PostgREST-only service gives a nestjsx parameter: it names the parameter. */
+const refused = (res: Res, parameter: string) =>
+  res.status === 400 && typeof res.json?.message === "string" && res.json.message.includes(`'${parameter}'`) && /PostgREST/.test(res.json.message);
+
+/**
+ * A PostgREST-only service answers 400 to each nestjsx query parameter and
+ * says what to send instead. One case per parameter: the forms left out by
+ * forms() above are all spelled with these.
+ */
+async function nestjsxRefused(ctx: AccessContext): Promise<void> {
+  const { base, model, t, key } = ctx;
+  const entity = model.entities.find((e) => e.scope) ?? model.entities[0];
+  if (!entity) return;
+  const url = base + entity.route;
+  const relation = entity.relations[0]?.property ?? "x";
+  const parameters: [string, string][] = [
+    ["fields", "id"],
+    ["filter", "id||$notnull"],
+    ["or", "id||$notnull"],
+    ["join", relation],
+    ["sort", "id,DESC"],
+    ["s", JSON.stringify({ id: { $notnull: true } })],
+    ["per_page", "1000"],
+    ["page", "1"],
+    ["cache", "0"],
+  ];
+  for (const [parameter, value] of parameters) {
+    const res = await call("GET", `${url}?${parameter}=${enc(value)}`, { headers: key });
+    t.assert(`[R7] ${entity.name}: the nestjsx parameter ${parameter} is refused with a 400 that names it`, refused(res, parameter), `${res.status} ${res.text.slice(0, 300)}`);
+  }
+  const array = await call("GET", `${url}?filter[]=${enc("id||$notnull")}`, { headers: key });
+  t.assert(`[R7] ${entity.name}: a nestjsx parameter sent as an array is refused with a 400`, refused(array, "filter"), `${array.status} ${array.text.slice(0, 300)}`);
+  const byId = await call("GET", `${url}/1?join=${enc(relation)}`, { headers: key });
+  t.assert(`[R7] ${entity.name}: a nestjsx parameter on a read by id is refused with a 400`, refused(byId, "join"), `${byId.status} ${byId.text.slice(0, 300)}`);
+  t.expect(`[R7] ${entity.name}: the X-Crud-Dialect: nestjsx header is refused with a 400`, await call("GET", url, { headers: { ...key, "x-crud-dialect": "nestjsx" } }), 400);
+  const user = ctx.user?.({ tenant: "1", roles: callerRoles(model) });
+  if (user) t.expect(`[R7] ${entity.name}: a nestjsx parameter from a signed-in caller is refused with a 400`, await call("GET", `${url}?filter=${enc("id||$notnull")}`, { headers: user }), 400);
+  const plain = await call("GET", `${url}?limit=1`, { headers: key });
+  t.assert(`[R7] ${entity.name}: a list is a JSON array with a Content-Range header`, plain.status === 200 && Array.isArray(plain.json) && /^(\d+-\d+|\*)\/(\d+|\*)$/.test(plain.range ?? ""), `${plain.status} Content-Range ${plain.range} ${plain.text.slice(0, 200)}`);
 }
 
 async function tenantScope(ctx: AccessContext, entity: AccessEntity, a: Tenant, b: Tenant, asA: Headers): Promise<void> {
@@ -546,13 +658,36 @@ async function tenantScope(ctx: AccessContext, entity: AccessEntity, a: Tenant, 
     if (res.status >= 500) ctx.warn?.(`${n}: GET ${entity.route}?${attempt.query} answered ${res.status}`);
     t.assert(`[R7] ${n}: ${attempt.name} (${res.status})`, widened(model, entity, res, b.rows, ownCount) === "", `GET ${entity.route}?${attempt.query} ${widened(model, entity, res, b.rows, ownCount)}`);
   }
-  for (const [name, query] of [
-    ["a filter", `filter=${f(col, "$eq", theirValue)}`],
-    ["an s search", `s=${enc(JSON.stringify({ [col]: theirValue }))}`],
-    ["an or", `or=${f("id", "$eq", String(other.id))}`],
-    ...entity.relations.map((r) => [`join ${r.property}`, `join=${enc(r.property)}`]),
-  ])
+  for (const { name, query } of forms(model, [
+    nx("a filter", `filter=${f(col, "$eq", theirValue)}`),
+    nx("an s search", `s=${enc(JSON.stringify({ [col]: theirValue }))}`),
+    nx("an or", `or=${f("id", "$eq", String(other.id))}`),
+    ...entity.relations.map((r) => nx(`join ${r.property}`, `join=${enc(r.property)}`)),
+    { name: "a column filter", query: `${col}=${enc(`eq.${theirValue}`)}` },
+    { name: "an or group", query: `or=${enc(`(id.eq.${other.id},${col}.eq.${theirValue})`)}` },
+    { name: "a select", query: `select=${enc("*")}` },
+    ...entity.relations.map((r) => ({ name: `select embed ${r.property}`, query: `select=${enc(`*,${r.property}(*)`)}` })),
+  ]))
     t.expect(`[R7] ${n}: read another tenant's row by id with ${name}`, await call("GET", `${url}/${other.id}?${query}`, { headers: asA }), 400, 403, 404);
+
+  // The count a list reports is a second way to learn about rows: it must
+  // cover the caller's rows only, whatever the query asks for.
+  if (postgrestOnly(model)) {
+    const exact = { prefer: "count=exact" };
+    const counts: [string, string, number][] = [
+      ["a plain list", "", ownCount],
+      ["a count-only request (limit=0)", "limit=0", ownCount],
+      ["a filter that lists both tenants", `${col}=${enc(`in.(${mineValue},${theirValue})`)}`, ownCount],
+      ["an or group that names the other tenant's row", `or=${enc(`(id.eq.${mine.id},id.eq.${other.id})`)}`, 1],
+      ["a filter on the other tenant's row id", `id=${enc(`eq.${other.id}`)}`, 0],
+    ];
+    for (const [name, query, expected] of counts) {
+      const res = await call("GET", query ? `${url}?${query}` : url, { headers: { ...asA, ...exact } });
+      t.assert(`[R6,R7] ${n}: the Content-Range count of ${name} is the caller's rows only`, [200, 206].includes(res.status) && rangeTotal(res) === expected, `GET ${entity.route}?${query} answered ${res.status} with Content-Range ${res.range}; expected a total of ${expected}`);
+    }
+    const every = await call("GET", `${url}?limit=0`, { headers: { ...key, ...exact } });
+    t.assert(`[R10] ${n}: a service caller's Content-Range count covers both tenants`, every.status === 200 && (rangeTotal(every) ?? 0) >= ownCount + 1, `${every.status} Content-Range ${every.range}`);
+  }
 
   // R8: whatever a body says, a written row stays with the caller. For a
   // scopeBy field the value is the tenant; for a path through a parent it is
@@ -658,10 +793,13 @@ async function joinsFromShared(ctx: AccessContext, entity: AccessEntity, b: Tena
     const reachesScoped = scoped(relation.entity) || (target?.relations ?? []).some((second) => scoped(second.entity));
     if (!reachesScoped) continue;
     attempts.push(...relationLoads(model, relation).map((a) => ({ ...a, query: `${a.query}&limit=1000` })));
+    // Refused, not answered with the relation left out: the caller is told the load is not allowed.
+    if (scoped(relation.entity))
+      t.expect(`[R7] ${entity.name} (not scoped): a select embed of ${relation.property}, whose rows are tenant-scoped, is refused`, await call("GET", `${base}${entity.route}?select=${enc(`*,${relation.property}(*)`)}`, { headers: asA }), 403);
     // A filter on a field of the other tenant's row must not say whether it matched.
     const theirs = target && b.rows[target.name];
     if (target?.scope && theirs) {
-      const told = await oracle(base + entity.route, asA, relation.property, target, theirs);
+      const told = await oracle(model, base + entity.route, asA, relation.property, target, theirs);
       t.assert(`[R7] ${entity.name} (not scoped): a filter on a field of ${relation.property} does not reveal another tenant's values`, told === "", `GET ${entity.route} ${told}`);
     }
   }
@@ -758,9 +896,11 @@ async function permissions(ctx: AccessContext, entity: AccessEntity, a: Tenant, 
           t.assert(`[R11] ${n}: a role outside read is not sent ${n} rows by ${from.name}, ${attempt.name} (${res.status})`, res.status !== 0 && res.status < 500 && sent.length === 0, `GET ${from.route}?${attempt.query} returned ${sent.length} ${n} row(s)`);
         }
         if (direct && row) {
-          const told = await oracle(base + from.route, outsider, relation.property, entity, row);
+          const told = await oracle(model, base + from.route, outsider, relation.property, entity, row);
           t.assert(`[R11] ${n}: a role outside read cannot test ${n} fields through a filter on ${from.name}.${relation.property}`, told === "", `GET ${from.route} ${told}`);
-          t.expect(`[R11] ${n}: a role outside read cannot join ${from.name}?join=${relation.property}`, await call("GET", `${base}${from.route}?join=${enc(relation.property)}`, { headers: outsider }), 403);
+          if (!postgrestOnly(model))
+            t.expect(`[R11] ${n}: a role outside read cannot join ${from.name}?join=${relation.property}`, await call("GET", `${base}${from.route}?join=${enc(relation.property)}`, { headers: outsider }), 403);
+          t.expect(`[R11] ${n}: a role outside read cannot embed ${from.name}?select=*,${relation.property}(*)`, await call("GET", `${base}${from.route}?select=${enc(`*,${relation.property}(*)`)}`, { headers: outsider }), 403);
         }
       }
     }
@@ -825,8 +965,7 @@ async function mcpCases(ctx: AccessContext, a: Tenant, b: Tenant, asA: Headers):
     const rest = await call("GET", base + entity.route, { headers: asA });
     const own = typeof rest.json?.total === "number" ? rest.json.total : rowsOf(rest.json).length;
     const [m, o] = [String(mine[col]), String(other[col])];
-    const attempts: [string, Row][] = [
-      ["no arguments", {}],
+    const nestjsx: [string, Row][] = [
       ["filter names the other tenant", { filter: [`${col}||$eq||${o}`] }],
       ["filter own tenant, or the other", { filter: [`${col}||$eq||${m}`], or: [`${col}||$eq||${o}`] }],
       ["two or conditions", { or: [`${col}||$eq||${o}`, `id||$eq||${other.id}`] }],
@@ -834,6 +973,24 @@ async function mcpCases(ctx: AccessContext, a: Tenant, b: Tenant, asA: Headers):
       ["s $or of both tenants", { s: JSON.stringify({ $or: [{ [col]: mine[col] }, { [col]: other[col] }] }) }],
       ["sort by tenant, a large page", { sort: [`${col},DESC`], limit: 1000 }],
       ...entity.relations.map((r): [string, Row] => [`join ${r.property}`, { join: [r.property] }]),
+    ];
+    const attempts: [string, Row][] = [
+      ["no arguments", {}],
+      ...(postgrestOnly(model) ? [] : nestjsx),
+      ["column filter names the other tenant", { [col]: `eq.${o}` }],
+      ["column filter lists both tenants", { [col]: `in.(${m},${o})`, limit: 1000 }],
+      ["column filter excludes the caller's tenant", { [col]: `neq.${m}` }],
+      ["column filter by the other tenant's row id", { id: `eq.${other.id}` }],
+      ["column filter own tenant, or group the other", { [col]: `eq.${m}`, or: `(${col}.eq.${o},id.eq.${other.id})` }],
+      ["or group of both tenants", { or: `(${col}.eq.${m},${col}.eq.${o})` }],
+      ["and group with a nested or", { and: `(or(${col}.eq.${o},id.eq.${other.id}))` }],
+      ["order by tenant, a large page", { order: `${col}.desc`, limit: 1000 }],
+      ...entity.relations.flatMap((r): [string, Row][] => [
+        [`select embed ${r.property}`, { select: `*,${r.property}(*)`, limit: 1000 }],
+        [`embedded filter on ${r.property}`, { select: `*,${r.property}(*)`, embedded: { [`${r.property}.id`]: "not.is.null" }, limit: 1000 }],
+        [`embedded filter on an inner embed of ${r.property}`, { select: `id,${r.property}!inner(id)`, embedded: { [`${r.property}.id`]: "not.is.null" }, limit: 1000 }],
+        [`embedded filter on ${r.property} sent as a top-level argument`, { select: `*,${r.property}(*)`, [`${r.property}.id`]: "not.is.null", limit: 1000 }],
+      ]),
     ];
     for (const [name, args] of attempts) {
       const res = await client.callTool(entity.tools.list, args);
@@ -854,15 +1011,12 @@ async function mcpCases(ctx: AccessContext, a: Tenant, b: Tenant, asA: Headers):
 export async function runAccessCases(ctx: AccessContext): Promise<void> {
   const { model } = ctx;
   await whoIsCalling(ctx);
+  if (postgrestOnly(model)) await nestjsxRefused(ctx);
   for (const s of model.skipped) ctx.log?.(`  skip ${s.name}: ${s.reason}`);
   const [a, b] = await seed(ctx);
   try {
     if (ctx.user) {
-      // The callers hold every role a permissions list names, so a role check
-      // does not hide a tenant check; bypass roles are left out.
-      const bypass = new Set(model.entities.flatMap((e) => e.scope?.bypassRoles ?? []));
-      const roles = [...new Set(model.entities.flatMap((e) => Object.values(e.permissions ?? {}).flat()))].filter((r) => !bypass.has(r as string)) as string[];
-      const asA = ctx.user({ tenant: a.value, roles });
+      const asA = ctx.user({ tenant: a.value, roles: callerRoles(model) });
       for (const entity of model.entities) {
         if (entity.scope && a.rows[entity.name] && b.rows[entity.name]) await tenantScope(ctx, entity, a, b, asA);
         else if (!entity.scope) await joinsFromShared(ctx, entity, b, asA);

@@ -39,7 +39,17 @@ The tenant filter limits the entity a request starts from. Which relations a req
 | Python | `relation_refused` in `auth.py`, called by the query builder for every relation a request names. Every relation is `lazy="raise"` in the model, so one loads only when a request names it, and a response carries only the relations its query loaded. |
 | Go | `RelationRefused` in `middleware/auth.go`, called where the query preloads relations |
 
+A TypeScript service accepts the PostgREST query syntax only, so a relation is loaded there by a `select` embed and by nothing else. Python and Go services accept `join` as well.
+
 A user caller may load a relation onto a tenant-scoped entity when it holds a role that skips that entity's scope, or when it is limited to its tenant on the entity the relation starts from and the target is scoped by the same keys (`Project.tasks`). Any other load answers 403, for `join`, a `select` embed and every nesting depth. A filter or sort on a related entity's field needs the relation loaded, so it meets the same check. A service caller is not limited. In TypeScript the same place checks `permissions.read` of the related entity (R11).
+
+## Query syntax
+
+A TypeScript service accepts the PostgREST query syntax only. Each nestjsx parameter (`fields`, `filter`, `or`, `join`, `sort`, `s`, `per_page`, `page`, `cache`) and the `X-Crud-Dialect: nestjsx` header get a 400. Python and Go services accept both syntaxes for now.
+
+The suite follows that. Every way a query could reach another tenant's rows is written in PostgREST form, and where it has one in nestjsx form too. The nestjsx forms carry `nestjsx: true` in `cases.ts`. Python and Go run both forms. TypeScript runs the PostgREST forms, and one case per nestjsx parameter that asserts the 400. On TypeScript the suite also checks the count: the total in `Content-Range` under a tenant-scoped caller covers that caller's rows only, for a plain list, a count-only request and a filter that names another tenant.
+
+A new case that sends a query needs a PostgREST form. Add a nestjsx form beside it, marked with `nx(...)`, only while Python and Go still accept that syntax.
 
 ## Running it
 
@@ -51,6 +61,8 @@ node scripts/auth-smoke.mjs typescript
 PYTHON=python3.12 node scripts/auth-smoke.mjs python
 node scripts/auth-smoke.mjs go
 ```
+
+To test library builds that are not on npm yet, point `APSO_CRUD_TARBALL`, `APSO_CRUD_CORE_TARBALL`, `APSO_CRUD_REQUEST_TARBALL`, `APSO_CRUD_TYPEORM_TARBALL`, `APSO_POSTGREST_REQUEST_TARBALL`, `APSO_MCP_TARBALL` and `APSO_LOGGING_TARBALL` at `npm pack` output. Each one set replaces that package in the generated TypeScript service.
 
 Add leg names to run part of it: `node scripts/auth-smoke.mjs go generate jwt`.
 

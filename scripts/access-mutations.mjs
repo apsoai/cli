@@ -113,6 +113,13 @@ export const MUTATIONS = [
     typescript: [[TS.controllers, /filter: \(req: any\) =>\s*(skipScope\(req\)\s*\?\s*\{\}\s*:)?/g, "filter: (req: any) => true ? {} :"]],
   },
   {
+    id: "postgrest-only",
+    removes: "the PostgREST-only setting, so the service parses nestjsx parameters again",
+    rules: ["R7"],
+    legs: ["jwt"],
+    typescript: [[TS.controllers, /dialects: \['postgrest'\],/g, ""]],
+  },
+  {
     id: "relation-tenant-check",
     removes: "the tenant check on the relations a request loads",
     rules: ["R7"],
