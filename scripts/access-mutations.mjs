@@ -117,7 +117,7 @@ export const MUTATIONS = [
     removes: "the PostgREST-only setting, so the service parses nestjsx parameters again",
     rules: ["R7"],
     legs: ["jwt"],
-    typescript: [[TS.controllers, /dialects: \['postgrest'\],/g, ""]],
+    typescript: [[TS.controllers, /dialects: \[["']postgrest["']\],/g, ""]],
   },
   {
     id: "relation-tenant-check",
