@@ -287,15 +287,17 @@ const entities = (auth) => {
   const full = Boolean(auth);
   const mcp = (ops) => (full ? { mcp: ops } : {});
   return [
-    { name: "Organization", created_at: true, updated_at: true, fields: [{ name: "name", type: "text" }] },
+    // Organizations are readable as MCP tools: an embed of their tenant-scoped relations is refused there as in REST.
+    { name: "Organization", created_at: true, updated_at: true, ...mcp(["read"]), fields: [{ name: "name", type: "text" }] },
     // Projects are readable as MCP tools.
     { name: "Project", created_at: true, updated_at: true, scopeBy: "organizationId", ...mcp(["read"]), fields: [{ name: "title", type: "text" }] },
     // A tenant field that is not named workspaceId/organizationId (imported schemas).
     { name: "Note", created_at: true, updated_at: true, scopeBy: "orgId", fields: [{ name: "body", type: "text" }, { name: "orgId", type: "integer", nullable: true }] },
     // Scoped through its parent (TypeScript only; generate refuses the path for Python and Go).
     { name: "Task", created_at: true, updated_at: true, ...(language === "typescript" ? { scopeBy: "project.organizationId" } : {}), fields: [{ name: "title", type: "text" }] },
-    // A "support" role reads every tenant's tickets (scopeOptions.bypassRoles).
-    { name: "Ticket", created_at: true, updated_at: true, scopeBy: "organizationId", scopeOptions: { bypassRoles: ["support"] }, fields: [{ name: "title", type: "text" }] },
+    // A "support" role reads every tenant's tickets (scopeOptions.bypassRoles). Readable as MCP tools, for the
+    // cases on a stored foreign key to another tenant's project.
+    { name: "Ticket", created_at: true, updated_at: true, scopeBy: "organizationId", scopeOptions: { bypassRoles: ["support"] }, ...mcp(["read"]), fields: [{ name: "title", type: "text" }] },
     // Only owners read or delete invoices.
     {
       name: "Invoice",
@@ -769,7 +771,7 @@ async function mcpTools(base, t, owner, member, otherOwner, ownerForMcp) {
   const listed = (await asOwner.listTools()).tools;
   const names = listed.map((tool) => tool.name).sort();
   // approve_invoice is the hand-written route the TypeScript project adds.
-  const expected = [...(language === "typescript" ? ["approve_invoice"] : []), "create_invoice", "delete_invoice", "get_invoice", "get_project", "list_invoices", "list_projects", "update_invoice"];
+  const expected = [...(language === "typescript" ? ["approve_invoice"] : []), "create_invoice", "delete_invoice", "get_invoice", "get_organization", "get_project", "get_ticket", "list_invoices", "list_organizations", "list_projects", "list_tickets", "update_invoice"];
   t.assert("[R21] mcp lists only the opted-in operations", JSON.stringify(names) === JSON.stringify(expected), names.join(","));
   if (language !== "typescript") {
     // Python reads these from its OpenAPI document; Go has none, so the CLI writes them from .apsorc.
