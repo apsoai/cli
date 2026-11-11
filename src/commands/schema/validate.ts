@@ -1,5 +1,6 @@
 import { Flags } from "@oclif/core";
 import BaseCommand from "../../lib/base-command";
+import { tenantClaimWarnings } from "../../lib/guards";
 import { credentials, projectLink } from "../../lib/config";
 import { schemaApi } from "../../lib/api/services";
 import { formatLintReport, lintSchema } from "@apso/schema-tools";
@@ -53,6 +54,9 @@ export default class SchemaValidate extends BaseCommand {
       const msg = error instanceof Error ? error.message : String(error);
       this.error(`Failed to parse .apsorc: ${msg}`);
     }
+
+    for (const warning of tenantClaimWarnings(parsed.entities, parsed.auth))
+      this.warn(warning);
 
     // Convert to platform schema format
     const schema = apsorcToServiceSchema(parsed);

@@ -1,6 +1,7 @@
 import {
   AuthConfig,
   authProviders,
+  resolveJwtProviders,
   Entity,
   PERMISSION_OPERATIONS,
   PermissionOperation,
@@ -329,4 +330,32 @@ export function nestedScopeEntities(entities: Entity[]): string[] {
   return getScopedEntities(entities)
     .filter((e) => e.scopes.some((s) => !s.direct))
     .map((e) => e.name);
+}
+
+/**
+ * One warning per JWT provider that maps no tenant claim while entities are
+ * tenant-scoped: its users would get 403 on every one of those entities.
+ * Session providers read the tenant from the database, so they are skipped.
+ */
+export function tenantClaimWarnings(
+  entities: Entity[],
+  auth?: AuthConfig
+): string[] {
+  const scoped = getScopedEntities(entities)
+    .filter((e) =>
+      e.scopes.some((s) => s.contextKey !== "userId" && s.contextKey !== "email")
+    )
+    .map((e) => e.name);
+  if (scoped.length === 0) return [];
+  const names =
+    scoped.length > 2
+      ? `${scoped[0]}, ${scoped[1]} and ${scoped.length - 2} more are`
+      : `${scoped.join(" and ")} ${scoped.length === 1 ? "is" : "are"}`;
+  const listed = Array.isArray(auth) && auth.length > 1;
+  return resolveJwtProviders(auth)
+    .filter((p) => !p.claims.workspaceId && !p.claims.organizationId)
+    .map(
+      (p) =>
+        `auth provider "${p.provider}" (${p.issuer}) has no tenant claim, but ${names} tenant-scoped. Tokens from this provider will get 403 "No tenant in the auth context" on ${scoped.length === 1 ? "that entity" : "those entities"}. Set ${listed ? "claims.organizationId on that provider" : "auth.claims.organizationId"} to the claim that holds the tenant.`
+    );
 }

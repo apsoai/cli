@@ -15,6 +15,7 @@ import {
   authProviders,
   resolveJwtAuth,
 } from "../../../src/lib/types";
+import { tenantClaimWarnings } from "../../../src/lib/guards";
 import { addMissingPythonDep } from "../../../src/lib/utils/crud-deps";
 import { ensureDevKey } from "../../../src/lib/utils/template";
 
@@ -353,5 +354,42 @@ describe("a list of providers", () => {
     expect(files.find((f) => f.path === "guards/auth.guard.ts")!.content).toContain(
       "authorizationServers: PROVIDERS.map((p) => p.issuer)"
     );
+  });
+});
+
+describe("tenant-scoped entities and a provider with no tenant claim", () => {
+  const issuer = "https://issuer.example.com/";
+  const plain: AuthConfig = { provider: "jwt", jwt: { issuer } };
+
+  test("warns once per provider, naming the entities and the fix", () => {
+    expect(tenantClaimWarnings(entities, plain)).toEqual([
+      `auth provider "jwt" (${issuer}) has no tenant claim, but Project is tenant-scoped. Tokens from this provider will get 403 "No tenant in the auth context" on that entity. Set auth.claims.organizationId to the claim that holds the tenant.`,
+    ]);
+    const many = ["Invoice", "Customer", "Order", "Ticket", "Note"].map((name) => ({
+      name,
+      scopeBy: "organizationId",
+      // Still warned: only the listed roles skip the scope.
+      scopeOptions: { bypassRoles: ["support"] },
+      fields: [],
+    }));
+    const [warning, ...rest] = tenantClaimWarnings(many, [
+      plain,
+      { provider: "auth0", jwt: { issuer: "https://b.example.com/" }, claims: { workspaceId: "org" } },
+    ]);
+    expect(rest).toEqual([]);
+    expect(warning).toContain("but Invoice, Customer and 3 more are tenant-scoped");
+    expect(warning).toContain("Set claims.organizationId on that provider");
+  });
+
+  test("does not warn when a claim is set, by the config or by the provider's defaults", () => {
+    expect(tenantClaimWarnings(entities, { ...plain, claims: { organizationId: "org_id" } })).toEqual([]);
+    expect(tenantClaimWarnings(entities, { provider: "clerk", jwt: { issuer } })).toEqual([]);
+    expect(tenantClaimWarnings(entities, { provider: "better-auth" })).toEqual([]);
+    expect(tenantClaimWarnings(entities)).toEqual([]);
+  });
+
+  test("does not warn with no tenant-scoped entities", () => {
+    expect(tenantClaimWarnings(entities.slice(0, 2), plain)).toEqual([]);
+    expect(tenantClaimWarnings([{ name: "Draft", scopeBy: "userId", fields: [] }], plain)).toEqual([]);
   });
 });
