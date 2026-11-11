@@ -119,6 +119,15 @@ describe("TypeScript permission guard", () => {
     expect([...order].sort((a, b) => a - b)).toEqual(order);
   });
 
+  test("a hand-written route can name its own permission", async () => {
+    const files = await generator("typescript").generateGuards(entities, jwt, relationshipMap);
+    const guard = files.find((f) => f.path === "guards/permission.guard.ts")!.content;
+    expect(guard).toContain("export const Permission = (permission: string, ...roles: string[])");
+    // The declared rule wins; the path and method rule is the fallback.
+    expect(guard).toMatch(/getAllAndOverride<Rule>\(PERMISSION_KEY[^?]+\?\? \(entity && operation/);
+    expect(files.find((f) => f.path === "guards/index.ts")!.content).toContain("Permission }");
+  });
+
   test("no permissions, no guard", async () => {
     const plain = entities.map((e) => ({ ...e, permissions: undefined }));
     const files = await generator("typescript").generateGuards(plain, jwt, relationshipMap);

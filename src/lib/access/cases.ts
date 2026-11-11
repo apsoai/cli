@@ -806,8 +806,17 @@ async function mcpCases(ctx: AccessContext, a: Tenant, b: Tenant, asA: Headers):
     return;
   }
   const listed = await client.listTools();
-  const names = listed.sort();
-  t.assert("[R21] mcp: the tools are the operations the schema opts in, and no others", JSON.stringify(names) === JSON.stringify(expected), `listed ${names.join(",")}; expected ${expected.join(",")}`);
+  // Every name an entity operation could have as a tool. A tool with another
+  // name is a hand-written route that opted in itself, which the schema does
+  // not describe.
+  const possible = new Set(
+    model.entities.flatMap((e) => {
+      const one = snakeCase(e.name);
+      return [`list_${snakeCase(pluralize(e.name))}`, ...["get", "create", "update", "delete"].map((op) => `${op}_${one}`)];
+    })
+  );
+  const names = listed.filter((name) => possible.has(name)).sort();
+  t.assert("[R21] mcp: the tools for entity operations are the ones the schema opts in, and no others", JSON.stringify(names) === JSON.stringify(expected), `listed ${names.join(",")}; expected ${expected.join(",")}`);
 
   for (const entity of model.entities) {
     const [mine, other] = [a.rows[entity.name], b.rows[entity.name]];

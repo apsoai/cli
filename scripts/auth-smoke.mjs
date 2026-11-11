@@ -24,7 +24,8 @@
  *   - permissions refuse a role outside the list, directly and
  *     through ?join, and allow a role in it; a RolePermission row added by an
  *     owner grants a permission in that tenant only; a member cannot grant
- *     itself; a permission in the token is honored
+ *     itself; a permission in the token is honored; a hand-written route that
+ *     names its own permission (invoice:approve) is held to it the same ways
  *   - mcp serves only the opted-in operations as tools at /mcp,
  *     and a tool call meets the same auth, permission and scope guards as REST
  *   - with the better-auth provider, the auth entities (user, account,
@@ -320,8 +321,45 @@ const rows = (json) => (Array.isArray(json) ? json : json?.data ?? json?.items ?
 
 function scaffold(dir) {
   sh(CLI, ["init", "--name", "authapp", "--language", language, "--skip-platform"], { cwd: dir });
-  return path.join(dir, "authapp");
+  const project = path.join(dir, "authapp");
+  if (language === "typescript") {
+    // Register the hand-written controller that generate() writes for each leg.
+    const modulePath = path.join(project, "src", "app.module.rest.ts");
+    const mod = fs.readFileSync(modulePath, "utf8");
+    if (!mod.includes("controllers: [HealthCheckController]")) throw new Error("app.module.rest.ts: controllers list not found");
+    fs.writeFileSync(
+      modulePath,
+      "import { InvoiceActionsController } from './controllers/invoice-actions.controller';\n" +
+        mod.replace("controllers: [HealthCheckController]", "controllers: [HealthCheckController, InvoiceActionsController]")
+    );
+  }
+  return project;
 }
+
+/**
+ * A hand-written route that names its own permission and is an MCP tool. The
+ * permission decorator is generated only when an entity has permissions, so a
+ * leg without them gets an empty controller.
+ */
+const INVOICE_ACTIONS = `import { Controller, Param, Post } from '@nestjs/common';
+import { McpTool } from '@apso/mcp';
+import { Permission } from '../autogen/guards';
+
+@Controller('Invoices')
+export class InvoiceActionsController {
+  @Post(':id/approve')
+  @Permission('invoice:approve', 'owner')
+  @McpTool({ name: 'approve_invoice', description: 'Approve one Invoice by id.' })
+  approve(@Param('id') id: string) {
+    return { id: Number(id), approved: true };
+  }
+}
+`;
+const NO_INVOICE_ACTIONS = `import { Controller } from '@nestjs/common';
+
+@Controller('invoice-actions')
+export class InvoiceActionsController {}
+`;
 
 function generate(project, auth, schema = { entities: entities(auth), relationships: relationships(auth) }) {
   const rcPath = path.join(project, ".apsorc");
@@ -331,6 +369,8 @@ function generate(project, auth, schema = { entities: entities(auth), relationsh
   sh(CLI, ["generate", "--language", language], { cwd: project });
   mutate(project, language); // the break-each-rule job only (AUTH_SMOKE_MUTATION)
   if (language === "typescript") {
+    const guarded = schema.entities.some((e) => e.name === "Invoice" && e.permissions && e.mcp);
+    fs.writeFileSync(path.join(project, "src", "controllers", "invoice-actions.controller.ts"), guarded ? INVOICE_ACTIONS : NO_INVOICE_ACTIONS);
     // APSO_MCP_TARBALL tests an unreleased build of @apso/mcp (npm pack output).
     if (process.env.APSO_MCP_TARBALL) {
       const pkgPath = path.join(project, "package.json");
@@ -530,7 +570,7 @@ async function jwtCase(name, p, boot) {
   await crudAndScope(base, t, valid, valid, bearer(sign(p.claims(undefined))), support);
   if (name === "jwt") {
     const as = (roles, org = "1", extra = {}) => bearer(sign({ ...p.claims(org), app_metadata: { org_id: org, roles }, ...extra }));
-    await rolePermissions(base, t, as(["owner"]), as(["member"]), as(["member"], "2"), as(["member"], "1", { permissions: ["invoice:delete"] }), (permissions) => as(["member"], "1", { permissions }));
+    await rolePermissions(base, t, as(["owner"]), as(["member"]), as(["member"], "2"), as(["member"], "1", { permissions: ["invoice:delete", "invoice:approve"] }), (permissions) => as(["member"], "1", { permissions }));
     await mcpTools(base, t, as(["owner"]), as(["member"]), as(["owner"], "2"), as(["owner"], "1", { aud: `${base}/mcp` }));
   }
   if (language === "typescript") {
@@ -546,6 +586,7 @@ async function jwtCase(name, p, boot) {
     const member = bearer(sign({ ...p.claims("1"), app_metadata: { org_id: "1", roles: ["member"] } }));
     requestLine(t, "a role outside the list is refused by the permission guard", await logged(s, "GET", route("Invoices"), { headers: member }), 403, { type: "user", userId: p.claims("1").sub, tenantId: "1" }, "missing permission invoice:read");
     requestLine(t, "a role outside the list is refused through a join by the relation check", await logged(s, "GET", `${ORGS}?join=invoices`, { headers: member }), 403, { type: "user", userId: p.claims("1").sub, tenantId: "1" }, "missing permission invoice:read");
+    requestLine(t, "a role outside a hand-written route's own permission is refused by the permission guard", await logged(s, "POST", `${route("Invoices")}/1/approve`, { headers: member }), 403, { type: "user", userId: p.claims("1").sub, tenantId: "1" }, "missing permission invoice:approve");
   }
   if (name === "jwt") {
     await keyNextToSignIn(base, t, valid("1"));
@@ -684,7 +725,8 @@ async function mcpTools(base, t, owner, member, otherOwner, ownerForMcp) {
 
   const listed = (await asOwner.listTools()).tools;
   const names = listed.map((tool) => tool.name).sort();
-  const expected = ["create_invoice", "delete_invoice", "get_invoice", "get_project", "list_invoices", "list_projects", "update_invoice"];
+  // approve_invoice is the hand-written route the TypeScript project adds.
+  const expected = [...(language === "typescript" ? ["approve_invoice"] : []), "create_invoice", "delete_invoice", "get_invoice", "get_project", "list_invoices", "list_projects", "update_invoice"];
   t.assert("[R21] mcp lists only the opted-in operations", JSON.stringify(names) === JSON.stringify(expected), names.join(","));
   if (language !== "typescript") {
     // Python reads these from its OpenAPI document; Go has none, so the CLI writes them from .apsorc.
@@ -712,6 +754,13 @@ async function mcpTools(base, t, owner, member, otherOwner, ownerForMcp) {
   t.assert("[R23] mcp list hides it from another tenant", theirs !== undefined && !theirs.some((row) => row.id === project.json.id));
   const crossGet = await asOther.callTool({ name: "get_project", arguments: { id: project.json.id } });
   t.assert("[R23] mcp get by id is refused across tenants", crossGet.isError === true, text(crossGet));
+  if (language === "typescript") {
+    // The hand-written route is checked by the permission it names.
+    const memberApprove = await asMember.callTool({ name: "approve_invoice", arguments: { id: invoice.id } });
+    t.assert("[R23] mcp approve by a member lacks invoice:approve", memberApprove.isError === true && text(memberApprove).includes("invoice:approve"), text(memberApprove));
+    const approved = await asOwner.callTool({ name: "approve_invoice", arguments: { id: invoice.id } });
+    t.assert("[R23] mcp approve by the owner works", !approved.isError && text(approved).includes('"approved":true'), text(approved));
+  }
   const memberDelete = await asMember.callTool({ name: "delete_invoice", arguments: { id: invoice.id } });
   t.assert("[R23] mcp delete by a member lacks invoice:delete", memberDelete.isError === true && text(memberDelete).includes("invoice:delete"), text(memberDelete));
   const removed = await asOwner.callTool({ name: "delete_invoice", arguments: { id: invoice.id } });
@@ -744,6 +793,28 @@ async function rolePermissions(base, t, owner, member, otherMember, memberWithDe
   t.expect("[R11] member cannot delete an invoice", await call("DELETE", `${base}${INVOICES}/${iid}`, { headers: member }), 403);
   t.expect("[R11] owner lists invoices", await call("GET", base + INVOICES, { headers: owner }), 200);
   t.expect("[R11] owner reads invoices through a join", await call("GET", `${base}${ORGS}?join=invoices`, { headers: owner }), 200);
+
+  // A hand-written route that names its own permission: POST would otherwise
+  // be checked as invoice:create, which members have.
+  if (language === "typescript") {
+    const APPROVE = `${base}${INVOICES}/${iid}/approve`;
+    const refused = await call("POST", APPROVE, { headers: member });
+    t.assert("[R11] member cannot approve an invoice (invoice:approve)", refused.status === 403 && refused.text.includes("invoice:approve"), `${refused.status} ${refused.text.slice(0, 200)}`);
+    t.expect("[R11] owner approves an invoice", await call("POST", APPROVE, { headers: owner }), 200, 201);
+    t.expect("[R11] member with invoice:approve in its token approves", await call("POST", APPROVE, { headers: memberWithDelete }), 200, 201);
+    const approveGrant = await call("POST", base + GRANTS, { headers: owner, body: { role: "member", permission: "invoice:approve" } });
+    if (t.expect("[R12] owner grants members invoice:approve", approveGrant, 200, 201)) {
+      t.expect("[R12] member approves after the grant", await call("POST", APPROVE, { headers: member }), 200, 201);
+      t.expect("[R12] member of another tenant still cannot approve", await call("POST", APPROVE, { headers: otherMember }), 403);
+      t.expect("[R12] owner revokes the approve grant", await call("DELETE", `${base}${GRANTS}/${approveGrant.json.id}`, { headers: owner }), 200, 204);
+      t.expect("[R12] member cannot approve after the revoke", await call("POST", APPROVE, { headers: member }), 403);
+    }
+    // The named permission is for that route only: it does not open the
+    // entity's rows, directly or through a relation.
+    const approver = memberWith(["invoice:approve"]);
+    t.expect("[R11] a caller with only invoice:approve cannot list invoices", await call("GET", base + INVOICES, { headers: approver }), 403);
+    t.expect("[R11] a caller with only invoice:approve cannot read invoices through a join", await call("GET", `${base}${ORGS}?join=invoices`, { headers: approver }), 403);
+  }
 
   // Runtime grants.
   t.expect("[R12] member cannot grant itself a permission", await call("POST", base + GRANTS, { headers: member, body: { role: "member", permission: "invoice:read" } }), 403);
