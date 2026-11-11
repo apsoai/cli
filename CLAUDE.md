@@ -31,6 +31,7 @@ apso migrate plan      # Compare the deployed schema (found automatically) with 
 apso migrate generate  # Write the TypeORM migration from the answered plan: up() with renames, data moves and backfills, plus a reversing down(); --typeorm uses TypeORM's generator
 apso migrate verify    # Run the newest migration on a local PGlite copy of the schema it starts from (optionally --seed rows, --check assertions), then check data loss and drift
 apso test smoke        # Start the service; call /health, list, and create/read/delete each entity (TS on PGlite, Python/Go on DATABASE_URL)
+apso test access       # Start the service and prove the access rules on the project's own schema (tenant scope, permissions, API keys, MCP); per-rule pass or fail, exits 1 on a failure. Rule list: src/lib/access/rules.json, see docs/access-rules.md
 apso schema validate   # Validate local .apsorc (includes lint)
 apso schema lint       # Lint .apsorc with @apso/schema-tools (--fix, --json)
 apso schema diff       # Diff local vs remote schema
