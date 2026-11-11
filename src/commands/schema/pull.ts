@@ -5,10 +5,7 @@ import BaseCommand from "../../lib/base-command";
 import { credentials, projectLink, createBackup } from "../../lib/config";
 import { schemaApi } from "../../lib/api/services";
 import { findConfigPath } from "../../lib/apsorc-parser";
-import {
-  serviceSchemaToApsorc,
-  computeSchemaHash,
-} from "../../lib/utils/schema-convert";
+import { computeSchemaHash } from "../../lib/utils/schema-convert";
 
 export default class SchemaPull extends BaseCommand {
   static description = "Pull remote schema to local .apsorc";
@@ -40,14 +37,16 @@ export default class SchemaPull extends BaseCommand {
       this.error("Project not linked. Run 'apso link' first.");
     }
 
-    // Fetch remote schema
-    const remoteSchema = await schemaApi.get(
+    // The platform stores the .apsorc whole, so it is written back as it is.
+    const apsorcData = await schemaApi.get(
       link.workspaceSlug,
       link.serviceSlug
     );
-
-    // Convert to .apsorc format
-    const apsorcData = serviceSchemaToApsorc(remoteSchema);
+    if (!apsorcData) {
+      this.error(
+        "This service has no schema on the platform yet. Run 'apso schema push' first."
+      );
+    }
 
     // Find local .apsorc path
     const configPath = findConfigPath();
@@ -56,9 +55,10 @@ export default class SchemaPull extends BaseCommand {
     }
 
     // Show what will change
-    const entityNames = apsorcData.entities.map((e) => e.name).join(", ");
-    this.log(`Remote schema: ${apsorcData.entities.length} entities (${entityNames})`);
-    this.log(`Relationships: ${apsorcData.relationships.length}`);
+    const entities = apsorcData.entities ?? [];
+    const entityNames = entities.map((e) => e.name).join(", ");
+    this.log(`Remote schema: ${entities.length} entities (${entityNames})`);
+    this.log(`Relationships: ${(apsorcData.relationships ?? []).length}`);
     this.log(`Target file: ${configPath}`);
 
     // Confirm
@@ -85,12 +85,11 @@ export default class SchemaPull extends BaseCommand {
     fs.writeFileSync(configPath, JSON.stringify(apsorcData, null, 2), "utf-8");
 
     // Update sync metadata
-    const remoteHash = computeSchemaHash(remoteSchema.entities);
-    const localHash = computeSchemaHash(apsorcData);
+    const hash = computeSchemaHash(apsorcData);
     projectLink.updateSyncMetadata({
       lastSyncedAt: new Date().toISOString(),
-      localSchemaHash: localHash,
-      remoteSchemaHash: remoteHash,
+      localSchemaHash: hash,
+      remoteSchemaHash: hash,
     });
 
     this.log("Schema pulled successfully.");
