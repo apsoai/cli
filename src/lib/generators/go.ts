@@ -20,6 +20,7 @@ import {
   authEntityNames,
   hidesRelation,
   entityScope,
+  getPermissionConfig,
   hasPermissions,
   nestedScopeEntities,
   relationScopes,
@@ -608,6 +609,7 @@ ${downStatements}
 
     const content = await this.renderTemplate("./index-module", {
       entities: entitiesData,
+      permissions: hasPermissions(entities),
     });
 
     const modelRefs = entities
@@ -756,9 +758,11 @@ ${modelRefs}
       throw new Error(
         "mcp in .apsorc is served by TypeScript services only for now; remove it or generate with --language typescript"
       );
-    if (hasPermissions(entities))
+    // Fails on a grants entity that would be an escalation path.
+    const permissions = getPermissionConfig(entities, relationshipMap, auth);
+    if (permissions && !auth)
       throw new Error(
-        "permissions in .apsorc are enforced in TypeScript services only for now; remove them or generate with --language typescript"
+        "permissions in .apsorc need an auth block: roles come from the signed-in caller"
       );
     const nested = auth ? nestedScopeEntities(entities) : [];
     if (nested.length > 0)
@@ -779,6 +783,28 @@ ${modelRefs}
     };
     const content = await this.renderTemplate("./middleware/auth", data);
     const files: GeneratedFile[] = [{ path: "middleware/auth.go", content }];
+    if (permissions) {
+      // Go routes are kebab-case (/role-permissions); the rules are the same.
+      const rulesOf = (name: string) =>
+        permissions.routes[pluralize(name).toLowerCase()] ?? {};
+      const grants = permissions.grants && {
+        ...permissions.grants,
+        table: tableName(entities.find((e) => e.name === permissions.grants!.entity)!),
+      };
+      files.push({
+        path: "middleware/permission.go",
+        content: await this.renderTemplate("./middleware/permission", {
+          routes: entities
+            .filter((e) => e.permissions)
+            .map((e) => ({
+              path: kebabCase(pluralize(e.name)),
+              rules: Object.entries(rulesOf(e.name)).map(([op, rule]) => ({ op, ...rule })),
+            })),
+          joins: Object.entries(permissions.joins).map(([name, rules]) => ({ name, rules })),
+          grants,
+        }),
+      });
+    }
     // Shared helpers for services and handlers of entities with a direct scopeBy.
     if (auth && entities.some((e) => entityScope(e, true))) {
       files.push(

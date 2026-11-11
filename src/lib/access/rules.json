@@ -79,13 +79,13 @@
       "id": "R11",
       "group": "Permissions",
       "rule": "An operation limited to certain roles is refused to every other role, directly and through a join.",
-      "status": { "typescript": "enforced", "python": "refused", "go": "refused" }
+      "status": { "typescript": "enforced", "python": "enforced", "go": "enforced" }
     },
     {
       "id": "R12",
       "group": "Permissions",
       "rule": "A grant adds a permission in the granting tenant only. It never removes a default, and a caller cannot grant a permission to themselves.",
-      "status": { "typescript": "enforced", "python": "refused", "go": "refused" }
+      "status": { "typescript": "enforced", "python": "enforced", "go": "enforced" }
     },
     {
       "id": "R13",

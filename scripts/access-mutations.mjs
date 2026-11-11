@@ -22,8 +22,8 @@ const TS = {
   relations: "src/autogen/guards/relations.interceptor.ts",
   controllers: "src/autogen/*/*.controller.ts",
 };
-const PY = { auth: "app/autogen/auth.py", services: "app/autogen/services/*.py" };
-const GO = { auth: "autogen/middleware/auth.go", services: "autogen/services/*.go" };
+const PY = { auth: "app/autogen/auth.py", permission: "app/autogen/permissions.py", services: "app/autogen/services/*.py" };
+const GO = { auth: "autogen/middleware/auth.go", permission: "autogen/middleware/permission.go", services: "autogen/services/*.go" };
 
 export const MUTATIONS = [
   {
@@ -216,6 +216,8 @@ export const MUTATIONS = [
     rules: ["R11"],
     legs: ["jwt"],
     typescript: [[TS.permission, /if \(rule && !\(await this\.allowed\(request, rule\)\)\) \{/, "if (false) {"]],
+    python: [[PY.permission, /if rule and not await allowed\(rule\):/, "if False:"]],
+    go: [[GO.permission, /; ok && !allowed\(r\) \{/, "; ok && false {"]],
   },
   {
     id: "join-role-check",
@@ -223,6 +225,8 @@ export const MUTATIONS = [
     rules: ["R11"],
     legs: ["jwt"],
     typescript: [[TS.permission, /for \(const joined of JOIN_PERMISSIONS\[relation\] \?\? \[\]\)/, "for (const joined of [] as Rule[])"]],
+    python: [[PY.permission, /for joined in JOIN_PERMISSIONS\.get\(relation, \[\]\):/, "for joined in []:"]],
+    go: [[GO.permission, /for _, r := range joinPermissions\[relation\] \{/, "for _, r := range joinPermissions[relation][:0] {"]],
   },
   {
     id: "grant-tenant",
@@ -230,6 +234,8 @@ export const MUTATIONS = [
     rules: ["R12"],
     legs: ["jwt"],
     typescript: [[TS.permission, /where\.push\(\{ role: In\(roles\), \w+: tenant \}\);/, "where.push({ role: In(roles) });"]],
+    python: [[PY.permission, /query = query\.where\(or_\(tenant\.is_\(None\), cast\(tenant, String\) == str\(auth\.workspace_id\)\)\)/, "pass"]],
+    go: [[GO.permission, /q = q\.Where\(`\("\w+" IS NULL OR CAST\("\w+" AS text\) = \?\)`, a\.WorkspaceID\)/, "_ = a.WorkspaceID"]],
   },
   {
     id: "failed-key-falls-through",

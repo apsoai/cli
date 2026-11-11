@@ -13,7 +13,7 @@ import pluralize from "pluralize";
 import { getScopedEntities, mcpOperations } from "../guards";
 import { Entity, EntityPermissions } from "../types/entity";
 import { RelationshipMap } from "../types/relationship";
-import { snakeCase } from "../utils/casing";
+import { kebabCase, snakeCase } from "../utils/casing";
 import { getRelationshipIdField, getRelationshipName } from "../utils/relationships/parse";
 import { planCrud } from "../verify/crud-plan";
 import { Checker, Language } from "./report";
@@ -92,7 +92,9 @@ export interface AccessModel {
 
 const routeOf = (language: Language, name: string): string => {
   const plural = pluralize(name);
-  return language === "typescript" ? `/${plural}` : `/api/${plural.toLowerCase()}`;
+  if (language === "typescript") return `/${plural}`;
+  // Go routes are kebab-case (/api/role-permissions).
+  return `/api/${language === "go" ? kebabCase(plural) : plural.toLowerCase()}`;
 };
 
 /**

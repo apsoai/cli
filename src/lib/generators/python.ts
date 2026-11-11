@@ -34,6 +34,7 @@ import {
   authEntityRoutes,
   hidesRelation,
   entityScope,
+  getPermissionConfig,
   hasPermissions,
   nestedScopeEntities,
   assertTenantClaim,
@@ -631,7 +632,10 @@ ${downStatements || "    pass"}
     _apiType: string,
     _opts?: { auth?: AuthConfig }
   ): Promise<GeneratedFile[]> {
-    const content = await this.renderTemplate("./index-module", { entities });
+    const content = await this.renderTemplate("./index-module", {
+      entities,
+      permissions: hasPermissions(entities),
+    });
 
     return [
       {
@@ -744,9 +748,11 @@ ${downStatements || "    pass"}
       throw new Error(
         "mcp in .apsorc is served by TypeScript services only for now; remove it or generate with --language typescript"
       );
-    if (hasPermissions(entities))
+    // Fails on a grants entity that would be an escalation path.
+    const permissions = getPermissionConfig(entities, relationshipMap, auth);
+    if (permissions && !auth)
       throw new Error(
-        "permissions in .apsorc are enforced in TypeScript services only for now; remove them or generate with --language typescript"
+        "permissions in .apsorc need an auth block: roles come from the signed-in caller"
       );
     const nested = auth ? nestedScopeEntities(entities) : [];
     if (nested.length > 0)
@@ -763,9 +769,15 @@ ${downStatements || "    pass"}
       authRoutes: authEntityRoutes(entities, auth),
       relationScopes: relationScopes(entities, relationshipMap, Boolean(auth)) ?? {},
     };
-    return [
+    const files: GeneratedFile[] = [
       { path: "auth.py", content: await this.renderTemplate("./auth", data) },
     ];
+    if (permissions)
+      files.push({
+        path: "permissions.py",
+        content: await this.renderTemplate("./permissions", { permissions }),
+      });
+    return files;
   }
 
   async generateQueryUtils(
