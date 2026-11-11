@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql import Select, select
 
-from ..auth import check_relation
+from ..auth import check_relation, relation_conditions
 
 T = TypeVar("T")
 
@@ -828,7 +828,9 @@ class QueryBuilder:
             check_relation(self.auth, self.model.__name__, name)
             rel = getattr(self.model, name, None)
             if rel is not None:
-                query = query.options(selectinload(rel))
+                # Rows of a tenant-scoped target are loaded for the caller's tenant only.
+                conditions = relation_conditions(self.auth, self.model.__name__, name, rel.property.mapper.class_)
+                query = query.options(selectinload(rel.and_(*conditions)) if conditions else selectinload(rel))
         return query
 
     def _count_query(self, options: QueryOptions) -> Select:

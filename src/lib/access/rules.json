@@ -55,13 +55,15 @@
       "id": "R7",
       "group": "Tenant scope",
       "rule": "Nothing in the query can widen that: not `filter`, `or`, `s` or `join`.",
-      "status": { "typescript": "enforced", "python": "enforced", "go": "enforced" }
+      "status": { "typescript": "enforced", "python": "enforced", "go": "enforced" },
+      "note": "A relation between two entities scoped by the same keys loads only rows of the caller's tenant, whatever the stored foreign key names."
     },
     {
       "id": "R8",
       "group": "Tenant scope",
       "rule": "On create and update the tenant always becomes the caller's tenant, whatever the body says.",
-      "status": { "typescript": "enforced", "python": "enforced", "go": "enforced" }
+      "status": { "typescript": "enforced", "python": "enforced", "go": "enforced" },
+      "note": "No schema option turns this off: `apso generate` refuses `scopeOptions.injectOnCreate`. A foreign key to a tenant-scoped entity must name a row the caller can read, or the write is refused with 403. A service caller can set any tenant and any foreign key."
     },
     {
       "id": "R9",

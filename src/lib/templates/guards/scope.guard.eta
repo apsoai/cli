@@ -58,8 +58,6 @@ export const Public = () =>
 export interface ScopeConfig {
   /** The scope fields or paths (e.g., 'workspaceId' or 'task.workspaceId') */
   scopes: ScopeField[];
-  /** Whether to inject scope on create */
-  injectOnCreate: boolean;
   /** Which operations to enforce scope on */
   enforceOn: string[];
   /** Roles that can bypass scope enforcement */
@@ -107,7 +105,6 @@ export const ENTITY_SCOPES: Record<string, ScopeConfig> = {
       }<%= scopeIndex < entity.scopes.length - 1 ? ',' : '' %>
 <% }) %>
     ],
-    injectOnCreate: <%= entity.injectOnCreate %>,
     enforceOn: [<%~ entity.enforceOn.map(op => `'${op}'`).join(', ') %>],
     bypassRoles: [<%~ entity.bypassRoles.map(role => `'${role}'`).join(', ') %>],
   }<%= index < it.scopedEntities.length - 1 ? ',' : '' %>
@@ -242,8 +239,8 @@ export class ScopeGuard implements CanActivate {
       }
     }
 
-    // For POST requests, inject scope values if configured
-    if (operation === 'create' && scopeConfig.injectOnCreate) {
+    // On create the scope values come from the caller, never from the body.
+    if (operation === 'create') {
       this.injectScopeValues(request, scopeConfig);
     }
 <% if (it.hasAuth) { %>
@@ -385,8 +382,12 @@ export class ScopeGuard implements CanActivate {
    *   is kept on create, and refused when a row already has it
    * - a to-one relation becomes its foreign key, which is then checked like
    *   any other column
+   * - a foreign key to a tenant-scoped entity, sent as a column or as a
+   *   relation, must name a row the caller could read (null is allowed)
    * - rows of a scoped entity listed under a relation must be the caller's
    *   own, and only their ids are kept
+   * A referenced row is looked up once per request, however many rows of a
+   * bulk create name it.
    */
   private async checkBody(
     request: any,
@@ -403,6 +404,19 @@ export class ScopeGuard implements CanActivate {
     const metadata = this.dataSource.getMetadata(name);
     const scopeFields = (scopeConfig?.scopes ?? []).map((s) => s.fkField ?? s.field);
     const denied = () => new ForbiddenException('You do not have access to this resource');
+    const roles: string[] = request.auth?.roles ?? request.user?.roles ?? request.roles ?? [];
+    // An entity whose rows the caller reads only inside its tenant.
+    const limited = (scope?: ScopeConfig): scope is ScopeConfig =>
+      Boolean(scope) &&
+      scope!.enforceOn.includes('find') &&
+      scope!.enforceOn.includes('get') &&
+      !scope!.bypassRoles.some((role) => roles.includes(role));
+    const lookups = new Map<string, Promise<boolean>>();
+    const readable = (route: string, id: unknown, scope: ScopeConfig): Promise<boolean> => {
+      const key = `${route}:${id}`;
+      if (!lookups.has(key)) lookups.set(key, this.verifyResourceAccess(route, String(id), request, scope));
+      return lookups.get(key)!;
+    };
 
     for (const item of this.bodyItems(request.body)) {
       if (scopeConfig) {
@@ -425,7 +439,6 @@ export class ScopeGuard implements CanActivate {
       }
       for (const relation of metadata.relations) {
         const key = relation.propertyName;
-        if (!Object.prototype.hasOwnProperty.call(item, key)) continue;
         const value = item[key];
         const target = relation.inverseEntityMetadata;
         const targetRoute = ENTITY_ROUTES[target.name];
@@ -436,19 +449,28 @@ export class ScopeGuard implements CanActivate {
         if ((relation.isManyToOne || relation.isOneToOneOwner) && relation.joinColumns.length === 1) {
           if (!targetScope && !scopeFields.includes(join.propertyName)) continue;
           const referenced = join.referencedColumn!.propertyName;
-          const id = isObject ? (Array.isArray(value) ? undefined : value[referenced]) : value;
-          if (id !== null && typeof id === 'object') throw denied();
-          if (join.isVirtual) {
-            // No column property to move the id to: keep the id alone.
-            item[key] = id == null ? null : { [referenced]: id };
-          } else {
-            delete item[key];
-            if (id !== undefined) item[join.propertyName] = id;
+          let id: any;
+          if (Object.prototype.hasOwnProperty.call(item, key)) {
+            id = isObject ? (Array.isArray(value) ? undefined : value[referenced]) : value;
+            if (id !== null && typeof id === 'object') throw denied();
+            if (join.isVirtual) {
+              // No column property to move the id to: keep the id alone.
+              item[key] = id == null ? null : { [referenced]: id };
+            } else {
+              delete item[key];
+              if (id !== undefined) item[join.propertyName] = id;
+            }
           }
+          // The foreign key as it will be saved. The entity's own scope fields
+          // are set from the caller or checked as its parent, further on.
+          if (!join.isVirtual) id = item[join.propertyName];
+          if (id == null || scopeFields.includes(join.propertyName) || !limited(targetScope)) continue;
+          if (typeof id === 'object' || !(await readable(targetRoute, id, targetScope))) throw denied();
           continue;
         }
 
         // A to-many (or inverse one-to-one) relation: saving it writes the listed rows.
+        if (!Object.prototype.hasOwnProperty.call(item, key)) continue;
         if (!targetScope) continue;
         // A shared row cannot take over or let go of scoped rows.
         if (!scopeConfig) throw denied();
@@ -457,7 +479,7 @@ export class ScopeGuard implements CanActivate {
         for (const row of Array.isArray(value) ? value : value == null ? [] : [value]) {
           const id = row !== null && typeof row === 'object' ? row[primary] : row;
           if (id == null || typeof id === 'object') throw denied();
-          if (!(await this.verifyResourceAccess(targetRoute, String(id), request, targetScope))) throw denied();
+          if (!(await readable(targetRoute, id, targetScope))) throw denied();
           kept.push({ [primary]: id });
         }
         item[key] = Array.isArray(value) ? kept : kept[0] ?? null;

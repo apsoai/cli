@@ -104,7 +104,7 @@ const skipScope = (req: any) => {
         ...nestedScope(req, '<%= s.fkField %>'),
 <% }) %>
     }),
-    persist: (req: any) => <% if (it.scopeOptions) { %>skipScope(req)<% if (!it.scopeOptions.injectOnCreate) { %> || scopeOperation(req) === 'create'<% } %> ? {} : <% } %>({
+    persist: (req: any) => <% if (it.scopeOptions) { %>skipScope(req) ? {} : <% } %>({
 <% it.crudAuth.forEach((s) => { %>
         <%= s.field %>: req.<%= s.contextKey %> ?? req.user?.<%= s.contextKey %> ?? req.auth?.<%= s.contextKey %> ?? req.auth?.workspaceId,
 <% }) %>

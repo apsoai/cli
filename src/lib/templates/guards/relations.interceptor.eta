@@ -21,6 +21,8 @@ export const RelationRoot = (entity: string) => SetMetadata(RELATION_ROOT, entit
 interface RelationScope {
   /** Set when the entity's reads are tenant-scoped: the roles that skip its scope. */
   bypassRoles?: string[];
+  /** Set with bypassRoles: the entity's scopeBy fields and the caller value each must equal. */
+  scope?: Record<string, string>;
   /** Relation name -> [the entity it loads, whether a caller limited to its tenant here stays in it there]. */
   relations: Record<string, [string, boolean]>;
 }
@@ -35,20 +37,32 @@ export const RELATION_SCOPES: Record<string, RelationScope> = <%~ JSON.stringify
  * caller holds a role that skips that entity's scope, or is limited to its
  * tenant on the entity the relation starts from and the target is scoped by
  * the same keys.
+ *
+ * When the path is allowed, `tenant` holds the scopeBy fields of the entity
+ * the path ends on, if the caller is limited to its tenant there. The rows the
+ * relation loads must match them, so a row that points at another tenant's
+ * row does not carry it into a response.
  */
-export function relationOutsideTenant(root: string, path: string, roles: string[]): string | undefined {
+export function relationOutsideTenant(
+  root: string,
+  path: string,
+  roles: string[],
+): { refused?: string; tenant?: Record<string, string> } {
   const skips = (entity?: RelationScope) => Boolean(entity?.bypassRoles?.some((role) => roles.includes(role)));
   let from = RELATION_SCOPES[root];
+  let tenant: Record<string, string> | undefined;
   for (const name of path.split('.')) {
     const hop = from?.relations[name];
-    if (!hop) return undefined;
+    if (!hop) return {};
     const [entity, sameTenant] = hop;
     const to = RELATION_SCOPES[entity];
     const inTenant = sameTenant && from.bypassRoles !== undefined && !skips(from);
-    if (to?.bypassRoles !== undefined && !skips(to) && !inTenant) return name;
+    if (to?.bypassRoles !== undefined && !skips(to) && !inTenant) return { refused: name };
+    // Allowed as a same-tenant hop: its rows are held to that tenant.
+    tenant = inTenant && to?.bypassRoles !== undefined && !skips(to) ? to.scope : undefined;
     from = to;
   }
-  return undefined;
+  return { tenant };
 }
 
 /**
@@ -83,13 +97,23 @@ export class RelationAccess implements NestInterceptor {
     if (request.auth?.serviceId) {
       return next.handle();
     }
-    const paths: string[] = (parsed.join ?? []).map((join: { field: string }) => join.field);
+    const joins: { field: string; on?: { field: string; operator: string; value: unknown }[] }[] = parsed.join ?? [];
+    const paths: string[] = joins.map((join) => join.field);
     const roles: string[] = request.auth?.roles ?? [];
-    for (const path of paths) {
-      const relation = relationOutsideTenant(root, path, roles);
-      if (relation) {
+    for (const join of joins) {
+      const { refused, tenant } = relationOutsideTenant(root, join.field, roles);
+      if (refused) {
         request.apso = { ...request.apso, denied: 'relation outside the tenant scope' };
-        throw new ForbiddenException(`The relation "${relation}" cannot be loaded from ${root}: its rows are tenant-scoped`);
+        throw new ForbiddenException(`The relation "${refused}" cannot be loaded from ${root}: its rows are tenant-scoped`);
+      }
+      // The join itself carries the tenant condition, so it also holds for a
+      // filter or sort on the related entity's fields.
+      for (const [field, key] of Object.entries(tenant ?? {})) {
+        const value = request[key] ?? request.user?.[key] ?? request.auth?.[key] ?? request.auth?.workspaceId;
+        if (value == null || value === '') {
+          throw new ForbiddenException('No tenant in the auth context');
+        }
+        join.on = [...(join.on ?? []), { field, operator: '$eq', value }];
       }
     }
 <% if (it.permissions) { %>

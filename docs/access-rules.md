@@ -37,9 +37,23 @@ The tenant filter limits the entity a request starts from. Which relations a req
 |---|---|
 | TypeScript | `guards/relations.interceptor.ts`, on every controller after the request is parsed |
 | Python | `relation_refused` in `auth.py`, called by the query builder for every relation a request names. Every relation is `lazy="raise"` in the model, so one loads only when a request names it, and a response carries only the relations its query loaded. |
-| Go | `RelationRefused` in `middleware/auth.go`, called where the query preloads relations |
+| Go | `RelationLoads` in `middleware/auth.go`, called where the query preloads relations |
 
 A user caller may load a relation onto a tenant-scoped entity when it holds a role that skips that entity's scope, or when it is limited to its tenant on the entity the relation starts from and the target is scoped by the same keys (`Project.tasks`). Any other load answers 403, for `join`, a `select` embed and every nesting depth. A filter or sort on a related entity's field needs the relation loaded, so it meets the same check. A service caller is not limited. In TypeScript the same place checks `permissions.read` of the related entity (R11).
+
+A same-key relation does not rely on the stored foreign key. The rows it loads are limited to the caller's tenant by the target's own `scopeBy` fields: as a condition on the join in TypeScript (so a filter or sort on the related entity's fields meets it too), on the relation's own query in Python (`relation_conditions`) and on the preload in Go. A row whose foreign key names another tenant's row, for example one a service caller wrote, loads that relation as empty. The exception is a target scoped through a parent (`project.organizationId`, TypeScript only), which has no tenant column of its own: it counts as same-key only when loaded from that parent through the one relation between the two, and is refused with 403 from anywhere else.
+
+## Writes
+
+The tenant on a write always comes from the caller (R8). There is no schema option that keeps a tenant from the request body: `apso generate` and `apso schema validate` refuse `scopeOptions.injectOnCreate`. A service caller (API key) can set any tenant.
+
+A foreign key in a write body must name a row the caller could read. This holds on create, bulk create, update and replace, for every foreign key that points at a tenant-scoped entity, whether the body sends the column (`projectId`), the relation as an object, or a list under a to-many relation. Otherwise the write is refused with 403, the same answer as for a parent outside the tenant. A key set to null is accepted. A service caller, and a role that skips the target entity's scope, are not checked. Each referenced row is looked up once per request: one lookup per distinct row in TypeScript, one query per referenced entity in Python and Go.
+
+| Language | Where |
+|---|---|
+| TypeScript | `checkBody` in `guards/scope.guard.ts`, with the same `verifyResourceAccess` lookup that reads by id use |
+| Python | `check_references` in `auth.py`, called by each service's create, bulk create, update and replace |
+| Go | `CheckReferences` in `middleware/auth.go`, called by each service's create and update |
 
 ## Running it
 

@@ -43,7 +43,6 @@ export interface ScopedEntityConfig {
   routeName: string;
   repoName: string;
   scopes: ScopeFieldConfig[];
-  injectOnCreate: boolean;
   enforceOn: string[];
   bypassRoles: string[];
 }
@@ -52,10 +51,26 @@ export interface ScopedEntityConfig {
  * Default scope options when not specified
  */
 const DEFAULT_SCOPE_OPTIONS: Required<ScopeOptions> = {
-  injectOnCreate: true,
   enforceOn: ["find", "get", "create", "update", "delete"],
   bypassRoles: [],
 };
+
+/**
+ * One error per entity that sets scopeOptions.injectOnCreate, an option that
+ * no longer exists. `apso generate` and `apso schema validate` both refuse it.
+ */
+export function removedScopeOptionErrors(entities: Entity[]): string[] {
+  return entities
+    .filter(
+      (entity) =>
+        (entity.scopeOptions as { injectOnCreate?: unknown } | undefined)
+          ?.injectOnCreate !== undefined
+    )
+    .map(
+      (entity) =>
+        `${entity.name}.scopeOptions.injectOnCreate is no longer an option; remove it. The tenant on a create always comes from the caller, never from the request body. A service caller (API key) can set any tenant.`
+    );
+}
 
 /**
  * Parses scopeBy configuration and returns structured scope fields.
@@ -132,7 +147,6 @@ export function getScopedEntities(
         scopes: relationshipMap
           ? scopes.map((s) => resolveNestedScope(entity.name, s, relationshipMap))
           : scopes,
-        injectOnCreate: options.injectOnCreate,
         enforceOn: options.enforceOn,
         bypassRoles: options.bypassRoles,
       };
@@ -386,7 +400,6 @@ export interface EntityScopeData {
   fields: DirectScopeField[];
   enforceOn: string[];
   bypassRoles: string[];
-  injectOnCreate: boolean;
 }
 
 /**
@@ -415,7 +428,6 @@ export function entityScope(
     fields,
     enforceOn: config.enforceOn,
     bypassRoles: config.bypassRoles,
-    injectOnCreate: config.injectOnCreate,
   };
 }
 
@@ -423,6 +435,13 @@ export function entityScope(
 export interface RelationScope {
   /** Set when the entity's reads are tenant-scoped: the roles that skip its scope. */
   bypassRoles?: string[];
+  /**
+   * Set with bypassRoles: the entity's own scopeBy fields and the caller
+   * value each must equal (userId, email, or any other name for the tenant).
+   * Rows loaded through a relation are limited by these, so a row that points
+   * at another tenant's row does not carry it into a response.
+   */
+  scope?: Record<string, string>;
   /**
    * Each relation a request can load, by the name requests use: the entity it
    * loads, and whether a caller limited to its tenant on this entity stays in
@@ -438,8 +457,11 @@ export interface RelationScope {
  * - the caller holds a role that skips that entity's scope, or
  * - the caller is limited to its tenant on the entity the relation starts
  *   from, and the target is scoped by the same keys (Project.tasks).
- * Any other load is refused, for every query syntax and at every depth. A
- * service caller is not limited. Each language walks this table at run time.
+ * Any other load is refused, for every query syntax and at every depth. The
+ * rows of an allowed same-key relation are still limited to the caller's
+ * tenant by the target's own scope fields (`scope`), so the rule does not rely
+ * on every stored foreign key pointing inside the tenant. A service caller is
+ * not limited. Each language walks this table at run time.
  *
  * An entity counts as scoped only when both find and get are filtered;
  * otherwise its rows are readable anyway. Undefined without auth or when no
@@ -451,13 +473,21 @@ export function relationScopes(
   hasAuth: boolean
 ): Record<string, RelationScope> | undefined {
   if (!hasAuth) return undefined;
-  const scoped = new Map<string, { keys: Set<string>; bypassRoles: string[] }>();
-  for (const config of getScopedEntities(entities)) {
+  const scoped = new Map<
+    string,
+    { keys: Set<string>; bypassRoles: string[]; scope: Record<string, string>; parents: string[] }
+  >();
+  for (const config of getScopedEntities(entities, relationshipMap)) {
     if (!config.enforceOn.includes("find") || !config.enforceOn.includes("get"))
       continue;
     scoped.set(config.name, {
       keys: new Set(config.scopes.map((s) => s.contextKey)),
       bypassRoles: config.bypassRoles,
+      scope: Object.fromEntries(
+        config.scopes.filter((s) => s.direct).map((s) => [s.field, s.contextKey])
+      ),
+      // Entities this one is scoped through (project.organizationId -> Project).
+      parents: config.scopes.filter((s) => !s.direct).map((s) => s.parentEntity ?? ""),
     });
   }
   if (scoped.size === 0) return undefined;
@@ -469,12 +499,22 @@ export function relationScopes(
       const name = getRelationshipName(relation);
       const many = relation.type === "OneToMany" || relation.type === "ManyToMany";
       const to = scoped.get(relation.name);
+      // A target scoped through a parent has no tenant column to check on the
+      // loaded rows. Its rows are the caller's by definition only when loaded
+      // from that parent, through the one relation between the two.
+      const fromParent =
+        !to ||
+        to.parents.every(
+          (parent) =>
+            parent === entity.name &&
+            (relationshipMap?.[entity.name] ?? []).filter((r) => r.name === relation.name).length === 1
+        );
       relations[many ? pluralize(name) : name] = [
         relation.name,
-        Boolean(from && to && [...to.keys].every((key) => from.keys.has(key))),
+        Boolean(from && to && fromParent && [...to.keys].every((key) => from.keys.has(key))),
       ];
     }
-    table[entity.name] = { bypassRoles: from?.bypassRoles, relations };
+    table[entity.name] = { bypassRoles: from?.bypassRoles, scope: from?.scope, relations };
   }
   return table;
 }
@@ -511,4 +551,24 @@ export function tenantClaimWarnings(
       (p) =>
         `auth provider "${p.provider}" (${p.issuer}) has no tenant claim, but ${names} tenant-scoped. Tokens from this provider will get 403 "No tenant in the auth context" on ${scoped.length === 1 ? "that entity" : "those entities"}. Set ${listed ? "claims.organizationId on that provider" : "auth.claims.organizationId"} to the claim that holds the tenant.`
     );
+}
+
+/**
+ * The foreign keys of an entity that point at a tenant-scoped entity, as
+ * field -> that entity, from [field, entity] pairs in the generator's own
+ * naming. On a write a user caller may only name rows it could read there
+ * (R8). The entity's own scopeBy fields are left out: a write sets those from
+ * the caller.
+ */
+export function scopedReferences(
+  entity: Entity,
+  foreignKeys: [field: string, target: string][],
+  scopes: Record<string, RelationScope> | undefined
+): Record<string, string> {
+  const own = new Set(entity.scopeBy ? [entity.scopeBy].flat() : []);
+  return Object.fromEntries(
+    foreignKeys.filter(
+      ([field, target]) => !own.has(field) && scopes?.[target]?.bypassRoles !== undefined
+    )
+  );
 }

@@ -90,7 +90,6 @@ describe("guards module", () => {
             path: undefined,
           },
         ],
-        injectOnCreate: true,
         enforceOn: ["find", "get", "create", "update", "delete"],
         bypassRoles: [],
       });
@@ -120,7 +119,6 @@ describe("guards module", () => {
             path: "task.workspaceId",
           },
         ],
-        injectOnCreate: true,
         enforceOn: ["find", "get", "create", "update", "delete"],
         bypassRoles: [],
       });
@@ -161,7 +159,6 @@ describe("guards module", () => {
           fields: [{ name: "action", type: "text" }],
           scopeBy: "workspaceId",
           scopeOptions: {
-            injectOnCreate: false,
             enforceOn: ["find", "get"],
             bypassRoles: ["admin", "superadmin"],
           },
@@ -171,7 +168,6 @@ describe("guards module", () => {
       const result = getScopedEntities(entities);
 
       expect(result).toHaveLength(1);
-      expect(result[0].injectOnCreate).toBe(false);
       expect(result[0].enforceOn).toEqual(["find", "get"]);
       expect(result[0].bypassRoles).toEqual(["admin", "superadmin"]);
     });
@@ -191,7 +187,6 @@ describe("guards module", () => {
       const result = getScopedEntities(entities);
 
       expect(result).toHaveLength(1);
-      expect(result[0].injectOnCreate).toBe(true); // default
       expect(result[0].enforceOn).toEqual([
         "find",
         "get",

@@ -166,11 +166,6 @@
           "description": "Optional configuration for how scope enforcement should behave for this entity.",
           "type": "object",
           "properties": {
-            "injectOnCreate": {
-              "description": "If true (default), scope fields are automatically injected from the request context on create when not provided.",
-              "type": "boolean",
-              "default": true
-            },
             "enforceOn": {
               "description": "Which operations should enforce scope. Defaults to all operations.",
               "type": "array",

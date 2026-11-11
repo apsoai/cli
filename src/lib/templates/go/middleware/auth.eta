@@ -41,12 +41,15 @@ import (
 <% if (it.jwt) { %>
 	"encoding/json"
 <% } %>
+	"errors"
+	"fmt"
 	"log"
 	"net/http"
 <% if (it.jwt && it.jwt.some((p) => p.provider === 'better-auth')) { %>
 	"net/url"
 <% } %>
 	"os"
+	"reflect"
 <% if (it.jwt) { %>
 	"strconv"
 <% } %>
@@ -582,12 +585,15 @@ func containsAudience(aud interface{}, want string) bool {
 <% } %>
 
 // relationScope is one entity in the relation table: whether its reads are
-// tenant-scoped, the roles that skip that scope, and each relation a request
-// can load (the entity it loads, and whether a caller limited to its tenant
-// here stays in it there).
+// tenant-scoped, the roles that skip that scope, its table and scopeBy columns
+// (each with the caller value it must equal: "userId", "email", or any other
+// name for the tenant), and each relation a request can load (the entity it
+// loads, and whether a caller limited to its tenant here stays in it there).
 type relationScope struct {
 	Scoped      bool
 	BypassRoles []string
+	Table       string
+	Tenant      map[string]string
 	Relations   map[string]relationHop
 }
 
@@ -602,6 +608,12 @@ var relationScopes = map[string]relationScope{
 	<%~ JSON.stringify(name) %>: {
 		Scoped:      <%= scope.bypassRoles !== undefined %>,
 		BypassRoles: []string{<%~ (scope.bypassRoles ?? []).map((r) => JSON.stringify(r)).join(', ') %>},
+		Table:       <%~ JSON.stringify(it.tables[name] ?? '') %>,
+		Tenant: map[string]string{
+<% Object.entries(scope.scope ?? {}).forEach(([column, key]) => { %>
+			<%~ JSON.stringify(column) %>: <%~ JSON.stringify(key) %>,
+<% }) %>
+		},
 		Relations: map[string]relationHop{
 <% Object.entries(scope.relations).forEach(([relation, hop]) => { %>
 			<%~ JSON.stringify(relation) %>: {Entity: <%~ JSON.stringify(hop[0]) %>, SameTenant: <%= hop[1] %>},
@@ -611,51 +623,155 @@ var relationScopes = map[string]relationScope{
 <% }) %>
 }
 
-// RelationRefused is the one place that decides which relations a request may
-// load. It returns the first relation in path (author.posts) that would load
-// rows outside the caller's tenant, or "". The tenant filter limits only the
-// entity a request starts from, so a relation onto a tenant-scoped entity is
-// loaded only when the caller holds a role that skips that entity's scope, or
-// is limited to its tenant on the entity the relation starts from and the
-// target is scoped by the same keys. A service caller (valid API key) is not
-// limited.
-func RelationRefused(ctx context.Context, root, path string) string {
-	if len(relationScopes) == 0 {
-		return ""
-	}
-	var roles []string
-	if a, ok := FromContext(ctx); ok {
-		if a.ServiceID != "" {
-			return ""
-		}
-		roles = a.Roles
-	}
-	skips := func(e relationScope) bool {
-		for _, r := range roles {
-			for _, b := range e.BypassRoles {
-				if r == b {
-					return true
-				}
+// skipsScope reports whether the caller holds a role that skips e's tenant scope.
+func skipsScope(a *AuthContext, e relationScope) bool {
+	for _, r := range a.Roles {
+		for _, b := range e.BypassRoles {
+			if r == b {
+				return true
 			}
 		}
-		return false
 	}
+	return false
+}
+
+// tenantWhere is the SQL condition, with its arguments, that keeps rows of e
+// to the caller's tenant (compared as text: token claims are strings). ok is
+// false when the caller has no value for one of e's scopeBy columns.
+func tenantWhere(a *AuthContext, e relationScope) (where string, args []interface{}, ok bool) {
+	var parts []string
+	for column, key := range e.Tenant {
+		v := a.WorkspaceID
+		switch key {
+		case "userId":
+			v = a.UserID
+		case "email":
+			v = a.Email
+		}
+		if v == "" {
+			return "", nil, false
+		}
+		parts = append(parts, `CAST("`+column+`" AS TEXT) = ?`)
+		args = append(args, v)
+	}
+	return strings.Join(parts, " AND "), args, true
+}
+
+// RelationLoad is one relation to preload: its path as the request names it
+// (author, author.posts) and the conditions its rows must meet, as arguments
+// for gorm's Preload.
+type RelationLoad struct {
+	Path  string
+	Conds []interface{}
+}
+
+// RelationLoads is the one place that decides which relations a request may
+// load. For a path (author.posts) it returns each step to preload, or the
+// first relation that would load rows outside the caller's tenant. The tenant
+// filter limits only the entity a request starts from, so a relation onto a
+// tenant-scoped entity is loaded only when the caller holds a role that skips
+// that entity's scope, or is limited to its tenant on the entity the relation
+// starts from and the target is scoped by the same keys. The rows of such a
+// relation are still limited to the caller's tenant by the target's own
+// scopeBy columns, so a row that points at another tenant's row does not carry
+// it into a response. A service caller (valid API key) is not limited.
+func RelationLoads(ctx context.Context, root, path string) (loads []RelationLoad, refused string) {
+	a, _ := FromContext(ctx)
+	if a == nil {
+		a = &AuthContext{}
+	}
+	skips := func(e relationScope) bool { return skipsScope(a, e) }
+	// Outside the table (or for a service caller) a relation loads as it is.
+	known := len(relationScopes) > 0 && a.ServiceID == ""
 	from := relationScopes[root]
-	for _, name := range strings.Split(path, ".") {
+	parts := strings.Split(path, ".")
+	for i, name := range parts {
+		load := RelationLoad{Path: strings.Join(parts[:i+1], ".")}
 		// Requests may name a relation as the field (Posts) or as .apsorc does (posts).
 		if name != "" {
 			name = strings.ToLower(name[:1]) + name[1:]
 		}
 		hop, ok := from.Relations[name]
-		if !ok {
-			return ""
+		known = known && ok
+		if known {
+			to := relationScopes[hop.Entity]
+			inTenant := hop.SameTenant && from.Scoped && !skips(from)
+			if to.Scoped && !skips(to) && !inTenant {
+				return nil, name
+			}
+			// The hop was allowed as a same-tenant one: hold its rows to that tenant.
+			if inTenant && to.Scoped && !skips(to) {
+				where, args, ok := tenantWhere(a, to)
+				if !ok {
+					return nil, name
+				}
+				if where != "" {
+					load.Conds = append([]interface{}{where}, args...)
+				}
+			}
+			from = to
 		}
-		to := relationScopes[hop.Entity]
-		inTenant := hop.SameTenant && from.Scoped && !skips(from)
-		if to.Scoped && !skips(to) && !inTenant {
-			return name
-		}
-		from = to
+		loads = append(loads, load)
 	}
-	return ""
+	return loads, ""
+}
+
+// ErrReference means a write names, in a foreign key, a row of a tenant-scoped
+// entity that the caller cannot read. Handlers answer it with 403.
+var ErrReference = errors.New("you do not have access to a row this request references")
+
+// CheckReferences is the one place that checks the foreign keys of a write
+// (R8). references maps a tenant-scoped entity to the ids a body names in
+// foreign keys to it; an id may be a pointer, and nil or zero means not sent.
+// Every id must be a row the caller could read, or the result is ErrReference.
+// A service caller or a role that skips the target's scope is not limited.
+// One query per referenced entity.
+func CheckReferences(ctx context.Context, db *gorm.DB, references map[string][]interface{}) error {
+	a, _ := FromContext(ctx)
+	if a == nil {
+		a = &AuthContext{}
+	}
+	if a.ServiceID != "" {
+		return nil
+	}
+	for entity, sent := range references {
+		to := relationScopes[entity]
+		if !to.Scoped || skipsScope(a, to) {
+			continue
+		}
+		seen := map[string]bool{}
+		var ids []interface{}
+		for _, v := range sent {
+			rv := reflect.ValueOf(v)
+			for rv.Kind() == reflect.Ptr && !rv.IsNil() {
+				rv = rv.Elem()
+			}
+			if !rv.IsValid() || rv.Kind() == reflect.Ptr || rv.IsZero() {
+				continue
+			}
+			if key := fmt.Sprint(rv.Interface()); !seen[key] {
+				seen[key] = true
+				ids = append(ids, rv.Interface())
+			}
+		}
+		if len(ids) == 0 {
+			continue
+		}
+		where, args, ok := tenantWhere(a, to)
+		if !ok {
+			return ErrReference
+		}
+		q := db.WithContext(ctx).Table(to.Table).Where(`"id" IN ?`, ids)
+		if where != "" {
+			q = q.Where(where, args...)
+		}
+		var found int64
+		if err := q.Count(&found).Error; err != nil {
+			return err
+		}
+		if found != int64(len(ids)) {
+			return ErrReference
+		}
+	}
+	return nil
 }

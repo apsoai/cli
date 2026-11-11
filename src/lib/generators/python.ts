@@ -39,6 +39,8 @@ import {
   mcpToolNames,
   nestedScopeEntities,
   relationScopes,
+  removedScopeOptionErrors,
+  scopedReferences,
 } from "../guards";
 import { pyString } from "../ddl/migration-file";
 import {
@@ -209,6 +211,7 @@ export class PythonGenerator extends BaseGenerator {
     if (!config.entities || config.entities.length === 0) {
       errors.push("No entities defined in configuration");
     }
+    errors.push(...removedScopeOptionErrors(config.entities ?? []));
 
     // Validate each entity
     for (const entity of config.entities) {
@@ -445,6 +448,16 @@ export class PythonGenerator extends BaseGenerator {
       primaryKeyType,
       associations: [...new Set(relationshipsForTemplate)],
       scope: entityScope(entity, Boolean(options.auth)),
+      // Foreign keys a write must check: those onto tenant-scoped entities.
+      references: Object.entries(
+        scopedReferences(
+          entity,
+          relationshipsForTemplate
+            .filter((a) => a.type === "ManyToOne" || (a.type === "OneToOne" && a.joinTable))
+            .map((a) => [a.camelCasedId, a.name]),
+          relationScopes(options.allEntities, options.relationshipMap ?? this.config.relationshipMap, Boolean(options.auth))
+        )
+      ).map(([field, target]) => ({ field, target })),
     };
 
     const content = await this.renderTemplate("./services/service", data);

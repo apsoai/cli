@@ -10,7 +10,7 @@ import (
 	"errors"
 
 	"app/autogen/dto"
-<% if (it.scope) { %>
+<% if (it.scope || it.references.length) { %>
 	"app/autogen/middleware"
 <% } %>
 	"app/autogen/models"
@@ -200,7 +200,7 @@ func (s *<%= it.entityName %>Service) Create(ctx context.Context, input *dto.<%=
 		<%= assoc.fkField %>: input.<%= assoc.fkField %>,
 <% }) %>
 	}
-<% if (it.scope && it.scope.injectOnCreate) { %>
+<% if (it.scope) { %>
 
 	// The caller's tenant, never one from the body (.apsorc scopeBy).
 	_, scopeVals, scopeErr := s.scoped(ctx, s.db, "create")
@@ -214,6 +214,17 @@ func (s *<%= it.entityName %>Service) Create(ctx context.Context, input *dto.<%=
 		}
 	}
 <% }) %>
+<% } %>
+<% if (it.references.length) { %>
+
+	// Foreign keys to tenant-scoped entities must name rows the caller can read.
+	if err := middleware.CheckReferences(ctx, s.db, map[string][]interface{}{
+<% it.references.forEach((r) => { %>
+		<%~ JSON.stringify(r.target) %>: {item.<%= r.goField %>},
+<% }) %>
+	}); err != nil {
+		return nil, err
+	}
 <% } %>
 
 	if err := s.db.WithContext(ctx).Create(&item).Error; err != nil {
@@ -273,6 +284,15 @@ func (s *<%= it.entityName %>Service) Update(ctx context.Context, id string, inp
 	// A scoped row cannot move to another tenant.
 	for col := range scopeVals {
 		delete(updates, col)
+	}
+<% } %>
+<% if (it.references.length) { %>
+	if err := middleware.CheckReferences(ctx, s.db, map[string][]interface{}{
+<% it.references.forEach((r) => { %>
+		<%~ JSON.stringify(r.target) %>: {updates[<%~ JSON.stringify(r.column) %>]},
+<% }) %>
+	}); err != nil {
+		return nil, err
 	}
 <% } %>
 

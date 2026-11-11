@@ -1,5 +1,5 @@
 import { expect, describe, test } from "@jest/globals";
-import { relationScopes } from "../../../src/lib/guards";
+import { relationScopes, removedScopeOptionErrors, scopedReferences } from "../../../src/lib/guards";
 import { Entity, RelationshipMap } from "../../../src/lib/types";
 
 const entities: Entity[] = [
@@ -53,5 +53,58 @@ describe("relationScopes", () => {
     expect(table.Project.relations.tasks).toEqual(["Task", true]);
     // Scoped by the caller's user id, not by the tenant.
     expect(table.Project.relations.notes).toEqual(["Note", false]);
+  });
+
+  test("lists each scoped entity's own scope fields, which the rows a relation loads must match", () => {
+    const table = relationScopes(entities, relationshipMap, true)!;
+    expect(table.Project.scope).toEqual({ organizationId: "organizationId" });
+    expect(table.Note.scope).toEqual({ userId: "userId" });
+    // Scoped through its parent: no tenant column of its own.
+    expect(table.Task.scope).toEqual({});
+    expect(table.Organization.scope).toBeUndefined();
+  });
+
+  test("an entity scoped through a parent is same-tenant only from that parent, through one relation", () => {
+    const withTicketTasks: RelationshipMap = {
+      ...relationshipMap,
+      Ticket: [{ name: "Task", type: "OneToMany" }],
+    };
+    expect(relationScopes(entities, withTicketTasks, true)!.Ticket.relations.tasks).toEqual(["Task", false]);
+    const twice: RelationshipMap = {
+      ...relationshipMap,
+      Project: [...relationshipMap.Project, { name: "Task", type: "OneToMany", referenceName: "archivedTask" }],
+    };
+    const table = relationScopes(entities, twice, true)!;
+    expect(table.Project.relations.tasks).toEqual(["Task", false]);
+    expect(table.Project.relations.archivedTasks).toEqual(["Task", false]);
+  });
+});
+
+describe("scopedReferences", () => {
+  const table = relationScopes(entities, relationshipMap, true);
+  const ticket = entities.find((e) => e.name === "Ticket")!;
+
+  test("keeps foreign keys to tenant-scoped entities, without the entity's own scope field", () => {
+    expect(
+      scopedReferences(ticket, [["organizationId", "Organization"], ["projectId", "Project"], ["draftId", "Draft"]], table)
+    ).toEqual({ projectId: "Project" });
+  });
+
+  test("is empty when nothing is scoped", () => {
+    expect(scopedReferences(ticket, [["projectId", "Project"]], {})).toEqual({});
+  });
+});
+
+describe("removedScopeOptionErrors", () => {
+  test("refuses scopeOptions.injectOnCreate, whatever its value, and says where the tenant comes from", () => {
+    for (const value of [true, false]) {
+      const doc: Entity = { name: "Doc", scopeBy: "organizationId", scopeOptions: { injectOnCreate: value } as any };
+      const [error, ...rest] = removedScopeOptionErrors([doc, ...entities]);
+      expect(rest).toEqual([]);
+      expect(error).toContain("Doc.scopeOptions.injectOnCreate is no longer an option");
+      expect(error).toContain("always comes from the caller");
+      expect(error).toContain("A service caller (API key) can set any tenant");
+    }
+    expect(removedScopeOptionErrors(entities)).toEqual([]);
   });
 });
