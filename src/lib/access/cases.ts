@@ -594,10 +594,11 @@ function callerRoles(model: AccessModel): string[] {
 const notEmbeddable = (res: Res, name: string) =>
   res.status === 400 && typeof res.json?.message === "string" && res.json.message.includes(`'${name}' cannot be embedded`) && res.json.message.includes("Embeddable relations:");
 
-/** The message of a JSON error body, or the text itself. */
+/** The message of a JSON error body (message in TypeScript, detail in Python, error in Go), or the text itself. */
 const messageOf = (text: string | undefined): string => {
   try {
-    return JSON.parse(text ?? "")?.message ?? text ?? "";
+    const body = JSON.parse(text ?? "");
+    return body?.message ?? body?.detail ?? body?.error ?? text ?? "";
   } catch {
     return text ?? "";
   }
@@ -1004,7 +1005,7 @@ async function foreignKeys(ctx: AccessContext, entity: AccessEntity, a: Tenant, 
         [`an inner embed of ${p} filtered on ${what}'s id`, `select=${enc(`id,${p}!inner(id)`)}&${p}.id=${enc(`eq.${theirs.id}`)}`],
         [`an inner embed of ${p} filtered on ${what}'s id, count only`, `select=${enc(`id,${p}!inner(id)`)}&${p}.id=${enc(`eq.${theirs.id}`)}&limit=0`],
         [`an inner embed of ${p} filtered on ${what}'s id and the row's own id`, `select=${enc(`*,${p}!inner(*)`)}&${p}.id=${enc(`eq.${theirs.id}`)}&id=${enc(`eq.${row.id}`)}`],
-        [`an inner embed of ${p} filtered on ${what}'s id in an or group`, `select=${enc(`id,${p}!inner(id)`)}&${p}.or=${enc(`(id.eq.${theirs.id},id.eq.${theirs.id})`)}`],
+        [`an inner embed of ${p} filtered on ${what}'s id with in`, `select=${enc(`id,${p}!inner(id)`)}&${p}.id=${enc(`in.(${theirs.id})`)}`],
       ];
       // Python and Go drop the !inner hint, so there the row itself may come back, with the relation empty.
       for (const [name, query] of embedded) {
@@ -1165,11 +1166,13 @@ async function mcpCases(ctx: AccessContext, a: Tenant, b: Tenant, asA: Headers):
     if (!entity.tools.list) continue;
     const embeds = [...entity.relations.map((r) => r.property), ...(postgrestOnly(model) ? ["apso_access_absent"] : [])];
     for (const property of embeds) {
+      // Python and Go list tools take the nestjsx arguments only, so a relation is loaded there with join.
       const select = `*,${property}(*)`;
-      const rest = await call("GET", `${base}${entity.route}?select=${enc(select)}&limit=1000`, { headers: asA });
-      const tool = await client.callTool(entity.tools.list, { select, limit: 1000 });
+      const [query, args]: [string, Row] = postgrestOnly(model) ? [`select=${enc(select)}`, { select }] : [`join=${enc(property)}`, { join: [property] }];
+      const rest = await call("GET", `${base}${entity.route}?${query}&limit=1000`, { headers: asA });
+      const tool = await client.callTool(entity.tools.list, { ...args, limit: 1000 });
       const same = rest.status >= 400 ? tool.error !== undefined && messageOf(tool.error) === messageOf(rest.text) : tool.error === undefined;
-      t.assert(`[R7,R23] mcp ${entity.tools.list}: select embed ${property} answers as REST does (${rest.status})`, rest.status !== 0 && rest.status < 500 && same, `REST ${rest.status} ${rest.text.slice(0, 200)}; tool ${tool.error ?? "ok"}`);
+      t.assert(`[R7,R23] mcp ${entity.tools.list}: ${postgrestOnly(model) ? "select embed" : "join"} ${property} answers as REST does (${rest.status})`, rest.status !== 0 && rest.status < 500 && same, `REST ${rest.status} ${rest.text.slice(0, 200)}; tool ${tool.error ?? "ok"}`);
       if (property === "apso_access_absent")
         t.assert(`[R7,R23] mcp ${entity.tools.list}: select embed of a name that is no relation is refused, listing the embeddable relations`, notEmbeddable(rest, property) && tool.error !== undefined, `REST ${rest.status} ${rest.text.slice(0, 200)}`);
     }
