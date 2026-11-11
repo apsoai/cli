@@ -19,10 +19,15 @@ call any route and is not tenant-scoped. A request whose key fails is refused,
 whatever else it carries.
 <% if (it.jwt) { %>
 
-A request with no key needs a <%= it.jwt.provider %> JWT in the Authorization: Bearer header,
-verified against the issuer's published keys (JWKS) with issuer, expiry<% if (it.jwt.audience) { %>, audience<% } %> and
-algorithm checked; its claims become the AuthContext on request.state.auth.
-AUTH_JWT_ISSUER, AUTH_JWT_AUDIENCE and AUTH_JWKS_URI override the .apsorc values.
+A request with no key needs a <%= it.jwt.map((p) => p.provider).join(', ') %> JWT in the Authorization: Bearer header.
+The token's iss claim picks the provider; a token from an issuer that is not
+configured is refused. It is verified against that issuer's published keys
+(JWKS) with issuer, expiry, audience (when one is configured) and algorithm
+checked; its claims, by that provider's claim names, become the AuthContext on
+request.state.auth.
+AUTH_JWT_ISSUER, AUTH_JWT_AUDIENCE, AUTH_JWKS_URI and AUTH_JWT_AUTHORIZED_PARTIES
+override the .apsorc values. With several providers they set the first; the
+second reads the same names ending in _2 (AUTH_JWT_ISSUER_2), and so on.
 <% } %>
 """
 import hashlib
@@ -48,6 +53,9 @@ class AuthContext:
     workspace_id: Optional[str] = None
     organization_id: Optional[str] = None
     roles: List[str] = field(default_factory=list)
+    # The issuer that signed the caller in, and its provider type in .apsorc.
+    issuer: Optional[str] = None
+    provider: Optional[str] = None
     claims: dict = field(default_factory=dict)
 
 
@@ -61,20 +69,33 @@ def _unauthorized(detail: str) -> HTTPException:
 <% if (it.jwt) { %>
 
 
-ISSUER = os.getenv("AUTH_JWT_ISSUER") or <%~ JSON.stringify(it.jwt.issuer) %>
-AUDIENCE = os.getenv("AUTH_JWT_AUDIENCE") or <%~ JSON.stringify(it.jwt.audience || '') %>
-JWKS_URI = os.getenv("AUTH_JWKS_URI") or <%~ JSON.stringify(it.jwt.jwksUri) %>
-ALGORITHMS = <%~ JSON.stringify(it.jwt.algorithms) %>
-# Origins allowed in the azp claim; empty allows any.
-AUTHORIZED_PARTIES = [
-    p.strip()
-    for p in (os.getenv("AUTH_JWT_AUTHORIZED_PARTIES") or <%~ JSON.stringify(it.jwt.authorizedParties.join(',')) %>).split(",")
-    if p.strip()
-]
-CLAIMS = <%~ JSON.stringify(it.jwt.claims) %>
+_CONFIGURED = <%~ JSON.stringify(it.jwt) %>
 
-# Fetches and caches the issuer's keys on first use.
-_jwks = PyJWKClient(JWKS_URI, cache_keys=True)
+
+def _provider(i: int, p: dict) -> dict:
+    """One trusted issuer: its own keys, audience and claim names."""
+    # The first provider reads AUTH_JWT_ISSUER, the second AUTH_JWT_ISSUER_2, and so on.
+    s = "" if i == 0 else f"_{i + 1}"
+    parties = os.getenv(f"AUTH_JWT_AUTHORIZED_PARTIES{s}") or ",".join(p["authorizedParties"])
+    return {
+        "provider": p["provider"],
+        "issuer": os.getenv(f"AUTH_JWT_ISSUER{s}") or p["issuer"],
+        "audience": os.getenv(f"AUTH_JWT_AUDIENCE{s}") or p.get("audience") or "",
+        # Fetches and caches the issuer's keys on first use.
+        "jwks": PyJWKClient(os.getenv(f"AUTH_JWKS_URI{s}") or p["jwksUri"], cache_keys=True),
+        "algorithms": p["algorithms"],
+        # Origins allowed in the azp claim; empty allows any.
+        "authorized_parties": [x.strip() for x in parties.split(",") if x.strip()],
+        "claims": p["claims"],
+    }
+
+
+PROVIDERS = {p["issuer"]: p for p in (_provider(i, p) for i, p in enumerate(_CONFIGURED))}
+if len(PROVIDERS) != len(_CONFIGURED):
+    # The token's iss picks the provider, so two providers cannot share one.
+    raise RuntimeError(
+        "[apso] Two auth providers have the same issuer. Check AUTH_JWT_ISSUER and its numbered variants."
+    )
 
 
 def _claim(payload: dict, path: Optional[str]) -> Any:
@@ -111,8 +132,18 @@ async def _require_user(request: Request) -> AuthContext:
     if not header.startswith("Bearer "):
         raise _unauthorized("No bearer token provided")
     token = header[len("Bearer "):]
+    # The token's own issuer picks the provider, before anything is verified;
+    # then only that provider's keys and settings are used.
     try:
-        signing_key = await run_in_threadpool(_jwks.get_signing_key_from_jwt, token)
+        iss = jwt.decode(token, options={"verify_signature": False}).get("iss")
+    except jwt.PyJWTError:
+        raise _unauthorized("Invalid token")
+    p = PROVIDERS.get(iss) if isinstance(iss, str) else None
+    if p is None:
+        raise _unauthorized("Invalid token")
+    AUDIENCE, CLAIMS, cognito = p["audience"], p["claims"], p["provider"] == "cognito"
+    try:
+        signing_key = await run_in_threadpool(p["jwks"].get_signing_key_from_jwt, token)
     except jwt.PyJWKClientConnectionError:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -124,27 +155,24 @@ async def _require_user(request: Request) -> AuthContext:
         payload = jwt.decode(
             token,
             signing_key.key,
-            algorithms=ALGORITHMS,
-            issuer=ISSUER,
-<% if (it.jwt.provider !== 'cognito') { %>
-            audience=AUDIENCE or None,
-            options={"require": ["exp", "iss"], "verify_aud": bool(AUDIENCE)},
-<% } else { %>
-            options={"require": ["exp", "iss"], "verify_aud": False},
-<% } %>
+            algorithms=p["algorithms"],
+            issuer=p["issuer"],
+            # Cognito's audience is checked below.
+            audience=None if cognito else AUDIENCE or None,
+            options={"require": ["exp", "iss"], "verify_aud": bool(AUDIENCE) and not cognito},
         )
     except jwt.PyJWTError:
         raise _unauthorized("Invalid token")
-<% if (it.jwt.provider === 'cognito') { %>
+<% if (it.jwt.some((p) => p.provider === 'cognito')) { %>
     # Cognito ID tokens carry aud; access tokens carry client_id instead.
-    if AUDIENCE:
+    if cognito and AUDIENCE:
         aud = payload.get("aud", payload.get("client_id"))
         if not (AUDIENCE in aud if isinstance(aud, list) else aud == AUDIENCE):
             raise _unauthorized("Invalid token")
 <% } %>
 
     azp = payload.get("azp")
-    if AUTHORIZED_PARTIES and azp is not None and azp not in AUTHORIZED_PARTIES:
+    if p["authorized_parties"] and azp is not None and azp not in p["authorized_parties"]:
         raise _unauthorized("Invalid token")
 
     user_id = _str(_claim(payload, CLAIMS.get("userId")))
@@ -159,6 +187,8 @@ async def _require_user(request: Request) -> AuthContext:
         workspace_id=tenant,
         organization_id=tenant,
         roles=_roles(_claim(payload, CLAIMS.get("roles"))),
+        issuer=p["issuer"],
+        provider=p["provider"],
         claims=payload,
     )
     return ctx

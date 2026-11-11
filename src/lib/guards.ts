@@ -1,5 +1,6 @@
 import {
   AuthConfig,
+  authProviders,
   Entity,
   PERMISSION_OPERATIONS,
   PermissionOperation,
@@ -193,10 +194,18 @@ function resolveGrants(
   entities: Entity[],
   auth?: AuthConfig
 ): PermissionConfig["grants"] {
-  const name = auth?.permissionEntity ?? "RolePermission";
+  // One grants entity per service, whichever provider signed the caller in.
+  const named = [
+    ...new Set(authProviders(auth).map((a) => a.permissionEntity).filter(Boolean)),
+  ];
+  if (named.length > 1)
+    throw new Error(
+      `auth providers name different permissionEntity values (${named.join(", ")}); a service has one`
+    );
+  const name = named[0] ?? "RolePermission";
   const entity = entities.find((e) => e.name === name);
   if (!entity) {
-    if (auth?.permissionEntity)
+    if (named.length > 0)
       throw new Error(`auth.permissionEntity "${name}" is not an entity in .apsorc`);
     return undefined;
   }

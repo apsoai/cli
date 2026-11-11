@@ -37,8 +37,8 @@ import {
 import { getEventEmittingEntities } from "../events";
 import {
   isDbSessionAuth,
-  isJwtAuth,
-  resolveJwtAuth,
+  authProviders,
+  resolveJwtProviders,
   DB_SESSION_AUTH_DEFAULTS,
   DbSessionAuthConfig,
 } from "../types/auth";
@@ -514,7 +514,9 @@ export class TypeScriptGenerator extends BaseGenerator {
   ): Promise<GeneratedFile[]> {
     const hasScopes = hasScopedEntities(entities);
     const normalizedAuth = this.normalizeAuthConfig(auth);
-    const jwt = auth && isJwtAuth(auth) ? resolveJwtAuth(auth) : undefined;
+    // One entry per trusted issuer; undefined for no sign-in or a session provider.
+    const jwtProviders = resolveJwtProviders(auth);
+    const jwt = jwtProviders.length > 0 ? jwtProviders : undefined;
     const hasAuth = Boolean(normalizedAuth || jwt);
 
     // Roles come from the caller's identity; without auth there are none, and
@@ -545,7 +547,7 @@ export class TypeScriptGenerator extends BaseGenerator {
         hasAuth && scopedEntities.some((e) => e.scopes.some((s) => s.fkField)),
       authConfig: normalizedAuth,
       hasAuth,
-      authProvider: auth?.provider,
+      authProvider: authProviders(auth).map((a) => a.provider).join(", "),
       authEntities,
       jwt,
       permissions,
@@ -671,12 +673,11 @@ export class TypeScriptGenerator extends BaseGenerator {
   private normalizeAuthConfig(
     auth: AuthConfig | undefined
   ): DbSessionAuthConfig | undefined {
-    if (!auth) return undefined;
-
-    if (isDbSessionAuth(auth)) {
+    const [provider] = authProviders(auth);
+    if (provider && isDbSessionAuth(provider)) {
       return {
         ...DB_SESSION_AUTH_DEFAULTS,
-        ...auth,
+        ...provider,
       };
     }
 

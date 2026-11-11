@@ -21,10 +21,15 @@ package middleware
 // refused, whatever else it carries.
 <% if (it.jwt) { %>
 //
-// A request with no key needs a <%= it.jwt.provider %> JWT in the Authorization: Bearer header,
-// verified against the issuer's published keys (JWKS) with issuer, expiry<% if (it.jwt.audience) { %>, audience<% } %> and
-// algorithm checked; its claims become the AuthContext.
-// AUTH_JWT_ISSUER, AUTH_JWT_AUDIENCE and AUTH_JWKS_URI override the .apsorc values.
+// A request with no key needs a <%= it.jwt.map((p) => p.provider).join(', ') %> JWT in the Authorization: Bearer header.
+// The token's iss claim picks the provider; a token from an issuer that is not
+// configured is refused. It is verified against that issuer's published keys
+// (JWKS) with issuer, expiry, audience (when one is configured) and algorithm
+// checked; its claims, by that provider's claim names, become the AuthContext.
+// AUTH_JWT_ISSUER, AUTH_JWT_AUDIENCE, AUTH_JWKS_URI and
+// AUTH_JWT_AUTHORIZED_PARTIES override the .apsorc values. With several
+// providers they set the first; the second reads the same names ending in _2
+// (AUTH_JWT_ISSUER_2), and so on.
 <% } %>
 
 import (
@@ -59,6 +64,9 @@ type AuthContext struct {
 	WorkspaceID    string                 `json:"workspaceId,omitempty"`
 	OrganizationID string                 `json:"organizationId,omitempty"`
 	Roles          []string               `json:"roles"`
+	// The issuer that signed the caller in, and its provider type in .apsorc.
+	Issuer         string                 `json:"issuer,omitempty"`
+	Provider       string                 `json:"provider,omitempty"`
 	Claims         map[string]interface{} `json:"claims,omitempty"`
 }
 
@@ -298,15 +306,52 @@ func env(name, fallback string) string {
 	return fallback
 }
 
-var (
-	issuer     = env("AUTH_JWT_ISSUER", <%~ JSON.stringify(it.jwt.issuer) %>)
-	audience   = env("AUTH_JWT_AUDIENCE", <%~ JSON.stringify(it.jwt.audience || '') %>)
-	algorithms = []string{<%~ it.jwt.algorithms.map((a) => JSON.stringify(a)).join(', ') %>}
-	// Origins allowed in the azp claim; empty allows any.
-	authorizedParties = splitList(env("AUTH_JWT_AUTHORIZED_PARTIES", <%~ JSON.stringify(it.jwt.authorizedParties.join(',')) %>))
+// provider is one trusted issuer: its own keys, audience and claim names.
+type provider struct {
+	name              string
+	issuer            string
+	audience          string
+	algorithms        []string
+	authorizedParties []string // origins allowed in the azp claim; empty allows any
+	jwks              *lazyJWKS
+	userID            string
+	workspace         string
+	organization      string
+	email             string
+	roles             string
+}
 
-	jwks = &lazyJWKS{url: env("AUTH_JWKS_URI", <%~ JSON.stringify(it.jwt.jwksUri) %>)}
+// providers by issuer. The first provider reads AUTH_JWT_ISSUER, the second
+// AUTH_JWT_ISSUER_2, and so on.
+var providers = byIssuer(
+<% it.jwt.forEach((p, i) => { const s = i === 0 ? '' : `_${i + 1}` %>
+	&provider{
+		name:              <%~ JSON.stringify(p.provider) %>,
+		issuer:            env("AUTH_JWT_ISSUER<%= s %>", <%~ JSON.stringify(p.issuer) %>),
+		audience:          env("AUTH_JWT_AUDIENCE<%= s %>", <%~ JSON.stringify(p.audience || '') %>),
+		algorithms:        []string{<%~ p.algorithms.map((a) => JSON.stringify(a)).join(', ') %>},
+		authorizedParties: splitList(env("AUTH_JWT_AUTHORIZED_PARTIES<%= s %>", <%~ JSON.stringify(p.authorizedParties.join(',')) %>)),
+		jwks:              &lazyJWKS{url: env("AUTH_JWKS_URI<%= s %>", <%~ JSON.stringify(p.jwksUri) %>)},
+		userID:            <%~ JSON.stringify(p.claims.userId) %>,
+		workspace:         <%~ JSON.stringify(p.claims.workspaceId || '') %>,
+		organization:      <%~ JSON.stringify(p.claims.organizationId || '') %>,
+		email:             <%~ JSON.stringify(p.claims.email || '') %>,
+		roles:             <%~ JSON.stringify(p.claims.roles || '') %>,
+	},
+<% }) %>
 )
+
+func byIssuer(list ...*provider) map[string]*provider {
+	m := map[string]*provider{}
+	for _, p := range list {
+		if _, taken := m[p.issuer]; taken {
+			// The token's iss picks the provider, so two providers cannot share one.
+			log.Fatalf("[apso] Two auth providers have the issuer %q. Check AUTH_JWT_ISSUER and its numbered variants.", p.issuer)
+		}
+		m[p.issuer] = p
+	}
+	return m
+}
 
 // claim reads a claim by exact name (Auth0 namespaced URLs contain dots),
 // else by dotted path into nested objects.
@@ -373,67 +418,82 @@ func userAuth(c *gin.Context) {
 		unauthorized(c, "No bearer token provided")
 		return
 	}
-	k, err := jwks.get()
+	raw := strings.TrimPrefix(header, "Bearer ")
+	// The token's own issuer picks the provider, before anything is verified;
+	// then only that provider's keys and settings are used.
+	unverified := jwt.MapClaims{}
+	if _, _, err := jwt.NewParser().ParseUnverified(raw, unverified); err != nil {
+		unauthorized(c, "Invalid token")
+		return
+	}
+	iss, _ := unverified["iss"].(string)
+	p, ok := providers[iss]
+	if !ok {
+		unauthorized(c, "Invalid token")
+		return
+	}
+	k, err := p.jwks.get()
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "Token signing keys unavailable"})
 		return
 	}
 	opts := []jwt.ParserOption{
-		jwt.WithIssuer(issuer),
-		jwt.WithValidMethods(algorithms),
+		jwt.WithIssuer(p.issuer),
+		jwt.WithValidMethods(p.algorithms),
 		jwt.WithExpirationRequired(),
 	}
-<% if (it.jwt.provider !== 'cognito') { %>
-	if audience != "" {
-		opts = append(opts, jwt.WithAudience(audience))
+	cognito := p.name == "cognito"
+	if p.audience != "" && !cognito {
+		opts = append(opts, jwt.WithAudience(p.audience))
 	}
-<% } %>
 	mc := jwt.MapClaims{}
-	token, err := jwt.ParseWithClaims(strings.TrimPrefix(header, "Bearer "), mc, k.Keyfunc, opts...)
+	token, err := jwt.ParseWithClaims(raw, mc, k.Keyfunc, opts...)
 	if err != nil || !token.Valid {
 		unauthorized(c, "Invalid token")
 		return
 	}
 	claims := map[string]interface{}(mc)
-<% if (it.jwt.provider === 'cognito') { %>
+<% if (it.jwt.some((p) => p.provider === 'cognito')) { %>
 	// Cognito ID tokens carry aud; access tokens carry client_id instead.
-	if audience != "" {
+	if cognito && p.audience != "" {
 		aud := claims["aud"]
 		if aud == nil {
 			aud = claims["client_id"]
 		}
-		if !containsAudience(aud, audience) {
+		if !containsAudience(aud, p.audience) {
 			unauthorized(c, "Invalid token")
 			return
 		}
 	}
 <% } %>
 
-	if azp, ok := claims["azp"].(string); ok && len(authorizedParties) > 0 && !contains(authorizedParties, azp) {
+	if azp, ok := claims["azp"].(string); ok && len(p.authorizedParties) > 0 && !contains(p.authorizedParties, azp) {
 		unauthorized(c, "Invalid token")
 		return
 	}
 
-	userID := str(claim(claims, <%~ JSON.stringify(it.jwt.claims.userId) %>))
+	userID := str(claim(claims, p.userID))
 	if userID == "" {
 		unauthorized(c, "Token has no user id")
 		return
 	}
-	tenant := str(claim(claims, <%~ JSON.stringify(it.jwt.claims.workspaceId || '') %>))
+	tenant := str(claim(claims, p.workspace))
 	if tenant == "" {
-		tenant = str(claim(claims, <%~ JSON.stringify(it.jwt.claims.organizationId || '') %>))
+		tenant = str(claim(claims, p.organization))
 	}
 	setAuth(c, &AuthContext{
 		UserID:         userID,
-		Email:          str(claim(claims, <%~ JSON.stringify(it.jwt.claims.email || '') %>)),
+		Email:          str(claim(claims, p.email)),
 		WorkspaceID:    tenant,
 		OrganizationID: tenant,
-		Roles:          roles(claim(claims, <%~ JSON.stringify(it.jwt.claims.roles || '') %>)),
+		Roles:          roles(claim(claims, p.roles)),
+		Issuer:         p.issuer,
+		Provider:       p.name,
 		Claims:         claims,
 	})
 	c.Next()
 }
-<% if (it.jwt.provider === 'cognito') { %>
+<% if (it.jwt.some((p) => p.provider === 'cognito')) { %>
 
 func containsAudience(aud interface{}, want string) bool {
 	switch t := aud.(type) {

@@ -12,6 +12,7 @@ import {
   GeneratorConfig,
   TargetLanguage,
   assertSignInProvider,
+  authProviders,
   resolveJwtAuth,
 } from "../../../src/lib/types";
 import { addMissingPythonDep } from "../../../src/lib/utils/crud-deps";
@@ -215,7 +216,7 @@ describe("the API key check built into every service", () => {
 
   test('the removed "api-key" provider fails with what replaced it', () => {
     expect(() => assertSignInProvider({ provider: "api-key" })).toThrow(/was removed.*APSO_API_KEY.*x-api-key/);
-    expect(() => assertSignInProvider(jwt("jwt"))).not.toThrow();
+    expect(() => authProviders(jwt("jwt"))).not.toThrow();
     expect(() => assertSignInProvider()).not.toThrow();
   });
 
@@ -320,5 +321,37 @@ describe("guard regeneration (cli#129)", () => {
       expect(first).not.toContain("Generated at");
       expect(await guardFile("typescript", auth)).toBe(first);
     }
+  });
+});
+
+describe("a list of providers", () => {
+  const a: AuthConfig = { provider: "jwt", jwt: { issuer: "https://staff.example.com" }, claims: { workspaceId: "org" } };
+  const b: AuthConfig = { provider: "auth0", jwt: { issuer: "https://customers.example.com/", audience: "api" }, claims: { workspaceId: "tenant.id" } };
+
+  test("a single object and a one-item list are the same thing", () => {
+    expect(authProviders(a)).toEqual([a]);
+    expect(authProviders([a])).toEqual([a]);
+    expect(authProviders()).toEqual([]);
+  });
+
+  test("lists that cannot be generated fail with the reason", () => {
+    expect(() => authProviders([])).toThrow(/empty list/);
+    expect(() => authProviders([a, a])).toThrow(/issuer "https:\/\/staff.example.com" twice/);
+    expect(() => authProviders([a, { provider: "better-auth" }])).toThrow(/"better-auth" has to be the only provider/);
+    expect(() => authProviders([a, { provider: "api-key" } as any])).toThrow(/was removed/);
+    expect(() => authProviders([a, { ...b, jwt: { issuer: "" } }])).toThrow(/issuer is required/);
+  });
+
+  test("every language checks each issuer with its own settings", async () => {
+    for (const language of ["typescript", "python", "go"] as TargetLanguage[]) {
+      const files = await generators[language].generateGuards(entities, [a, b]);
+      const guard = files.find((f) => /auth\.(guard\.ts|py|go)$/.test(f.path))!.content;
+      for (const text of ["https://staff.example.com", "https://customers.example.com/", "tenant.id", "AUTH_JWT_ISSUER"])
+        expect(guard).toContain(text);
+    }
+    const files = await generators.typescript.generateGuards([{ ...entities[2], mcp: true }], [a, b]);
+    expect(files.find((f) => f.path === "guards/auth.guard.ts")!.content).toContain(
+      "authorizationServers: PROVIDERS.map((p) => p.issuer)"
+    );
   });
 });

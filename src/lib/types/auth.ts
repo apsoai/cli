@@ -159,9 +159,17 @@ export interface JwtAuthConfig extends BaseAuthConfig {
 }
 
 /**
- * Union type of all auth configurations
+ * One sign-in provider
  */
-export type AuthConfig = DbSessionAuthConfig | JwtAuthConfig;
+export type AuthProviderConfig = DbSessionAuthConfig | JwtAuthConfig;
+
+/**
+ * The .apsorc auth block: one provider, or a list of JWT providers when the
+ * service trusts more than one issuer. A token is matched to its provider by
+ * its `iss` claim and checked against that provider's keys, audience and
+ * claim mapping only.
+ */
+export type AuthConfig = AuthProviderConfig | AuthProviderConfig[];
 
 /**
  * The normalized AuthContext that all providers produce.
@@ -242,7 +250,7 @@ export const JWT_AUTH_DEFAULTS: Required<
  * @returns {boolean} True if the auth config is DB session based
  */
 export function isDbSessionAuth(
-  auth: AuthConfig
+  auth: AuthProviderConfig
 ): auth is DbSessionAuthConfig {
   return auth.provider === "better-auth" || auth.provider === "custom-db-session";
 }
@@ -252,7 +260,7 @@ export function isDbSessionAuth(
  * @param {AuthConfig} auth - The auth configuration to check
  * @returns {boolean} True if the auth config is JWT based
  */
-export function isJwtAuth(auth: AuthConfig): auth is JwtAuthConfig {
+export function isJwtAuth(auth: AuthProviderConfig): auth is JwtAuthConfig {
   return (
     auth.provider === "auth0" ||
     auth.provider === "clerk" ||
@@ -332,4 +340,47 @@ export function assertSignInProvider(auth?: { provider?: string }): void {
     throw new Error(
       'auth.provider "api-key" was removed. The API key check is now built into every generated service: remove the auth block (or set it to your user sign-in provider), set APSO_API_KEY in the service\'s environment, and send the key in the x-api-key header. The ApiKey entity is no longer read.'
     );
+}
+
+/**
+ * The auth block as a list of providers, rejecting lists that cannot be
+ * generated. Only JWT providers can be listed together: a token names its
+ * issuer, so the guard can pick one provider before checking anything. A
+ * session provider (better-auth, custom-db-session) has to be the only one.
+ */
+export function authProviders(auth?: AuthConfig): AuthProviderConfig[] {
+  if (!auth) return [];
+  const list = Array.isArray(auth) ? auth : [auth];
+  if (list.length === 0)
+    throw new Error(
+      "auth is an empty list. List at least one provider, or remove the auth block."
+    );
+  for (const provider of list) assertSignInProvider(provider);
+  if (list.length === 1) return list;
+  const session = list.find((provider) => !isJwtAuth(provider));
+  if (session)
+    throw new Error(
+      `auth lists "${session.provider}" with other providers. Only auth0, clerk, cognito and jwt can be listed together; "${session.provider}" has to be the only provider (Better Auth can be listed as "jwt" with its JWT plugin).`
+    );
+  const seen = new Set<string>();
+  for (const provider of list as JwtAuthConfig[]) {
+    const { issuer } = resolveJwtAuth(provider);
+    if (seen.has(issuer))
+      throw new Error(
+        `auth lists the issuer "${issuer}" twice. Each provider needs its own issuer: the token's iss claim is what picks the provider.`
+      );
+    seen.add(issuer);
+  }
+  return list;
+}
+
+/**
+ * The JWT providers of the auth block with defaults filled in. Empty for no
+ * auth block and for a session provider.
+ */
+export function resolveJwtProviders(auth?: AuthConfig): ResolvedJwtAuth[] {
+  const resolved: ResolvedJwtAuth[] = [];
+  for (const provider of authProviders(auth))
+    if (isJwtAuth(provider)) resolved.push(resolveJwtAuth(provider));
+  return resolved;
 }
