@@ -192,7 +192,7 @@
     {
       "id": "R27",
       "group": "Build time",
-      "rule": "A schema that cannot be enforced fails at generate: MCP or permissions without sign-in, an unprotected grants entity, a tenant scope with no tenant claim.",
+      "rule": "A schema that cannot be enforced fails at generate: MCP or permissions without sign-in, an unprotected grants entity. A tenant scope whose provider maps no tenant claim does not fail: generate warns, and at run time a token with no tenant gets the \"no tenant\" 403 on tenant-scoped entities, in every language.",
       "status": { "typescript": "enforced", "python": "enforced", "go": "enforced" }
     },
     {

@@ -489,7 +489,7 @@ async function crudAndScope(base, t, auth, auth2, noTenant, support) {
     t.expect("[R8] owner updates the project", moved, 200);
     const after = await call("GET", `${base}${PROJECTS}/${pid}`, { headers: as1 });
     t.assert("[R8] update cannot move the project to another tenant", after.status === 200 && String(after.json?.organizationId) === String(id1) && after.json?.title === "Roadmap 2", `${after.status} ${after.text.slice(0, 200)}`);
-    if (noTenant) t.expect("[R9] caller with no tenant cannot list scoped rows", await call("GET", base + PROJECTS, { headers: noTenant }), 403);
+    if (noTenant) t.expect("[R9,R27] caller with no tenant cannot list scoped rows", await call("GET", base + PROJECTS, { headers: noTenant }), 403);
     // scopeBy "orgId" takes the caller's tenant too.
     const NOTES = route("Notes");
     const note = await call("POST", base + NOTES, { headers: as1, body: { body: "hi", orgId: id2 } });
@@ -665,7 +665,15 @@ function buildTimeCases(project) {
     const said = `${v.stdout}${v.stderr}`.replace(/[\s›]+/g, " ");
     t.assert(`${label}, and apso schema validate agrees`, v.status !== 0 && pattern.test(said), `exit ${v.status}: ${said.slice(-400)}`);
   };
-  refuses("[R27] generate refuses a tenant scope when the provider has no tenant claim", { auth: { provider: "auth0", jwt: { issuer: "https://issuer.apso.test/", audience: "api" } }, entities: [org, doc({ scopeBy: "organizationId" })], relationships: [{ from: "Organization", to: "Doc", type: "OneToMany" }] }, /tenant claim/);
+  {
+    // A tenant scope with no tenant claim is a warning: generate and validate succeed and say which provider.
+    fs.writeFileSync(rcPath, JSON.stringify({ ...rc, version: 2, language, auth: { provider: "auth0", jwt: { issuer: "https://issuer.apso.test/", audience: "api" } }, entities: [org, doc({ scopeBy: "organizationId" })], relationships: [{ from: "Organization", to: "Doc", type: "OneToMany" }] }, null, 2));
+    for (const [what, args] of [["generate", ["generate", "--language", language]], ["schema validate", ["schema", "validate", "--local"]]]) {
+      const r = spawnSync(CLI, args, { cwd: project, encoding: "utf8" });
+      const out = `${r.stdout}${r.stderr}`.replace(/[\s›]+/g, " ");
+      t.assert(`[R27] apso ${what} succeeds and warns when a provider has no tenant claim for a tenant scope`, r.status === 0 && /auth provider "auth0" \(https:\/\/issuer\.apso\.test\/\) has no tenant claim, but Doc is tenant-scoped/.test(out), `exit ${r.status}: ${out.slice(-400)}`);
+    }
+  }
   // Permissions and MCP tools are generated in every language, so their schema checks run in each.
   refuses("[R27] generate refuses permissions without sign-in", { entities: [doc({ permissions: { read: ["owner"] } })] }, /permissions.*auth block/);
   refuses("[R27] generate refuses a grants entity anyone can write", { auth: jwtAuth, entities: [doc({ permissions: { read: ["owner"] } }), { name: "RolePermission", fields: [{ name: "role", type: "text" }, { name: "permission", type: "text" }] }] }, /grant themselves any permission/);

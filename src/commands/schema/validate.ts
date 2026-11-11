@@ -1,5 +1,6 @@
 import { Flags } from "@oclif/core";
 import BaseCommand from "../../lib/base-command";
+import { tenantClaimWarnings } from "../../lib/guards";
 import { credentials, projectLink } from "../../lib/config";
 import { schemaApi } from "../../lib/api/services";
 import { formatLintReport, lintSchema } from "@apso/schema-tools";
@@ -14,7 +15,7 @@ import { apsorcToServiceSchema } from "../../lib/utils/schema-convert";
 
 /**
  * What `apso generate` would stop on: its configuration checks and the auth,
- * permissions, tenant scope and mcp rules. It runs the generator's own checks
+ * permissions and mcp rules. It runs the generator's own checks
  * and writes nothing, so the two cannot disagree.
  *
  * @param {ParsedApsorc} parsed - The parsed .apsorc.
@@ -111,6 +112,9 @@ export default class SchemaValidate extends BaseCommand {
       const msg = error instanceof Error ? error.message : String(error);
       this.error(`Failed to parse .apsorc: ${msg}`);
     }
+
+    for (const warning of tenantClaimWarnings(parsed.entities, parsed.auth))
+      this.warn(warning);
 
     // Convert to platform schema format
     const schema = apsorcToServiceSchema(parsed);

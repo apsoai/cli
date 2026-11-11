@@ -14,6 +14,7 @@ import { isInteractive, missingFlag } from "../lib/utils/interactive";
 import { performance } from "perf_hooks";
 import { createFile, removeStaleGeneratedFiles } from "../lib/utils/file-system";
 import { installCoAuthorHook } from "../lib/utils/git-hooks";
+import { tenantClaimWarnings } from "../lib/guards";
 import {
   JOSE_DEP,
   PYJWT_DEP,
@@ -150,6 +151,7 @@ export default class Generate extends BaseCommand {
     if (validationResult.warnings.length > 0) {
       console.log(`[apso] Warnings:\n${validationResult.warnings.join("\n")}`);
     }
+    for (const warning of tenantClaimWarnings(entities, auth)) this.warn(warning);
 
     // Generate enums
     const enumFiles = await generator.generateEnums(entities, lowerCaseApiType);

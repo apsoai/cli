@@ -25,7 +25,6 @@ import {
   mcpToolNames,
   nestedScopeEntities,
   relationScopes,
-  assertTenantClaim,
 } from "../guards";
 import {
   arrayElementType,
@@ -835,7 +834,6 @@ ${modelRefs}
       throw new Error(
         `${nested.join(", ")}: a scopeBy path through a parent (for example "project.organizationId") is enforced in TypeScript services only for now. In Go, put the tenant field on the entity and scope by it, or generate with --language typescript.`
       );
-    assertTenantClaim(entities, auth);
     // The API key check is part of every service; auth adds user sign-in.
     // One entry per trusted issuer; undefined when there is no sign-in.
     const jwt = resolveJwtProviders(auth);

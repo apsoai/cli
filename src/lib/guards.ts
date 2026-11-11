@@ -419,17 +419,6 @@ export function entityScope(
   };
 }
 
-/**
- * A tenant scope needs a claim to read the caller's tenant from. Auth0 and
- * Cognito have no standard one, so without claims.workspaceId every token
- * from that provider would have no tenant and every scoped request would be
- * a 403. Checked for each listed provider.
- */
-export function assertTenantClaim(entities: Entity[], auth?: AuthConfig): void {
-  const missing = tenantClaimWarnings(entities, auth);
-  if (missing.length > 0) throw new Error(missing.join("\n"));
-}
-
 /** One entity in the relation table every generated service checks. */
 export interface RelationScope {
   /** Set when the entity's reads are tenant-scoped: the roles that skip its scope. */

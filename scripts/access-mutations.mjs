@@ -177,7 +177,7 @@ export const MUTATIONS = [
   {
     id: "no-tenant-refused",
     removes: "the refusal of a user with no tenant",
-    rules: ["R9"],
+    rules: ["R9", "R27"],
     legs: ["jwt"],
     typescript: [
       [TS.scope, /throw new ForbiddenException\("No tenant in the auth context"\);/g, "return;"],
@@ -300,7 +300,7 @@ export const NOT_BREAKABLE = {
   R23: "A tool call is the REST route run through the app's own HTTP pipeline: inside @apso/mcp in TypeScript, and as an in-memory request to the app in Python and Go. There is no separate tool path to remove a check from.",
   R25: "What a log line holds is decided inside @apso/logging, a library. The generated guards hand it the caller and the reason, never a credential, so there is no generated redaction to remove.",
   R26: "Enforced by `apso generate`, not by generated code. The suite's cases run the CLI; test/lib covers the check itself.",
-  R27: "Enforced by `apso generate`, not by generated code. The suite's cases run the CLI; test/lib covers the check itself.",
+
 };
 
 function expand(project, pattern) {

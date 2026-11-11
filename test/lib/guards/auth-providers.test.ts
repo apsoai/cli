@@ -50,11 +50,9 @@ const generators = {
   },
 };
 
-// Clerk has a tenant claim by default (o.id); the others need one named for scopeBy.
 const jwt = (provider: "auth0" | "clerk" | "cognito" | "jwt"): AuthConfig => ({
   provider,
   jwt: { issuer: "https://issuer.example.com/", audience: "api" },
-  ...(provider === "clerk" ? {} : { claims: { workspaceId: "org_id" } }),
 });
 
 /** The file holding the API key check (TypeScript keeps it apart from user sign-in). */

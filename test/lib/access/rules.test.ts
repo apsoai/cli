@@ -5,7 +5,6 @@ import { buildModel } from "../../../src/lib/access/cases";
 import { LANGUAGES, RULES, createReport, ruleIdsOf } from "../../../src/lib/access/report";
 import { setClaim } from "../../../src/lib/access/tokens";
 import { parseApsorcV2 } from "../../../src/lib/apsorc-parser";
-import { assertTenantClaim } from "../../../src/lib/guards";
 
 const root = path.join(__dirname, "..", "..", "..");
 const read = (file: string) => fs.readFileSync(path.join(root, file), "utf8");
@@ -137,26 +136,5 @@ describe("the schema as the cases see it", () => {
     const go = buildModel(entities, relationshipMap, "go", {});
     expect(go.entities.find((e) => e.name === "Task")!.scope).toBeUndefined();
     expect(go.entities.find((e) => e.name === "Project")!.route).toBe("/api/projects");
-  });
-});
-
-describe("generate refuses a schema it cannot enforce", () => {
-  const scoped = [{ name: "Doc", scopeBy: "organizationId", fields: [] }] as any;
-  const auth0 = { provider: "auth0", jwt: { issuer: "https://issuer.example.com/" } } as const;
-
-  it("a tenant scope needs a tenant claim", () => {
-    expect(() => assertTenantClaim(scoped, auth0)).toThrow(/"auth0".*has no tenant claim, but Doc is tenant-scoped/);
-    // Every listed provider is checked, not only the first.
-    expect(() =>
-      assertTenantClaim(scoped, [
-        { provider: "jwt", jwt: { issuer: "https://staff.example.com" }, claims: { workspaceId: "org" } },
-        auth0,
-      ])
-    ).toThrow(/"auth0".*has no tenant claim/);
-    expect(() => assertTenantClaim(scoped, { ...auth0, claims: { workspaceId: "org_id" } })).not.toThrow();
-    // Clerk has one by default; a scope by the caller's own id needs none.
-    expect(() => assertTenantClaim(scoped, { ...auth0, provider: "clerk" })).not.toThrow();
-    expect(() => assertTenantClaim([{ name: "Doc", scopeBy: "userId", fields: [] }] as any, auth0)).not.toThrow();
-    expect(() => assertTenantClaim(scoped)).not.toThrow();
   });
 });

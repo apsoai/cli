@@ -25,6 +25,10 @@ The suite talks to a running service over HTTP only, so the same cases prove Typ
 
 Every case label starts with the rule it proves, for example `[R7] Project: or names the other tenant`. A run ends with a table of results per rule. A run fails when a case names no rule, names a rule that is not on the list, or when a rule marked `enforced` or `refused` ran no case. `npm test` checks the same from the source, without starting a service.
 
+## A tenant scope with no tenant claim
+
+`apso generate` and `apso schema validate` print a warning, and still succeed, for each sign-in provider that maps no tenant claim while an entity is tenant-scoped. What is guaranteed is at run time (R9, R27): a token with no tenant gets the "no tenant" 403 on tenant-scoped entities, in every language.
+
 ## Relations
 
 The tenant filter limits the entity a request starts from. Which relations a request may load on top of that is one rule, built from one table (`relationScopes` in `src/lib/guards.ts`) and checked in one place per language:

@@ -63,13 +63,11 @@ describe("apso schema validate: the rules apso generate enforces", () => {
         ]);
       }
     });
-    test("a tenant scope with no tenant claim fails in every language", async () => {
+    test("a tenant scope with no tenant claim is a warning, not an error", async () => {
       const entities = [{ name: "Organization", fields: [{ name: "name", type: "text" }] }];
       for (const language of ["typescript", "python", "go"] as TargetLanguage[])
         // eslint-disable-next-line no-await-in-loop -- each language is checked in turn
-        expect(await check({ auth: JWT, invoice: { scopeBy: "organizationId", fields: [{ name: "organizationId", type: "integer" }] }, entities }, language)).toEqual([
-          expect.stringContaining("has no tenant claim, but Invoice is tenant-scoped"),
-        ]);
+        expect(await check({ auth: JWT, invoice: { scopeBy: "organizationId", fields: [{ name: "organizationId", type: "integer" }] }, entities }, language)).toEqual([]);
     });
     test("mcp on an auth entity fails in every language", async () => {
       const auth = { provider: "better-auth", url: "https://app.example.com/api/auth" };
