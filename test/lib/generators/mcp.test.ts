@@ -48,6 +48,18 @@ describe("mcp in .apsorc", () => {
     expect(readOnly).not.toContain("delete_line_item");
   });
 
+  test("the controller accepts PostgREST only, and the list tool's text comes from the library", async () => {
+    const all = await controller(invoice(true), jwt);
+    expect(all).toContain("dialects: ['postgrest'],");
+    // No description of its own: @apso/mcp writes it from the route's
+    // documented PostgREST parameters.
+    expect(all).toContain("@McpTool({ name: 'list_line_items' })");
+    expect(all).not.toContain("Supports filter, sort, join");
+    // The entity is the model, so each column is a documented filter and a tool argument.
+    expect(all).toMatch(/import { (\w+) } from '\.\/\1\.entity';/);
+    expect(all).not.toContain("alwaysPaginate");
+  });
+
   test("rejects an unknown operation and needs auth", async () => {
     expect(() => mcpOperations(invoice(["write"]))).toThrow("LineItem.mcp must be true or a list of");
     expect(() => mcpOperations(invoice("yes"))).toThrow("LineItem.mcp must be true or a list of");

@@ -39,6 +39,8 @@ The tenant filter limits the entity a request starts from. Which relations a req
 | Python | `relation_refused` in `auth.py`, called by the query builder for every relation a request names. Every relation is `lazy="raise"` in the model, so one loads only when a request names it, and a response carries only the relations its query loaded. |
 | Go | `RelationLoads` in `middleware/auth.go`, called where the query preloads relations |
 
+A TypeScript service accepts the PostgREST query syntax only, so a relation is loaded there by a `select` embed and by nothing else. Python and Go services accept `join` as well.
+
 A user caller may load a relation onto a tenant-scoped entity when it holds a role that skips that entity's scope, or when it is limited to its tenant on the entity the relation starts from and the target is scoped by the same keys (`Project.tasks`). Any other load answers 403, for `join`, a `select` embed and every nesting depth. A filter or sort on a related entity's field needs the relation loaded, so it meets the same check. A service caller is not limited. In TypeScript the same place checks `permissions.read` of the related entity (R11).
 
 A same-key relation does not rely on the stored foreign key. The rows it loads are limited to the caller's tenant by the target's own `scopeBy` fields: as a condition on the join in TypeScript (so a filter or sort on the related entity's fields meets it too), on the relation's own query in Python (`relation_conditions`) and on the preload in Go. A row whose foreign key names another tenant's row, for example one a service caller wrote, loads that relation as empty. The exception is a target scoped through a parent (`project.organizationId`, TypeScript only), which has no tenant column of its own: it counts as same-key only when loaded from that parent through the one relation between the two, and is refused with 403 from anywhere else.
@@ -55,6 +57,14 @@ A foreign key in a write body must name a row the caller could read. This holds 
 | Python | `check_references` in `auth.py`, called by each service's create, bulk create, update and replace |
 | Go | `CheckReferences` in `middleware/auth.go`, called by each service's create and update |
 
+## Query syntax
+
+A TypeScript service accepts the PostgREST query syntax only. Each nestjsx parameter (`fields`, `filter`, `or`, `join`, `sort`, `s`, `per_page`, `page`, `cache`) and the `X-Crud-Dialect: nestjsx` header get a 400. Python and Go services accept both syntaxes for now.
+
+The suite follows that. Every way a query could reach another tenant's rows is written in PostgREST form, and where it has one in nestjsx form too. The nestjsx forms carry `nestjsx: true` in `cases.ts`. Python and Go run both forms. TypeScript runs the PostgREST forms, and one case per nestjsx parameter that asserts the 400. On TypeScript the suite also checks the count: the total in `Content-Range` under a tenant-scoped caller covers that caller's rows only, for a plain list, a count-only request and a filter that names another tenant.
+
+A new case that sends a query needs a PostgREST form. Add a nestjsx form beside it, marked with `nx(...)`, only while Python and Go still accept that syntax.
+
 ## Running it
 
 ```bash
@@ -65,6 +75,8 @@ node scripts/auth-smoke.mjs typescript
 PYTHON=python3.12 node scripts/auth-smoke.mjs python
 node scripts/auth-smoke.mjs go
 ```
+
+To test library builds that are not on npm yet, point `APSO_CRUD_TARBALL`, `APSO_CRUD_CORE_TARBALL`, `APSO_CRUD_REQUEST_TARBALL`, `APSO_CRUD_TYPEORM_TARBALL`, `APSO_POSTGREST_REQUEST_TARBALL`, `APSO_MCP_TARBALL` and `APSO_LOGGING_TARBALL` at `npm pack` output. Each one set replaces that package in the generated TypeScript service.
 
 Add leg names to run part of it: `node scripts/auth-smoke.mjs go generate jwt`.
 

@@ -615,7 +615,8 @@ async function checkEndpoints(
   for (const { name } of entities) {
     done({
       name: `GET ${route(name)}`,
-      ...expectStatus(await get(base + route(name)), 200),
+      // 206: a TypeScript service answers a full default page that way.
+      ...expectStatus(await get(base + route(name)), 200, 206),
     });
   }
 

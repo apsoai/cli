@@ -345,12 +345,14 @@ export default class Generate extends BaseCommand {
 
     // Generated TS code imports @apso/crud*. Projects from the v1 template
     // (@nestjsx/crud) don't declare those, and every entity then fails to
-    // compile with TS2307. Declare them so the next install picks them up.
+    // compile with TS2307. Older v2 projects declare a release without the
+    // PostgREST-only option the controllers set. Declare the packages, or
+    // raise their range, so the next install picks them up.
     if (language === "typescript" && generatedFileCount > 0) {
       const added = ensureCrudDeps(process.cwd());
       if (added.length > 0) {
         console.log(
-          `[apso] Added ${added.join(", ")} to package.json (the generated code imports them). Run npm install before building.`
+          `[apso] Set ${added.join(", ")} in package.json to the version the generated code needs. Run npm install before building.`
         );
       }
       // The pre-deploy checks run on PGlite; give a stock v1 config support.

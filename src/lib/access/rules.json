@@ -54,7 +54,7 @@
     {
       "id": "R7",
       "group": "Tenant scope",
-      "rule": "Nothing in the query can widen that: not `filter`, `or`, `s` or `join`.",
+      "rule": "Nothing in the query can widen that: not a filter, an `or` group, an embed, a sort or a count, in either query syntax. A TypeScript service accepts the PostgREST syntax only and answers 400 to a nestjsx parameter.",
       "status": { "typescript": "enforced", "python": "enforced", "go": "enforced" },
       "note": "A relation between two entities scoped by the same keys loads only rows of the caller's tenant, whatever the stored foreign key names."
     },

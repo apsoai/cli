@@ -538,7 +538,11 @@ export default class McpServe extends BaseCommand {
             content: [
               {
                 type: "text" as const,
-                text: `Generated ${lang} REST API for ${entities.length} entities (${filesGenerated.length} files) in ${elapsed}ms.\n\nOutput: ${autogenPath}\n\nEntities: ${entities.map((e) => e.name).join(", ")}${warnings}\n\nNext steps:\n1. Run \`npm install\` to install dependencies\n2. Run \`apso dev\` to start the local development server\n3. Open http://localhost:3001/api/docs for OpenAPI documentation`,
+                text: `Generated ${lang} REST API for ${entities.length} entities (${filesGenerated.length} files) in ${elapsed}ms.\n\nOutput: ${autogenPath}\n\nEntities: ${entities.map((e) => e.name).join(", ")}${warnings}\n\nNext steps:\n1. Run \`npm install\` to install dependencies\n2. Run \`apso dev\` to start the local development server\n3. Open http://localhost:3001/api/docs for OpenAPI documentation${
+                  lang === "typescript"
+                    ? "\n\nList routes take the PostgREST query syntax only: one filter per column as op.value, plus select, order, limit and offset. Example: GET /Projects?status=eq.open&select=id,title,organization(name)&order=id.desc&limit=20. A list is a JSON array; the Content-Range response header has the row range and, with the request header Prefer: count=exact, the total. The older nestjsx parameters (filter, join, sort, s, fields, page) get a 400."
+                    : ""
+                }`,
               },
             ],
           };

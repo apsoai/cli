@@ -4,18 +4,26 @@ import * as path from "path";
 
 /**
  * Runtime packages the generated TypeScript code imports (entities, services,
- * controllers, guards). Versions match the pinned service-template-ts tag
- * (see TEMPLATE_REFS in ./template.ts); bump both together.
+ * controllers, guards). These are the first releases with the `dialects`
+ * option, Content-Range counts and PostgREST OpenAPI parameters, which the
+ * generated controllers rely on. The service template declares the same
+ * ranges (see TEMPLATE_REFS in ./template.ts); bump both together.
+ *
+ * @apso/postgrest-request is not imported by generated code. It is listed so
+ * a project whose lockfile holds an older copy moves to the one @apso/crud
+ * needs.
  */
 export const APSO_CRUD_DEPS: Record<string, string> = {
-  "@apso/crud": "^1.0.1",
-  "@apso/crud-core": "^1.0.1",
+  "@apso/crud": "^1.1.0",
+  "@apso/crud-core": "^1.1.0",
   "@apso/crud-request": "^1.0.1",
-  "@apso/crud-typeorm": "^1.0.1",
+  "@apso/crud-typeorm": "^1.1.0",
+  "@apso/postgrest-request": "^1.1.0",
 };
 
 /**
- * Add any missing @apso/crud runtime packages to the project's package.json.
+ * Declare the @apso/crud runtime packages in the project's package.json, and
+ * raise a range that starts below the version the generated code needs.
  *
  * Projects created from the v1 template (@nestjsx/crud) don't declare them, so
  * freshly generated code fails `nest build` with TS2307 "Cannot find module
@@ -23,10 +31,22 @@ export const APSO_CRUD_DEPS: Record<string, string> = {
  * hand-written code may still import them.
  *
  * @param {string} projectDir - Directory holding the project's package.json.
- * @returns {string[]} Names added (empty when nothing changed or no package.json).
+ * @returns {string[]} Names added or raised (empty when nothing changed or no package.json).
  */
 export function ensureCrudDeps(projectDir: string): string[] {
-  return addMissingDeps(projectDir, APSO_CRUD_DEPS);
+  return addMissingDeps(projectDir, APSO_CRUD_DEPS, true);
+}
+
+/** The first x.y.z in a version range, as numbers; undefined for a range with none (file:, a tag). */
+const firstVersion = (range: string): number[] | undefined =>
+  /^[^\d:]*(\d+)\.(\d+)\.(\d+)/.exec(range)?.slice(1).map(Number);
+
+/** True when `declared` starts at a lower version than `wanted`. */
+function startsBelow(declared: string, wanted: string): boolean {
+  const [a, b] = [firstVersion(declared), firstVersion(wanted)];
+  if (!a || !b) return false;
+  for (let i = 0; i < 3; i += 1) if (a[i] !== b[i]) return a[i] < b[i];
+  return false;
 }
 
 /**
@@ -34,11 +54,13 @@ export function ensureCrudDeps(projectDir: string): string[] {
  *
  * @param {string} projectDir - Directory holding the project's package.json.
  * @param {Record<string, string>} deps - Package names and version ranges.
- * @returns {string[]} Names added (empty when nothing changed or no package.json).
+ * @param {boolean} [raise] - Also replace a declared range that starts below the given one.
+ * @returns {string[]} Names added or raised (empty when nothing changed or no package.json).
  */
 export function addMissingDeps(
   projectDir: string,
-  deps: Record<string, string>
+  deps: Record<string, string>,
+  raise = false
 ): string[] {
   const pkgPath = path.join(projectDir, "package.json");
   if (!fs.existsSync(pkgPath)) return [];
@@ -46,11 +68,17 @@ export function addMissingDeps(
   const raw = fs.readFileSync(pkgPath, "utf8");
   const pkg = JSON.parse(raw);
   const declared = { ...pkg.devDependencies, ...pkg.dependencies };
-  const missing = Object.keys(deps).filter((name) => !declared[name]);
+  const missing = Object.keys(deps).filter(
+    (name) => !declared[name] || (raise && startsBelow(declared[name], deps[name]))
+  );
   if (missing.length === 0) return [];
 
   pkg.dependencies = pkg.dependencies ?? {};
-  for (const name of missing) pkg.dependencies[name] = deps[name];
+  for (const name of missing) {
+    // A range raised here replaces the one declared, wherever it was declared.
+    if (pkg.devDependencies?.[name]) delete pkg.devDependencies[name];
+    pkg.dependencies[name] = deps[name];
+  }
   pkg.dependencies = Object.fromEntries(
     Object.entries(pkg.dependencies).sort(([a], [b]) => a.localeCompare(b))
   );
@@ -76,7 +104,7 @@ const SWAGGER_SETUP = "SwaggerModule.setup('_docs', app, document);";
  */
 export function ensureMcpWiring(projectDir: string, rootFolder: string): string[] {
   const changed =
-    addMissingDeps(projectDir, MCP_DEP).length > 0 ? ["package.json"] : [];
+    addMissingDeps(projectDir, MCP_DEP, true).length > 0 ? ["package.json"] : [];
   const relative = path.join(rootFolder, "config", "nest-app.config.ts");
   const file = path.join(projectDir, relative);
   const text = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";

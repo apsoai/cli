@@ -22,7 +22,7 @@
  *   - scopeBy keeps each tenant to its own rows, overrides a tenant id sent in
  *     a create body, and refuses a caller with no tenant
  *   - permissions refuse a role outside the list, directly and
- *     through ?join, and allow a role in it; a RolePermission row added by an
+ *     through a loaded relation, and allow a role in it; a RolePermission row added by an
  *     owner grants a permission in that tenant only; a member cannot grant
  *     itself; a permission in the token is honored; a hand-written route that
  *     names its own permission (invoice:approve) is held to it the same ways
@@ -34,6 +34,10 @@
  *   - no query parameter or body field reaches another tenant's rows (the
  *     schema-driven cases in src/lib/access/cases.ts, shared with
  *     `apso test access`)
+ *   - a TypeScript service accepts the PostgREST query syntax only: each
+ *     nestjsx parameter is a 400, a list is a JSON array with a Content-Range
+ *     header whose count covers the caller's rows only, and the MCP list tool
+ *     takes the same arguments. Python and Go run both syntaxes.
  *   - `apso generate` refuses a schema it cannot enforce
  *   - apso generate writes the access marker (.apso/manifest.json) and git
  *     does not ignore it
@@ -55,8 +59,10 @@
  * platform gateway signs them (ES256), with a key served as a second JWKS.
  *
  * Usage: node scripts/auth-smoke.mjs <typescript|python|go> [provider...]
- * APSO_MCP_TARBALL and APSO_LOGGING_TARBALL test unreleased builds of those
- * libraries (npm pack output).
+ * APSO_CRUD_TARBALL, APSO_CRUD_CORE_TARBALL, APSO_CRUD_REQUEST_TARBALL,
+ * APSO_CRUD_TYPEORM_TARBALL, APSO_POSTGREST_REQUEST_TARBALL, APSO_MCP_TARBALL
+ * and APSO_LOGGING_TARBALL test unreleased builds of those libraries (npm
+ * pack output) in the TypeScript service.
  * Needs: `npm run build` first; psql; AUTH_SMOKE_DATABASE_URL pointing at a
  * Postgres server whose user can create databases, e.g.
  * postgres://postgres:postgres@127.0.0.1:5432. Go needs go; Python needs
@@ -91,6 +97,16 @@ if (!PG) {
   console.error("Set AUTH_SMOKE_DATABASE_URL, e.g. postgres://postgres:postgres@127.0.0.1:5432");
   process.exit(2);
 }
+// Unreleased library builds to install into the generated TypeScript service.
+const TARBALLS = {
+  "@apso/crud": "APSO_CRUD_TARBALL",
+  "@apso/crud-core": "APSO_CRUD_CORE_TARBALL",
+  "@apso/crud-request": "APSO_CRUD_REQUEST_TARBALL",
+  "@apso/crud-typeorm": "APSO_CRUD_TYPEORM_TARBALL",
+  "@apso/postgrest-request": "APSO_POSTGREST_REQUEST_TARBALL",
+  "@apso/mcp": "APSO_MCP_TARBALL",
+  "@apso/logging": "APSO_LOGGING_TARBALL",
+};
 const CLI = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "bin", "run");
 const PYTHON = process.env.PYTHON || "python3";
 
@@ -320,6 +336,11 @@ const route = (plural) =>
 const ORGS = route("Organizations");
 const PROJECTS = route("Projects");
 const rows = (json) => (Array.isArray(json) ? json : json?.data ?? json?.items ?? []);
+// How a request loads a relation. A TypeScript service accepts the PostgREST
+// query syntax only, so it is a select embed there; Python and Go take both.
+const NESTJSX = language !== "typescript";
+const VIA = NESTJSX ? "a join" : "a select embed";
+const load = (relation) => (NESTJSX ? `join=${relation}` : `select=*,${relation}(*)`);
 
 function scaffold(dir) {
   sh(CLI, ["init", "--name", "authapp", "--language", language, "--skip-platform"], { cwd: dir });
@@ -373,19 +394,27 @@ function generate(project, auth, schema = { entities: entities(auth), relationsh
   if (language === "typescript") {
     const guarded = schema.entities.some((e) => e.name === "Invoice" && e.permissions && e.mcp);
     fs.writeFileSync(path.join(project, "src", "controllers", "invoice-actions.controller.ts"), guarded ? INVOICE_ACTIONS : NO_INVOICE_ACTIONS);
-    // APSO_MCP_TARBALL tests an unreleased build of @apso/mcp (npm pack output).
-    if (process.env.APSO_MCP_TARBALL) {
-      const pkgPath = path.join(project, "package.json");
-      const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
-      pkg.dependencies["@apso/mcp"] = `file:${path.resolve(process.env.APSO_MCP_TARBALL)}`;
+    // APSO_*_TARBALL test unreleased builds of the libraries (npm pack output).
+    // Each is also an override, so a copy another package depends on is the same build.
+    const tarballs = Object.entries(TARBALLS).filter(([, env]) => process.env[env]);
+    const pkgPath = path.join(project, "package.json");
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
+    if (tarballs.some(([name, env]) => pkg.dependencies[name] !== `file:${path.resolve(process.env[env])}`)) {
+      pkg.overrides = { ...pkg.overrides };
+      for (const [name, env] of tarballs) {
+        const spec = `file:${path.resolve(process.env[env])}`;
+        pkg.dependencies[name] = spec;
+        pkg.overrides[name] = spec;
+      }
       fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
-    }
-    // APSO_LOGGING_TARBALL does the same for @apso/logging.
-    if (process.env.APSO_LOGGING_TARBALL) {
-      const pkgPath = path.join(project, "package.json");
-      const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
-      pkg.dependencies["@apso/logging"] = `file:${path.resolve(process.env.APSO_LOGGING_TARBALL)}`;
-      fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
+      // The template's lockfile pins the published builds of these packages.
+      const lockPath = path.join(project, "package-lock.json");
+      if (fs.existsSync(lockPath)) {
+        const lock = JSON.parse(fs.readFileSync(lockPath, "utf8"));
+        for (const key of Object.keys(lock.packages ?? {})) if (key.includes("node_modules/@apso/")) delete lock.packages[key];
+        fs.writeFileSync(lockPath, JSON.stringify(lock, null, 2));
+      }
+      fs.rmSync(path.join(project, "node_modules", "@apso"), { recursive: true, force: true });
     }
     sh("npm", ["install", "--no-audit", "--no-fund"], { cwd: project });
     sh("npm", ["run", "build"], { cwd: project });
@@ -582,12 +611,12 @@ async function jwtCase(name, p, boot) {
     requestLine(t, "no token is refused by the auth guard", await logged(s, "GET", ORGS), 401, ANONYMOUS, "no bearer token provided");
     requestLine(t, "a caller with no tenant is refused by the scope guard", await logged(s, "GET", PROJECTS, { headers: bearer(sign(p.claims(undefined))) }), 403, { type: "user", userId: p.claims("1").sub }, "no tenant");
     requestLine(t, "a row outside the tenant is refused by the scope guard", await logged(s, "GET", `${PROJECTS}/999999`, { headers: valid("1") }), 403, user, "outside the tenant scope");
-    requestLine(t, "a relation outside the tenant is refused by the relation check", await logged(s, "GET", `${ORGS}?join=projects`, { headers: valid("1") }), 403, user, "relation outside the tenant scope");
+    requestLine(t, "a relation outside the tenant is refused by the relation check", await logged(s, "GET", `${ORGS}?${load("projects")}`, { headers: valid("1") }), 403, user, "relation outside the tenant scope");
   }
   if (name === "jwt" && language === "typescript") {
     const member = bearer(sign({ ...p.claims("1"), app_metadata: { org_id: "1", roles: ["member"] } }));
     requestLine(t, "a role outside the list is refused by the permission guard", await logged(s, "GET", route("Invoices"), { headers: member }), 403, { type: "user", userId: p.claims("1").sub, tenantId: "1" }, "missing permission invoice:read");
-    requestLine(t, "a role outside the list is refused through a join by the relation check", await logged(s, "GET", `${ORGS}?join=invoices`, { headers: member }), 403, { type: "user", userId: p.claims("1").sub, tenantId: "1" }, "missing permission invoice:read");
+    requestLine(t, "a role outside the list is refused through a select embed by the relation check", await logged(s, "GET", `${ORGS}?${load("invoices")}`, { headers: member }), 403, { type: "user", userId: p.claims("1").sub, tenantId: "1" }, "missing permission invoice:read");
     requestLine(t, "a role outside a hand-written route's own permission is refused by the permission guard", await logged(s, "POST", `${route("Invoices")}/1/approve`, { headers: member }), 403, { type: "user", userId: p.claims("1").sub, tenantId: "1" }, "missing permission invoice:approve");
   }
   if (name === "jwt") {
@@ -768,6 +797,7 @@ async function mcpTools(base, t, owner, member, otherOwner, ownerForMcp) {
   t.assert("[R23] mcp list hides it from another tenant", theirs !== undefined && !theirs.some((row) => row.id === project.json.id));
   const crossGet = await asOther.callTool({ name: "get_project", arguments: { id: project.json.id } });
   t.assert("[R23] mcp get by id is refused across tenants", crossGet.isError === true, text(crossGet));
+  if (!NESTJSX) await postgrestTools(base, t, { owner, otherOwner, asOwner, asOther, listed, project: project.json, rowsOf, text });
   if (language === "typescript") {
     // The hand-written route is checked by the permission it names.
     const memberApprove = await asMember.callTool({ name: "approve_invoice", arguments: { id: invoice.id } });
@@ -779,6 +809,71 @@ async function mcpTools(base, t, owner, member, otherOwner, ownerForMcp) {
   t.assert("[R23] mcp delete by a member lacks invoice:delete", memberDelete.isError === true && text(memberDelete).includes("invoice:delete"), text(memberDelete));
   const removed = await asOwner.callTool({ name: "delete_invoice", arguments: { id: invoice.id } });
   t.assert("[R23] mcp delete by the owner works", !removed.isError, text(removed));
+}
+
+/**
+ * A PostgREST-only service (TypeScript): the list tool takes the same
+ * arguments as the REST route's query, and a tool call or a count tells a
+ * caller about its own tenant's rows only.
+ */
+async function postgrestTools(base, t, { owner, otherOwner, asOwner, asOther, listed, project, rowsOf, text }) {
+  const schema = listed.find((tool) => tool.name === "list_projects")?.inputSchema?.properties ?? {};
+  t.assert(
+    "[R21] mcp list tool's schema has select, order, limit, offset, or, and, a filter per column and embedded, and no nestjsx parameter",
+    ["select", "order", "limit", "offset", "or", "and", "id", "title", "organizationId", "embedded"].every((k) => k in schema) && !["filter", "join", "sort", "s", "fields", "page", "per_page", "cache"].some((k) => k in schema),
+    Object.keys(schema).join(",")
+  );
+  const description = listed.find((tool) => tool.name === "list_projects")?.description ?? "";
+  t.assert("[R21] mcp list tool's description is in PostgREST terms", /op\.value/.test(description) && !/filter, sort, join/.test(description), description);
+
+  // 26 more projects and a task for tenant 1, so it has more than the default page of 25. One project for tenant 2.
+  const ids = [project.id];
+  for (let i = 0; i < 26; i += 1) ids.push((await call("POST", base + PROJECTS, { headers: owner, body: { title: `mcp page ${i}` } })).json?.id);
+  const theirs = await call("POST", base + PROJECTS, { headers: otherOwner, body: { title: "mcp scoped" } });
+  const task = await call("POST", base + route("Tasks"), { headers: owner, body: { title: "mcp task", projectId: project.id } });
+  const theirTask = await call("POST", base + route("Tasks"), { headers: otherOwner, body: { title: "mcp task", projectId: theirs.json?.id } });
+  if (!t.assert("[R23] create rows over REST for the PostgREST tool checks", ids.every((id) => id !== undefined) && [theirs, task, theirTask].every((r) => [200, 201].includes(r.status)), `${theirs.status} ${task.status} ${theirTask.status} ${theirTask.text.slice(0, 200)}`)) return;
+  const idsOf = (result) => rowsOf(result)?.map((row) => row.id).sort((a, b) => a - b);
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+  // A column filter. Both tenants have a project with this title.
+  const byTitle = { title: "eq.mcp scoped", select: "id,title,organizationId" };
+  const mine = await asOwner.callTool({ name: "list_projects", arguments: byTitle });
+  t.assert("[R7,R23] mcp list with a column filter returns the caller's matching row", same(idsOf(mine), [project.id]), text(mine));
+  const other = await asOther.callTool({ name: "list_projects", arguments: byTitle });
+  t.assert("[R7,R23] mcp list with a column filter returns another tenant only its own matching row", same(idsOf(other), [theirs.json.id]), text(other));
+  const rest = await call("GET", `${base}${PROJECTS}?title=${encodeURIComponent("eq.mcp scoped")}&select=id,title,organizationId`, { headers: owner });
+  t.assert("[R23] mcp list with a column filter gets the REST answer", rest.status === 200 && text(mine) === rest.text, `${rest.status} ${rest.text.slice(0, 200)} / ${text(mine).slice(0, 200)}`);
+
+  // A filter on embedded rows. Both tenants have a task with this title.
+  const byTask = { select: "id,tasks!inner(id,title)", embedded: { "tasks.title": "eq.mcp task" } };
+  const withTask = await asOwner.callTool({ name: "list_projects", arguments: byTask });
+  t.assert("[R7,R23] mcp list with an embedded filter returns the caller's matching row", same(idsOf(withTask), [project.id]) && same(rowsOf(withTask)?.[0]?.tasks?.map((row) => row.id), [task.json.id]), text(withTask));
+  const otherWithTask = await asOther.callTool({ name: "list_projects", arguments: byTask });
+  t.assert("[R7,R23] mcp list with an embedded filter returns another tenant only its own matching row", same(idsOf(otherWithTask), [theirs.json.id]), text(otherWithTask));
+
+  // An embed the caller may not load is refused, by the tool as by the route.
+  const refusedRest = await call("GET", `${base}${ORGS}?select=*,projects(*)`, { headers: owner });
+  t.assert("[R7] a select embed of a relation outside the tenant scope is a 403 that names the relation", refusedRest.status === 403 && refusedRest.text.includes('The relation \\"projects\\" cannot be loaded'), `${refusedRest.status} ${refusedRest.text.slice(0, 200)}`);
+
+  // The default page: 25 rows, and a count of the caller's rows only.
+  // What the service caller sees of tenant 1 is the expected answer.
+  const stored = await call("GET", `${base}${PROJECTS}?organizationId=eq.1&select=id&order=id.asc&limit=100`, { headers: key(KEY) });
+  const own = rows(stored.json).map((row) => row.id);
+  const total = own.length;
+  t.assert("[R13] the service caller lists tenant 1's projects for the checks below", stored.status === 200 && ids.every((id) => own.includes(id)) && !own.includes(theirs.json.id), stored.text.slice(0, 200));
+  const page = await fetch(`${base}${PROJECTS}`, { headers: owner });
+  t.assert("[R6] a full default page is a 206 whose Content-Range total is the caller's rows only", page.status === 206 && page.headers.get("content-range") === `0-24/${total}` && (await page.json()).length === 25, `${page.status} Content-Range ${page.headers.get("content-range")}`);
+  const exact = await fetch(`${base}${PROJECTS}?limit=2&select=id`, { headers: { ...owner, prefer: "count=exact" } });
+  t.assert("[R6] Prefer: count=exact counts the caller's rows only", exact.status === 206 && exact.headers.get("content-range") === `0-1/${total}` && exact.headers.get("preference-applied") === "count=exact", `${exact.status} Content-Range ${exact.headers.get("content-range")}`);
+  const partial = await asOwner.callTool({ name: "list_projects", arguments: { select: "id" } });
+  t.assert("[R6,R23] mcp list with no limit says the result is partial and counts the caller's rows only", rowsOf(partial)?.length === 25 && partial.content?.[1]?.text === `Partial result: rows 0-24 of ${total}. Send limit and offset for the rest.`, JSON.stringify(partial.content).slice(0, 300));
+  const all = await asOwner.callTool({ name: "list_projects", arguments: { select: "id", limit: 100 } });
+  t.assert("[R6,R23] mcp list with a limit returns every row of the caller's tenant and no other", same(idsOf(all), own) && all.content?.length === 1, text(all));
+
+  // A nestjsx argument is not a tool argument: it never reaches the route.
+  const legacy = await asOwner.callTool({ name: "list_projects", arguments: { filter: [`organizationId||$eq||2`], join: ["organization"], limit: 100 } });
+  t.assert("[R7,R23] mcp list given nestjsx arguments returns the caller's rows only", same(idsOf(legacy), own), text(legacy));
 }
 
 /**
@@ -796,8 +891,8 @@ async function rolePermissions(base, t, owner, member, otherMember, memberWithDe
   const iid = created.json.id;
   t.expect("[R11] member cannot list invoices", await call("GET", base + INVOICES, { headers: member }), 403);
   t.expect("[R11] member cannot read an invoice", await call("GET", `${base}${INVOICES}/${iid}`, { headers: member }), 403);
-  t.expect("[R11] member cannot read invoices through a join", await call("GET", `${base}${ORGS}?join=invoices`, { headers: member }), 403);
-  t.expect("[R11] member lists organizations without the join", await call("GET", base + ORGS, { headers: member }), 200);
+  t.expect(`[R11] member cannot read invoices through ${VIA}`, await call("GET", `${base}${ORGS}?${load("invoices")}`, { headers: member }), 403);
+  t.expect(`[R11] member lists organizations without ${VIA}`, await call("GET", base + ORGS, { headers: member }), 200);
   if (language !== "typescript") {
     // Python and Go load relations two more ways; both meet the same rule.
     t.expect("[R11] member cannot read invoices through a PostgREST embed", await call("GET", `${base}${ORGS}?select=invoices(*)`, { headers: member }), 403);
@@ -806,7 +901,7 @@ async function rolePermissions(base, t, owner, member, otherMember, memberWithDe
   if (language === "go") t.expect("[R11] member cannot read invoices through a join spelled Invoices", await call("GET", `${base}${ORGS}?join=Invoices`, { headers: member }), 403);
   t.expect("[R11] member cannot delete an invoice", await call("DELETE", `${base}${INVOICES}/${iid}`, { headers: member }), 403);
   t.expect("[R11] owner lists invoices", await call("GET", base + INVOICES, { headers: owner }), 200);
-  t.expect("[R11] owner reads invoices through a join", await call("GET", `${base}${ORGS}?join=invoices`, { headers: owner }), 200);
+  t.expect(`[R11] owner reads invoices through ${VIA}`, await call("GET", `${base}${ORGS}?${load("invoices")}`, { headers: owner }), 200);
 
   // A hand-written route that names its own permission: POST would otherwise
   // be checked as invoice:create, which members have.
@@ -827,7 +922,7 @@ async function rolePermissions(base, t, owner, member, otherMember, memberWithDe
     // entity's rows, directly or through a relation.
     const approver = memberWith(["invoice:approve"]);
     t.expect("[R11] a caller with only invoice:approve cannot list invoices", await call("GET", base + INVOICES, { headers: approver }), 403);
-    t.expect("[R11] a caller with only invoice:approve cannot read invoices through a join", await call("GET", `${base}${ORGS}?join=invoices`, { headers: approver }), 403);
+    t.expect("[R11] a caller with only invoice:approve cannot read invoices through a select embed", await call("GET", `${base}${ORGS}?${load("invoices")}`, { headers: approver }), 403);
   }
 
   // Runtime grants.
@@ -836,7 +931,7 @@ async function rolePermissions(base, t, owner, member, otherMember, memberWithDe
   if (t.expect("[R12] owner grants members invoice:read", grant, 200, 201)) {
     t.assert("[R12] grant is stored in the owner's tenant", String(grant.json?.organizationId) === "1", `organizationId=${grant.json?.organizationId}`);
     t.expect("[R12] member lists invoices after the grant", await call("GET", base + INVOICES, { headers: member }), 200);
-    t.expect("[R12] member reads invoices through a join after the grant", await call("GET", `${base}${ORGS}?join=invoices`, { headers: member }), 200);
+    t.expect(`[R12] member reads invoices through ${VIA} after the grant`, await call("GET", `${base}${ORGS}?${load("invoices")}`, { headers: member }), 200);
     t.expect("[R12] member of another tenant still cannot list invoices", await call("GET", base + INVOICES, { headers: otherMember }), 403);
     t.expect("[R12] the grant does not include delete", await call("DELETE", `${base}${INVOICES}/${iid}`, { headers: member }), 403);
     t.expect("[R12] owner revokes the grant", await call("DELETE", `${base}${GRANTS}/${grant.json.id}`, { headers: owner }), 200, 204);
@@ -957,7 +1052,8 @@ async function serviceCaller(base, t, headers) {
     t.assert("[R13] the project keeps the tenant the key caller sent", String(p.json?.organizationId) === String(org.json.id), `organizationId=${p.json?.organizationId}`);
     made.push(p.json.id);
   }
-  const list = await call("GET", base + PROJECTS, { headers });
+  // Earlier cases may have left more rows than the default page holds.
+  const list = await call("GET", `${base}${PROJECTS}?limit=100`, { headers });
   t.assert("[R10] key caller lists every tenant's projects", list.status === 200 && made.every((id) => rows(list.json).some((p) => p.id === id)), `${list.status} ${list.text.slice(0, 200)}`);
   t.expect("[R10] key caller reads a project by id", await call("GET", `${base}${PROJECTS}/${made[1]}`, { headers }), 200);
   t.expect("[R13] key caller updates a project", await call("PATCH", `${base}${PROJECTS}/${made[1]}`, { headers, body: { title: "Renamed" } }), 200);
@@ -1059,7 +1155,7 @@ async function keyNextToSignIn(base, t, user) {
   const invoice = await call("POST", base + INVOICES, { headers: key(KEY), body: { total: 5, organizationId: 1 } });
   if (t.expect("[R13] key caller creates an invoice", invoice, 200, 201)) {
     t.expect("[R13] key caller lists invoices without a role", await call("GET", base + INVOICES, { headers: key(KEY) }), 200);
-    t.expect("[R13] key caller reads invoices through a join", await call("GET", `${base}${ORGS}?join=invoices`, { headers: key(KEY) }), 200);
+    t.expect(`[R13] key caller reads invoices through ${VIA}`, await call("GET", `${base}${ORGS}?${load("invoices")}`, { headers: key(KEY) }), 200);
     t.expect("[R13] key caller deletes an invoice without a role", await call("DELETE", `${base}${INVOICES}/${invoice.json.id}`, { headers: key(KEY) }), 200, 204);
   }
 
@@ -1190,18 +1286,23 @@ async function authEntitiesCase(name, _p, boot, project) {
   // (Python answers 500 to a select that names columns next to an embed, with
   // or without auth entities, so its embed case selects every column.)
   const postgrest = { ...ana, "x-crud-dialect": "postgrest" };
-  clean("[R28] user: ?join=user on projects loads no user row", await call("GET", `${base}/projects?join=user`, { headers: ana }));
-  clean("[R28] user: nested joins through user load no account or session", await call("GET", `${base}/projects?join=user&join=user.accounts&join=user.sessions`, { headers: ana }));
-  clean("[R28] user: nested joins from organizations load no membership, user or account", await call("GET", `${base}/organizations?join=accountUsers&join=accountUsers.user&join=accountUsers.user.accounts`, { headers: ana }));
-  clean("[R28] user: a select embed from organizations loads no membership, user, account or session", await call("GET", `${base}/organizations?select=${language === "python" ? "*" : "name"},accountUsers(role,user(email,accounts(password),sessions(token)))`, { headers: postgrest }));
-  clean("[R28] user: a select embed from projects loads no user", await call("GET", `${base}/projects?select=${language === "python" ? "*" : "title"},user(email,accounts(password))`, { headers: postgrest }));
+  // A TypeScript service refuses an embed of a relation that is not embeddable; Python and Go leave it out of the answer.
+  const embed = (label, res) =>
+    NESTJSX ? clean(label, res) : t.assert(label, res.status === 400 && res.text.includes("cannot be embedded here") && !SECRETS.some((secret) => res.text.includes(secret)), `${res.status} ${res.text.slice(0, 300)}`);
+  if (NESTJSX) {
+    clean("[R28] user: ?join=user on projects loads no user row", await call("GET", `${base}/projects?join=user`, { headers: ana }));
+    clean("[R28] user: nested joins through user load no account or session", await call("GET", `${base}/projects?join=user&join=user.accounts&join=user.sessions`, { headers: ana }));
+    clean("[R28] user: nested joins from organizations load no membership, user or account", await call("GET", `${base}/organizations?join=accountUsers&join=accountUsers.user&join=accountUsers.user.accounts`, { headers: ana }));
+  }
+  embed("[R28] user: a select embed from organizations loads no membership, user, account or session", await call("GET", `${base}/organizations?select=${language === "python" ? "*" : "name"},accountUsers(role,user(email,accounts(password),sessions(token)))`, { headers: postgrest }));
+  embed("[R28] user: a select embed from projects loads no user", await call("GET", `${base}/projects?select=${language === "python" ? "*" : "title"},user(email,accounts(password))`, { headers: postgrest }));
   // Organization has no tenant scope and Project has one, so the relation rule
   // refuses the load before either entity's rows are read.
-  t.expect("[R7,R28] user: a join from organizations through projects to a user is refused", await call("GET", `${base}/organizations?join=projects&join=projects.user&join=projects.user.accounts`, { headers: ana }), 403);
+  if (NESTJSX) t.expect("[R7,R28] user: a join from organizations through projects to a user is refused", await call("GET", `${base}/organizations?join=projects&join=projects.user&join=projects.user.accounts`, { headers: ana }), 403);
   t.expect("[R7,R28] user: a select embed from organizations through projects to a user is refused", await call("GET", `${base}/organizations?select=*,projects(*,user(*))`, { headers: postgrest }), 403);
   // Either the filter is refused or matches nothing, or it is ignored: then the
   // answer is the same whether or not a user has that email.
-  const byEmail = (email) => call("GET", `${base}/projects?join=user&filter=user.email||$eq||${email}`, { headers: ana });
+  const byEmail = (email) => call("GET", `${base}/projects?${NESTJSX ? `join=user&filter=user.email||$eq||${email}` : `select=*,user!inner(*)&user.email=eq.${email}`}`, { headers: ana });
   const [oracle, control] = [await byEmail("ana@apso.test"), await byEmail("nobody@apso.test")];
   t.assert("[R28] user: a filter on an auth entity's column through a relation tells nothing", oracle.status !== 200 || rows(oracle.json).length === 0 || oracle.text === control.text, `${oracle.status} ${oracle.text.slice(0, 200)}`);
 
@@ -1210,7 +1311,7 @@ async function authEntitiesCase(name, _p, boot, project) {
     const list = await call("GET", `${base}${url}?limit=100`, { headers: key(KEY) });
     t.assert(`[R28] key caller lists ${url}`, list.status === 200 && rows(list.json).length === 2, `${list.status} ${list.text.slice(0, 200)}`);
   }
-  const joined = await call("GET", `${base}/sessions?join=user&limit=100`, { headers: key(KEY) });
+  const joined = await call("GET", `${base}/sessions?${load("user")}&limit=100`, { headers: key(KEY) });
   t.assert("[R28] key caller joins one auth entity to another", joined.status === 200 && rows(joined.json).every((row) => row.user?.email), `${joined.status} ${joined.text.slice(0, 200)}`);
   t.expect("[R28] key caller updates an account", await call("PATCH", `${base}/accounts/${seeded.ben["/accounts"]}`, { headers: key(KEY), body: { password: "hash-of-ben-2" } }), 200);
   t.expect("[R28] key caller deletes a session", await call("DELETE", `${base}/sessions/${seeded.ben["/sessions"]}`, { headers: key(KEY) }), 200, 204);
