@@ -10,9 +10,15 @@
  * tenant and roles) and @better-auth/oauth-provider (OAuth access tokens for
  * the resources in RESOURCES). Data is kept in memory.
  *
- * Three routes are test controls, not Better Auth:
+ * The OAuth provider is set up the way the docs describe for organizations:
+ * postLogin.consentReferenceId binds the user's organization to the grant,
+ * and customAccessTokenClaims turns it into the tenant and roles claims after
+ * checking the membership again, on every token it issues.
+ *
+ * These routes are test controls, not Better Auth:
  *   POST /smoke/member  { userId, organizationId, role }  adds a membership
- *   POST /smoke/client  { cookie, resources }             registers an OAuth client
+ *   POST /smoke/remove-member { userId, organizationId }  removes one
+ *   POST /smoke/client  { cookie, resources, skip_consent } registers an OAuth client
  *   POST /smoke/sign    { payload, header }               signs any payload with
  *     this server's own signing key, for the tokens Better Auth will not issue
  *     (expired, another audience, an access token without azp)
@@ -34,6 +40,9 @@ const tables =
   "user session account verification jwks organization member invitation oauthClient oauthResource oauthClientResource oauthRefreshToken oauthAccessToken oauthConsent oauthClientAssertion";
 const db = Object.fromEntries(tables.split(" ").map((name) => [name, []]));
 
+const memberships = (userId) => db.member.filter((m) => m.userId === userId);
+const membership = (userId, organizationId) => db.member.find((m) => m.userId === userId && m.organizationId === organizationId);
+
 const auth = betterAuth({
   baseURL: BASE,
   secret: crypto.randomBytes(32).toString("hex"),
@@ -47,7 +56,7 @@ const auth = betterAuth({
       jwt: {
         // What a customer adds: the active organization and the member's roles.
         definePayload: ({ user, session }) => {
-          const member = db.member.find((m) => m.userId === user.id && m.organizationId === session.activeOrganizationId);
+          const member = membership(user.id, session.activeOrganizationId);
           return {
             email: user.email,
             activeOrganizationId: session.activeOrganizationId ?? undefined,
@@ -60,11 +69,30 @@ const auth = betterAuth({
       loginPage: "/sign-in",
       consentPage: "/consent",
       resources: (process.env.RESOURCES || "").split(",").filter(Boolean),
-      // An access token has no session, so no active organization: the tenant
-      // comes from the user's membership.
-      customAccessTokenClaims: ({ user }) => {
-        const member = db.member.find((m) => m.userId === user?.id);
-        return member ? { activeOrganizationId: member.organizationId, roles: member.role.split(",") } : {};
+      scopes: ["openid", "offline_access"],
+      // After sign-in: a user with several organizations picks one on this
+      // page (organization.setActive, then /oauth2/continue).
+      postLogin: {
+        page: "/select-organization",
+        shouldRedirect: ({ user, session, isContinuation }) => {
+          const mine = memberships(user.id);
+          const chosen = mine.some((m) => m.organizationId === session.activeOrganizationId);
+          return mine.length > 1 && (!isContinuation || !chosen);
+        },
+        // The organization this grant is for, decided here on the server: the
+        // active one when the user is a member of it, else their only one.
+        consentReferenceId: ({ user, session }) => {
+          const mine = memberships(user.id);
+          if (mine.some((m) => m.organizationId === session.activeOrganizationId)) return session.activeOrganizationId;
+          return mine.length === 1 ? mine[0].organizationId : undefined;
+        },
+      },
+      // Runs for every access token, refreshed ones too. An access token has no
+      // session; referenceId is the organization bound to the grant above. The
+      // membership is read again, so a removed member gets no tenant claim.
+      customAccessTokenClaims: ({ user, referenceId }) => {
+        const member = user && referenceId ? membership(user.id, referenceId) : undefined;
+        return member ? { activeOrganizationId: referenceId, roles: member.role.split(",") } : {};
       },
     }),
   ],
@@ -78,11 +106,15 @@ const controls = {
     db.member.push({ id: crypto.randomUUID(), organizationId, userId, role, createdAt: new Date() });
     return {};
   },
-  "/smoke/client": ({ cookie, resources }) =>
+  "/smoke/remove-member": ({ userId, organizationId }) => {
+    db.member = db.member.filter((m) => !(m.userId === userId && m.organizationId === organizationId));
+    return {};
+  },
+  "/smoke/client": ({ cookie, resources, skip_consent = true }) =>
     auth.api.adminCreateOAuthClient({
       headers: new Headers({ cookie }),
       // skip_consent: the authorization request answers with the code, no consent page.
-      body: { client_name: "auth-smoke", redirect_uris: ["https://client.smoke.test/callback"], token_endpoint_auth_method: "none", skip_consent: true, resources },
+      body: { client_name: "auth-smoke", redirect_uris: ["https://client.smoke.test/callback"], token_endpoint_auth_method: "none", grant_types: ["authorization_code", "refresh_token"], skip_consent, resources },
     }),
   "/smoke/sign": async ({ payload, header = {} }) => {
     const key = db.jwks[db.jwks.length - 1];
