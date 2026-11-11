@@ -927,7 +927,8 @@ try {
   for (const [name, p] of Object.entries(cases)) {
     if (only.length > 0 && !only.includes(name)) continue;
     console.log(`==> ${language} / ${name}`);
-    const db = `auth_smoke_${language}_${name.replace(/\W/g, "_")}`;
+    // The process id keeps two runs on one Postgres server apart.
+    const db = `auth_smoke_${language}_${name.replace(/\W/g, "_")}_${process.pid}`;
     let server;
     // (Re)start the service on an empty database with these APSO_* settings.
     const boot = async (env = {}) => {
