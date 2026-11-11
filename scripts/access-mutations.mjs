@@ -42,7 +42,7 @@ export const MUTATIONS = [
     legs: ["jwt"],
     typescript: [[TS.key, /await this\.authGuard\.canActivate\(context\);/, "if (!request.headers.authorization) return true; await this.authGuard.canActivate(context);"]],
     python: [[PY.auth, /ctx = await _require_user\(request\)/, 'ctx = await _require_user(request) if request.headers.get("authorization") else AuthContext()']],
-    go: [[GO.auth, /\n\t\tuserAuth\(c\)\n/, '\n\t\tif c.GetHeader("Authorization") == "" {\n\t\t\tsetAuth(c, &AuthContext{Roles: []string{}})\n\t\t\tc.Next()\n\t\t\treturn\n\t\t}\n\t\tuserAuth(c)\n']],
+    go: [[GO.auth, /\n\t\tuserAuth\(c, false\)\n/, '\n\t\tif c.GetHeader("Authorization") == "" {\n\t\t\tsetAuth(c, &AuthContext{Roles: []string{}})\n\t\t\tc.Next()\n\t\t\treturn\n\t\t}\n\t\tuserAuth(c, false)\n']],
   },
   {
     id: "audience-check",
@@ -51,7 +51,11 @@ export const MUTATIONS = [
     legs: ["jwt"],
     typescript: [[TS.auth, /audience: provider\.provider !== "cognito" && audiences\.length > 0 \? audiences : undefined,/, ""]],
     python: [[PY.auth, /"verify_aud": bool\(AUDIENCE\) and not cognito/, '"verify_aud": False']],
-    go: [[GO.auth, /if p\.audience != "" && !cognito \{/, "if false && !cognito {"]],
+    go: [
+      // Without MCP tools the parser checks the audience; with them the check accepts the MCP URL too.
+      [GO.auth, /if p\.audience != "" && !cognito && mcpResource == "" \{/, 'if false && !cognito && mcpResource == "" {'],
+      [GO.auth, /if p\.audience != "" && !cognito && mcpResource != "" \{/, 'if false && !cognito && mcpResource != "" {'],
+    ],
   },
   {
     id: "issuer-check",
