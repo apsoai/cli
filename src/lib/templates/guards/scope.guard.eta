@@ -231,7 +231,7 @@ export class ScopeGuard implements CanActivate {
     }
 <% } %>
 
-    // For GET (list) requests, add scope filter
+    // For GET (list) requests, require the caller's tenant
     if (operation === 'find') {
       this.addScopeFilter(request, scopeConfig);
     }
@@ -343,25 +343,22 @@ export class ScopeGuard implements CanActivate {
     }
   }
 
+  /**
+   * A list request needs the caller's tenant. The filter itself is the
+   * controller's @CrudAuth, which applies to every query dialect; nothing is
+   * added to the query string here.
+   */
   private addScopeFilter(request: any, scopeConfig: ScopeConfig): void {
-    if (!request.query) {
-      request.query = {};
-    }
-
-    for (const scope of scopeConfig.scopes) {
-      if (scope.direct) {
-        const scopeValue = this.getScopeValue(request, scope.contextKey);
 <% if (it.hasAuth) { %>
-        if (!scopeValue) {
-          throw new ForbiddenException('No tenant in the auth context');
-        }
-<% } %>
-        if (scopeValue) {
-          // Add filter for @apso/crud
-          request.query[`filter.${scope.field}`] = `$eq:${scopeValue}`;
-        }
+    for (const scope of scopeConfig.scopes) {
+      if (scope.direct && !this.getScopeValue(request, scope.contextKey)) {
+        throw new ForbiddenException('No tenant in the auth context');
       }
     }
+<% } else { %>
+    void request;
+    void scopeConfig;
+<% } %>
   }
 
   private getScopeValue(request: any, contextKey: string): string | undefined {

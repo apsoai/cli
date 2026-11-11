@@ -450,3 +450,82 @@ func containsAudience(aud interface{}, want string) bool {
 }
 <% } %>
 <% } %>
+
+// relationScope is one entity in the relation table: whether its reads are
+// tenant-scoped, the roles that skip that scope, and each relation a request
+// can load (the entity it loads, and whether a caller limited to its tenant
+// here stays in it there).
+type relationScope struct {
+	Scoped      bool
+	BypassRoles []string
+	Relations   map[string]relationHop
+}
+
+type relationHop struct {
+	Entity     string
+	SameTenant bool
+}
+
+// relationScopes holds every entity's relations, from .apsorc relationships and scopeBy.
+var relationScopes = map[string]relationScope{
+<% Object.entries(it.relationScopes).forEach(([name, scope]) => { %>
+	<%~ JSON.stringify(name) %>: {
+		Scoped:      <%= scope.bypassRoles !== undefined %>,
+		BypassRoles: []string{<%~ (scope.bypassRoles ?? []).map((r) => JSON.stringify(r)).join(', ') %>},
+		Relations: map[string]relationHop{
+<% Object.entries(scope.relations).forEach(([relation, hop]) => { %>
+			<%~ JSON.stringify(relation) %>: {Entity: <%~ JSON.stringify(hop[0]) %>, SameTenant: <%= hop[1] %>},
+<% }) %>
+		},
+	},
+<% }) %>
+}
+
+// RelationRefused is the one place that decides which relations a request may
+// load. It returns the first relation in path (author.posts) that would load
+// rows outside the caller's tenant, or "". The tenant filter limits only the
+// entity a request starts from, so a relation onto a tenant-scoped entity is
+// loaded only when the caller holds a role that skips that entity's scope, or
+// is limited to its tenant on the entity the relation starts from and the
+// target is scoped by the same keys. A service caller (valid API key) is not
+// limited.
+func RelationRefused(ctx context.Context, root, path string) string {
+	if len(relationScopes) == 0 {
+		return ""
+	}
+	var roles []string
+	if a, ok := FromContext(ctx); ok {
+		if a.ServiceID != "" {
+			return ""
+		}
+		roles = a.Roles
+	}
+	skips := func(e relationScope) bool {
+		for _, r := range roles {
+			for _, b := range e.BypassRoles {
+				if r == b {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	from := relationScopes[root]
+	for _, name := range strings.Split(path, ".") {
+		// Requests may name a relation as the field (Posts) or as .apsorc does (posts).
+		if name != "" {
+			name = strings.ToLower(name[:1]) + name[1:]
+		}
+		hop, ok := from.Relations[name]
+		if !ok {
+			return ""
+		}
+		to := relationScopes[hop.Entity]
+		inTenant := hop.SameTenant && from.Scoped && !skips(from)
+		if to.Scoped && !skips(to) && !inTenant {
+			return name
+		}
+		from = to
+	}
+	return ""
+}

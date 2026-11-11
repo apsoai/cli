@@ -32,7 +32,9 @@ import {
   assertTenantClaim,
   getPermissionConfig,
   getScopedEntities,
+  hasPermissions,
   hasScopedEntities,
+  relationScopes,
   mcpOperations,
 } from "../guards";
 import { getEventEmittingEntities } from "../events";
@@ -248,6 +250,8 @@ export class TypeScriptGenerator extends BaseGenerator {
       crudAuth: scopes.filter((s) => s.direct),
       crudAuthNested: scopes.filter((s) => s.fkField),
       scopeOptions,
+      // Every controller checks which relations a request may load.
+      relationAccess: this.hasRelationAccess(options.allEntities, relationshipMap, auth),
       // Operations exposed as MCP tools, and the names the tools get.
       mcp,
       mcpName: snakeCase(entityName),
@@ -574,6 +578,16 @@ export class TypeScriptGenerator extends BaseGenerator {
       });
     }
 
+    if (this.hasRelationAccess(entities, relationshipMap, auth)) {
+      files.push({
+        path: "guards/relations.interceptor.ts",
+        content: await this.renderTemplate("./guards/relations.interceptor.eta", {
+          permissions: Boolean(permissions),
+          relationScopes: relationScopes(entities, relationshipMap, hasAuth),
+        }),
+      });
+    }
+
     if (permissions) {
       files.push({
         path: "guards/permission.guard.ts",
@@ -670,6 +684,18 @@ export class TypeScriptGenerator extends BaseGenerator {
   /**
    * Normalizes auth config by applying defaults for DB session providers
    */
+  /** True when requests can load a relation that is tenant-scoped or limited by role. */
+  private hasRelationAccess(
+    entities: Entity[],
+    relationshipMap?: RelationshipMap,
+    auth?: AuthConfig
+  ): boolean {
+    return Boolean(
+      auth &&
+        (hasPermissions(entities) || relationScopes(entities, relationshipMap, true))
+    );
+  }
+
   private normalizeAuthConfig(
     auth: AuthConfig | undefined
   ): DbSessionAuthConfig | undefined {

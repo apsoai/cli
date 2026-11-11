@@ -21,6 +21,7 @@ import {
   entityScope,
   hasPermissions,
   nestedScopeEntities,
+  relationScopes,
   assertTenantClaim,
 } from "../guards";
 import {
@@ -742,7 +743,8 @@ ${modelRefs}
 
   async generateGuards(
     entities: Entity[],
-    auth?: AuthConfig
+    auth?: AuthConfig,
+    relationshipMap: RelationshipMap = this.config.relationshipMap ?? {}
   ): Promise<GeneratedFile[]> {
     if (entities.some((entity) => entity.mcp))
       throw new Error(
@@ -763,7 +765,10 @@ ${modelRefs}
         `auth.provider "${auth.provider}" is generated for TypeScript services only. For Go, use "jwt" (Better Auth issues JWTs with its JWT plugin).`
       );
     // The API key check is part of every service; auth adds user sign-in.
-    const data = { jwt: auth && resolveJwtAuth(auth) };
+    const data = {
+      jwt: auth && resolveJwtAuth(auth),
+      relationScopes: relationScopes(entities, relationshipMap, Boolean(auth)) ?? {},
+    };
     const content = await this.renderTemplate("./middleware/auth", data);
     const files: GeneratedFile[] = [{ path: "middleware/auth.go", content }];
     // Shared helpers for services and handlers of entities with a direct scopeBy.

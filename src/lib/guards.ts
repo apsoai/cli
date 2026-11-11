@@ -335,6 +335,66 @@ export function assertTenantClaim(entities: Entity[], auth?: AuthConfig): void {
     );
 }
 
+/** One entity in the relation table every generated service checks. */
+export interface RelationScope {
+  /** Set when the entity's reads are tenant-scoped: the roles that skip its scope. */
+  bypassRoles?: string[];
+  /**
+   * Each relation a request can load, by the name requests use: the entity it
+   * loads, and whether a caller limited to its tenant on this entity stays in
+   * that tenant on the related rows (the target is scoped by the same keys).
+   */
+  relations: Record<string, [entity: string, sameTenant: boolean]>;
+}
+
+/**
+ * The relation table for the one rule on loading relations (R7): the tenant
+ * filter limits only the entity a request starts from, so a user caller may
+ * load a relation onto a tenant-scoped entity only when
+ * - the caller holds a role that skips that entity's scope, or
+ * - the caller is limited to its tenant on the entity the relation starts
+ *   from, and the target is scoped by the same keys (Project.tasks).
+ * Any other load is refused, for every query syntax and at every depth. A
+ * service caller is not limited. Each language walks this table at run time.
+ *
+ * An entity counts as scoped only when both find and get are filtered;
+ * otherwise its rows are readable anyway. Undefined without auth or when no
+ * entity is scoped.
+ */
+export function relationScopes(
+  entities: Entity[],
+  relationshipMap: RelationshipMap | undefined,
+  hasAuth: boolean
+): Record<string, RelationScope> | undefined {
+  if (!hasAuth) return undefined;
+  const scoped = new Map<string, { keys: Set<string>; bypassRoles: string[] }>();
+  for (const config of getScopedEntities(entities)) {
+    if (!config.enforceOn.includes("find") || !config.enforceOn.includes("get"))
+      continue;
+    scoped.set(config.name, {
+      keys: new Set(config.scopes.map((s) => s.contextKey)),
+      bypassRoles: config.bypassRoles,
+    });
+  }
+  if (scoped.size === 0) return undefined;
+  const table: Record<string, RelationScope> = {};
+  for (const entity of entities) {
+    const from = scoped.get(entity.name);
+    const relations: RelationScope["relations"] = {};
+    for (const relation of relationshipMap?.[entity.name] ?? []) {
+      const name = getRelationshipName(relation);
+      const many = relation.type === "OneToMany" || relation.type === "ManyToMany";
+      const to = scoped.get(relation.name);
+      relations[many ? pluralize(name) : name] = [
+        relation.name,
+        Boolean(from && to && [...to.keys].every((key) => from.keys.has(key))),
+      ];
+    }
+    table[entity.name] = { bypassRoles: from?.bypassRoles, relations };
+  }
+  return table;
+}
+
 /** Entities whose scopeBy uses a nested path, which Go and Python cannot enforce. */
 export function nestedScopeEntities(entities: Entity[]): string[] {
   return getScopedEntities(entities)

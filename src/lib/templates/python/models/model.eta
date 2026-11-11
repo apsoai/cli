@@ -61,21 +61,21 @@ class <%= it.name %>(Base):
         back_populates="<%= assoc.inverseSidePropertyName %>",
         # The foreign key's ON DELETE decides, not the ORM (it would null it).
         passive_deletes="all",
-        lazy="selectin"
+        lazy="<%= assoc.lazy %>"
     )
 <% } else if (assoc.type === 'ManyToOne' || (assoc.type === 'OneToOne' && assoc.joinTable)) { %>
     <%= assoc.relationshipName %>: Mapped[Optional["<%= assoc.name %>"]] = relationship(
         "<%= assoc.name %>",
         foreign_keys=[<%= assoc.type === 'ManyToOne' ? assoc.camelCasedId : assoc.fkColumn %>],
         <% if (assoc.biDirectional) { %>back_populates="<%= assoc.inverseSidePropertyName %>",<% } %>
-        lazy="selectin"
+        lazy="<%= assoc.lazy %>"
     )
 <% } else if (assoc.type === 'ManyToMany' && assoc.secondary) { %>
     <%= assoc.pluralizedRelationshipName %>: Mapped[List["<%= assoc.name %>"]] = relationship(
         "<%= assoc.name %>",
         secondary="<%= assoc.secondary %>",
         <% if (assoc.biDirectional) { %>back_populates="<%= assoc.inverseSidePropertyName %>",<% } %>
-        lazy="selectin"
+        lazy="<%= assoc.lazy %>"
     )
 <% } else if (assoc.type === 'OneToOne') { %>
     <%= assoc.relationshipName %>: Mapped[Optional["<%= assoc.name %>"]] = relationship(
@@ -83,7 +83,7 @@ class <%= it.name %>(Base):
         <% if (assoc.biDirectional) { %>back_populates="<%= assoc.inverseSidePropertyName %>",<% } %>
         uselist=False,
         cascade="all, delete-orphan",
-        lazy="selectin"
+        lazy="<%= assoc.lazy %>"
     )
 <% } %>
 <% }) %>

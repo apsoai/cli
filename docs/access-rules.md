@@ -25,6 +25,18 @@ The suite talks to a running service over HTTP only, so the same cases prove Typ
 
 Every case label starts with the rule it proves, for example `[R7] Project: or names the other tenant`. A run ends with a table of results per rule. A run fails when a case names no rule, names a rule that is not on the list, or when a rule marked `enforced` or `refused` ran no case. `npm test` checks the same from the source, without starting a service.
 
+## Relations
+
+The tenant filter limits the entity a request starts from. Which relations a request may load on top of that is one rule, built from one table (`relationScopes` in `src/lib/guards.ts`) and checked in one place per language:
+
+| Language | Where |
+|---|---|
+| TypeScript | `guards/relations.interceptor.ts`, on every controller after the request is parsed |
+| Python | `relation_refused` in `auth.py`, called by the query builder for every relation a request names. A relation that needs the check is `lazy="noload"` in the model, so it loads only when a request names it |
+| Go | `RelationRefused` in `middleware/auth.go`, called where the query preloads relations |
+
+A user caller may load a relation onto a tenant-scoped entity when it holds a role that skips that entity's scope, or when it is limited to its tenant on the entity the relation starts from and the target is scoped by the same keys (`Project.tasks`). Any other load answers 403, for `join`, a `select` embed and every nesting depth. A filter or sort on a related entity's field needs the relation loaded, so it meets the same check. A service caller is not limited. In TypeScript the same place checks `permissions.read` of the related entity (R11).
+
 ## Running it
 
 ```bash

@@ -17,6 +17,7 @@ import {
   resolveJwtAuth,
   Field,
   ComputedField,
+  RelationshipMap,
 } from "../types";
 import {
   arrayElementType,
@@ -35,6 +36,7 @@ import {
   hasPermissions,
   nestedScopeEntities,
   assertTenantClaim,
+  relationScopes,
 } from "../guards";
 import { pyString } from "../ddl/migration-file";
 import {
@@ -347,8 +349,22 @@ export class PythonGenerator extends BaseGenerator {
         const j = joinTableOf(entity, r, byName.get(r.name)!);
         return { name: j.name, ...columnsOf(j.name) };
       });
+    // Relations load with each row (lazy="selectin"). One that would load
+    // another tenant's rows loads only when a request asks for it, where the
+    // caller is checked (auth.py relation_refused).
+    const scopes = relationScopes(
+      this.config.entities ?? allEntities,
+      this.config.relationshipMap,
+      Boolean(this.config.auth)
+    );
+    const lazy = (target: string) => {
+      const hop = Object.values(scopes?.[name]?.relations ?? {}).find(
+        ([to]) => to === target
+      );
+      return scopes?.[target]?.bypassRoles && !hop?.[1] ? "noload" : "selectin";
+    };
     // A non-owning ManyToMany names the join table its owner declares.
-    const associations = relationshipsForTemplate.map((r) => {
+    const associations = relationshipsForTemplate.map((r) => ({ ...r, lazy: lazy(r.name) })).map((r) => {
       if (r.type === "OneToOne" && r.joinTable)
         return { ...r, fkColumn: relationColumn(r) };
       if (r.type !== "ManyToMany" || !byName.get(r.name)) return r;
@@ -729,7 +745,8 @@ ${downStatements || "    pass"}
 
   async generateGuards(
     entities: Entity[],
-    auth?: AuthConfig
+    auth?: AuthConfig,
+    relationshipMap: RelationshipMap = this.config.relationshipMap ?? {}
   ): Promise<GeneratedFile[]> {
     if (entities.some((entity) => entity.mcp))
       throw new Error(
@@ -750,7 +767,10 @@ ${downStatements || "    pass"}
         `auth.provider "${auth.provider}" is generated for TypeScript services only. For Python, use "jwt" (Better Auth issues JWTs with its JWT plugin).`
       );
     // The API key check is part of every service; auth adds user sign-in.
-    const data = { jwt: auth && resolveJwtAuth(auth) };
+    const data = {
+      jwt: auth && resolveJwtAuth(auth),
+      relationScopes: relationScopes(entities, relationshipMap, Boolean(auth)) ?? {},
+    };
     return [
       { path: "auth.py", content: await this.renderTemplate("./auth", data) },
     ];
