@@ -16,7 +16,8 @@
  *   - permissions (TypeScript) refuse a role outside the list, directly and
  *     through ?join, and allow a role in it; a RolePermission row added by an
  *     owner grants a permission in that tenant only; a member cannot grant
- *     itself; a permission in the token is honored
+ *     itself; a permission in the token is honored; a hand-written route that
+ *     names its own permission (invoice:approve) is held to it the same ways
  *   - mcp (TypeScript) serves only the opted-in operations as tools at /mcp,
  *     and a tool call meets the same auth, permission and scope guards as REST
  *
@@ -282,6 +283,34 @@ function scaffold(dir) {
   const rc = JSON.parse(fs.readFileSync(rcPath, "utf8"));
   Object.assign(rc, { version: 2, entities: ENTITIES, relationships: RELATIONSHIPS });
   fs.writeFileSync(rcPath, JSON.stringify(rc, null, 2));
+  if (language === "typescript") {
+    // A hand-written route that names its own permission and is an MCP tool.
+    fs.writeFileSync(
+      path.join(project, "src", "controllers", "invoice-actions.controller.ts"),
+      `import { Controller, Param, Post } from '@nestjs/common';
+import { McpTool } from '@apso/mcp';
+import { Permission } from '../autogen/guards';
+
+@Controller('Invoices')
+export class InvoiceActionsController {
+  @Post(':id/approve')
+  @Permission('invoice:approve', 'owner')
+  @McpTool({ name: 'approve_invoice', description: 'Approve one Invoice by id.' })
+  approve(@Param('id') id: string) {
+    return { id: Number(id), approved: true };
+  }
+}
+`
+    );
+    const modulePath = path.join(project, "src", "app.module.rest.ts");
+    const mod = fs.readFileSync(modulePath, "utf8");
+    if (!mod.includes("controllers: [HealthCheckController]")) throw new Error("app.module.rest.ts: controllers list not found");
+    fs.writeFileSync(
+      modulePath,
+      "import { InvoiceActionsController } from './controllers/invoice-actions.controller';\n" +
+        mod.replace("controllers: [HealthCheckController]", "controllers: [HealthCheckController, InvoiceActionsController]")
+    );
+  }
   return project;
 }
 
@@ -487,7 +516,7 @@ async function jwtCase(name, p, base) {
   await crudAndScope(base, t, valid, valid, bearer(sign(p.claims(undefined))), support);
   if (name === "jwt" && language === "typescript") {
     const as = (roles, org = "1", extra = {}) => bearer(sign({ ...p.claims(org), app_metadata: { org_id: org, roles }, ...extra }));
-    await rolePermissions(base, t, as(["owner"]), as(["member"]), as(["member"], "2"), as(["member"], "1", { permissions: ["invoice:delete"] }));
+    await rolePermissions(base, t, as(["owner"]), as(["member"]), as(["member"], "2"), as(["member"], "1", { permissions: ["invoice:delete", "invoice:approve"] }));
     await mcpTools(base, t, as(["owner"]), as(["member"]), as(["owner"], "2"), as(["owner"], "1", { aud: `${base}/mcp` }));
   }
   return t.failures;
@@ -535,7 +564,7 @@ async function mcpTools(base, t, owner, member, otherOwner, ownerForMcp) {
   t.assert("mcp accepts a token issued for the MCP endpoint's URL", issuedForMcp > 0);
 
   const names = (await asOwner.listTools()).tools.map((tool) => tool.name).sort();
-  const expected = ["create_invoice", "delete_invoice", "get_invoice", "get_project", "list_invoices", "list_projects", "update_invoice"];
+  const expected = ["approve_invoice", "create_invoice", "delete_invoice", "get_invoice", "get_project", "list_invoices", "list_projects", "update_invoice"];
   t.assert("mcp lists only the opted-in operations", JSON.stringify(names) === JSON.stringify(expected), names.join(","));
 
   const denied = await asMember.callTool({ name: "list_invoices", arguments: {} });
@@ -556,6 +585,11 @@ async function mcpTools(base, t, owner, member, otherOwner, ownerForMcp) {
   t.assert("mcp list hides it from another tenant", theirs !== undefined && !theirs.some((row) => row.id === project.json.id));
   const crossGet = await asOther.callTool({ name: "get_project", arguments: { id: project.json.id } });
   t.assert("mcp get by id is refused across tenants", crossGet.isError === true, text(crossGet));
+  // The hand-written route is checked by the permission it names.
+  const memberApprove = await asMember.callTool({ name: "approve_invoice", arguments: { id: invoice.id } });
+  t.assert("mcp approve by a member lacks invoice:approve", memberApprove.isError === true && text(memberApprove).includes("invoice:approve"), text(memberApprove));
+  const approved = await asOwner.callTool({ name: "approve_invoice", arguments: { id: invoice.id } });
+  t.assert("mcp approve by the owner works", !approved.isError && text(approved).includes('"approved":true'), text(approved));
   const memberDelete = await asMember.callTool({ name: "delete_invoice", arguments: { id: invoice.id } });
   t.assert("mcp delete by a member lacks invoice:delete", memberDelete.isError === true && text(memberDelete).includes("invoice:delete"), text(memberDelete));
   const removed = await asOwner.callTool({ name: "delete_invoice", arguments: { id: invoice.id } });
@@ -582,6 +616,21 @@ async function rolePermissions(base, t, owner, member, otherMember, memberWithDe
   t.expect("member cannot delete an invoice", await call("DELETE", `${base}${INVOICES}/${iid}`, { headers: member }), 403);
   t.expect("owner lists invoices", await call("GET", base + INVOICES, { headers: owner }), 200);
   t.expect("owner reads invoices through a join", await call("GET", `${base}${ORGS}?join=invoices`, { headers: owner }), 200);
+
+  // A hand-written route that names its own permission: POST would otherwise
+  // be checked as invoice:create, which members have.
+  const APPROVE = `${base}${INVOICES}/${iid}/approve`;
+  const refused = await call("POST", APPROVE, { headers: member });
+  t.assert("member cannot approve an invoice (invoice:approve)", refused.status === 403 && refused.text.includes("invoice:approve"), `${refused.status} ${refused.text.slice(0, 200)}`);
+  t.expect("owner approves an invoice", await call("POST", APPROVE, { headers: owner }), 200, 201);
+  t.expect("member with invoice:approve in its token approves", await call("POST", APPROVE, { headers: memberWithDelete }), 200, 201);
+  const approveGrant = await call("POST", base + GRANTS, { headers: owner, body: { role: "member", permission: "invoice:approve" } });
+  if (t.expect("owner grants members invoice:approve", approveGrant, 200, 201)) {
+    t.expect("member approves after the grant", await call("POST", APPROVE, { headers: member }), 200, 201);
+    t.expect("member of another tenant still cannot approve", await call("POST", APPROVE, { headers: otherMember }), 403);
+    t.expect("owner revokes the approve grant", await call("DELETE", `${base}${GRANTS}/${approveGrant.json.id}`, { headers: owner }), 200, 204);
+    t.expect("member cannot approve after the revoke", await call("POST", APPROVE, { headers: member }), 403);
+  }
 
   // Runtime grants.
   t.expect("member cannot grant itself a permission", await call("POST", base + GRANTS, { headers: member, body: { role: "member", permission: "invoice:read" } }), 403);

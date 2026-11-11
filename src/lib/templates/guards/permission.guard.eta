@@ -5,6 +5,7 @@ import {
   CanActivate,
   ExecutionContext,
   ForbiddenException,
+  SetMetadata,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 <% if (it.permissions.grants) { %>
@@ -31,6 +32,18 @@ export const ENTITY_PERMISSIONS: Record<string, Partial<Record<Operation, Rule>>
  * read an entity cannot read it through a join either.
  */
 const JOIN_PERMISSIONS: Record<string, Rule[]> = <%~ JSON.stringify(it.permissions.joins, null, 2) %>;
+
+export const PERMISSION_KEY = 'apsoPermission';
+
+/**
+ * Names the permission a hand-written route needs and the roles that have it
+ * by default: @Permission('invoice:approve', 'admin') on
+ * POST /invoices/:id/approve. On a controller class it covers every route in
+ * it. Without it a route is checked as its entity's read, create, update or
+ * delete, by path and HTTP method.
+ */
+export const Permission = (permission: string, ...roles: string[]) =>
+  SetMetadata(PERMISSION_KEY, { permission, roles });
 
 const OPERATIONS: Record<string, Operation> = {
   GET: 'read',
@@ -76,7 +89,11 @@ export class PermissionGuard implements CanActivate {
     const path: string = request.route?.path || request.path;
     const entity = path.match(/^\/([^\/]+)/)?.[1]?.toLowerCase();
     const operation = OPERATIONS[request.method];
-    const rule = entity && operation ? ENTITY_PERMISSIONS[entity]?.[operation] : undefined;
+    const rule =
+      this.reflector.getAllAndOverride<Rule>(PERMISSION_KEY, [
+        context.getHandler(),
+        context.getClass(),
+      ]) ?? (entity && operation ? ENTITY_PERMISSIONS[entity]?.[operation] : undefined);
     if (rule && !(await this.allowed(request, rule))) {
       throw new ForbiddenException(`Missing permission ${rule.permission}`);
     }
