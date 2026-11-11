@@ -1067,6 +1067,8 @@ const BETTER_AUTH = { provider: "better-auth", url: `${BETTER_AUTH_ORIGIN}/api/a
 // Fixed, so the Better Auth server can register it before the service has a port.
 const MCP_RESOURCE = "https://api.smoke.test/mcp";
 const OTHER_RESOURCE = "https://other.smoke.test/mcp";
+// A resource every language's service accepts: the provider's default audience.
+const API_RESOURCE = BETTER_AUTH_ORIGIN;
 let betterAuthServer;
 
 /** Start the Better Auth server once per run; returns what the cases need from it. */
@@ -1086,7 +1088,7 @@ async function betterAuthIssuer() {
     sh("npm", ["install", "--no-audit", "--no-fund", `better-auth@${BETTER_AUTH_VERSION}`, `@better-auth/oauth-provider@${BETTER_AUTH_VERSION}`], { cwd: dir });
     betterAuthServer = spawn(process.execPath, ["issuer.mjs"], {
       cwd: dir,
-      env: { ...process.env, PORT: new URL(BETTER_AUTH_ORIGIN).port, RESOURCES: `${MCP_RESOURCE},${OTHER_RESOURCE}` },
+      env: { ...process.env, PORT: new URL(BETTER_AUTH_ORIGIN).port, RESOURCES: `${MCP_RESOURCE},${OTHER_RESOURCE},${API_RESOURCE}` },
       stdio: ["ignore", "pipe", "inherit"],
     });
     await new Promise((resolve, reject) => {
@@ -1094,55 +1096,163 @@ async function betterAuthIssuer() {
       betterAuthServer.once("exit", (code) => reject(new Error(`the Better Auth server exited with ${code}`)));
     });
   }
-  /** Sign a user up; with `org`, make them a member of it and set it active. */
-  const user = async (name, org, role = "member") => {
+  const member = (userId, org, role = "member") => post(`${BETTER_AUTH_ORIGIN}/smoke/member`, { userId, organizationId: String(org), role });
+  const removeMember = (userId, org) => post(`${BETTER_AUTH_ORIGIN}/smoke/remove-member`, { userId, organizationId: String(org) });
+  /** organization.setActive as the user; answers the status (403 for an organization they are not in). */
+  const setActive = async (cookie, org) =>
+    (await fetch(`${api}/organization/set-active`, { method: "POST", headers: { ...json, cookie }, body: JSON.stringify({ organizationId: String(org) }) })).status;
+  /** Sign a user up; with `org`, make them a member of it and (unless `active` is false) set it active. */
+  const user = async (name, org, role = "member", active = true) => {
     const email = `${crypto.randomUUID()}-${name}`;
     const signUp = await post(`${api}/sign-up/email`, { email, password: "smoke-password-1", name: email.split("@")[0] });
     const cookie = signUp.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
     const { token: sessionToken, user: row } = await signUp.json();
     if (org !== undefined) {
-      await post(`${BETTER_AUTH_ORIGIN}/smoke/member`, { userId: row.id, organizationId: String(org), role });
-      await post(`${api}/organization/set-active`, { organizationId: String(org) }, { cookie });
+      await member(row.id, org, role);
+      if (active) await post(`${api}/organization/set-active`, { organizationId: String(org) }, { cookie });
     }
     // What the app's front end does: GET /api/auth/token with the session.
     const res = await fetch(`${api}/token`, { headers: { cookie } });
     return { id: row.id, cookie, sessionToken, token: (await res.json()).token };
   };
-  /** An MCP client's access token for `resource`: authorization code with PKCE, as the signed-in user. */
-  const accessToken = async (cookie, resource) => {
-    const client = await (await post(`${BETTER_AUTH_ORIGIN}/smoke/client`, { cookie, resources: [resource] })).json();
+  const redirect_uri = "https://client.smoke.test/callback";
+  const tokenEndpoint = async (params) =>
+    (await fetch(`${api}/oauth2/token`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(params) })).json();
+  /**
+   * An OAuth client's grant for `resource` as the signed-in user: authorization
+   * code with PKCE, no browser. Better Auth answers each step with the next
+   * URL: its organization page (answered with `choose`: an organization to set
+   * active, or null to continue without choosing), its consent page (`consent`:
+   * extra fields to submit with the acceptance), or the client's callback with
+   * the code. `extra` adds parameters to the authorization request. Returns the
+   * pages passed in `steps`, and the tokens when a code was issued.
+   */
+  const grant = async (cookie, resource, { extra = {}, choose, consent } = {}) => {
+    const client = await (await post(`${BETTER_AUTH_ORIGIN}/smoke/client`, { cookie, resources: [resource], skip_consent: !consent })).json();
     const verifier = crypto.randomBytes(32).toString("base64url");
-    const redirect_uri = "https://client.smoke.test/callback";
     const query = new URLSearchParams({
       response_type: "code",
       client_id: client.client_id,
       redirect_uri,
-      scope: "openid",
+      scope: "openid offline_access",
       state: "smoke",
       code_challenge: crypto.createHash("sha256").update(verifier).digest("base64url"),
       code_challenge_method: "S256",
       resource,
+      ...extra,
     });
-    const authorize = await fetch(`${api}/oauth2/authorize?${query}`, { headers: { cookie }, redirect: "manual" });
     // A browser gets a 302; a fetch client gets the same URL in a JSON body.
-    const location = authorize.headers.get("location") ?? (await authorize.json().catch(() => ({}))).url ?? "";
+    const next = async (res) => res.headers.get("location") ?? (await res.json().catch(() => ({}))).url ?? "";
+    const signedQuery = (location) => location.slice(location.indexOf("?") + 1);
+    const steps = [];
+    let location = await next(await fetch(`${api}/oauth2/authorize?${query}`, { headers: { cookie }, redirect: "manual" }));
+    if (location.startsWith("/select-organization")) {
+      steps.push("select-organization");
+      if (choose === undefined) return { steps };
+      if (choose !== null) await post(`${api}/organization/set-active`, { organizationId: String(choose) }, { cookie });
+      location = await next(await post(`${api}/oauth2/continue`, { postLogin: true, oauth_query: signedQuery(location) }, { cookie }));
+      if (location.startsWith("/select-organization")) return { steps: [...steps, "select-organization"] };
+    }
+    if (location.startsWith("/consent")) {
+      steps.push("consent");
+      location = await next(await post(`${api}/oauth2/consent`, { accept: true, oauth_query: signedQuery(location), ...consent }, { cookie }));
+    }
     const code = new URL(location, BETTER_AUTH_ORIGIN).searchParams.get("code");
-    if (!code) throw new Error(`Better Auth: no authorization code: ${authorize.status} ${location}`);
-    const res = await fetch(`${api}/oauth2/token`, {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri, client_id: client.client_id, code_verifier: verifier, resource }),
-    });
-    const { access_token } = await res.json();
-    if (!access_token) throw new Error(`Better Auth: no access token: ${res.status}`);
-    return access_token;
+    if (!code) throw new Error(`Better Auth: no authorization code: ${location}`);
+    const tokens = await tokenEndpoint({ grant_type: "authorization_code", code, redirect_uri, client_id: client.client_id, code_verifier: verifier, resource });
+    if (!tokens.access_token) throw new Error(`Better Auth: no access token: ${JSON.stringify(tokens).slice(0, 300)}`);
+    return { steps, client_id: client.client_id, resource, ...tokens };
+  };
+  /** A new access token from the grant's refresh token. */
+  const refresh = async (g) => {
+    const tokens = await tokenEndpoint({ grant_type: "refresh_token", refresh_token: g.refresh_token, client_id: g.client_id, resource: g.resource });
+    if (!tokens.access_token) throw new Error(`Better Auth: refresh failed: ${JSON.stringify(tokens).slice(0, 300)}`);
+    g.refresh_token = tokens.refresh_token ?? g.refresh_token;
+    return tokens.access_token;
+  };
+  const accessToken = async (cookie, resource) => (await grant(cookie, resource)).access_token;
+  /** POST /oauth2/consent with the signed query changed; answers the status. */
+  const consentWithAlteredQuery = async (cookie, resource) => {
+    const client = await (await post(`${BETTER_AUTH_ORIGIN}/smoke/client`, { cookie, resources: [resource], skip_consent: false })).json();
+    const query = new URLSearchParams({ response_type: "code", client_id: client.client_id, redirect_uri, scope: "openid", state: "smoke", code_challenge: "x".repeat(43), code_challenge_method: "S256", resource });
+    const res = await fetch(`${api}/oauth2/authorize?${query}`, { headers: { cookie }, redirect: "manual" });
+    const location = res.headers.get("location") ?? (await res.json().catch(() => ({}))).url ?? "";
+    const altered = location.slice(location.indexOf("?") + 1).replace("state=smoke", "state=smoke&reference_id=3");
+    return (await fetch(`${api}/oauth2/consent`, { method: "POST", headers: { ...json, cookie }, body: JSON.stringify({ accept: true, oauth_query: altered }) })).status;
   };
   /** Any payload, signed with the Better Auth server's own key. */
   const sign = async (payload, header) => (await (await post(`${BETTER_AUTH_ORIGIN}/smoke/sign`, { payload, header })).json()).token;
-  return { user, accessToken, sign };
+  return { user, member, removeMember, setActive, grant, refresh, accessToken, consentWithAlteredQuery, sign };
 }
 
 const decode = (token) => token.split(".").slice(0, 2).map((part) => JSON.parse(Buffer.from(part, "base64url")));
+
+/**
+ * The tenant in an OAuth access token. The Better Auth server binds the user's
+ * organization to the grant (postLogin.consentReferenceId) and writes it, with
+ * that membership's roles, into every access token after reading the
+ * membership again (customAccessTokenClaims). The tokens are for a resource
+ * every language's service accepts, so the service's scope is checked too.
+ */
+async function accessTokenTenant(base, t, issuer, asOrg1) {
+  const bearer = (token) => ({ authorization: `Bearer ${token}` });
+  const tenant = (token) => decode(token)[1].activeOrganizationId;
+  const roles = (token) => JSON.stringify(decode(token)[1].roles);
+  // Organization 3 exists and mia is not in it.
+  await issuer.user("zed@apso.test", "3", "owner");
+  // mia: owner in organization 1, member in organization 2, none active.
+  const mia = await issuer.user("mia@apso.test", "1", "owner", false);
+  await issuer.member(mia.id, "2", "member");
+
+  const undecided = await issuer.grant(mia.cookie, API_RESOURCE);
+  t.assert("access token: a user with several organizations is sent to choose one, and no code is issued", JSON.stringify(undecided.steps) === '["select-organization"]' && !undecided.access_token, JSON.stringify(undecided.steps));
+  const skipped = await issuer.grant(mia.cookie, API_RESOURCE, { choose: null });
+  t.assert("access token: continuing without choosing issues no code", !skipped.access_token && skipped.steps.length === 2, JSON.stringify(skipped.steps));
+  t.assert("access token: the user cannot choose an organization they are not a member of", (await issuer.setActive(mia.cookie, "3")) === 403);
+
+  const chosen = await issuer.grant(mia.cookie, API_RESOURCE, { choose: "2" });
+  t.assert("access token: carries the chosen organization as the tenant", tenant(chosen.access_token) === "2", JSON.stringify(decode(chosen.access_token)[1]));
+  t.assert("access token: roles are that organization's membership, not another's", roles(chosen.access_token) === '["member"]', roles(chosen.access_token));
+
+  // The service scopes by it exactly as for the front end's token.
+  const theirs = await call("POST", base + PROJECTS, { headers: asOrg1, body: { title: "Org 1 only" } });
+  const mine = await call("POST", base + PROJECTS, { headers: bearer(chosen.access_token), body: { title: "From an OAuth client", organizationId: 1 } });
+  if (t.expect("access token: creates a project", mine, 200, 201) && t.expect("front end token: creates a project in organization 1", theirs, 200, 201)) {
+    t.assert("access token: the project is stored under the token's tenant, whatever the body says", String(mine.json?.organizationId) === "2", `organizationId=${mine.json?.organizationId}`);
+    const list = await call("GET", base + PROJECTS, { headers: bearer(chosen.access_token) });
+    const ids = rows(list.json).map((row) => row.id);
+    t.assert("access token: lists its tenant's rows and not another tenant's", list.status === 200 && ids.includes(mine.json.id) && !ids.includes(theirs.json.id), list.text.slice(0, 200));
+    t.expect("access token: cannot read another tenant's row", await call("GET", `${base}${PROJECTS}/${theirs.json.id}`, { headers: bearer(chosen.access_token) }), 403, 404);
+  }
+
+  // The client cannot name the organization: not in the authorization request, not in the consent submission.
+  const named = { reference_id: "3", referenceId: "3", organizationId: "3", organization_id: "3", activeOrganizationId: "3", consent_reference_id: "3" };
+  const tampered = await issuer.grant(mia.cookie, API_RESOURCE, { extra: named, choose: "2" });
+  t.assert("access token: organization parameters added to the authorization request are ignored", tenant(tampered.access_token) === "2", String(tenant(tampered.access_token)));
+  const consented = await issuer.grant(mia.cookie, API_RESOURCE, { choose: "2", consent: named });
+  t.assert("access token: organization fields added to the consent submission are ignored", consented.steps.includes("consent") && tenant(consented.access_token) === "2", `${consented.steps} ${tenant(consented.access_token)}`);
+  t.assert("access token: a consent submission with the signed request changed is refused", (await issuer.consentWithAlteredQuery(mia.cookie, API_RESOURCE)) === 400);
+
+  // Refresh keeps the organization while the user is a member, and loses it when they are removed.
+  const refreshed = await issuer.refresh(chosen);
+  t.assert("access token: a refreshed token carries the same tenant and roles", tenant(refreshed) === "2" && roles(refreshed) === '["member"]', JSON.stringify(decode(refreshed)[1]));
+  await issuer.removeMember(mia.id, "2");
+  const after = await issuer.refresh(chosen);
+  t.assert("access token: after the user is removed from the organization, a refreshed token has no tenant and no roles", !("activeOrganizationId" in decode(after)[1]) && !("roles" in decode(after)[1]), JSON.stringify(decode(after)[1]));
+  t.expect("access token: with no tenant claim the service answers the no-tenant 403", await call("GET", base + PROJECTS, { headers: bearer(after) }), 403);
+  // Her session still names organization 2 as active; a new grant does not get it.
+  const stale = await issuer.grant(mia.cookie, API_RESOURCE);
+  t.assert("access token: a new grant after removal falls back to the one organization left, not the removed one", tenant(stale.access_token) === "1" && roles(stale.access_token) === '["owner"]', JSON.stringify(decode(stale.access_token)[1]));
+
+  // One membership and nothing chosen: that organization. No membership: no tenant.
+  const uno = await issuer.user("uno@apso.test", "2", "member", false);
+  const only = await issuer.grant(uno.cookie, API_RESOURCE);
+  t.assert("access token: a user with exactly one organization gets it without choosing", only.steps.length === 0 && tenant(only.access_token) === "2", `${only.steps} ${tenant(only.access_token)}`);
+  const nobody = await issuer.user("ora@apso.test");
+  const none = await issuer.grant(nobody.cookie, API_RESOURCE);
+  t.assert("access token: a user with no organization gets a token with no tenant claim", !("activeOrganizationId" in decode(none.access_token)[1]));
+  t.expect("access token: and the service answers the no-tenant 403", await call("GET", base + PROJECTS, { headers: bearer(none.access_token) }), 403);
+}
 
 cases["better-auth"] = {
   auth: BETTER_AUTH,
@@ -1191,6 +1301,8 @@ cases["better-auth"] = {
       atHeader.typ === "at+jwt" && atClaims.iss === BETTER_AUTH.url && [atClaims.aud].flat().includes(MCP_RESOURCE) && typeof atClaims.azp === "string" && atClaims.sub === ana.id && atClaims.activeOrganizationId === "1",
       JSON.stringify({ atHeader, atClaims })
     );
+    await accessTokenTenant(base, t, issuer, bearer(ana.token));
+
     if (language !== "typescript") {
       // No MCP endpoint in these services, so its URL is not an audience.
       t.expect("an access token issued for an MCP URL is refused (the audience is not this service's)", await get(bearer(forMcp)), 401);
