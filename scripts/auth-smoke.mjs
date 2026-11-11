@@ -35,6 +35,14 @@
  * real Better Auth server (scripts/better-auth-issuer.mjs; better-auth is
  * installed from npm into the work folder), and its session cookies and
  * session tokens are refused.
+ *   - no query parameter or body field reaches another tenant's rows (the
+ *     schema-driven cases in src/lib/access/cases.ts, shared with
+ *     `apso test access`)
+ *   - `apso generate` refuses a schema it cannot enforce
+ *
+ * Every case is named with the rule it proves from src/lib/access/rules.json
+ * (apsoai/cli#208). The run ends with a per-rule table and fails when a rule
+ * has no case or a case names no rule.
  *
  * Tokens are minted locally with the claim shapes each provider issues, signed
  * by a key this script serves as a JWKS. Service tokens are signed the way the
@@ -56,6 +64,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+// The rule list, the per-rule record and the cases that follow from a schema
+// are part of the CLI (src/lib/access), so `apso test access` runs the same ones.
+import access from "../dist/lib/access/index.js";
+import authTypes from "../dist/lib/types/auth.js";
+import parser from "../dist/lib/apsorc-parser.js";
+import { mutate } from "./access-mutations.mjs";
 
 const language = process.argv[2];
 const only = process.argv.slice(3);
@@ -252,8 +266,8 @@ const entities = (auth) => {
     { name: "Project", created_at: true, updated_at: true, scopeBy: "organizationId", ...(full ? { mcp: ["read"] } : {}), fields: [{ name: "title", type: "text" }] },
     // A tenant field that is not named workspaceId/organizationId (imported schemas).
     { name: "Note", created_at: true, updated_at: true, scopeBy: "orgId", fields: [{ name: "body", type: "text" }, { name: "orgId", type: "integer", nullable: true }] },
-    // Scoped through its parent (TypeScript only; Python and Go warn and skip it).
-    { name: "Task", created_at: true, updated_at: true, scopeBy: "project.organizationId", fields: [{ name: "title", type: "text" }] },
+    // Scoped through its parent (TypeScript only; generate refuses the path for Python and Go).
+    { name: "Task", created_at: true, updated_at: true, ...(language === "typescript" ? { scopeBy: "project.organizationId" } : {}), fields: [{ name: "title", type: "text" }] },
     // A "support" role reads every tenant's tickets (scopeOptions.bypassRoles).
     { name: "Ticket", created_at: true, updated_at: true, scopeBy: "organizationId", scopeOptions: { bypassRoles: ["support"] }, fields: [{ name: "title", type: "text" }] },
     // Only owners read or delete invoices.
@@ -302,6 +316,7 @@ function generate(project, auth, schema = { entities: entities(auth), relationsh
   Object.assign(rc, { version: 2, ...schema, auth });
   fs.writeFileSync(rcPath, JSON.stringify(rc, null, 2));
   sh(CLI, ["generate", "--language", language], { cwd: project });
+  mutate(project, language); // the break-each-rule job only (AUTH_SMOKE_MUTATION)
   if (language === "typescript") {
     // APSO_MCP_TARBALL tests an unreleased build of @apso/mcp (npm pack output).
     if (process.env.APSO_MCP_TARBALL) {
@@ -373,107 +388,98 @@ async function start(project, db, extra = {}) {
 
 // ---------- checks ----------
 
-function checker(name) {
-  const failures = [];
-  const expect = (label, res, ...ok) => {
-    const pass = ok.includes(res.status);
-    console.log(`  ${pass ? "ok  " : "FAIL"} ${label}: ${res.status}`);
-    if (!pass) failures.push(`${name}: ${label}: got ${res.status} ${res.text.slice(0, 300)}`);
-    return pass;
-  };
-  const assert = (label, cond, detail = "") => {
-    console.log(`  ${cond ? "ok  " : "FAIL"} ${label}`);
-    if (!cond) failures.push(`${name}: ${label} ${detail}`);
-    return cond;
-  };
-  return { expect, assert, failures };
-}
+// Every case label starts with the rule it proves, "[R6] ...". The record
+// behind checker() reports per rule and fails the run for a rule with no case.
+const report = access.createReport(language);
+// Answers that are not leaks but are still wrong (a 500 for a query the service should refuse).
+const warnings = new Set();
+const checker = (name) => report.checker(name);
 
 /** CRUD with valid credentials, plus tenant isolation where scopeBy is enforced. */
 async function crudAndScope(base, t, auth, auth2, noTenant, support) {
   const org1 = await call("POST", base + ORGS, { headers: auth(undefined), body: { name: "Acme" } });
   const org2 = await call("POST", base + ORGS, { headers: auth(undefined), body: { name: "Beta" } });
-  if (!t.expect("create organization", org1, 200, 201) || !t.expect("create second organization", org2, 200, 201)) return;
+  if (!t.expect("[R2] create organization", org1, 200, 201) || !t.expect("[R2] create second organization", org2, 200, 201)) return;
   const [id1, id2] = [org1.json.id, org2.json.id];
   const as1 = auth(String(id1));
   const as2 = auth2 ? auth2(String(id2)) : undefined;
 
-  t.expect("list organizations", await call("GET", base + ORGS, { headers: as1 }), 200);
+  t.expect("[R2] list organizations", await call("GET", base + ORGS, { headers: as1 }), 200);
   // scopeBy forces the caller's tenant whatever the body says.
   const created = await call("POST", base + PROJECTS, {
     headers: as1,
     body: { title: "Roadmap", organizationId: id2 },
   });
-  if (!t.expect("create project", created, 200, 201)) return;
+  if (!t.expect("[R8] create project", created, 200, 201)) return;
   const pid = created.json.id;
   const read = await call("GET", `${base}${PROJECTS}/${pid}`, { headers: as1 });
-  t.expect("read project", read, 200);
+  t.expect("[R6] read project", read, 200);
 
   if (as2) {
-    t.assert("create body cannot pick another tenant", String(read.json?.organizationId) === String(id1), `organizationId=${read.json?.organizationId}`);
-    t.expect("other tenant cannot read the project", await call("GET", `${base}${PROJECTS}/${pid}`, { headers: as2 }), 403, 404);
+    t.assert("[R8] create body cannot pick another tenant", String(read.json?.organizationId) === String(id1), `organizationId=${read.json?.organizationId}`);
+    t.expect("[R6] other tenant cannot read the project", await call("GET", `${base}${PROJECTS}/${pid}`, { headers: as2 }), 403, 404);
     const theirs = await call("GET", base + PROJECTS, { headers: as2 });
-    t.expect("other tenant lists projects", theirs, 200);
-    t.assert("other tenant's list excludes the project", !rows(theirs.json).some((p) => p.id === pid));
+    t.expect("[R6] other tenant lists projects", theirs, 200);
+    t.assert("[R6] other tenant's list excludes the project", !rows(theirs.json).some((p) => p.id === pid));
     const mine = await call("GET", base + PROJECTS, { headers: as1 });
-    t.assert("own list includes the project", rows(mine.json).some((p) => p.id === pid));
-    t.expect("other tenant cannot update the project", await call("PATCH", `${base}${PROJECTS}/${pid}`, { headers: as2, body: { title: "Taken" } }), 403, 404);
-    t.expect("other tenant cannot delete the project", await call("DELETE", `${base}${PROJECTS}/${pid}`, { headers: as2 }), 403, 404);
+    t.assert("[R6] own list includes the project", rows(mine.json).some((p) => p.id === pid));
+    t.expect("[R6] other tenant cannot update the project", await call("PATCH", `${base}${PROJECTS}/${pid}`, { headers: as2, body: { title: "Taken" } }), 403, 404);
+    t.expect("[R6] other tenant cannot delete the project", await call("DELETE", `${base}${PROJECTS}/${pid}`, { headers: as2 }), 403, 404);
     const moved = await call("PATCH", `${base}${PROJECTS}/${pid}`, { headers: as1, body: { title: "Roadmap 2", organizationId: id2 } });
-    t.expect("owner updates the project", moved, 200);
+    t.expect("[R8] owner updates the project", moved, 200);
     const after = await call("GET", `${base}${PROJECTS}/${pid}`, { headers: as1 });
-    t.assert("update cannot move the project to another tenant", after.status === 200 && String(after.json?.organizationId) === String(id1) && after.json?.title === "Roadmap 2", `${after.status} ${after.text.slice(0, 200)}`);
-    if (noTenant) t.expect("caller with no tenant cannot list scoped rows", await call("GET", base + PROJECTS, { headers: noTenant }), 403);
+    t.assert("[R8] update cannot move the project to another tenant", after.status === 200 && String(after.json?.organizationId) === String(id1) && after.json?.title === "Roadmap 2", `${after.status} ${after.text.slice(0, 200)}`);
+    if (noTenant) t.expect("[R9] caller with no tenant cannot list scoped rows", await call("GET", base + PROJECTS, { headers: noTenant }), 403);
     // scopeBy "orgId" takes the caller's tenant too.
     const NOTES = route("Notes");
     const note = await call("POST", base + NOTES, { headers: as1, body: { body: "hi", orgId: id2 } });
-    if (t.expect("create note (scopeBy orgId)", note, 200, 201)) {
-      t.assert("note stores the caller's tenant", String(note.json?.orgId) === String(id1), `orgId=${note.json?.orgId}`);
-      t.expect("other tenant cannot read the note", await call("GET", `${base}${NOTES}/${note.json.id}`, { headers: as2 }), 403, 404);
+    if (t.expect("[R8] create note (scopeBy orgId)", note, 200, 201)) {
+      t.assert("[R8] note stores the caller's tenant", String(note.json?.orgId) === String(id1), `orgId=${note.json?.orgId}`);
+      t.expect("[R6] other tenant cannot read the note", await call("GET", `${base}${NOTES}/${note.json.id}`, { headers: as2 }), 403, 404);
       const theirNotes = await call("GET", base + NOTES, { headers: as2 });
-      t.assert("other tenant's notes exclude it", theirNotes.status === 200 && !rows(theirNotes.json).some((n) => n.id === note.json.id), `${theirNotes.status}`);
+      t.assert("[R6] other tenant's notes exclude it", theirNotes.status === 200 && !rows(theirNotes.json).some((n) => n.id === note.json.id), `${theirNotes.status}`);
     }
     if (language === "typescript") await nestedScope(base, t, as1, as2, pid);
     if (support) await bypassScope(base, t, as1, as2, support(String(id2)));
   }
-  t.expect("delete project", await call("DELETE", `${base}${PROJECTS}/${pid}`, { headers: as1 }), 200, 204);
+  t.expect("[R6] delete project", await call("DELETE", `${base}${PROJECTS}/${pid}`, { headers: as1 }), 200, 204);
 }
 
 /** scopeOptions.bypassRoles: a support caller sees other tenants' tickets; a member does not. */
 async function bypassScope(base, t, as1, as2, asSupport) {
   const TICKETS = route("Tickets");
   const ticket = await call("POST", base + TICKETS, { headers: as1, body: { title: "Login broken" } });
-  if (!t.expect("create ticket", ticket, 200, 201)) return;
+  if (!t.expect("[R10] create ticket", ticket, 200, 201)) return;
   const tid = ticket.json.id;
   const member = await call("GET", base + TICKETS, { headers: as2 });
-  t.assert("member of another tenant does not list the ticket", member.status === 200 && !rows(member.json).some((x) => x.id === tid), `${member.status} ${member.text.slice(0, 200)}`);
+  t.assert("[R6] member of another tenant does not list the ticket", member.status === 200 && !rows(member.json).some((x) => x.id === tid), `${member.status} ${member.text.slice(0, 200)}`);
   const support = await call("GET", base + TICKETS, { headers: asSupport });
-  t.assert("support role lists another tenant's ticket", support.status === 200 && rows(support.json).some((x) => x.id === tid), `${support.status} ${support.text.slice(0, 200)}`);
-  t.expect("support role reads another tenant's ticket", await call("GET", `${base}${TICKETS}/${tid}`, { headers: asSupport }), 200);
-  t.expect("delete ticket", await call("DELETE", `${base}${TICKETS}/${tid}`, { headers: as1 }), 200, 204);
+  t.assert("[R10] support role lists another tenant's ticket", support.status === 200 && rows(support.json).some((x) => x.id === tid), `${support.status} ${support.text.slice(0, 200)}`);
+  t.expect("[R10] support role reads another tenant's ticket", await call("GET", `${base}${TICKETS}/${tid}`, { headers: asSupport }), 200);
+  t.expect("[R10] delete ticket", await call("DELETE", `${base}${TICKETS}/${tid}`, { headers: as1 }), 200, 204);
 }
 
 /** scopeBy "project.organizationId": a Task belongs to its project's tenant. */
 async function nestedScope(base, t, as1, as2, pid) {
   const TASKS = route("Tasks");
   const theirProject = await call("POST", base + PROJECTS, { headers: as2, body: { title: "Theirs" } });
-  if (!t.expect("other tenant creates a project", theirProject, 200, 201)) return;
+  if (!t.expect("[R6] other tenant creates a project", theirProject, 200, 201)) return;
   const pid2 = theirProject.json.id;
   const task = await call("POST", base + TASKS, { headers: as1, body: { title: "Ship it", projectId: pid } });
-  if (t.expect("create task under own project", task, 200, 201)) {
+  if (t.expect("[R6] create task under own project", task, 200, 201)) {
     const tid = task.json.id;
     const mine = await call("GET", base + TASKS, { headers: as1 });
-    t.assert("own task list includes the task", mine.status === 200 && rows(mine.json).some((x) => x.id === tid), `${mine.status} ${mine.text.slice(0, 200)}`);
+    t.assert("[R6] own task list includes the task", mine.status === 200 && rows(mine.json).some((x) => x.id === tid), `${mine.status} ${mine.text.slice(0, 200)}`);
     const theirs = await call("GET", base + TASKS, { headers: as2 });
-    t.assert("other tenant's task list excludes the task", theirs.status === 200 && !rows(theirs.json).some((x) => x.id === tid), `${theirs.status} ${theirs.text.slice(0, 200)}`);
-    t.expect("other tenant cannot read the task", await call("GET", `${base}${TASKS}/${tid}`, { headers: as2 }), 403, 404);
-    t.expect("task cannot move to another tenant's project", await call("PATCH", `${base}${TASKS}/${tid}`, { headers: as1, body: { projectId: pid2 } }), 403);
-    t.expect("delete task", await call("DELETE", `${base}${TASKS}/${tid}`, { headers: as1 }), 200, 204);
+    t.assert("[R6] other tenant's task list excludes the task", theirs.status === 200 && !rows(theirs.json).some((x) => x.id === tid), `${theirs.status} ${theirs.text.slice(0, 200)}`);
+    t.expect("[R6] other tenant cannot read the task", await call("GET", `${base}${TASKS}/${tid}`, { headers: as2 }), 403, 404);
+    t.expect("[R8] task cannot move to another tenant's project", await call("PATCH", `${base}${TASKS}/${tid}`, { headers: as1, body: { projectId: pid2 } }), 403);
+    t.expect("[R6] delete task", await call("DELETE", `${base}${TASKS}/${tid}`, { headers: as1 }), 200, 204);
   }
-  t.expect("cannot create a task under another tenant's project", await call("POST", base + TASKS, { headers: as2, body: { title: "Sneak", projectId: pid } }), 403);
+  t.expect("[R8] cannot create a task under another tenant's project", await call("POST", base + TASKS, { headers: as2, body: { title: "Sneak", projectId: pid } }), 403);
   const empty = await call("GET", base + TASKS, { headers: as2 });
-  t.assert("tenant with no tasks lists none", empty.status === 200 && rows(empty.json).length === 0, `${empty.status} ${empty.text.slice(0, 200)}`);
-  t.expect("delete other tenant's project", await call("DELETE", `${base}${PROJECTS}/${pid2}`, { headers: as2 }), 200, 204);
+  t.assert("[R6] tenant with no tasks lists none", empty.status === 200 && rows(empty.json).length === 0, `${empty.status} ${empty.text.slice(0, 200)}`);
+  t.expect("[R6] delete other tenant's project", await call("DELETE", `${base}${PROJECTS}/${pid2}`, { headers: as2 }), 200, 204);
 }
 
 async function jwtCase(name, p, boot) {
@@ -486,17 +492,17 @@ async function jwtCase(name, p, boot) {
   const reject = async (label, headers) =>
     t.expect(label, await call("GET", base + ORGS, { headers }), 401);
 
-  t.expect("/health is public", await call("GET", `${base}/health`), 200);
-  await reject("no credentials", {});
-  await reject("garbage token", bearer("not.a.jwt"));
-  await reject("expired token", bearer(sign({ ...p.claims("1"), exp: Math.floor(Date.now() / 1000) - 60 })));
-  await reject("wrong issuer", bearer(sign({ ...p.claims("1"), iss: "https://evil.example/" })));
-  if (p.wrongAudience) await reject("wrong audience", bearer(sign({ ...p.claims("1"), ...p.wrongAudience })));
-  if (p.unauthorizedParty) await reject("azp not an authorized party", bearer(sign({ ...p.claims("1"), ...p.unauthorizedParty })));
-  await reject("signed by another key", bearer(sign(p.claims("1"), p.impostor ?? { key: impostor.privateKey })));
-  await reject('alg "none"', bearer(mint(p.claims("1"), { alg: "none" })));
-  await reject("HS256 signed with the public key", bearer(mint(p.claims("1"), { alg: "HS256", key: signing.publicKey.export({ type: "spki", format: "pem" }) })));
-  await reject("no subject", bearer(sign({ ...p.claims("1"), sub: undefined })));
+  t.expect("[R1] /health is public", await call("GET", `${base}/health`), 200);
+  await reject("[R1] no credentials", {});
+  await reject("[R2] garbage token", bearer("not.a.jwt"));
+  await reject("[R2] expired token", bearer(sign({ ...p.claims("1"), exp: Math.floor(Date.now() / 1000) - 60 })));
+  await reject("[R2] wrong issuer", bearer(sign({ ...p.claims("1"), iss: "https://evil.example/" })));
+  if (p.wrongAudience) await reject("[R2] wrong audience", bearer(sign({ ...p.claims("1"), ...p.wrongAudience })));
+  if (p.unauthorizedParty) await reject("[R2] azp not an authorized party", bearer(sign({ ...p.claims("1"), ...p.unauthorizedParty })));
+  await reject("[R2] signed by another key", bearer(sign(p.claims("1"), p.impostor ?? { key: impostor.privateKey })));
+  await reject('[R2] alg "none"', bearer(mint(p.claims("1"), { alg: "none" })));
+  await reject("[R2] HS256 signed with the public key", bearer(mint(p.claims("1"), { alg: "HS256", key: signing.publicKey.export({ type: "spki", format: "pem" }) })));
+  await reject("[R2] no subject", bearer(sign({ ...p.claims("1"), sub: undefined })));
 
   // Only the Supabase-shaped case maps a roles array we can set per token.
   const support = name === "jwt" ? (org) => bearer(sign({ ...p.claims(org), app_metadata: { org_id: org, roles: ["support"] } })) : undefined;
@@ -513,6 +519,71 @@ async function jwtCase(name, p, boot) {
   } else {
     t.expect("[R14] keys off: a request that sends x-api-key is refused, valid user token or not", await call("GET", base + ORGS, { headers: { ...valid("1"), "x-api-key": KEY } }), 401);
   }
+  await schemaCases(p, boot, t, sign);
+  return t.failures;
+}
+
+/**
+ * The cases that follow from the schema (src/lib/access/cases.ts): two seeded
+ * tenants, then every scoped entity against each way a query or a body could
+ * reach the other tenant, plus permissions and MCP tools where the schema has
+ * them. Runs on a fresh database with an API key set, which seeds the rows.
+ */
+async function schemaCases(p, boot, t, sign) {
+  const { base } = await boot({ APSO_API_KEY: KEY });
+  const rolesClaim = authTypes.resolveJwtAuth(p.auth).claims.roles;
+  const user = ({ tenant, roles = [] } = {}) => {
+    const claims = p.claims(tenant);
+    // Clerk's role claim (o.rol) is one role, not a list.
+    if (roles.length > 0) access.setClaim(claims, rolesClaim, p.auth.provider === "clerk" ? roles[0] : roles);
+    return { authorization: `Bearer ${sign(claims)}` };
+  };
+  const { entities: parsed, relationshipMap } = parser.parseApsorcV2({ version: 2, rootFolder: "src", entities: entities(p.auth), relationships: relationships(p.auth) });
+  await access.runAccessCases({
+    base,
+    model: access.buildModel(parsed, relationshipMap, language, p.auth),
+    t,
+    key: key(KEY),
+    user,
+    roles: Boolean(rolesClaim),
+    mcp: language === "typescript" ? (headers) => access.connectMcp(base, headers) : undefined,
+    log: console.log,
+    warn: (line) => warnings.add(line),
+  });
+}
+
+// ---------- build time (R26, R27) ----------
+
+/** `apso generate` must fail for a schema it cannot enforce, and say why. */
+function buildTimeCases(project) {
+  const t = checker("generate");
+  const jwtAuth = { provider: "jwt", jwt: { issuer: "https://issuer.apso.test" }, claims: { workspaceId: "org_id" } };
+  const org = { name: "Organization", fields: [{ name: "name", type: "text" }] };
+  const doc = (extra) => ({ name: "Doc", fields: [{ name: "title", type: "text" }], ...extra });
+  const rcPath = path.join(project, ".apsorc");
+  const rc = JSON.parse(fs.readFileSync(rcPath, "utf8"));
+  const refuses = (label, schema, pattern) => {
+    fs.writeFileSync(rcPath, JSON.stringify({ ...rc, version: 2, relationships: [], auth: undefined, ...schema }, null, 2));
+    const r = spawnSync(CLI, ["generate", "--language", language], { cwd: project, encoding: "utf8" });
+    const out = `${r.stdout}${r.stderr}`.replace(/\s+/g, " ");
+    t.assert(label, r.status !== 0 && pattern.test(out), `exit ${r.status}: ${out.slice(-400)}`);
+  };
+  refuses("[R27] generate refuses a tenant scope when the provider has no tenant claim", { auth: { provider: "auth0", jwt: { issuer: "https://issuer.apso.test/", audience: "api" } }, entities: [org, doc({ scopeBy: "organizationId" })], relationships: [{ from: "Organization", to: "Doc", type: "OneToMany" }] }, /tenant claim/);
+  if (language === "typescript") {
+    refuses("[R27] generate refuses permissions without sign-in", { entities: [doc({ permissions: { read: ["owner"] } })] }, /permissions.*auth block/);
+    refuses("[R27] generate refuses MCP tools without sign-in", { entities: [doc({ mcp: true })] }, /mcp.*auth block/i);
+    refuses("[R27] generate refuses a grants entity anyone can write", { auth: jwtAuth, entities: [doc({ permissions: { read: ["owner"] } }), { name: "RolePermission", fields: [{ name: "role", type: "text" }, { name: "permission", type: "text" }] }] }, /grant themselves any permission/);
+    refuses("[R27] generate refuses a grants entity with no tenant in a tenant-scoped schema", { auth: jwtAuth, entities: [org, doc({ scopeBy: "organizationId", permissions: { read: ["owner"] } }), { name: "RolePermission", permissions: { create: ["owner"], update: ["owner"], delete: ["owner"] }, fields: [{ name: "role", type: "text" }, { name: "permission", type: "text" }] }], relationships: [{ from: "Organization", to: "Doc", type: "OneToMany" }] }, /every tenant/);
+  } else {
+    // What this language cannot enforce it refuses, so the rule is never silently missing.
+    refuses("[R26,R11,R12] generate refuses permissions for this language", { auth: jwtAuth, entities: [doc({ permissions: { read: ["owner"] } })] }, /permissions.*TypeScript services only/);
+    refuses("[R26,R21,R22,R23] generate refuses MCP tools for this language", { auth: jwtAuth, entities: [doc({ mcp: true })] }, /mcp.*TypeScript services only/);
+    refuses("[R26,R6] generate refuses a scopeBy path through a parent for this language", { auth: jwtAuth, entities: [org, { name: "Project", scopeBy: "organizationId", fields: [{ name: "title", type: "text" }] }, doc({ scopeBy: "project.organizationId" })], relationships: [{ from: "Organization", to: "Project", type: "OneToMany" }, { from: "Project", to: "Doc", type: "OneToMany" }] }, /path through a parent/);
+  }
+  // Every sign-in provider is a JWT provider in every language; the removed ones and an incomplete one fail.
+  refuses("[R27] generate refuses the removed custom-db-session provider", { auth: { provider: "custom-db-session" }, entities: [doc({})] }, /"custom-db-session" was removed/);
+  refuses("[R27] generate refuses the removed api-key provider", { auth: { provider: "api-key" }, entities: [doc({})] }, /"api-key" was removed/);
+  refuses("[R27] generate refuses better-auth without its url", { auth: { provider: "better-auth" }, entities: [doc({})] }, /auth\.url/);
   return t.failures;
 }
 
@@ -540,10 +611,10 @@ async function mcpTools(base, t, owner, member, otherOwner, ownerForMcp) {
   });
   const challenge = anonymous.headers.get("www-authenticate") ?? "";
   const metadataUrl = /resource_metadata="([^"]+)"/.exec(challenge)?.[1];
-  t.assert("mcp without credentials is a 401 that names the sign-in metadata", anonymous.status === 401 && Boolean(metadataUrl), `${anonymous.status} ${challenge}`);
+  t.assert("[R22] mcp without credentials is a 401 that names the sign-in metadata", anonymous.status === 401 && Boolean(metadataUrl), `${anonymous.status} ${challenge}`);
   const metadata = metadataUrl ? await call("GET", metadataUrl) : { json: undefined, text: "" };
   t.assert(
-    "mcp sign-in metadata names the token issuer and this endpoint",
+    "[R22] mcp sign-in metadata names the token issuer and this endpoint",
     metadata.json?.resource === `${base}/mcp` && Array.isArray(metadata.json?.authorization_servers) && metadata.json.authorization_servers.length === 1,
     metadata.text
   );
@@ -552,37 +623,37 @@ async function mcpTools(base, t, owner, member, otherOwner, ownerForMcp) {
     headers: { "content-type": "application/json", accept: "application/json, text/event-stream", authorization: "Bearer not.a.jwt" },
     body: JSON.stringify(rpc),
   });
-  t.assert("mcp with a bad token is a 401 invalid_token", badToken.status === 401 && (badToken.headers.get("www-authenticate") ?? "").includes("invalid_token"));
+  t.assert("[R22] mcp with a bad token is a 401 invalid_token", badToken.status === 401 && (badToken.headers.get("www-authenticate") ?? "").includes("invalid_token"));
   // An MCP client asks the identity provider for a token for the MCP URL.
   const issuedForMcp = await (await connect(ownerForMcp)).listTools().then((r) => r.tools.length, () => 0);
-  t.assert("mcp accepts a token issued for the MCP endpoint's URL", issuedForMcp > 0);
+  t.assert("[R22] mcp accepts a token issued for the MCP endpoint's URL", issuedForMcp > 0);
 
   const names = (await asOwner.listTools()).tools.map((tool) => tool.name).sort();
   const expected = ["create_invoice", "delete_invoice", "get_invoice", "get_project", "list_invoices", "list_projects", "update_invoice"];
-  t.assert("mcp lists only the opted-in operations", JSON.stringify(names) === JSON.stringify(expected), names.join(","));
+  t.assert("[R21] mcp lists only the opted-in operations", JSON.stringify(names) === JSON.stringify(expected), names.join(","));
 
   const denied = await asMember.callTool({ name: "list_invoices", arguments: {} });
-  t.assert("mcp call by a member lacks invoice:read", denied.isError === true && text(denied).includes("invoice:read"), text(denied));
+  t.assert("[R23] mcp call by a member lacks invoice:read", denied.isError === true && text(denied).includes("invoice:read"), text(denied));
 
   // Invoice carries the permissions; Project carries the tenant scope.
   const created = await asOwner.callTool({ name: "create_invoice", arguments: { body: { total: 7, organizationId: 1 } } });
   const invoice = created.isError ? {} : JSON.parse(text(created));
-  t.assert("mcp create by the owner works", !created.isError && invoice.total === 7, text(created));
+  t.assert("[R23] mcp create by the owner works", !created.isError && invoice.total === 7, text(created));
   const mine = rowsOf(await asOwner.callTool({ name: "list_invoices", arguments: { limit: 100 } }));
-  t.assert("mcp list shows the owner its invoice", mine?.some((row) => row.id === invoice.id) === true);
+  t.assert("[R23] mcp list shows the owner its invoice", mine?.some((row) => row.id === invoice.id) === true);
 
   const project = await call("POST", base + PROJECTS, { headers: owner, body: { title: "mcp scoped", organizationId: 2 } });
-  if (!t.expect("create a project over REST for the mcp scope checks", project, 200, 201)) return;
+  if (!t.expect("[R23] create a project over REST for the mcp scope checks", project, 200, 201)) return;
   const own = rowsOf(await asOwner.callTool({ name: "list_projects", arguments: { limit: 100 } }));
-  t.assert("mcp list shows the owner its project", own?.some((row) => row.id === project.json.id) === true);
+  t.assert("[R23] mcp list shows the owner its project", own?.some((row) => row.id === project.json.id) === true);
   const theirs = rowsOf(await asOther.callTool({ name: "list_projects", arguments: { limit: 100 } }));
-  t.assert("mcp list hides it from another tenant", theirs !== undefined && !theirs.some((row) => row.id === project.json.id));
+  t.assert("[R23] mcp list hides it from another tenant", theirs !== undefined && !theirs.some((row) => row.id === project.json.id));
   const crossGet = await asOther.callTool({ name: "get_project", arguments: { id: project.json.id } });
-  t.assert("mcp get by id is refused across tenants", crossGet.isError === true, text(crossGet));
+  t.assert("[R23] mcp get by id is refused across tenants", crossGet.isError === true, text(crossGet));
   const memberDelete = await asMember.callTool({ name: "delete_invoice", arguments: { id: invoice.id } });
-  t.assert("mcp delete by a member lacks invoice:delete", memberDelete.isError === true && text(memberDelete).includes("invoice:delete"), text(memberDelete));
+  t.assert("[R23] mcp delete by a member lacks invoice:delete", memberDelete.isError === true && text(memberDelete).includes("invoice:delete"), text(memberDelete));
   const removed = await asOwner.callTool({ name: "delete_invoice", arguments: { id: invoice.id } });
-  t.assert("mcp delete by the owner works", !removed.isError, text(removed));
+  t.assert("[R23] mcp delete by the owner works", !removed.isError, text(removed));
 }
 
 /**
@@ -594,33 +665,33 @@ async function rolePermissions(base, t, owner, member, otherMember, memberWithDe
   const INVOICES = route("Invoices");
   const GRANTS = route("RolePermissions");
   const org = await call("POST", base + ORGS, { headers: owner, body: { name: "Billing Co" } });
-  if (!t.expect("create organization for invoices", org, 200, 201)) return;
+  if (!t.expect("[R11] create organization for invoices", org, 200, 201)) return;
   const created = await call("POST", base + INVOICES, { headers: member, body: { total: 100, organizationId: org.json.id } });
-  if (!t.expect("member creates an invoice (create not restricted)", created, 200, 201)) return;
+  if (!t.expect("[R11] member creates an invoice (create not restricted)", created, 200, 201)) return;
   const iid = created.json.id;
-  t.expect("member cannot list invoices", await call("GET", base + INVOICES, { headers: member }), 403);
-  t.expect("member cannot read an invoice", await call("GET", `${base}${INVOICES}/${iid}`, { headers: member }), 403);
-  t.expect("member cannot read invoices through a join", await call("GET", `${base}${ORGS}?join=invoices`, { headers: member }), 403);
-  t.expect("member lists organizations without the join", await call("GET", base + ORGS, { headers: member }), 200);
-  t.expect("member cannot delete an invoice", await call("DELETE", `${base}${INVOICES}/${iid}`, { headers: member }), 403);
-  t.expect("owner lists invoices", await call("GET", base + INVOICES, { headers: owner }), 200);
-  t.expect("owner reads invoices through a join", await call("GET", `${base}${ORGS}?join=invoices`, { headers: owner }), 200);
+  t.expect("[R11] member cannot list invoices", await call("GET", base + INVOICES, { headers: member }), 403);
+  t.expect("[R11] member cannot read an invoice", await call("GET", `${base}${INVOICES}/${iid}`, { headers: member }), 403);
+  t.expect("[R11] member cannot read invoices through a join", await call("GET", `${base}${ORGS}?join=invoices`, { headers: member }), 403);
+  t.expect("[R11] member lists organizations without the join", await call("GET", base + ORGS, { headers: member }), 200);
+  t.expect("[R11] member cannot delete an invoice", await call("DELETE", `${base}${INVOICES}/${iid}`, { headers: member }), 403);
+  t.expect("[R11] owner lists invoices", await call("GET", base + INVOICES, { headers: owner }), 200);
+  t.expect("[R11] owner reads invoices through a join", await call("GET", `${base}${ORGS}?join=invoices`, { headers: owner }), 200);
 
   // Runtime grants.
-  t.expect("member cannot grant itself a permission", await call("POST", base + GRANTS, { headers: member, body: { role: "member", permission: "invoice:read" } }), 403);
+  t.expect("[R12] member cannot grant itself a permission", await call("POST", base + GRANTS, { headers: member, body: { role: "member", permission: "invoice:read" } }), 403);
   const grant = await call("POST", base + GRANTS, { headers: owner, body: { role: "member", permission: "invoice:read", organizationId: 2 } });
-  if (t.expect("owner grants members invoice:read", grant, 200, 201)) {
-    t.assert("grant is stored in the owner's tenant", String(grant.json?.organizationId) === "1", `organizationId=${grant.json?.organizationId}`);
-    t.expect("member lists invoices after the grant", await call("GET", base + INVOICES, { headers: member }), 200);
-    t.expect("member reads invoices through a join after the grant", await call("GET", `${base}${ORGS}?join=invoices`, { headers: member }), 200);
-    t.expect("member of another tenant still cannot list invoices", await call("GET", base + INVOICES, { headers: otherMember }), 403);
-    t.expect("the grant does not include delete", await call("DELETE", `${base}${INVOICES}/${iid}`, { headers: member }), 403);
-    t.expect("owner revokes the grant", await call("DELETE", `${base}${GRANTS}/${grant.json.id}`, { headers: owner }), 200, 204);
-    t.expect("member cannot list invoices after the revoke", await call("GET", base + INVOICES, { headers: member }), 403);
+  if (t.expect("[R12] owner grants members invoice:read", grant, 200, 201)) {
+    t.assert("[R12] grant is stored in the owner's tenant", String(grant.json?.organizationId) === "1", `organizationId=${grant.json?.organizationId}`);
+    t.expect("[R12] member lists invoices after the grant", await call("GET", base + INVOICES, { headers: member }), 200);
+    t.expect("[R12] member reads invoices through a join after the grant", await call("GET", `${base}${ORGS}?join=invoices`, { headers: member }), 200);
+    t.expect("[R12] member of another tenant still cannot list invoices", await call("GET", base + INVOICES, { headers: otherMember }), 403);
+    t.expect("[R12] the grant does not include delete", await call("DELETE", `${base}${INVOICES}/${iid}`, { headers: member }), 403);
+    t.expect("[R12] owner revokes the grant", await call("DELETE", `${base}${GRANTS}/${grant.json.id}`, { headers: owner }), 200, 204);
+    t.expect("[R12] member cannot list invoices after the revoke", await call("GET", base + INVOICES, { headers: member }), 403);
   }
 
   // A permission in the token (Auth0 RBAC style).
-  t.expect("member with invoice:delete in its token deletes the invoice", await call("DELETE", `${base}${INVOICES}/${iid}`, { headers: memberWithDelete }), 200, 204);
+  t.expect("[R11] member with invoice:delete in its token deletes the invoice", await call("DELETE", `${base}${INVOICES}/${iid}`, { headers: memberWithDelete }), 200, 204);
 }
 
 // ---------- API keys (apsoai/cli#207; rules from apsoai/cli#208) ----------
@@ -682,7 +753,7 @@ async function keyCase(name, boot) {
   await everyRoute("[R0] nothing configured, a key is sent", key(KEY), s.base);
   plain401(t, "[R0] no local flag", await call("GET", s.base + ORGS), s.log);
   const kept = await call("GET", s.base + ORGS, { headers: { "x-request-id": "req-from-caller-1" } });
-  t.assert("a request id the caller sent is kept and echoed", kept.requestId === "req-from-caller-1" && bodyRequestId(kept) === "req-from-caller-1", `${kept.requestId} ${kept.text.slice(0, 200)}`);
+  t.assert("[R24] a request id the caller sent is kept and echoed", kept.requestId === "req-from-caller-1" && bodyRequestId(kept) === "req-from-caller-1", `${kept.requestId} ${kept.text.slice(0, 200)}`);
 
   // The same service on a developer's machine, then with a copied .env on Lambda.
   s = await boot({ APSO_LOCAL: "1" });
@@ -853,7 +924,7 @@ async function authEntitiesCase(name, _p, boot, project) {
   const clean = (label, res) => t.assert(label, res.status === 200 && !SECRETS.some((secret) => res.text.includes(secret)), `${res.status} ${res.text.slice(0, 300)}`);
 
   const own = await call("GET", `${base}/projects`, { headers: ana });
-  t.assert("Better Auth's token signs the user in to its own tenant", own.status === 200 && rows(own.json).length === 1 && rows(own.json)[0].title === "ana project", `${own.status} ${own.text.slice(0, 200)}`);
+  t.assert("[R6] Better Auth's token signs the user in to its own tenant", own.status === 200 && rows(own.json).length === 1 && rows(own.json)[0].title === "ana project", `${own.status} ${own.text.slice(0, 200)}`);
 
   const bodies = {
     "/users": { email: "eve@apso.test" },
@@ -903,7 +974,7 @@ async function authEntitiesCase(name, _p, boot, project) {
   t.assert("[R28] key caller joins one auth entity to another", joined.status === 200 && rows(joined.json).every((row) => row.user?.email), `${joined.status} ${joined.text.slice(0, 200)}`);
   t.expect("[R28] key caller updates an account", await call("PATCH", `${base}/accounts/${seeded.ben["/accounts"]}`, { headers: key(KEY), body: { password: "hash-of-ben-2" } }), 200);
   t.expect("[R28] key caller deletes a session", await call("DELETE", `${base}/sessions/${seeded.ben["/sessions"]}`, { headers: key(KEY) }), 200, 204);
-  t.expect("a stored session's token is not a credential", await call("GET", `${base}/projects`, { headers: { authorization: "Bearer session-of-ana" } }), 401);
+  t.expect("[R1] a stored session's token is not a credential", await call("GET", `${base}/projects`, { headers: { authorization: "Bearer session-of-ana" } }), 401);
 
   // Only TypeScript services serve MCP tools.
   if (language !== "typescript") return t.failures;
@@ -991,7 +1062,7 @@ const cases = { "no-auth": {}, ...providers(`http://127.0.0.1:${jwksPort}`) };
       // Each issuer's own claim names end up as the one tenant the scope uses.
       const org1 = await call("POST", base + ORGS, { headers: staff("1"), body: { name: "Acme" } });
       const org2 = await call("POST", base + ORGS, { headers: customer("1"), body: { name: "Beta" } });
-      if (!t.expect("create organization (first issuer)", org1, 200, 201) || !t.expect("create organization (second issuer)", org2, 200, 201)) return t.failures;
+      if (!t.expect("[R3] create organization (first issuer)", org1, 200, 201) || !t.expect("[R3] create organization (second issuer)", org2, 200, 201)) return t.failures;
       const [id1, id2] = [String(org1.json.id), String(org2.json.id)];
       const project = await call("POST", base + PROJECTS, { headers: staff(id1), body: { title: "Staff made", organizationId: Number(id2) } });
       if (!t.expect("[R6] first issuer's user creates a project", project, 200, 201)) return t.failures;
@@ -1013,7 +1084,7 @@ const cases = { "no-auth": {}, ...providers(`http://127.0.0.1:${jwksPort}`) };
       // Roles come from each issuer's own claim too: "support" skips the scope on tickets.
       const TICKETS = route("Tickets");
       const ticket = await call("POST", base + TICKETS, { headers: staff(id1), body: { title: "Login broken" } });
-      if (t.expect("create ticket", ticket, 200, 201)) {
+      if (t.expect("[R10] create ticket", ticket, 200, 201)) {
         const tid = ticket.json.id;
         t.assert("[R10] support role in the first issuer's claim (roles) lists another tenant's ticket", has(await get(staff(id2, { roles: ["support"] }), TICKETS), tid));
         t.assert("[R10] support role in the second issuer's claim (groups) lists another tenant's ticket", has(await get(customer(id2, { groups: ["support"] }), TICKETS), tid));
@@ -1205,53 +1276,53 @@ async function accessTokenTenant(base, t, issuer, asOrg1) {
   await issuer.member(mia.id, "2", "member");
 
   const undecided = await issuer.grant(mia.cookie, API_RESOURCE);
-  t.assert("access token: a user with several organizations is sent to choose one, and no code is issued", JSON.stringify(undecided.steps) === '["select-organization"]' && !undecided.access_token, JSON.stringify(undecided.steps));
+  t.assert("[R6] access token: a user with several organizations is sent to choose one, and no code is issued", JSON.stringify(undecided.steps) === '["select-organization"]' && !undecided.access_token, JSON.stringify(undecided.steps));
   const skipped = await issuer.grant(mia.cookie, API_RESOURCE, { choose: null });
-  t.assert("access token: continuing without choosing issues no code", !skipped.access_token && skipped.steps.length === 2, JSON.stringify(skipped.steps));
-  t.assert("access token: the user cannot choose an organization they are not a member of", (await issuer.setActive(mia.cookie, "3")) === 403);
+  t.assert("[R6] access token: continuing without choosing issues no code", !skipped.access_token && skipped.steps.length === 2, JSON.stringify(skipped.steps));
+  t.assert("[R6] access token: the user cannot choose an organization they are not a member of", (await issuer.setActive(mia.cookie, "3")) === 403);
 
   const chosen = await issuer.grant(mia.cookie, API_RESOURCE, { choose: "2" });
-  t.assert("access token: carries the chosen organization as the tenant", tenant(chosen.access_token) === "2", JSON.stringify(decode(chosen.access_token)[1]));
-  t.assert("access token: roles are that organization's membership, not another's", roles(chosen.access_token) === '["member"]', roles(chosen.access_token));
+  t.assert("[R6] access token: carries the chosen organization as the tenant", tenant(chosen.access_token) === "2", JSON.stringify(decode(chosen.access_token)[1]));
+  t.assert("[R6] access token: roles are that organization's membership, not another's", roles(chosen.access_token) === '["member"]', roles(chosen.access_token));
 
   // The service scopes by it exactly as for the front end's token.
   const theirs = await call("POST", base + PROJECTS, { headers: asOrg1, body: { title: "Org 1 only" } });
   const mine = await call("POST", base + PROJECTS, { headers: bearer(chosen.access_token), body: { title: "From an OAuth client", organizationId: 1 } });
-  if (t.expect("access token: creates a project", mine, 200, 201) && t.expect("front end token: creates a project in organization 1", theirs, 200, 201)) {
-    t.assert("access token: the project is stored under the token's tenant, whatever the body says", String(mine.json?.organizationId) === "2", `organizationId=${mine.json?.organizationId}`);
+  if (t.expect("[R6] access token: creates a project", mine, 200, 201) && t.expect("[R6] front end token: creates a project in organization 1", theirs, 200, 201)) {
+    t.assert("[R8] access token: the project is stored under the token's tenant, whatever the body says", String(mine.json?.organizationId) === "2", `organizationId=${mine.json?.organizationId}`);
     const list = await call("GET", base + PROJECTS, { headers: bearer(chosen.access_token) });
     const ids = rows(list.json).map((row) => row.id);
-    t.assert("access token: lists its tenant's rows and not another tenant's", list.status === 200 && ids.includes(mine.json.id) && !ids.includes(theirs.json.id), list.text.slice(0, 200));
-    t.expect("access token: cannot read another tenant's row", await call("GET", `${base}${PROJECTS}/${theirs.json.id}`, { headers: bearer(chosen.access_token) }), 403, 404);
+    t.assert("[R6] access token: lists its tenant's rows and not another tenant's", list.status === 200 && ids.includes(mine.json.id) && !ids.includes(theirs.json.id), list.text.slice(0, 200));
+    t.expect("[R6] access token: cannot read another tenant's row", await call("GET", `${base}${PROJECTS}/${theirs.json.id}`, { headers: bearer(chosen.access_token) }), 403, 404);
   }
 
   // The client cannot name the organization: not in the authorization request, not in the consent submission.
   const named = { reference_id: "3", referenceId: "3", organizationId: "3", organization_id: "3", activeOrganizationId: "3", consent_reference_id: "3" };
   const tampered = await issuer.grant(mia.cookie, API_RESOURCE, { extra: named, choose: "2" });
-  t.assert("access token: organization parameters added to the authorization request are ignored", tenant(tampered.access_token) === "2", String(tenant(tampered.access_token)));
+  t.assert("[R6] access token: organization parameters added to the authorization request are ignored", tenant(tampered.access_token) === "2", String(tenant(tampered.access_token)));
   const consented = await issuer.grant(mia.cookie, API_RESOURCE, { choose: "2", consent: named });
-  t.assert("access token: organization fields added to the consent submission are ignored", consented.steps.includes("consent") && tenant(consented.access_token) === "2", `${consented.steps} ${tenant(consented.access_token)}`);
-  t.assert("access token: a consent submission with the signed request changed is refused", (await issuer.consentWithAlteredQuery(mia.cookie, API_RESOURCE)) === 400);
+  t.assert("[R6] access token: organization fields added to the consent submission are ignored", consented.steps.includes("consent") && tenant(consented.access_token) === "2", `${consented.steps} ${tenant(consented.access_token)}`);
+  t.assert("[R6] access token: a consent submission with the signed request changed is refused", (await issuer.consentWithAlteredQuery(mia.cookie, API_RESOURCE)) === 400);
 
   // Refresh keeps the organization while the user is a member, and loses it when they are removed.
   const refreshed = await issuer.refresh(chosen);
-  t.assert("access token: a refreshed token carries the same tenant and roles", tenant(refreshed) === "2" && roles(refreshed) === '["member"]', JSON.stringify(decode(refreshed)[1]));
+  t.assert("[R6] access token: a refreshed token carries the same tenant and roles", tenant(refreshed) === "2" && roles(refreshed) === '["member"]', JSON.stringify(decode(refreshed)[1]));
   await issuer.removeMember(mia.id, "2");
   const after = await issuer.refresh(chosen);
-  t.assert("access token: after the user is removed from the organization, a refreshed token has no tenant and no roles", !("activeOrganizationId" in decode(after)[1]) && !("roles" in decode(after)[1]), JSON.stringify(decode(after)[1]));
-  t.expect("access token: with no tenant claim the service answers the no-tenant 403", await call("GET", base + PROJECTS, { headers: bearer(after) }), 403);
+  t.assert("[R9] access token: after the user is removed from the organization, a refreshed token has no tenant and no roles", !("activeOrganizationId" in decode(after)[1]) && !("roles" in decode(after)[1]), JSON.stringify(decode(after)[1]));
+  t.expect("[R9] access token: with no tenant claim the service answers the no-tenant 403", await call("GET", base + PROJECTS, { headers: bearer(after) }), 403);
   // Her session still names organization 2 as active; a new grant does not get it.
   const stale = await issuer.grant(mia.cookie, API_RESOURCE);
-  t.assert("access token: a new grant after removal falls back to the one organization left, not the removed one", tenant(stale.access_token) === "1" && roles(stale.access_token) === '["owner"]', JSON.stringify(decode(stale.access_token)[1]));
+  t.assert("[R6] access token: a new grant after removal falls back to the one organization left, not the removed one", tenant(stale.access_token) === "1" && roles(stale.access_token) === '["owner"]', JSON.stringify(decode(stale.access_token)[1]));
 
   // One membership and nothing chosen: that organization. No membership: no tenant.
   const uno = await issuer.user("uno@apso.test", "2", "member", false);
   const only = await issuer.grant(uno.cookie, API_RESOURCE);
-  t.assert("access token: a user with exactly one organization gets it without choosing", only.steps.length === 0 && tenant(only.access_token) === "2", `${only.steps} ${tenant(only.access_token)}`);
+  t.assert("[R6] access token: a user with exactly one organization gets it without choosing", only.steps.length === 0 && tenant(only.access_token) === "2", `${only.steps} ${tenant(only.access_token)}`);
   const nobody = await issuer.user("ora@apso.test");
   const none = await issuer.grant(nobody.cookie, API_RESOURCE);
-  t.assert("access token: a user with no organization gets a token with no tenant claim", !("activeOrganizationId" in decode(none.access_token)[1]));
-  t.expect("access token: and the service answers the no-tenant 403", await call("GET", base + PROJECTS, { headers: bearer(none.access_token) }), 403);
+  t.assert("[R9] access token: a user with no organization gets a token with no tenant claim", !("activeOrganizationId" in decode(none.access_token)[1]));
+  t.expect("[R9] access token: and the service answers the no-tenant 403", await call("GET", base + PROJECTS, { headers: bearer(none.access_token) }), 403);
 }
 
 cases["better-auth"] = {
@@ -1272,22 +1343,22 @@ cases["better-auth"] = {
     const ana = users[1];
     const [header, claims] = decode(ana.token);
     t.assert(
-      "Better Auth's JWT plugin token: EdDSA, iss and aud are its origin, tenant and roles under the default claim names",
+      "[R2] Better Auth's JWT plugin token: EdDSA, iss and aud are its origin, tenant and roles under the default claim names",
       header.alg === "EdDSA" && claims.iss === BETTER_AUTH_ORIGIN && claims.aud === BETTER_AUTH_ORIGIN && claims.sub === ana.id && claims.activeOrganizationId === "1" && JSON.stringify(claims.roles) === '["owner"]',
       JSON.stringify({ header, claims })
     );
-    t.assert("a user with no active organization gets a token with no tenant claim", !("activeOrganizationId" in decode(users.none.token)[1]));
+    t.assert("[R9] a user with no active organization gets a token with no tenant claim", !("activeOrganizationId" in decode(users.none.token)[1]));
 
-    t.expect("the JWT plugin's token is accepted", await get(bearer(ana.token)), 200);
-    t.expect("a session cookie is refused", await get({ cookie: ana.cookie }), 401);
-    t.expect("a session token as the bearer token is refused", await get(bearer(ana.sessionToken)), 401);
-    t.expect("the signed session cookie value as the bearer token is refused", await get(bearer(decodeURIComponent(ana.cookie.split("=")[1]))), 401);
+    t.expect("[R2] the JWT plugin's token is accepted", await get(bearer(ana.token)), 200);
+    t.expect("[R1] a session cookie is refused", await get({ cookie: ana.cookie }), 401);
+    t.expect("[R1] a session token as the bearer token is refused", await get(bearer(ana.sessionToken)), 401);
+    t.expect("[R1] the signed session cookie value as the bearer token is refused", await get(bearer(decodeURIComponent(ana.cookie.split("=")[1]))), 401);
     const now = Math.floor(Date.now() / 1000);
-    t.expect("expired (signed with Better Auth's key)", await get(bearer(await issuer.sign({ ...claims, iat: now - 1000, exp: now - 60 }))), 401);
-    t.expect("wrong issuer (signed with Better Auth's key)", await get(bearer(await issuer.sign({ ...claims, exp: now + 600, iss: "https://evil.example" }))), 401);
-    t.expect("wrong audience (signed with Better Auth's key)", await get(bearer(await issuer.sign({ ...claims, exp: now + 600, aud: "https://other.example" }))), 401);
-    t.expect("Better Auth's claims and key id, signed by another key", await get(bearer(mint({ ...claims, exp: now + 600 }, { alg: "EdDSA", key: edImpostor.privateKey, kid: header.kid }))), 401);
-    t.expect("the same payload re-signed with Better Auth's key is accepted, so the refusals above are for their reason", await get(bearer(await issuer.sign({ ...claims, exp: now + 600 }))), 200);
+    t.expect("[R2] expired (signed with Better Auth's key)", await get(bearer(await issuer.sign({ ...claims, iat: now - 1000, exp: now - 60 }))), 401);
+    t.expect("[R2] wrong issuer (signed with Better Auth's key)", await get(bearer(await issuer.sign({ ...claims, exp: now + 600, iss: "https://evil.example" }))), 401);
+    t.expect("[R2] wrong audience (signed with Better Auth's key)", await get(bearer(await issuer.sign({ ...claims, exp: now + 600, aud: "https://other.example" }))), 401);
+    t.expect("[R2] Better Auth's claims and key id, signed by another key", await get(bearer(mint({ ...claims, exp: now + 600 }, { alg: "EdDSA", key: edImpostor.privateKey, kid: header.kid }))), 401);
+    t.expect("[R2] the same payload re-signed with Better Auth's key is accepted, so the refusals above are for their reason", await get(bearer(await issuer.sign({ ...claims, exp: now + 600 }))), 200);
 
     // Tenant scope from the activeOrganizationId claim; no claim is a 403.
     const as = (org) => bearer(users[org ?? "none"].token);
@@ -1297,7 +1368,7 @@ cases["better-auth"] = {
     const forMcp = await issuer.accessToken(ana.cookie, MCP_RESOURCE);
     const [atHeader, atClaims] = decode(forMcp);
     t.assert(
-      "Better Auth's OAuth access token: at+jwt, iss is the base URL, aud holds the resource, azp and the tenant are set",
+      "[R2] Better Auth's OAuth access token: at+jwt, iss is the base URL, aud holds the resource, azp and the tenant are set",
       atHeader.typ === "at+jwt" && atClaims.iss === BETTER_AUTH.url && [atClaims.aud].flat().includes(MCP_RESOURCE) && typeof atClaims.azp === "string" && atClaims.sub === ana.id && atClaims.activeOrganizationId === "1",
       JSON.stringify({ atHeader, atClaims })
     );
@@ -1305,17 +1376,17 @@ cases["better-auth"] = {
 
     if (language !== "typescript") {
       // No MCP endpoint in these services, so its URL is not an audience.
-      t.expect("an access token issued for an MCP URL is refused (the audience is not this service's)", await get(bearer(forMcp)), 401);
+      t.expect("[R2] an access token issued for an MCP URL is refused (the audience is not this service's)", await get(bearer(forMcp)), 401);
       return t.failures;
     }
-    t.expect("an access token issued for the MCP URL is accepted", await get(bearer(forMcp)), 200);
+    t.expect("[R2] an access token issued for the MCP URL is accepted", await get(bearer(forMcp)), 200);
     const mine = await call("POST", base + PROJECTS, { headers: bearer(forMcp), body: { title: "From an MCP client", organizationId: 2 } });
-    t.assert("it is scoped to the tenant in its claim", String(mine.json?.organizationId) === "1", mine.text.slice(0, 200));
-    t.expect("an access token issued for another resource is refused", await get(bearer(await issuer.accessToken(ana.cookie, OTHER_RESOURCE))), 401);
+    t.assert("[R8] it is scoped to the tenant in its claim", String(mine.json?.organizationId) === "1", mine.text.slice(0, 200));
+    t.expect("[R2] an access token issued for another resource is refused", await get(bearer(await issuer.accessToken(ana.cookie, OTHER_RESOURCE))), 401);
     const at = { typ: "at+jwt" };
-    t.expect("an access token without azp is refused (signed with Better Auth's key)", await get(bearer(await issuer.sign({ ...atClaims, azp: undefined }, at))), 401);
-    t.expect("the same access token payload with azp is accepted", await get(bearer(await issuer.sign(atClaims, at))), 200);
-    t.expect("a token for the MCP URL that is not an access token is refused (signed with Better Auth's key)", await get(bearer(await issuer.sign(atClaims))), 401);
+    t.expect("[R2] an access token without azp is refused (signed with Better Auth's key)", await get(bearer(await issuer.sign({ ...atClaims, azp: undefined }, at))), 401);
+    t.expect("[R2] the same access token payload with azp is accepted", await get(bearer(await issuer.sign(atClaims, at))), 200);
+    t.expect("[R2] a token for the MCP URL that is not an access token is refused (signed with Better Auth's key)", await get(bearer(await issuer.sign(atClaims))), 401);
 
     const rpc = (headers = {}) =>
       fetch(`${base}/mcp`, {
@@ -1326,40 +1397,50 @@ cases["better-auth"] = {
     const metadataUrl = /resource_metadata="([^"]+)"/.exec((await rpc()).headers.get("www-authenticate") ?? "")?.[1];
     // The metadata URL is on the public host in MCP_RESOURCE_URL; ask this server for its path.
     const metadata = metadataUrl ? await call("GET", base + new URL(metadataUrl).pathname) : { json: undefined, text: "no metadata URL in the 401" };
-    t.assert("mcp sign-in metadata lists Better Auth's base URL as the authorization server", JSON.stringify(metadata.json?.authorization_servers) === JSON.stringify([BETTER_AUTH.url]), metadata.text);
+    t.assert("[R22] mcp sign-in metadata lists Better Auth's base URL as the authorization server", JSON.stringify(metadata.json?.authorization_servers) === JSON.stringify([BETTER_AUTH.url]), metadata.text);
     const client = new Client({ name: "auth-smoke-better-auth", version: "1" });
     const tools = await client
       .connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`), { requestInit: { headers: bearer(forMcp) } }))
       .then(() => client.listTools())
       .then((r) => r.tools.length, () => 0);
-    t.assert("mcp lists tools for the access token", tools > 0);
-    t.assert("mcp refuses a session token", (await rpc(bearer(ana.sessionToken))).status === 401);
+    t.assert("[R22] mcp lists tools for the access token", tools > 0);
+    t.assert("[R22] mcp refuses a session token", (await rpc(bearer(ana.sessionToken))).status === 401);
     return t.failures;
   },
 };
 // The auth entities case above, on the same provider.
 cases["auth-entities"] = { ...SESSION_AUTH, auth: BETTER_AUTH };
 
-const work = fs.mkdtempSync(path.join(os.tmpdir(), "apso-auth-smoke-"));
+// AUTH_SMOKE_PROJECT: a directory to scaffold into once and reuse, so the
+// break-each-rule job does not install dependencies for every run.
+const reuse = process.env.AUTH_SMOKE_PROJECT;
+const work = reuse || fs.mkdtempSync(path.join(os.tmpdir(), "apso-auth-smoke-"));
 const failures = [];
 try {
-  console.log(`==> Scaffolding a ${language} project in ${work}`);
-  const project = scaffold(work);
-  {
+  const fresh = !fs.existsSync(path.join(work, "authapp"));
+  if (fresh) console.log(`==> Scaffolding a ${language} project in ${work}`);
+  if (reuse) fs.mkdirSync(work, { recursive: true });
+  const project = fresh ? scaffold(work) : path.join(work, "authapp");
+  if (fresh) {
     // A new project gets a development key in .env, which git ignores. The
     // cases below set the service's key source themselves, so take it out
     // (the TypeScript service reads .env).
     const t = checker("init");
     const envPath = path.join(project, ".env");
     const env = fs.readFileSync(envPath, "utf8");
-    t.assert("apso init writes a development key and the local flag to .env", /^APSO_API_KEY=apso_dev_\w{32,}$/m.test(env) && /^APSO_LOCAL=1$/m.test(env));
-    t.assert(".env is git-ignored in the scaffold", spawnSync("git", ["check-ignore", "-q", ".env"], { cwd: project }).status === 0);
+    t.assert("[R14] apso init writes a development key and the local flag to .env", /^APSO_API_KEY=apso_dev_\w{32,}$/m.test(env) && /^APSO_LOCAL=1$/m.test(env));
+    t.assert("[R14] .env is git-ignored in the scaffold", spawnSync("git", ["check-ignore", "-q", ".env"], { cwd: project }).status === 0);
     fs.writeFileSync(envPath, env.replace(/^APSO_.*\n/gm, ""));
     failures.push(...t.failures);
+  }
+  if (only.length === 0 || only.includes("generate")) {
+    console.log(`==> ${language} / generate`);
+    failures.push(...buildTimeCases(project));
   }
   for (const [name, p] of Object.entries(cases)) {
     if (only.length > 0 && !only.includes(name)) continue;
     console.log(`==> ${language} / ${name}`);
+    // The process id keeps two runs on one Postgres server off each other's databases.
     const db = `auth_smoke_${language}_${name.replace(/\W/g, "_")}_${process.pid}`;
     let server;
     // (Re)start the service on an empty database with these APSO_* settings.
@@ -1394,8 +1475,18 @@ try {
 } finally {
   jwks.close();
   betterAuthServer?.kill();
-  if (!process.env.AUTH_SMOKE_KEEP) fs.rmSync(work, { recursive: true, force: true });
+  if (!process.env.AUTH_SMOKE_KEEP && !reuse) fs.rmSync(work, { recursive: true, force: true });
 }
+
+// The per-rule result. A case that names no rule or an unknown one, and (on a
+// full run) a rule marked enforced or refused for this language with no case,
+// fail the run: the rule list and the suite cannot drift apart.
+if (warnings.size > 0) console.log(`\nWarnings (not rule failures):\n${[...warnings].map((w) => `- ${w}`).join("\n")}`);
+console.log(`\n${report.table()}`);
+const drift = [...report.problems(), ...(only.length === 0 ? report.uncovered().map((id) => `${id} is marked ${access.RULES.find((r) => r.id === id).status[language]} for ${language} in src/lib/access/rules.json but no case ran for it`) : [])];
+for (const d of drift) failures.push(`rules: ${d}`);
+if (process.env.AUTH_SMOKE_RESULTS)
+  fs.writeFileSync(process.env.AUTH_SMOKE_RESULTS, JSON.stringify({ language, rows: report.rows(), results: report.results, failures }, null, 2));
 
 if (failures.length > 0) {
   console.log(`\nFAIL (${language}): ${failures.length} check(s) failed`);

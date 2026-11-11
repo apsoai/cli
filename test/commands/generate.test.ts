@@ -78,9 +78,8 @@ describe("apso generate removes stale autogen files", () => {
 });
 
 describe("apso generate with tenant-scoped entities and no tenant claim", () => {
-  test("warns and still succeeds", async () => {
+  test("fails and names the provider and the entity", async () => {
     jest.spyOn(console, "log").mockReturnValue();
-    const warn = jest.spyOn(Generate.prototype, "warn").mockImplementation((w) => w);
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "apso-generate-"));
     process.chdir(dir);
     fs.writeFileSync(
@@ -95,13 +94,10 @@ describe("apso generate with tenant-scoped entities and no tenant claim", () => 
         relationships: [],
       })
     );
-    // Resolving is exit code 0; a failed generate rejects.
-    await Generate.run(["--skip-format"]);
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0][0]).toContain(
+    await expect(Generate.run(["--skip-format"])).rejects.toThrow(
       'auth provider "jwt" (https://issuer.example.com/) has no tenant claim, but Invoice is tenant-scoped'
     );
-    expect(fs.existsSync(path.join(dir, "src", "autogen", "guards", "auth.guard.ts"))).toBe(true);
+    expect(fs.existsSync(path.join(dir, "src", "autogen", "guards", "auth.guard.ts"))).toBe(false);
   }, 30_000);
 });
 

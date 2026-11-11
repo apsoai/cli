@@ -35,6 +35,7 @@ import {
   entityScope,
   hasPermissions,
   nestedScopeEntities,
+  assertTenantClaim,
 } from "../guards";
 import { pyString } from "../ddl/migration-file";
 import {
@@ -746,9 +747,10 @@ ${downStatements || "    pass"}
       );
     const nested = auth ? nestedScopeEntities(entities) : [];
     if (nested.length > 0)
-      console.warn(
-        `[apso] Nested scopeBy paths are enforced in TypeScript services only; ${nested.join(", ")} will not be filtered by those paths in this Python service`
+      throw new Error(
+        `${nested.join(", ")}: a scopeBy path through a parent (for example "project.organizationId") is enforced in TypeScript services only for now. In Python, put the tenant field on the entity and scope by it, or generate with --language typescript.`
       );
+    assertTenantClaim(entities, auth);
     // The API key check is part of every service; auth adds user sign-in.
     // One entry per trusted issuer; undefined when there is no sign-in.
     const jwt = resolveJwtProviders(auth);

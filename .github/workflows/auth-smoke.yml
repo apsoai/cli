@@ -5,6 +5,8 @@ name: auth smoke test
 # checks the built-in API key check (APSO_API_KEY, the platform gateway's
 # service token, nothing configured), that bad credentials get 401, good ones
 # can do CRUD, and tenants only see their own rows. See scripts/auth-smoke.mjs.
+# Every case names its access rule (src/lib/access/rules.json); the run prints
+# a per-rule table and fails when a rule has no case. See docs/access-rules.md.
 on:
   workflow_dispatch:
   schedule:
@@ -18,7 +20,9 @@ on:
       - "src/lib/utils/crud-deps.ts"
       - "src/lib/utils/template.ts"
       - "src/commands/generate.ts"
+      - "src/lib/access/**"
       - "scripts/auth-smoke.mjs"
+      - "scripts/access-mutations.mjs"
       - ".github/workflows/auth-smoke.yml"
 
 jobs:

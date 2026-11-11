@@ -23,7 +23,7 @@ const relationshipMap: RelationshipMap = {
   Organization: [{ name: "Invoice", type: "OneToMany" }],
   Invoice: [{ name: "Organization", type: "ManyToOne" }],
 };
-const jwt: AuthConfig = { provider: "jwt", jwt: { issuer: "https://issuer.example.com/", audience: "api" } };
+const jwt: AuthConfig = { provider: "jwt", jwt: { issuer: "https://issuer.example.com/", audience: "api" }, claims: { workspaceId: "org_id" } };
 
 // Each constructor points Eta at its language's templates, so build at the point of use.
 const generator = (language: TargetLanguage) => {
