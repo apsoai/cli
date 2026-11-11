@@ -29,6 +29,8 @@ import * as fs from "fs";
 import * as os from "os";
 import { promisify } from "util";
 import {
+  authEntityNames,
+  authEntityRoutes,
   getPermissionConfig,
   getScopedEntities,
   hasScopedEntities,
@@ -186,9 +188,20 @@ export class TypeScriptGenerator extends BaseGenerator {
     const { entity, relationships, relationshipMap, auth } = options;
     const { name: entityName } = entity;
 
+    // Auth entities are for service callers only, so no other entity's
+    // controller joins onto them.
+    const authEntities = new Set(authEntityNames(options.allEntities, auth));
+    const joinable = (r: { name: string }) =>
+      authEntities.has(entityName) || !authEntities.has(r.name);
     const relationshipsForTemplate = getRelationshipForTemplate(
       entityName,
-      relationships
+      relationships?.filter((r) => joinable(r))
+    );
+    const joinMap: RelationshipMap = Object.fromEntries(
+      Object.entries(relationshipMap ?? {}).map(([name, list]) => [
+        name,
+        list.filter((r) => joinable(r)),
+      ])
     );
 
     // Handle nested relationships for joins
@@ -200,11 +213,7 @@ export class TypeScriptGenerator extends BaseGenerator {
     const nestedJoinsStream = fs.createWriteStream(nestedJoinsFile, {
       encoding: "utf8",
     });
-    await streamNestedRelationships(
-      entityName,
-      relationshipMap,
-      nestedJoinsStream
-    );
+    await streamNestedRelationships(entityName, joinMap, nestedJoinsStream);
     nestedJoinsStream.end();
     await new Promise<void>((resolve) => {
       nestedJoinsStream.on("finish", () => resolve());
@@ -547,6 +556,8 @@ export class TypeScriptGenerator extends BaseGenerator {
       hasAuth,
       authProvider: auth?.provider,
       authEntities,
+      // Routes only a service caller reaches (sessions, accounts, ...).
+      authRoutes: authEntityRoutes(entities, auth),
       jwt,
       permissions,
       // OAuth sign-in for MCP clients: tokens come from the JWT issuer.

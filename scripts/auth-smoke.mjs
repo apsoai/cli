@@ -27,6 +27,9 @@
  *     itself; a permission in the token is honored
  *   - mcp (TypeScript) serves only the opted-in operations as tools at /mcp,
  *     and a tool call meets the same auth, permission and scope guards as REST
+ *   - with the better-auth provider (TypeScript), the auth entities (user,
+ *     account, session, verification, membership) answer a service caller
+ *     only: not a signed-in user, a join from another entity or an MCP tool
  *
  * Tokens are minted locally with the claim shapes each provider issues, signed
  * by a key this script serves as a JWKS. Service tokens are signed the way the
@@ -288,10 +291,10 @@ function scaffold(dir) {
   return path.join(dir, "authapp");
 }
 
-function generate(project, auth) {
+function generate(project, auth, schema = { entities: entities(auth), relationships: relationships(auth) }) {
   const rcPath = path.join(project, ".apsorc");
   const rc = JSON.parse(fs.readFileSync(rcPath, "utf8"));
-  Object.assign(rc, { version: 2, entities: entities(auth), relationships: relationships(auth), auth });
+  Object.assign(rc, { version: 2, ...schema, auth });
   fs.writeFileSync(rcPath, JSON.stringify(rc, null, 2));
   sh(CLI, ["generate", "--language", language], { cwd: project });
   if (language === "typescript") {
@@ -780,6 +783,124 @@ async function gatewayNextToSignIn(base, t, user) {
   t.expect("[R1] platform mode: no credential", await call("GET", base + ORGS), 401);
 }
 
+// ---------- auth entities (rule R28 in apsoai/cli#208) ----------
+
+// The better-auth provider checks database sessions, which only TypeScript
+// services do. Better Auth's tables as its adapter expects them, plus the
+// membership entity the session check reads the tenant and role from.
+const uuid = { created_at: true, updated_at: true, primaryKeyType: "uuid" };
+const SESSION_AUTH = {
+  auth: { provider: "better-auth" },
+  schema: {
+    entities: [
+      { name: "User", ...uuid, fields: [{ name: "email", type: "text", length: 255, is_email: true }, { name: "name", type: "text", nullable: true }] },
+      { name: "account", ...uuid, fields: [{ name: "providerId", type: "text", length: 50 }, { name: "accountId", type: "text", length: 255 }, { name: "password", type: "text", nullable: true }] },
+      { name: "session", ...uuid, fields: [{ name: "token", type: "text", length: 255, unique: true }, { name: "expiresAt", type: "timestamptz" }] },
+      { name: "verification", ...uuid, fields: [{ name: "identifier", type: "text", length: 255 }, { name: "value", type: "text", length: 255 }, { name: "expiresAt", type: "timestamptz" }] },
+      { name: "Organization", ...uuid, fields: [{ name: "name", type: "text" }] },
+      { name: "AccountUser", ...uuid, fields: [{ name: "role", type: "text" }] },
+      { name: "Project", ...uuid, scopeBy: "organizationId", fields: [{ name: "title", type: "text" }] },
+    ],
+    relationships: [
+      { from: "account", to: "User", type: "ManyToOne" },
+      { from: "session", to: "User", type: "ManyToOne" },
+      { from: "AccountUser", to: "User", type: "ManyToOne" },
+      { from: "AccountUser", to: "Organization", type: "ManyToOne" },
+      { from: "Organization", to: "Project", type: "OneToMany" },
+      { from: "Project", to: "User", type: "ManyToOne" },
+    ],
+  },
+  run: authEntitiesCase,
+};
+
+/** [R28] The auth entities answer a service caller only: not a signed-in user, a join or an MCP tool. */
+async function authEntitiesCase(name, boot, project) {
+  const t = checker(name);
+  const { base } = await boot({ APSO_API_KEY: KEY });
+  const expiresAt = new Date(Date.now() + 3600e3).toISOString();
+  const seeded = {};
+  for (const who of ["ana", "ben"]) {
+    const made = {};
+    const add = async (label, url, body) => {
+      const res = await call("POST", base + url, { headers: key(KEY), body });
+      t.expect(`[R28] key caller creates ${label} for ${who}`, res, 200, 201);
+      made[url] = res.json?.id;
+      return res.json?.id;
+    };
+    const userId = await add("a user", "/users", { email: `${who}@apso.test`, name: who });
+    const organizationId = await add("an organization", "/organizations", { name: `${who} org` });
+    await add("a membership", "/accountusers", { role: "member", userId, organizationId });
+    await add("an account", "/accounts", { providerId: "credential", accountId: String(userId), password: `hash-of-${who}`, userId });
+    await add("a session", "/sessions", { token: `session-of-${who}`, expiresAt, userId });
+    await add("a verification", "/verifications", { identifier: `reset-password:${who}`, value: `reset-of-${who}`, expiresAt });
+    await add("a project", "/projects", { title: `${who} project`, organizationId, userId });
+    seeded[who] = { ...made, userId, organizationId };
+  }
+  const ana = { authorization: "Bearer session-of-ana" };
+  const ben = { authorization: "Bearer session-of-ben" };
+  const SECRETS = ["session-of-", "hash-of-", "reset-of-", "@apso.test"];
+  const clean = (label, res) => t.assert(label, res.status === 200 && !SECRETS.some((secret) => res.text.includes(secret)), `${res.status} ${res.text.slice(0, 300)}`);
+
+  const own = await call("GET", `${base}/projects`, { headers: ana });
+  t.assert("the session signs the user in to its own tenant", own.status === 200 && rows(own.json).length === 1 && rows(own.json)[0].title === "ana project", `${own.status} ${own.text.slice(0, 200)}`);
+
+  const bodies = {
+    "/users": { email: "eve@apso.test" },
+    "/accounts": { providerId: "credential", accountId: "x", password: "chosen", userId: seeded.ben.userId },
+    "/sessions": { token: "forged", expiresAt, userId: seeded.ben.userId },
+    "/verifications": { identifier: "reset-password:ben", value: "known", expiresAt },
+    "/accountusers": { role: "owner", userId: seeded.ana.userId, organizationId: seeded.ben.organizationId },
+  };
+  for (const [url, body] of Object.entries(bodies)) {
+    const theirs = `${base}${url}/${seeded.ben[url]}`;
+    const mine = `${base}${url}/${seeded.ana[url]}`;
+    t.expect(`[R28] user cannot list ${url}`, await call("GET", base + url, { headers: ana }), 403);
+    t.expect(`[R28] user cannot read another user's row in ${url}`, await call("GET", theirs, { headers: ana }), 403);
+    t.expect(`[R28] user cannot read its own row in ${url}`, await call("GET", mine, { headers: ana }), 403);
+    t.expect(`[R28] user cannot create in ${url}`, await call("POST", base + url, { headers: ana, body }), 403);
+    t.expect(`[R28] user cannot create in bulk in ${url}`, await call("POST", `${base}${url}/bulk`, { headers: ana, body: { bulk: [body] } }), 403);
+    t.expect(`[R28] user cannot update its own row in ${url}`, await call("PATCH", mine, { headers: ana, body }), 403);
+    t.expect(`[R28] user cannot replace another user's row in ${url}`, await call("PUT", theirs, { headers: ana, body }), 403);
+    t.expect(`[R28] user cannot delete another user's row in ${url}`, await call("DELETE", theirs, { headers: ana }), 403);
+    t.expect(`[R28] no credential on ${url}`, await call("GET", base + url), 401);
+  }
+  t.expect("[R28] a refused request changed nothing: the other user's session still signs in", await call("GET", `${base}/projects`, { headers: ben }), 200);
+  const still = await call("GET", `${base}/projects`, { headers: ana });
+  t.assert("[R28] a refused request changed nothing: the user is still in its own tenant", rows(still.json).length === 1 && rows(still.json)[0].title === "ana project", still.text.slice(0, 200));
+
+  // No route of another entity loads an auth entity, in either query dialect.
+  const postgrest = { ...ana, "x-crud-dialect": "postgrest" };
+  clean("[R28] user: ?join=user on projects loads no user row", await call("GET", `${base}/projects?join=user`, { headers: ana }));
+  clean("[R28] user: nested joins through user load no account or session", await call("GET", `${base}/projects?join=user&join=user.accounts&join=user.sessions`, { headers: ana }));
+  clean("[R28] user: nested joins from organizations load no membership, user or account", await call("GET", `${base}/organizations?join=accountUsers&join=accountUsers.user&join=projects&join=projects.user&join=projects.user.accounts`, { headers: ana }));
+  clean("[R28] user: a select embed loads no membership, user, account or session", await call("GET", `${base}/organizations?select=name,accountUsers(role,user(email,accounts(password),sessions(token))),projects(title,user(email))`, { headers: postgrest }));
+  const oracle = await call("GET", `${base}/organizations?join=projects&join=projects.user&filter=projects.user.email||$eq||ben@apso.test`, { headers: ana });
+  t.assert("[R28] user: a filter on an auth entity's column through a relation returns no rows", oracle.status !== 200 || rows(oracle.json).length === 0, `${oracle.status} ${oracle.text.slice(0, 200)}`);
+
+  // The service caller (the Better Auth adapter on the app's server) is not limited.
+  for (const url of Object.keys(bodies)) {
+    const list = await call("GET", `${base}${url}?limit=100`, { headers: key(KEY) });
+    t.assert(`[R28] key caller lists ${url}`, list.status === 200 && rows(list.json).length === 2, `${list.status} ${list.text.slice(0, 200)}`);
+  }
+  const joined = await call("GET", `${base}/sessions?join=user&limit=100`, { headers: key(KEY) });
+  t.assert("[R28] key caller joins one auth entity to another", joined.status === 200 && rows(joined.json).every((row) => row.user?.email), `${joined.status} ${joined.text.slice(0, 200)}`);
+  t.expect("[R28] key caller updates an account", await call("PATCH", `${base}/accounts/${seeded.ben["/accounts"]}`, { headers: key(KEY), body: { password: "hash-of-ben-2" } }), 200);
+  t.expect("[R28] key caller deletes a session", await call("DELETE", `${base}/sessions/${seeded.ben["/sessions"]}`, { headers: key(KEY) }), 200, 204);
+  t.expect("[R28] a deleted session no longer signs in", await call("GET", `${base}/projects`, { headers: ben }), 401);
+
+  // MCP: generate refuses to make an auth entity's routes tools. Last, because
+  // it leaves the project half generated; the next case generates it again.
+  for (const entity of ["User", "account", "session", "verification", "AccountUser"]) {
+    const rcPath = path.join(project, ".apsorc");
+    const rc = JSON.parse(fs.readFileSync(rcPath, "utf8"));
+    fs.writeFileSync(rcPath, JSON.stringify({ ...rc, entities: rc.entities.map((e) => (e.name === entity ? { ...e, mcp: ["read"] } : e)) }, null, 2));
+    const out = spawnSync(CLI, ["generate", "--language", language], { cwd: project, encoding: "utf8" });
+    fs.writeFileSync(rcPath, JSON.stringify(rc, null, 2));
+    t.assert(`[R28] generate refuses mcp on ${entity}`, out.status !== 0 && /auth entity/.test(out.stdout + out.stderr), `exit ${out.status} ${(out.stdout + out.stderr).slice(-300)}`);
+  }
+  return t.failures;
+}
+
 // ---------- main ----------
 
 const jwks = http.createServer((req, res) => {
@@ -801,7 +922,7 @@ PLATFORM = {
   APSO_SERVICE_ID: SERVICE_ID,
 };
 // "no-auth" is a service generated with no auth block at all.
-const cases = { "no-auth": {}, ...providers(`http://127.0.0.1:${jwksPort}`) };
+const cases = { "no-auth": {}, ...providers(`http://127.0.0.1:${jwksPort}`), ...(language === "typescript" ? { "better-auth": SESSION_AUTH } : {}) };
 
 const work = fs.mkdtempSync(path.join(os.tmpdir(), "apso-auth-smoke-"));
 const failures = [];
@@ -837,8 +958,8 @@ try {
       return server;
     };
     try {
-      generate(project, p.auth);
-      const f = p.auth ? await jwtCase(name, p, boot) : await keyCase(name, boot);
+      generate(project, p.auth, p.schema);
+      const f = p.run ? await p.run(name, boot, project) : p.auth ? await jwtCase(name, p, boot) : await keyCase(name, boot);
       if (f.length > 0) console.log(server.log().slice(-2000));
       failures.push(...f);
     } catch (e) {

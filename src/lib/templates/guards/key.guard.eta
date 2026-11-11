@@ -25,6 +25,9 @@ import {
   Injectable,
   CanActivate,
   ExecutionContext,
+<% if (it.authRoutes.length > 0) { %>
+  ForbiddenException,
+<% } %>
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
@@ -65,6 +68,15 @@ const NO_SERVICE_TOKEN =
 const KEYS_OFF = 'An x-api-key header was sent, but API keys are off on this service. Set APSO_API_KEY to turn them on.';
 
 const sha256 = (value: string) => createHash('sha256').update(value).digest();
+<% if (it.authRoutes.length > 0) { %>
+
+/**
+ * The auth entities hold session tokens, password hashes, reset tokens and
+ * each user's tenant and role, so only a service caller reaches their routes;
+ * a signed-in user gets a 403. No other entity's controller joins onto them.
+ */
+const AUTH_ENTITY_ROUTES = new Set([<%~ it.authRoutes.map((r) => `'${r}'`).join(', ') %>]);
+<% } %>
 
 @Injectable()
 export class ApiKeyGuard implements CanActivate {
@@ -135,6 +147,13 @@ export class ApiKeyGuard implements CanActivate {
       }
       throw error;
     }
+<% if (it.authRoutes.length > 0) { %>
+    const route = String(request.route?.path || request.path).match(/^\/([^\/]+)/)?.[1];
+    if (route && AUTH_ENTITY_ROUTES.has(route.toLowerCase())) {
+      request.apso = { ...request.apso, denied: 'auth entity, service callers only' };
+      throw new ForbiddenException('This route is for service callers only');
+    }
+<% } %>
     return this.userCaller(request);
 <% } else { %>
     if (this.keys.length > 0 || this.jwks) {
