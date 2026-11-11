@@ -31,6 +31,7 @@ import { promisify } from "util";
 import {
   getPermissionConfig,
   getScopedEntities,
+  hasPermissions,
   hasScopedEntities,
   mcpOperations,
 } from "../guards";
@@ -247,6 +248,9 @@ export class TypeScriptGenerator extends BaseGenerator {
       crudAuth: scopes.filter((s) => s.direct),
       crudAuthNested: scopes.filter((s) => s.fkField),
       scopeOptions,
+      // With permissions, every controller checks the read rule of each
+      // relation a request loads.
+      relationPermissions: hasPermissions(options.allEntities),
       // Operations exposed as MCP tools, and the names the tools get.
       mcp,
       mcpName: snakeCase(entityName),

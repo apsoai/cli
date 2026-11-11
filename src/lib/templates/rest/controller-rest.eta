@@ -1,6 +1,6 @@
 <%~ includeFile('./header.eta') %>
 
-import { Controller, Body } from "@nestjs/common";
+import { Controller, Body<% if (it.relationPermissions) { %>, UseInterceptors<% } %> } from "@nestjs/common";
 import { Crud, <% if (it.crudAuth.length || it.crudAuthNested.length) { %>CrudAuth, <% } %>CrudController, Override, ParsedRequest, CrudRequest, ParsedBody, CreateManyDto } from '@apso/crud';
 import { ApiTags, ApiResponse, ApiOperation, ApiBody } from '@nestjs/swagger';
 <% if (it.mcp.length) { %>
@@ -8,6 +8,9 @@ import { McpTool } from '@apso/mcp';
 <% } %>
 import {<%= it.entityName %>, <%= it.entityName %>Create, <%= it.entityName %>Update} from './dtos/<%= it.entityName%>.dto'
 import {<%= it.svcName %>} from './<%= it.entityName %>.service';
+<% if (it.relationPermissions) { %>
+import { RelationPermissions } from '../guards/permission.guard';
+<% } %>
   
 <% if (it.crudAuthNested.length) { %>
 // A nested scopeBy path (task.workspaceId) limits rows to the parents ScopeGuard
@@ -39,6 +42,10 @@ const skipScope = (req: any) => {
     const roles: string[] = req.auth?.roles ?? req.user?.roles ?? [];
     return roles.some((r) => BYPASS_ROLES.includes(r)) || !ENFORCE_ON.includes(scopeOperation(req));
 };
+<% } %>
+<% if (it.relationPermissions) { %>
+// Above @Crud, so it runs after @Crud's interceptor has parsed the request.
+@UseInterceptors(RelationPermissions)
 <% } %>
 @Crud({
     model: {

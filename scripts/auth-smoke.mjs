@@ -595,6 +595,17 @@ async function rolePermissions(base, t, owner, member, otherMember, memberWithDe
   t.expect("member cannot read invoices through a join", await call("GET", `${base}${ORGS}?join=invoices`, { headers: member }), 403);
   t.expect("member lists organizations without the join", await call("GET", base + ORGS, { headers: member }), 200);
   t.expect("member cannot delete an invoice", await call("DELETE", `${base}${INVOICES}/${iid}`, { headers: member }), 403);
+  // [R11] The same refusal for every way a request can load the relation.
+  const embed = (headers, select = "name,invoices(total)") => call("GET", `${base}${ORGS}?select=${select}`, { headers });
+  t.expect("[R11] member cannot read invoices through a select embed", await embed(member), 403);
+  t.expect("[R11] member cannot read invoices through a select embed, dialect named in the header", await embed({ ...member, "x-crud-dialect": "postgrest" }), 403);
+  t.expect("[R11] member cannot read invoices through an aliased inner embed", await embed(member, "name,bills:invoices!inner(total)"), 403);
+  t.expect("[R11] member cannot read invoices through a nested embed", await embed(member, "name,projects(title,organization(name,invoices(total)))"), 403);
+  t.expect("[R11] member cannot read invoices through a nested join", await call("GET", `${base}${PROJECTS}?join=organization&join=organization.invoices`, { headers: member }), 403);
+  t.expect("[R11] member cannot read invoices through a join in list form", await call("GET", `${base}${ORGS}?join[0]=projects&join[1]=invoices`, { headers: member }), 403);
+  t.expect("[R11] member reads an embed it is allowed", await embed(member, "name,projects(title)"), 200);
+  const ownerEmbed = await embed(owner);
+  t.assert("[R11] owner reads invoices through a select embed", ownerEmbed.status === 200 && rows(ownerEmbed.json).some((o) => (o.invoices ?? []).some((i) => i.id === iid)), `${ownerEmbed.status} ${ownerEmbed.text.slice(0, 200)}`);
   t.expect("owner lists invoices", await call("GET", base + INVOICES, { headers: owner }), 200);
   t.expect("owner reads invoices through a join", await call("GET", `${base}${ORGS}?join=invoices`, { headers: owner }), 200);
 
@@ -605,6 +616,7 @@ async function rolePermissions(base, t, owner, member, otherMember, memberWithDe
     t.assert("grant is stored in the owner's tenant", String(grant.json?.organizationId) === "1", `organizationId=${grant.json?.organizationId}`);
     t.expect("member lists invoices after the grant", await call("GET", base + INVOICES, { headers: member }), 200);
     t.expect("member reads invoices through a join after the grant", await call("GET", `${base}${ORGS}?join=invoices`, { headers: member }), 200);
+    t.expect("[R11] member reads invoices through a select embed after the grant", await embed(member), 200);
     t.expect("member of another tenant still cannot list invoices", await call("GET", base + INVOICES, { headers: otherMember }), 403);
     t.expect("the grant does not include delete", await call("DELETE", `${base}${INVOICES}/${iid}`, { headers: member }), 403);
     t.expect("owner revokes the grant", await call("DELETE", `${base}${GRANTS}/${grant.json.id}`, { headers: owner }), 200, 204);
@@ -748,6 +760,7 @@ async function keyNextToSignIn(base, t, user) {
   if (t.expect("[R13] key caller creates an invoice", invoice, 200, 201)) {
     t.expect("[R13] key caller lists invoices without a role", await call("GET", base + INVOICES, { headers: key(KEY) }), 200);
     t.expect("[R13] key caller reads invoices through a join", await call("GET", `${base}${ORGS}?join=invoices`, { headers: key(KEY) }), 200);
+    t.expect("[R13] key caller reads invoices through a select embed", await call("GET", `${base}${ORGS}?select=name,invoices(total)`, { headers: key(KEY) }), 200);
     t.expect("[R13] key caller deletes an invoice without a role", await call("DELETE", `${base}${INVOICES}/${invoice.json.id}`, { headers: key(KEY) }), 200, 204);
   }
 

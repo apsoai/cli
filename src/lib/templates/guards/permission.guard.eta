@@ -2,11 +2,14 @@
 
 import {
   Injectable,
+  CallHandler,
   CanActivate,
   ExecutionContext,
   ForbiddenException,
+  NestInterceptor,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { PARSED_CRUD_REQUEST_KEY } from '@apso/crud';
 <% if (it.permissions.grants) { %>
 import { DataSource, In, IsNull } from 'typeorm';
 <% } %>
@@ -27,8 +30,8 @@ interface Rule {
 export const ENTITY_PERMISSIONS: Record<string, Partial<Record<Operation, Rule>>> = <%~ JSON.stringify(it.permissions.routes, null, 2) %>;
 
 /**
- * Read rules a ?join must satisfy, by relation name, so a caller who cannot
- * read an entity cannot read it through a join either.
+ * Read rules a loaded relation must satisfy, by relation name, so a caller who
+ * cannot read an entity cannot read it through another entity's route either.
  */
 const JOIN_PERMISSIONS: Record<string, Rule[]> = <%~ JSON.stringify(it.permissions.joins, null, 2) %>;
 
@@ -85,10 +88,20 @@ export class PermissionGuard implements CanActivate {
       this.deny(request, rule.permission);
     }
 
-    const join = request.query?.join;
-    const joins: string[] = join === undefined ? [] : Array.isArray(join) ? join : [join];
-    for (const value of joins) {
-      for (const relation of String(value).split('||')[0].split('.')) {
+    return true;
+  }
+
+  /**
+   * The read rules of every relation a request loads. `paths` are the parsed
+   * request's relation paths (projects.tasks), whatever query syntax named them.
+   */
+  async checkRelations(request: any, paths: string[]): Promise<void> {
+    // A service caller (valid API key) is not limited by role.
+    if (request.auth?.serviceId) {
+      return;
+    }
+    for (const path of paths) {
+      for (const relation of path.split('.')) {
         for (const joined of JOIN_PERMISSIONS[relation] ?? []) {
           if (!(await this.allowed(request, joined))) {
             this.deny(request, joined.permission);
@@ -96,8 +109,6 @@ export class PermissionGuard implements CanActivate {
         }
       }
     }
-
-    return true;
   }
 
   /** 403, with the reason on request.apso.denied for the log. */
@@ -142,5 +153,29 @@ export class PermissionGuard implements CanActivate {
 <% } %>
     request.apsoPermissions = granted;
     return granted;
+  }
+}
+
+/**
+ * RelationPermissions - on every generated controller, after the CRUD request
+ * is parsed. It reads the relations the request will load from the parsed
+ * request, so ?join, a select embed and any other query syntax meet the same
+ * check, and it refuses the request when none was parsed.
+ */
+@Injectable()
+export class RelationPermissions implements NestInterceptor {
+  constructor(private guard: PermissionGuard) {}
+
+  async intercept(context: ExecutionContext, next: CallHandler) {
+    const request = context.switchToHttp().getRequest();
+    const parsed = request[PARSED_CRUD_REQUEST_KEY]?.parsed;
+    if (!parsed) {
+      throw new Error('RelationPermissions ran before the CRUD request was parsed');
+    }
+    await this.guard.checkRelations(
+      request,
+      (parsed.join ?? []).map((join: { field: string }) => join.field),
+    );
+    return next.handle();
   }
 }
