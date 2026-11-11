@@ -81,15 +81,15 @@ class <%= it.entityName %>(BaseModel):
     <%= assoc.camelCasedId %>: Optional[<% if (assoc.referencedEntityPrimaryKeyType === 'uuid') { %>UUID<% } else { %>int<% } %>] = None
 <% }); -%>
 <% /* Add relationship fields */ -%>
-<% it.associations.filter(a => a.type === 'OneToMany' || a.type === 'ManyToMany').forEach((assoc) => { -%>
+<% it.associations.filter(a => !a.hidden && (a.type === 'OneToMany' || a.type === 'ManyToMany')).forEach((assoc) => { -%>
     <%= assoc.pluralizedRelationshipName %>: Optional[List[Any]] = None
 <% }); -%>
-<% it.associations.filter(a => a.type === 'ManyToOne' || a.type === 'OneToOne').forEach((assoc) => { -%>
+<% it.associations.filter(a => !a.hidden && (a.type === 'ManyToOne' || a.type === 'OneToOne')).forEach((assoc) => { -%>
     <%= assoc.relationshipName %>: Optional[Any] = None
 <% }); -%>
 <% const relationFields = [
-  ...it.associations.filter(a => a.type === 'OneToMany' || a.type === 'ManyToMany').map(a => a.pluralizedRelationshipName),
-  ...it.associations.filter(a => a.type === 'ManyToOne' || a.type === 'OneToOne').map(a => a.relationshipName),
+  ...it.associations.filter(a => !a.hidden && (a.type === 'OneToMany' || a.type === 'ManyToMany')).map(a => a.pluralizedRelationshipName),
+  ...it.associations.filter(a => !a.hidden && (a.type === 'ManyToOne' || a.type === 'OneToOne')).map(a => a.relationshipName),
 ]; -%>
 <% if (relationFields.length > 0) { -%>
 

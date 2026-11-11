@@ -218,6 +218,20 @@ export function authEntityNames(entities: Entity[], auth?: AuthConfig): string[]
   return found.map((entity) => entity.name);
 }
 
+/**
+ * True for a relation that a response must not carry: one from another entity
+ * onto an auth entity. Auth entities keep the relations between themselves.
+ */
+export function hidesRelation(
+  entityName: string,
+  relatedName: string,
+  entities: Entity[],
+  auth?: AuthConfig
+): boolean {
+  const names = authEntityNames(entities, auth);
+  return !names.includes(entityName) && names.includes(relatedName);
+}
+
 /** The auth entities' route names (sessions), for the key guard. */
 export const authEntityRoutes = (entities: Entity[], auth?: AuthConfig): string[] =>
   authEntityNames(entities, auth).map((name) => toRouteName(name));

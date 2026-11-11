@@ -1,5 +1,5 @@
 import { expect, describe, test } from "@jest/globals";
-import { authEntityNames, authEntityRoutes } from "../../../src/lib/guards";
+import { authEntityNames, authEntityRoutes, hidesRelation } from "../../../src/lib/guards";
 import { AuthConfig, Entity } from "../../../src/lib/types";
 
 const text = (name: string) => ({ name, type: "text" as const });
@@ -48,6 +48,13 @@ describe("authEntityNames", () => {
   test("is empty without the better-auth provider", () => {
     expect(authEntityNames(entities)).toEqual([]);
     expect(authEntityNames(entities, { provider: "jwt", jwt: { issuer: "https://issuer.example.com/" } })).toEqual([]);
+  });
+
+  test("a relation from another entity onto an auth entity is hidden; the others are not", () => {
+    expect(hidesRelation("Project", "User", entities, betterAuth)).toBe(true);
+    expect(hidesRelation("session", "User", entities, betterAuth)).toBe(false);
+    expect(hidesRelation("User", "Project", entities, betterAuth)).toBe(false);
+    expect(hidesRelation("Project", "User", entities)).toBe(false);
   });
 
   test("refuses mcp on an auth entity", () => {

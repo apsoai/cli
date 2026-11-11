@@ -285,8 +285,16 @@ func AuthMiddleware(_ *gorm.DB) gin.HandlerFunc {
 			c.Next()
 			return
 		}
+<% if (it.jwt && it.authRoutes.length > 0) { %>
+		// Auth entities are for service callers only. A user still signs in
+		// first, so a request with no valid credential gets its 401.
+		if parts := strings.Split(c.Request.URL.Path, "/"); len(parts) > 2 && authEntityRoutes[strings.ToLower(parts[2])] {
+			userAuth(c, true)
+			return
+		}
+<% } %>
 <% if (it.jwt) { %>
-		userAuth(c)
+		userAuth(c, false)
 <% } else { %>
 		if len(source.keys) > 0 || source.jwks != nil {
 			refuse(c, noCredential)
@@ -430,8 +438,13 @@ func roles(v interface{}) []string {
 	return out
 }
 
-// userAuth verifies the caller's JWT and attaches the signed-in user.
-func userAuth(c *gin.Context) {
+<% if (it.authRoutes.length > 0) { %>
+var authEntityRoutes = map[string]bool{<%~ it.authRoutes.map((r) => JSON.stringify(r) + ': true').join(', ') %>}
+
+<% } %>
+// userAuth verifies the caller's JWT and attaches the signed-in user. With
+// serviceOnly, a caller who signs in is refused with a 403.
+func userAuth(c *gin.Context, serviceOnly bool) {
 	header := c.GetHeader("Authorization")
 	if !strings.HasPrefix(header, "Bearer ") {
 		unauthorized(c, "No bearer token provided")
@@ -506,6 +519,10 @@ func userAuth(c *gin.Context) {
 	tenant := str(claim(claims, p.workspace))
 	if tenant == "" {
 		tenant = str(claim(claims, p.organization))
+	}
+	if serviceOnly {
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "This route is for service callers only"})
+		return
 	}
 	setAuth(c, &AuthContext{
 		UserID:         userID,

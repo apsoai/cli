@@ -18,6 +18,7 @@ import {
 } from "../types";
 import {
   authEntityNames,
+  hidesRelation,
   entityScope,
   hasPermissions,
   nestedScopeEntities,
@@ -432,7 +433,12 @@ export class GoGenerator extends BaseGenerator {
       createdAt,
       updatedAt,
       columns,
-      associations: [...new Set(goRelationships)],
+      // Auth entities are for service callers only, so no other entity's
+      // response carries one.
+      associations: goRelationships.map((r: any) => ({
+        ...r,
+        hidden: hidesRelation(entityName, r.name, allEntities, options.auth),
+      })),
       scope: this.goScope(entity, Boolean(options.auth)),
     };
 
@@ -756,17 +762,16 @@ ${modelRefs}
       console.warn(
         `[apso] Nested scopeBy paths are enforced in TypeScript services only; ${nested.join(", ")} will not be filtered by those paths in this Go service`
       );
-    // Auth entities are for service callers only, which only TypeScript
-    // services enforce so far.
-    const stored = authEntityNames(entities, auth);
-    if (stored.length > 0)
-      throw new Error(
-        `${stored.join(", ")}: the entities that store Better Auth's rows are served by TypeScript services only for now. Generate with --language typescript, or keep Better Auth's tables out of this Go service (auth.userEntity, auth.sessionEntity and auth.accountUserEntity name the ones in it).`
-      );
     // The API key check is part of every service; auth adds user sign-in.
     // One entry per trusted issuer; undefined when there is no sign-in.
     const jwt = resolveJwtProviders(auth);
-    const data = { jwt: jwt.length > 0 ? jwt : undefined };
+    const data = {
+      jwt: jwt.length > 0 ? jwt : undefined,
+      // Routes only a service caller reaches (sessions, accounts, ...).
+      authRoutes: authEntityNames(entities, auth).map((name) =>
+        kebabCase(pluralize(name))
+      ),
+    };
     const content = await this.renderTemplate("./middleware/auth", data);
     const files: GeneratedFile[] = [{ path: "middleware/auth.go", content }];
     // Shared helpers for services and handlers of entities with a direct scopeBy.

@@ -93,7 +93,7 @@ func (s *<%= it.entityName %>Service) FindAll(ctx context.Context, opts utils.Qu
 	var items []models.<%= it.entityName %>
 
 	query := s.db.WithContext(ctx).Model(&models.<%= it.entityName %>{})
-<% it.associations.filter(a => a.eager).forEach((assoc) => { %>
+<% it.associations.filter(a => a.eager && !a.hidden).forEach((assoc) => { %>
 	query = query.Preload("<%= assoc.fieldName %>")
 <% }) %>
 <% if (it.scope) { %>
@@ -134,7 +134,7 @@ func (s *<%= it.entityName %>Service) FindAllBare(ctx context.Context, opts util
 	var items []models.<%= it.entityName %>
 
 	query := s.db.WithContext(ctx).Model(&models.<%= it.entityName %>{})
-<% it.associations.filter(a => a.eager).forEach((assoc) => { %>
+<% it.associations.filter(a => a.eager && !a.hidden).forEach((assoc) => { %>
 	query = query.Preload("<%= assoc.fieldName %>")
 <% }) %>
 <% if (it.scope) { %>
@@ -165,7 +165,7 @@ func (s *<%= it.entityName %>Service) FindOne(ctx context.Context, id string) (*
 	var item models.<%= it.entityName %>
 
 	query := s.db.WithContext(ctx)
-<% it.associations.filter(a => a.eager).forEach((assoc) => { %>
+<% it.associations.filter(a => a.eager && !a.hidden).forEach((assoc) => { %>
 	query = query.Preload("<%= assoc.fieldName %>")
 <% }) %>
 <% if (it.scope) { %>
@@ -284,7 +284,7 @@ func (s *<%= it.entityName %>Service) Update(ctx context.Context, id string, inp
 
 	// Reload with associations
 	query := s.db.WithContext(ctx)
-<% it.associations.filter(a => a.eager).forEach((assoc) => { %>
+<% it.associations.filter(a => a.eager && !a.hidden).forEach((assoc) => { %>
 	query = query.Preload("<%= assoc.fieldName %>")
 <% }) %>
 <% if (it.primaryKeyType === 'uuid') { %>
@@ -339,8 +339,9 @@ func (s *<%= it.entityName %>Service) toResponse(item *models.<%= it.entityName 
 		<%= assoc.fkField %>: item.<%= assoc.fkField %>,
 <% }) %>
 	}
-	// Relations loaded by ?join= or eager loading.
-<% it.associations.forEach((assoc) => { %>
+	// Relations loaded by ?join= or eager loading. A relation onto an auth
+	// entity is left out: those rows are for service callers only.
+<% it.associations.filter(a => !a.hidden).forEach((assoc) => { %>
 <% if (assoc.type === 'ManyToOne' || assoc.type === 'OneToOne') { %>
 	if item.<%= assoc.fieldName %> != nil {
 		related := (&<%= assoc.name %>Service{}).toResponse(item.<%= assoc.fieldName %>)
