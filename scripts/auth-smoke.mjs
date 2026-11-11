@@ -27,12 +27,19 @@
  *     itself; a permission in the token is honored
  *   - mcp (TypeScript) serves only the opted-in operations as tools at /mcp,
  *     and a tool call meets the same auth, permission and scope guards as REST
+ *   - apso generate writes the access marker (.apso/manifest.json) and git
+ *     does not ignore it
+ *   - the request log (TypeScript, @apso/logging) has one line per request
+ *     with the caller, the request id and why a guard refused, from the
+ *     server entry point and from the Lambda handler
  *
  * Tokens are minted locally with the claim shapes each provider issues, signed
  * by a key this script serves as a JWKS. Service tokens are signed the way the
  * platform gateway signs them (ES256), with a key served as a second JWKS.
  *
  * Usage: node scripts/auth-smoke.mjs <typescript|python|go> [provider...]
+ * APSO_MCP_TARBALL and APSO_LOGGING_TARBALL test unreleased builds of those
+ * libraries (npm pack output).
  * Needs: `npm run build` first; psql; AUTH_SMOKE_DATABASE_URL pointing at a
  * Postgres server whose user can create databases, e.g.
  * postgres://postgres:postgres@127.0.0.1:5432. Go needs go; Python needs
@@ -302,6 +309,13 @@ function generate(project, auth) {
       pkg.dependencies["@apso/mcp"] = `file:${path.resolve(process.env.APSO_MCP_TARBALL)}`;
       fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
     }
+    // APSO_LOGGING_TARBALL does the same for @apso/logging.
+    if (process.env.APSO_LOGGING_TARBALL) {
+      const pkgPath = path.join(project, "package.json");
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
+      pkg.dependencies["@apso/logging"] = `file:${path.resolve(process.env.APSO_LOGGING_TARBALL)}`;
+      fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
+    }
     sh("npm", ["install", "--no-audit", "--no-fund"], { cwd: project });
     sh("npm", ["run", "build"], { cwd: project });
   } else if (language === "go") {
@@ -318,7 +332,7 @@ function generate(project, auth) {
 }
 
 /** Start the service with `extra` as its only APSO_* settings. */
-async function start(project, db, extra = {}) {
+async function start(project, db, extra = {}, entry = "dist/main") {
   const port = await freePort();
   const u = new URL(`${PG}/${db}`);
   const env = Object.fromEntries(
@@ -341,7 +355,7 @@ async function start(project, db, extra = {}) {
       // The public URL of the MCP endpoint; tokens issued for it are accepted.
       MCP_RESOURCE_URL: `http://127.0.0.1:${port}/mcp`,
     });
-    [cmd, args] = [process.execPath, ["dist/main"]];
+    [cmd, args] = [process.execPath, [entry]];
   } else if (language === "go") {
     Object.assign(env, { DATABASE_URL: `${PG}/${db}?sslmode=disable`, DATABASE_SYNC: "true", PORT: String(port), GIN_MODE: "release" });
     [cmd, args] = [path.join(project, "bin", "server"), []];
@@ -471,7 +485,8 @@ async function nestedScope(base, t, as1, as2, pid) {
 async function jwtCase(name, p, boot) {
   const t = checker(name);
   // The Supabase-shaped case also runs with an API key set; the others run with keys off.
-  const { base } = await boot(name === "jwt" ? { APSO_API_KEY: KEY } : {});
+  const s = await boot(name === "jwt" ? { APSO_API_KEY: KEY } : {});
+  const { base } = s;
   const bearer = (token) => ({ authorization: `Bearer ${token}` });
   const sign = (claims, opts = {}) => mint(claims, { ...p.signWith, ...opts });
   const valid = (org) => bearer(sign(p.claims(org ?? "1")));
@@ -497,6 +512,17 @@ async function jwtCase(name, p, boot) {
     const as = (roles, org = "1", extra = {}) => bearer(sign({ ...p.claims(org), app_metadata: { org_id: org, roles }, ...extra }));
     await rolePermissions(base, t, as(["owner"]), as(["member"]), as(["member"], "2"), as(["member"], "1", { permissions: ["invoice:delete"] }));
     await mcpTools(base, t, as(["owner"]), as(["member"]), as(["owner"], "2"), as(["owner"], "1", { aud: `${base}/mcp` }));
+  }
+  if (language === "typescript") {
+    const user = { type: "user", userId: p.claims("1").sub, tenantId: "1" };
+    requestLine(t, "a signed-in user is a user caller with its tenant", await logged(s, "GET", ORGS, { headers: valid("1") }), 200, user, undefined);
+    requestLine(t, "an expired token is refused by the auth guard", await logged(s, "GET", ORGS, { headers: bearer(sign({ ...p.claims("1"), exp: Math.floor(Date.now() / 1000) - 60 })) }), 401, ANONYMOUS, "invalid token");
+    requestLine(t, "no token is refused by the auth guard", await logged(s, "GET", ORGS), 401, ANONYMOUS, "no bearer token provided");
+    requestLine(t, "a caller with no tenant is refused by the scope guard", await logged(s, "GET", PROJECTS, { headers: bearer(sign(p.claims(undefined))) }), 403, { type: "user", userId: p.claims("1").sub }, "no tenant");
+  }
+  if (name === "jwt" && language === "typescript") {
+    const member = bearer(sign({ ...p.claims("1"), app_metadata: { org_id: "1", roles: ["member"] } }));
+    requestLine(t, "a role outside the list is refused by the permission guard", await logged(s, "GET", route("Invoices"), { headers: member }), 403, { type: "user", userId: p.claims("1").sub, tenantId: "1" }, "missing permission invoice:read");
   }
   if (name === "jwt") {
     await keyNextToSignIn(base, t, valid("1"));
@@ -615,6 +641,78 @@ async function rolePermissions(base, t, owner, member, otherMember, memberWithDe
   t.expect("member with invoice:delete in its token deletes the invoice", await call("DELETE", `${base}${INVOICES}/${iid}`, { headers: memberWithDelete }), 200, 204);
 }
 
+// ---------- request log (@apso/logging, TypeScript) ----------
+
+let logSeq = 0;
+/** Make a request and find the request line the service wrote for it. */
+async function logged(s, method, url, opts = {}) {
+  const id = `smoke-log-${(logSeq += 1)}`;
+  const res = await call(method, s.base + url, { ...opts, headers: { ...opts.headers, "x-request-id": id } });
+  // The line is written when the response finishes, which can be just after the client has it.
+  for (let i = 0; i < 20; i += 1) {
+    for (const text of s.log().split("\n")) {
+      if (!text.includes(`"requestId":"${id}"`)) continue;
+      try {
+        const line = JSON.parse(text);
+        if (line.type === "request") return { res, line };
+      } catch {
+        // not a JSON line
+      }
+    }
+    await sleep(100);
+  }
+  return { res, line: undefined };
+}
+
+/** The request line has this status, caller and refusal reason, and the id the response carries. */
+function requestLine(t, label, { res, line }, status, caller, denied) {
+  const ok = res.status === status && line?.status === status && line.requestId === res.requestId && JSON.stringify(line.caller) === JSON.stringify(caller) && line.denied === denied;
+  t.assert(`[log] ${label}`, ok, `${res.status} ${JSON.stringify(line)}`);
+}
+
+const ANONYMOUS = { type: "anonymous" };
+
+/** The Lambda handler behind a local HTTP server, so the same requests reach it. */
+const LAMBDA_ENTRY = "dist/lambda-smoke.js";
+const LAMBDA_SERVER = `
+const http = require('http');
+const { handler } = require('./lambda');
+http.createServer((req, res) => {
+  const chunks = [];
+  req.on('data', (c) => chunks.push(c)).on('end', async () => {
+    const [rawPath, rawQueryString = ''] = req.url.split('?');
+    const out = await handler({
+      version: '2.0', routeKey: '$default', rawPath, rawQueryString, headers: req.headers,
+      body: Buffer.concat(chunks).toString() || undefined, isBase64Encoded: false,
+      requestContext: { http: { method: req.method, path: rawPath, sourceIp: '127.0.0.1' } },
+    }, {});
+    res.writeHead(out.statusCode, out.headers);
+    res.end(out.body);
+  });
+}).listen(process.env.APP_PORT, '127.0.0.1');
+`;
+
+/** Key callers and refusals in the request log, from main.ts and from lambda.ts. */
+async function keyRequestLog(project, db, t, s) {
+  const keyId = crypto.createHash("sha256").update(KEY).digest("hex").slice(0, 8);
+  const lines = async (via, server) => {
+    requestLine(t, `${via}: /health is anonymous`, await logged(server, "GET", "/health"), 200, ANONYMOUS, undefined);
+    requestLine(t, `${via}: no credential is refused by the key guard`, await logged(server, "GET", ORGS), 401, ANONYMOUS, "no credential");
+    requestLine(t, `${via}: a wrong key is refused by the key guard`, await logged(server, "GET", ORGS, { headers: key("sk_smoke_nope") }), 401, ANONYMOUS, "api key not recognised");
+    requestLine(t, `${via}: a key caller is a service with the key's id`, await logged(server, "GET", ORGS, { headers: key(KEY) }), 200, { type: "service", keyId }, undefined);
+    t.assert(`[log] ${via}: no key is written to the log`, !server.log().includes(KEY) && !server.log().includes("sk_smoke_nope"));
+    t.assert(`[log] ${via}: Nest's own lines are JSON too`, !/\[Nest\]/.test(server.log()), server.log().slice(0, 300));
+  };
+  await lines("server", s);
+  fs.writeFileSync(path.join(project, LAMBDA_ENTRY), LAMBDA_SERVER);
+  const lambda = await start(project, db, { APSO_API_KEY: KEY }, LAMBDA_ENTRY);
+  try {
+    await lines("lambda", lambda);
+  } finally {
+    lambda.child.kill();
+  }
+}
+
 // ---------- API keys (apsoai/cli#207; rules from apsoai/cli#208) ----------
 
 const KEY = "sk_smoke_current";
@@ -658,7 +756,7 @@ async function serviceCaller(base, t, headers) {
 }
 
 /** A service with no auth block: nothing configured, then each key source. */
-async function keyCase(name, boot) {
+async function keyCase(name, boot, project, db) {
   const t = checker(name);
   const everyRoute = async (label, headers, base) => {
     for (const [method, url] of [["GET", ORGS], ["POST", ORGS], ["GET", `${ORGS}/1`], ["PATCH", `${ORGS}/1`], ["DELETE", `${ORGS}/1`], ["GET", PROJECTS]])
@@ -673,6 +771,7 @@ async function keyCase(name, boot) {
   await everyRoute("[R0] nothing configured, no credential", {}, s.base);
   await everyRoute("[R0] nothing configured, a key is sent", key(KEY), s.base);
   plain401(t, "[R0] no local flag", await call("GET", s.base + ORGS), s.log);
+  if (language === "typescript") requestLine(t, "nothing configured: refused by the key guard", await logged(s, "GET", ORGS), 401, ANONYMOUS, "no key source");
   const kept = await call("GET", s.base + ORGS, { headers: { "x-request-id": "req-from-caller-1" } });
   t.assert("a request id the caller sent is kept and echoed", kept.requestId === "req-from-caller-1" && bodyRequestId(kept) === "req-from-caller-1", `${kept.requestId} ${kept.text.slice(0, 200)}`);
 
@@ -700,6 +799,7 @@ async function keyCase(name, boot) {
   t.expect("[R14] the current key is accepted", await call("GET", s.base + ORGS, { headers: key(KEY) }), 200);
   t.expect("[R14] the previous key is accepted until it is removed", await call("GET", s.base + ORGS, { headers: key(OLD_KEY) }), 200);
   await serviceCaller(s.base, t, key(KEY));
+  if (language === "typescript") await keyRequestLog(project, db, t, s);
   s = await boot({ APSO_API_KEY: KEY });
   plain401(t, "[R5] wrong key, no local flag", await call("GET", s.base + ORGS, { headers: key("sk_smoke_nope") }), s.log);
   t.expect("[R14] a key removed from APSO_API_KEY is refused after a restart", await call("GET", s.base + ORGS, { headers: key(OLD_KEY) }), 401);
@@ -709,6 +809,10 @@ async function keyCase(name, boot) {
   await gateway401s(s, t);
   t.expect("[R0] platform mode, no credential and no sign-in", await call("GET", s.base + ORGS), 401);
   await serviceCaller(s.base, t, serviceToken());
+  if (language === "typescript") {
+    requestLine(t, "platform mode: a service token caller is a service with the platform's key id", await logged(s, "GET", ORGS, { headers: serviceToken() }), 200, { type: "service", keyId: "key_123" }, undefined);
+    requestLine(t, "platform mode: x-api-key with no service token is refused by the key guard", await logged(s, "GET", ORGS, { headers: key(KEY) }), 401, ANONYMOUS, "no valid service token");
+  }
   return t.failures;
 }
 
@@ -838,7 +942,15 @@ try {
     };
     try {
       generate(project, p.auth);
-      const f = p.auth ? await jwtCase(name, p, boot) : await keyCase(name, boot);
+      {
+        // The marker the hosted platform reads from the pushed source.
+        const t = checker(name);
+        const manifest = JSON.parse(fs.readFileSync(path.join(project, ".apso", "manifest.json"), "utf8"));
+        t.assert("apso generate writes the access marker", manifest.accessContract === 1 && /^\d+\.\d+\.\d+/.test(manifest.cliVersion), JSON.stringify(manifest));
+        t.assert("the access marker is not git-ignored", spawnSync("git", ["check-ignore", "-q", ".apso/manifest.json"], { cwd: project }).status === 1);
+        failures.push(...t.failures);
+      }
+      const f = p.auth ? await jwtCase(name, p, boot) : await keyCase(name, boot, project, db);
       if (f.length > 0) console.log(server.log().slice(-2000));
       failures.push(...f);
     } catch (e) {

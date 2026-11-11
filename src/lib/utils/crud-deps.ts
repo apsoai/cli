@@ -1,3 +1,4 @@
+import { spawnSync } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -94,6 +95,89 @@ export function ensureMcpWiring(projectDir: string, rootFolder: string): string[
       )
   );
   return [...changed, relative];
+}
+
+/** Request logging library every generated TypeScript service uses. */
+export const LOGGING_DEP: Record<string, string> = { "@apso/logging": "^0.1.0" };
+
+const NEST_IMPORT = /^import {[^}]*\bNestFactory\b[^}]*} from ["']@nestjs\/core["'];?$/m;
+const NEST_CREATE =
+  /^([\t ]*)(?:const|let) (\w+) = await NestFactory\.create\(AppModule\);?$/m;
+
+/**
+ * Wire @apso/logging into a TypeScript project: declare the package and call
+ * useApsoLogging straight after NestFactory.create in the server entry point
+ * (main.ts) and the Lambda handler (lambda.ts). Safe to run again.
+ *
+ * @param {string} projectDir - Directory holding the project's package.json.
+ * @param {string} rootFolder - Source folder from .apsorc (usually "src").
+ * @returns {{ changed: string[], manual: string[] }} Files changed, and entry
+ * points that no longer look like the template's and were left alone.
+ */
+export function ensureLoggingWiring(
+  projectDir: string,
+  rootFolder: string
+): { changed: string[]; manual: string[] } {
+  const changed =
+    addMissingDeps(projectDir, LOGGING_DEP).length > 0 ? ["package.json"] : [];
+  const manual: string[] = [];
+  for (const name of ["main.ts", "lambda.ts"]) {
+    const relative = path.join(rootFolder, name);
+    const file = path.join(projectDir, relative);
+    if (!fs.existsSync(file)) continue;
+    const text = fs.readFileSync(file, "utf8");
+    if (text.includes("useApsoLogging")) continue;
+    // A bootstrap that no longer looks like the template's is the owner's to edit.
+    if (!NEST_IMPORT.test(text) || !NEST_CREATE.test(text)) {
+      manual.push(relative);
+      continue;
+    }
+    fs.writeFileSync(
+      file,
+      text
+        // After the NestFactory import: main.ts must import ./tracing first.
+        .replace(NEST_IMPORT, "$&\nimport { useApsoLogging } from '@apso/logging';")
+        .replace(
+          NEST_CREATE,
+          "$1const $2 = await NestFactory.create(AppModule, { bufferLogs: true });\n$1// One JSON line per request with who called, and a request id on every line.\n$1useApsoLogging($2);"
+        )
+    );
+    changed.push(relative);
+  }
+  return { changed, manual };
+}
+
+/** Version of the access rules the generated code enforces. */
+export const ACCESS_CONTRACT = 1;
+
+/**
+ * Record in .apso/manifest.json that the generated code has the built-in
+ * access check (no valid API key or signed-in user, no access). The hosted
+ * platform reads this from the pushed source before it opens a service to
+ * requests it has not checked a key for. Other fields in the file are kept.
+ *
+ * @param {string} projectDir - The project root.
+ * @param {string} cliVersion - Version of the CLI that generated the code.
+ * @returns {boolean} True when git ignores the file, so it would not be pushed.
+ */
+export function writeAccessManifest(projectDir: string, cliVersion: string): boolean {
+  const file = path.join(projectDir, ".apso", "manifest.json");
+  let current = {};
+  try {
+    // eslint-disable-next-line unicorn/prefer-json-parse-buffer -- JSON.parse's TS type requires a string
+    current = JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    // no manifest yet
+  }
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(
+    file,
+    JSON.stringify({ ...current, accessContract: ACCESS_CONTRACT, cliVersion }, null, 2) + "\n"
+  );
+  const ignored = spawnSync("git", ["check-ignore", "-q", ".apso/manifest.json"], {
+    cwd: projectDir,
+  });
+  return ignored.status === 0;
 }
 
 /** JWT verification library the generated TypeScript JWT guard imports. */

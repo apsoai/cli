@@ -54,7 +54,7 @@ type ParsedApsorcData = {
   entities: Entity[];
   relationshipMap: RelationshipMap;
 };
-type ParsedApsorc = {
+export type ParsedApsorc = {
   rootFolder: string;
   apiType: string;
   entities: Entity[];
