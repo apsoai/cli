@@ -168,6 +168,18 @@ describe("generated wiring", () => {
     expect(guard).toContain("request.auth?.roles ?? request.user?.roles");
   });
 
+  test("ScopeGuard checks write bodies on every entity's route", async () => {
+    const files = await generators.typescript.generateGuards(entities, jwt("jwt"));
+    const guard = files.find((f) => f.path === "guards/scope.guard.ts")!.content;
+    // Scoped or not, every entity is listed: a shared entity's body can name scoped rows.
+    for (const entity of entities) expect(guard).toContain(`: '${entity.name}',`);
+    expect(guard).toContain("item[scope.field] = scopeValue;");
+    expect(guard).toContain("delete item[column.propertyName];");
+    expect(guard).toContain("throw new ConflictException(");
+    expect(guard).toContain("if (id !== undefined) item[join.propertyName] = id;");
+    expect(guard).toContain("if (!scopeConfig) throw denied();");
+  });
+
   test("Go registers the middleware on the /api group", async () => {
     const [routes] = await generators.go.generateIndexModule(entities, "rest", { auth: jwt("jwt") });
     expect(routes.content).toContain("r.Use(middleware.AuthMiddleware(db))");
@@ -298,6 +310,19 @@ describe("scopeBy in Go and Python services", () => {
     expect(files.map((f) => f.path)).toEqual(
       expect.arrayContaining(["services/scope.go", "handlers/scope.go"])
     );
+  });
+
+  test("TypeScript services leave update and replace to the library, which applies the tenant filter", async () => {
+    const [service] = await generators.typescript.generateService(opts(jwt("jwt")));
+    expect(service.content).toContain("extends TypeOrmCrudService");
+    expect(service.content).not.toContain("updateOne");
+    expect(service.content).not.toContain("replaceOne");
+  });
+
+  test("Python loads a relation only when a request joins it", async () => {
+    const [model] = await generators.python.generateEntity({ ...opts(jwt("jwt")), relationships: [{ name: "Organization", type: "ManyToOne" }] } as any);
+    expect(model.content).toContain('lazy="raise"');
+    expect(model.content).not.toContain('lazy="selectin"');
   });
 
   test("Python scopes the query builder and the router passes the caller", async () => {

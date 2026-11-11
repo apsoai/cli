@@ -88,6 +88,20 @@ async def get_many(
             detail=str(exc),
         )
 
+    if result.data and isinstance(result.data[0], dict):
+        # A fields= list: each row holds only the chosen columns.
+        return JSONResponse(
+            content=jsonable_encoder(
+                {
+                    "data": result.data,
+                    "count": result.count,
+                    "total": result.total,
+                    "page": result.page,
+                    "pageCount": result.page_count,
+                }
+            )
+        )
+
     return <%= it.entityName %>List(
         data=result.data,
         count=result.count,
@@ -115,7 +129,13 @@ async def get_one(
     """
     service = <%= it.entityName %>Service(db, getattr(request.state, "auth", None))
 
-    options = parse_query_params(request.query_params)
+    try:
+        options = parse_query_params(request.query_params)
+    except QueryParseError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
     joins = [j.relation for j in options.joins] if options.joins else None
 
     item = await service.get_one(id, joins=joins)

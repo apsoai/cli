@@ -33,6 +33,7 @@ import {
   getPermissionConfig,
   getScopedEntities,
   hasScopedEntities,
+  toRouteName,
   mcpOperations,
 } from "../guards";
 import { getEventEmittingEntities } from "../events";
@@ -542,6 +543,8 @@ export class TypeScriptGenerator extends BaseGenerator {
       : [];
     const templateData = {
       scopedEntities,
+      // Every entity by route: the scope guard checks relations in write bodies.
+      routeEntities: entities.map((e) => ({ route: toRouteName(e.name), name: e.name })),
       // Nested paths are only enforced on list and create with a caller's tenant.
       hasNestedFk:
         hasAuth && scopedEntities.some((e) => e.scopes.some((s) => s.fkField)),

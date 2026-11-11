@@ -74,7 +74,7 @@ function parseScopeBy(scopeBy: string | string[]): ScopeFieldConfig[] {
   });
 }
 
-function toRouteName(entityName: string): string {
+export function toRouteName(entityName: string): string {
   return pluralize(entityName).toLowerCase();
 }
 

@@ -552,52 +552,76 @@ async function tenantScope(ctx: AccessContext, entity: AccessEntity, a: Tenant, 
   ])
     t.expect(`[R7] ${n}: read another tenant's row by id with ${name}`, await call("GET", `${url}/${other.id}?${query}`, { headers: asA }), 400, 403, 404);
 
-  // R8: only a scopeBy field can be sent in a body; a path through a parent is checked by R6.
-  if (!entity.scope!.parent) {
-    const theirTenant = asColumn(entity, b.value);
+  // R8: whatever a body says, a written row stays with the caller. For a
+  // scopeBy field the value is the tenant; for a path through a parent it is
+  // the caller's parent row.
+  {
+    const [myValue, theirs] = [mine[col], other[col]];
+    const watched = [col, ...Object.keys(entity.payload)];
     const stored = async (label: string, id: unknown) => {
       const row = await call("GET", `${url}/${id}`, { headers: key });
-      t.assert(label, row.status === 200 && String(row.json?.[col]) === a.value, `${col}=${row.json?.[col]} (${row.status})`);
+      t.assert(label, row.status === 200 && String(row.json?.[col]) === mineValue, `${col}=${row.json?.[col]} (${row.status})`);
     };
     const made: unknown[] = [];
-    const bodies: [string, Row][] = [
-      ["names another tenant", { [col]: theirTenant }],
-      ["names another tenant as text", { [col]: String(theirTenant) }],
+    // The relation whose foreign key is the scope column.
+    const relation = entity.relations.find((r) => `${r.property}Id` === col)?.property;
+    const upper = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+    const namings: [string, Row][] = [
+      ["names another tenant", { [col]: theirs }],
+      ["names another tenant as text", { [col]: String(theirs) }],
+      ["names another tenant as an object in the column", { [col]: { id: theirs } }],
+      ["names another tenant beside an empty bulk list", { [col]: theirs, bulk: [] }],
+      [`names another tenant as ${upper(col)}`, { [upper(col)]: theirs }],
+      ...(snakeCase(col) === col ? [] : [[`names another tenant as ${snakeCase(col)}`, { [snakeCase(col)]: theirs }] as [string, Row]]),
+      ["carries the id of another tenant's row", { id: other.id }],
+      ...(relation
+        ? ([
+            [`names another tenant through ${relation}`, { [relation]: { id: theirs } }],
+            [`names its own tenant in the column and another through ${relation}`, { [col]: myValue, [relation]: { id: theirs } }],
+            [`names another tenant through ${relation} as a list`, { [relation]: [{ id: theirs }] }],
+            [`names another tenant through ${relation} as a bare id`, { [relation]: theirs }],
+            [`names another tenant through ${upper(relation)}`, { [upper(relation)]: { id: theirs } }],
+          ] as [string, Row][])
+        : []),
     ];
     let k = 10;
-    for (const [what, extra] of bodies) {
+    for (const [what, extra] of namings) {
       k += 1;
-      const created = await call("POST", url, { headers: asA, body: { ...payloadFor(entity, k), ...parentsOf(entity, a), ...extra } });
-      if (created.status >= 400 && created.status < 500) {
-        t.assert(`[R8] ${n}: a create body that ${what} is refused (${created.status})`, true);
-        continue;
+      // A row scoped through its parent names the caller's own parent first.
+      const body = (i: number): Row => ({ ...payloadFor(entity, i), ...parentsOf(entity, a), ...(entity.scope!.parent ? { [col]: myValue } : {}), ...extra });
+      const created = await call("POST", url, { headers: asA, body: body(k * 10) });
+      if (created.status >= 400 && created.status < 500) t.assert(`[R8] ${n}: a create body that ${what} is refused (${created.status})`, true);
+      else if (t.expect(`[R8] ${n}: create with a body that ${what}`, created, 200, 201)) {
+        made.push(created.json?.id);
+        await stored(`[R8] ${n}: a create body that ${what} is stored in the caller's tenant`, created.json?.id);
       }
-      if (!t.expect(`[R8] ${n}: create with a body that ${what}`, created, 200, 201)) continue;
-      made.push(created.json?.id);
-      await stored(`[R8] ${n}: a create body that ${what} is stored in the caller's tenant`, created.json?.id);
-    }
-    const bulk = await call("POST", `${url}/bulk`, { headers: asA, body: { bulk: [{ ...payloadFor(entity, 21), ...parentsOf(entity, a), [col]: theirTenant }, { ...payloadFor(entity, 22), ...parentsOf(entity, a), [col]: theirTenant }] } });
-    const bulkRows: Row[] = Array.isArray(bulk.json) ? bulk.json : [];
-    if (bulk.status === 200 || bulk.status === 201) {
-      for (const row of bulkRows) {
-        made.push(row.id);
-        await stored(`[R8] ${n}: a bulk create that names another tenant is stored in the caller's tenant`, row.id);
+      const bulk = await call("POST", `${url}/bulk`, { headers: asA, body: { bulk: [body(k * 10 + 1), body(k * 10 + 2)] } });
+      const bulkRows: Row[] = Array.isArray(bulk.json) ? bulk.json : [];
+      if (bulk.status === 200 || bulk.status === 201) {
+        for (const row of bulkRows) {
+          made.push(row.id);
+          await stored(`[R8] ${n}: a bulk create that ${what} is stored in the caller's tenant`, row.id);
+        }
+        t.assert(`[R8] ${n}: a bulk create that ${what} answers with its rows`, bulkRows.length > 0, bulk.text.slice(0, 200));
+      } else t.assert(`[R8] ${n}: a bulk create that ${what} is refused (${bulk.status})`, bulk.status >= 400 && bulk.status < 500, bulk.text.slice(0, 200));
+      for (const [method, verb] of [["PATCH", "update"], ["PUT", "replace"]]) {
+        const res = await call(method, `${url}/${mine.id}`, { headers: asA, body: body(1) });
+        t.assert(`[R8] ${n}: ${verb} own row with a body that ${what} (${res.status})`, res.status < 500 && res.status !== 0, res.text.slice(0, 200));
+        await stored(`[R8] ${n}: after a ${verb} with a body that ${what} the row is still in the caller's tenant`, mine.id);
       }
-      t.assert(`[R8] ${n}: a bulk create answers with its rows`, bulkRows.length > 0, bulk.text.slice(0, 200));
-    } else t.assert(`[R8] ${n}: a bulk create that names another tenant is refused (${bulk.status})`, bulk.status >= 400 && bulk.status < 500, bulk.text.slice(0, 200));
-
-    for (const [method, what] of [["PATCH", "update"], ["PUT", "replace"]]) {
-      const res = await call(method, `${url}/${mine.id}`, { headers: asA, body: { ...payloadFor(entity, 1), ...parentsOf(entity, a), [col]: theirTenant } });
-      t.assert(`[R8] ${n}: ${what} own row with another tenant in the body (${res.status})`, res.status < 500 && res.status !== 0, res.text.slice(0, 200));
-      await stored(`[R8] ${n}: after that ${what} the row is still in the caller's tenant`, mine.id);
+      const theirsNow = await call("GET", `${url}/${other.id}`, { headers: key });
+      const untouched = theirsNow.status === 200 && watched.every((w) => JSON.stringify(theirsNow.json?.[w]) === JSON.stringify(other[w]));
+      t.assert(`[R8] ${n}: bodies that ${what} leave the other tenant's row as it was`, untouched, `${theirsNow.status} ${theirsNow.text.slice(0, 200)}`);
+      // Put both rows back if a write moved them, so one failure does not cause others.
+      if (!untouched) await call("PATCH", `${url}/${other.id}`, { headers: key, body: pick(other, watched) });
+      await call("PATCH", `${url}/${mine.id}`, { headers: key, body: { [col]: myValue } });
     }
-    // Put the row back if an update moved it, so one failure does not cause others.
-    await call("PATCH", `${url}/${mine.id}`, { headers: key, body: { [col]: asColumn(entity, a.value) } });
-    const steal = await call("PATCH", `${url}/${other.id}`, { headers: asA, body: { [col]: asColumn(entity, a.value) } });
+    const steal = await call("PATCH", `${url}/${other.id}`, { headers: asA, body: { [col]: myValue } });
     t.expect(`[R8] ${n}: move another tenant's row into the caller's tenant`, steal, 403, 404);
     const theirsAfter = await call("GET", `${url}/${other.id}`, { headers: key });
-    t.assert(`[R8] ${n}: that row is still the other tenant's`, theirsAfter.status === 200 && String(theirsAfter.json?.[col]) === b.value, `${col}=${theirsAfter.json?.[col]}`);
-    for (const id of made) if (id !== undefined) await call("DELETE", `${url}/${id}`, { headers: key });
+    t.assert(`[R8] ${n}: that row is still the other tenant's`, theirsAfter.status === 200 && String(theirsAfter.json?.[col]) === theirValue, `${col}=${theirsAfter.json?.[col]}`);
+    for (const id of made)
+      if (id !== undefined && ![String(mine.id), String(other.id)].includes(String(id))) await call("DELETE", `${url}/${id}`, { headers: key });
   }
 
   // R9
@@ -616,6 +640,8 @@ async function tenantScope(ctx: AccessContext, entity: AccessEntity, a: Tenant, 
     t.assert(`[R10] ${n}: a role the schema does not name stays in its tenant`, not.status !== 200 || !rowsOf(not.json).some((r) => String(r.id) === String(other.id)), `${not.status} ${not.text.slice(0, 200)}`);
   }
 }
+
+const pick = (row: Row, keys: string[]): Row => Object.fromEntries(keys.map((k) => [k, row[k]]));
 
 const parentsOf = (entity: AccessEntity, tenant: Tenant): Row =>
   Object.fromEntries(entity.parents.map((p) => [p.property, tenant.rows[p.entity]?.id]));
@@ -647,6 +673,45 @@ async function joinsFromShared(ctx: AccessContext, entity: AccessEntity, b: Tena
     if (!theirs) continue;
     const one = await call("GET", `${base}${entity.route}/${theirs.id}?${attempt.query}`, { headers: { ...asA, ...attempt.headers } });
     t.assert(`[R7] ${entity.name} (not scoped): by id, ${attempt.name} (${one.status})`, widened(model, entity, one, b.rows, 0) === "", `GET ${entity.route}/${theirs.id}?${attempt.query} ${widened(model, entity, one, b.rows, 0)}`);
+  }
+}
+
+/**
+ * A body must not reach another tenant's row through a relation: naming the
+ * row under a relation of the caller's own row, or of a shared row, must not
+ * move it or change its fields.
+ */
+async function relationWrites(ctx: AccessContext, entity: AccessEntity, a: Tenant, b: Tenant, asA: Headers): Promise<void> {
+  const { base, model, t, key } = ctx;
+  const mine = a.rows[entity.name];
+  const url = base + entity.route;
+  for (const relation of entity.relations) {
+    const target = model.entities.find((e) => e.name === relation.entity);
+    const theirs = target?.scope && b.rows[target.name];
+    if (!target || !theirs) continue;
+    const watched = [target.scope!.field, ...Object.keys(target.payload)];
+    const text = target.fields.find((f) => typeof target.payload[f.name] === "string" && !f.is_email && TEXT.has(f.type as string))?.name;
+    const item: Row = { id: theirs.id, ...(text ? { [text]: "apso-access-changed" } : {}) };
+    const fresh: Row = { ...payloadFor(entity, 51), ...parentsOf(entity, a), ...(entity.scope?.parent ? { [entity.scope.field]: mine[entity.scope.field] } : {}) };
+    const writes: [string, string, string, Row][] = [
+      ["update", "PATCH", `${url}/${mine.id}`, {}],
+      ["replace", "PUT", `${url}/${mine.id}`, { ...fresh, ...payloadFor(entity, 1) }],
+      ["create", "POST", url, fresh],
+    ];
+    for (const [shape, value] of [["a list", [item]], ["an object", item]] as [string, unknown][]) {
+      for (const [verb, method, to, body] of writes) {
+        const res = await call(method, to, { headers: asA, body: { ...body, [relation.property]: value } });
+        if (res.status >= 500) ctx.warn?.(`${entity.name}: ${method} with ${relation.property} in the body answered ${res.status}`);
+        const now = await call("GET", `${base}${target.route}/${theirs.id}`, { headers: key });
+        const untouched = now.status === 200 && watched.every((w) => JSON.stringify(now.json?.[w]) === JSON.stringify(theirs[w]));
+        t.assert(`[R8] ${entity.name}: a ${verb} that names another tenant's ${target.name} under ${relation.property} as ${shape} leaves that row as it was (${res.status})`, untouched, `${now.status} ${now.text.slice(0, 200)}`);
+        // Put the rows back before deleting the new one, so one failure does not cause others.
+        if (!untouched) await call("PATCH", `${base}${target.route}/${theirs.id}`, { headers: key, body: pick(theirs, watched) });
+        const own = a.rows[target.name];
+        if (own) await call("PATCH", `${base}${target.route}/${own.id}`, { headers: key, body: pick(own, watched) });
+        if (method === "POST" && res.json?.id !== undefined && String(res.json.id) !== String(mine.id)) await call("DELETE", `${url}/${res.json.id}`, { headers: key });
+      }
+    }
   }
 }
 
@@ -790,6 +855,7 @@ export async function runAccessCases(ctx: AccessContext): Promise<void> {
       for (const entity of model.entities) {
         if (entity.scope && a.rows[entity.name] && b.rows[entity.name]) await tenantScope(ctx, entity, a, b, asA);
         else if (!entity.scope) await joinsFromShared(ctx, entity, b, asA);
+        if (a.rows[entity.name]) await relationWrites(ctx, entity, a, b, asA);
       }
       await mcpCases(ctx, a, b, asA);
       for (const entity of model.entities) await permissions(ctx, entity, a, b);

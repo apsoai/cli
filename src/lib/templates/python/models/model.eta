@@ -53,7 +53,8 @@ class <%= it.name %>(Base):
     <%= c.name %>: Mapped[<%~ c.pyType %>] = mapped_column(<%~ c.args.join(', ') %>)
 <% }) %>
 
-    # Relationships
+    # Relationships. A relation is loaded only when a request joins it
+    # (selectinload in the query builder), never by reading the attribute.
 <% it.associations.forEach((assoc) => { %>
 <% if (assoc.type === 'OneToMany') { %>
     <%= assoc.pluralizedRelationshipName %>: Mapped[List["<%= assoc.name %>"]] = relationship(
@@ -61,21 +62,21 @@ class <%= it.name %>(Base):
         back_populates="<%= assoc.inverseSidePropertyName %>",
         # The foreign key's ON DELETE decides, not the ORM (it would null it).
         passive_deletes="all",
-        lazy="selectin"
+        lazy="raise"
     )
 <% } else if (assoc.type === 'ManyToOne' || (assoc.type === 'OneToOne' && assoc.joinTable)) { %>
     <%= assoc.relationshipName %>: Mapped[Optional["<%= assoc.name %>"]] = relationship(
         "<%= assoc.name %>",
         foreign_keys=[<%= assoc.type === 'ManyToOne' ? assoc.camelCasedId : assoc.fkColumn %>],
         <% if (assoc.biDirectional) { %>back_populates="<%= assoc.inverseSidePropertyName %>",<% } %>
-        lazy="selectin"
+        lazy="raise"
     )
 <% } else if (assoc.type === 'ManyToMany' && assoc.secondary) { %>
     <%= assoc.pluralizedRelationshipName %>: Mapped[List["<%= assoc.name %>"]] = relationship(
         "<%= assoc.name %>",
         secondary="<%= assoc.secondary %>",
         <% if (assoc.biDirectional) { %>back_populates="<%= assoc.inverseSidePropertyName %>",<% } %>
-        lazy="selectin"
+        lazy="raise"
     )
 <% } else if (assoc.type === 'OneToOne') { %>
     <%= assoc.relationshipName %>: Mapped[Optional["<%= assoc.name %>"]] = relationship(
@@ -83,7 +84,7 @@ class <%= it.name %>(Base):
         <% if (assoc.biDirectional) { %>back_populates="<%= assoc.inverseSidePropertyName %>",<% } %>
         uselist=False,
         cascade="all, delete-orphan",
-        lazy="selectin"
+        lazy="raise"
     )
 <% } %>
 <% }) %>

@@ -251,6 +251,8 @@ def parse_nestjsx_params(params: Any) -> QueryOptions:
             opts.limit = min(int(limit_raw), MAX_LIMIT)
         except (ValueError, TypeError):
             pass
+        if opts.limit < 0:
+            raise QueryParseError("limit must not be negative")
 
     page_raw = params.get("page")
     if page_raw is not None:
@@ -664,6 +666,8 @@ def parse_postgrest_params(params: Any) -> QueryOptions:
             opts.offset_present = True
         except (ValueError, TypeError):
             raise QueryParseError("Invalid offset")
+    if opts.limit < 0 or (opts.offset or 0) < 0:
+        raise QueryParseError("limit and offset must not be negative")
 
     return opts
 
@@ -774,22 +778,38 @@ class QueryBuilder:
             query = query.order_by(self.model.id)
         return query
 
+    def _projection(self, options: QueryOptions) -> List[Any]:
+        """
+        The columns a fields=/select= list names. Empty means whole rows.
+        A column list cannot be combined with a relation: a relation loads
+        onto a whole row.
+        """
+        cols: List[Any] = []
+        for name in options.fields or []:
+            col = getattr(self.model, name, None)
+            if col is None and self._postgrest_mode:
+                raise QueryParseError(f"Unknown column '{name}' in query")
+            if col is not None and name in self.model.__table__.columns:
+                cols.append(col)
+        if not cols:
+            return []
+        if options.joins:
+            raise QueryParseError("A column list cannot be combined with a relation; leave out the column list")
+        # nestjsx always returns the id with the chosen fields.
+        if not self._postgrest_mode and "id" not in (options.fields or []):
+            cols.insert(0, self.model.id)
+        return cols
+
+    def _rows(self, result: Any, options: QueryOptions) -> List[Any]:
+        """Whole rows as ORM objects; a column list as one dict per row."""
+        if self._projection(options):
+            return [dict(row._mapping) for row in result.all()]
+        return list(result.scalars().all())
+
     def _base_query(self, options: QueryOptions) -> Select:
         # Field selection replaces the column list; otherwise select the model.
-        if options.fields:
-            cols = []
-            for name in options.fields:
-                col = getattr(self.model, name, None)
-                if col is None and self._postgrest_mode:
-                    raise QueryParseError(f"Unknown column '{name}' in query")
-                if col is not None:
-                    cols.append(col)
-            if cols:
-                query: Select = select(*cols).select_from(self.model)
-            else:
-                query = select(self.model)
-        else:
-            query = select(self.model)
+        cols = self._projection(options)
+        query: Select = select(*cols).select_from(self.model) if cols else select(self.model)
 
         for clause in self._where_clauses(options):
             query = query.where(clause)
@@ -826,7 +846,7 @@ class QueryBuilder:
         query = query.offset(offset).limit(options.limit)
 
         result = await self.db.execute(query)
-        items = list(result.scalars().all())
+        items = self._rows(result, options)
 
         page_count = math.ceil(total / options.limit) if options.limit > 0 else 1
 
@@ -855,7 +875,7 @@ class QueryBuilder:
                 query = query.limit(options.limit)
 
             result = await self.db.execute(query)
-            items = list(result.scalars().all())
+            items = self._rows(result, options)
             return self._apply_field_aliases(items, options)
         finally:
             self._postgrest_mode = False
