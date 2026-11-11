@@ -36,6 +36,7 @@ import os
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, List, NoReturn, Optional
+from urllib.parse import urlsplit
 
 import jwt
 from fastapi import HTTPException, Request, Response, status
@@ -77,10 +78,15 @@ def _provider(i: int, p: dict) -> dict:
     # The first provider reads AUTH_JWT_ISSUER, the second AUTH_JWT_ISSUER_2, and so on.
     s = "" if i == 0 else f"_{i + 1}"
     parties = os.getenv(f"AUTH_JWT_AUTHORIZED_PARTIES{s}") or ",".join(p["authorizedParties"])
+    issuer = os.getenv(f"AUTH_JWT_ISSUER{s}") or p["issuer"]
+    # Better Auth: the OAuth provider signs with the base URL, the JWT plugin
+    # with its origin as iss and aud. Both are this provider, with the same keys.
+    origin = "{0.scheme}://{0.netloc}".format(urlsplit(issuer)) if p["provider"] == "better-auth" else ""
     return {
         "provider": p["provider"],
-        "issuer": os.getenv(f"AUTH_JWT_ISSUER{s}") or p["issuer"],
-        "audience": os.getenv(f"AUTH_JWT_AUDIENCE{s}") or p.get("audience") or "",
+        "issuer": issuer,
+        "issuers": {issuer, origin} if origin else {issuer},
+        "audience": os.getenv(f"AUTH_JWT_AUDIENCE{s}") or p.get("audience") or origin,
         # Fetches and caches the issuer's keys on first use.
         "jwks": PyJWKClient(os.getenv(f"AUTH_JWKS_URI{s}") or p["jwksUri"], cache_keys=True),
         "algorithms": p["algorithms"],
@@ -90,8 +96,9 @@ def _provider(i: int, p: dict) -> dict:
     }
 
 
-PROVIDERS = {p["issuer"]: p for p in (_provider(i, p) for i, p in enumerate(_CONFIGURED))}
-if len(PROVIDERS) != len(_CONFIGURED):
+_PROVIDERS = [_provider(i, p) for i, p in enumerate(_CONFIGURED)]
+PROVIDERS = {issuer: p for p in _PROVIDERS for issuer in p["issuers"]}
+if len(PROVIDERS) != sum(len(p["issuers"]) for p in _PROVIDERS):
     # The token's iss picks the provider, so two providers cannot share one.
     raise RuntimeError(
         "[apso] Two auth providers have the same issuer. Check AUTH_JWT_ISSUER and its numbered variants."
@@ -156,7 +163,7 @@ async def _require_user(request: Request) -> AuthContext:
             token,
             signing_key.key,
             algorithms=p["algorithms"],
-            issuer=p["issuer"],
+            issuer=iss,
             # Cognito's audience is checked below.
             audience=None if cognito else AUDIENCE or None,
             options={"require": ["exp", "iss"], "verify_aud": bool(AUDIENCE) and not cognito},
@@ -172,6 +179,11 @@ async def _require_user(request: Request) -> AuthContext:
 <% } %>
 
     azp = payload.get("azp")
+<% if (it.jwt.some((p) => p.provider === 'better-auth')) { %>
+    # Better Auth's OAuth access tokens (header type at+jwt) name their client in azp.
+    if p["provider"] == "better-auth" and jwt.get_unverified_header(token).get("typ") == "at+jwt" and not isinstance(azp, str):
+        raise _unauthorized("Invalid token")
+<% } %>
     if p["authorized_parties"] and azp is not None and azp not in p["authorized_parties"]:
         raise _unauthorized("Invalid token")
 
@@ -187,7 +199,7 @@ async def _require_user(request: Request) -> AuthContext:
         workspace_id=tenant,
         organization_id=tenant,
         roles=_roles(_claim(payload, CLAIMS.get("roles"))),
-        issuer=p["issuer"],
+        issuer=iss,
         provider=p["provider"],
         claims=payload,
     )

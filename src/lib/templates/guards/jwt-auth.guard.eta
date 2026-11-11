@@ -11,6 +11,18 @@
  *   expiry, audience (when one is configured) and algorithm
  * - Maps the token's claims, by that provider's claim names, into a
  *   normalized AuthContext on request.auth
+<% if (it.jwt.some((p) => p.provider === 'better-auth')) { %>
+ *
+ * Better Auth issues two kinds of token, signed with the same keys:
+ * - The JWT plugin's token, which the app's own front end sends. Its iss and
+ *   aud are Better Auth's baseURL option, normally the origin of the URL in
+ *   .apsorc, so that origin is accepted as an issuer and is the default
+ *   audience (AUTH_JWT_AUDIENCE or auth.jwt.audience changes it).
+ * - An OAuth access token (header type at+jwt) issued to an MCP client. Its
+ *   iss is the URL in .apsorc and its aud is the resource it was issued for:
+ *   MCP_RESOURCE_URL, or the audience above. It must name its client in azp.
+ * A session cookie or session token is not a JWT and is refused.
+<% } %>
  *
  * AUTH_JWT_ISSUER, AUTH_JWT_AUDIENCE, AUTH_JWKS_URI and
  * AUTH_JWT_AUTHORIZED_PARTIES override the .apsorc values at runtime (for
@@ -27,7 +39,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { createRemoteJWKSet, decodeJwt, jwtVerify, JWTPayload } from 'jose';
+import { createRemoteJWKSet, decodeJwt,<% if (it.jwt.some((p) => p.provider === 'better-auth')) { %> decodeProtectedHeader,<% } %> jwtVerify, JWTPayload } from 'jose';
 
 export const IS_PUBLIC_KEY = 'isPublic';
 
@@ -70,10 +82,15 @@ const MCP_RESOURCE = '';
 const PROVIDERS = (<%~ JSON.stringify(it.jwt) %> as any[]).map((p, i) => {
   // The first provider reads AUTH_JWT_ISSUER, the second AUTH_JWT_ISSUER_2, and so on.
   const env = (name: string) => process.env[i === 0 ? name : `${name}_${i + 1}`];
-  const audience = env('AUTH_JWT_AUDIENCE') || p.audience || '';
+  const issuer = env('AUTH_JWT_ISSUER') || (p.issuer as string);
+  // Better Auth's JWT plugin signs with the origin of its URL as iss and aud.
+  const origin = p.provider === 'better-auth' ? new URL(issuer).origin : '';
+  const audience = env('AUTH_JWT_AUDIENCE') || p.audience || origin;
   return {
     provider: p.provider as string,
-    issuer: env('AUTH_JWT_ISSUER') || (p.issuer as string),
+    issuer,
+    issuers: origin ? [...new Set([issuer, origin])] : [issuer],
+    audience,
     // No configured audience means none is checked (Clerk and Cognito tokens carry no aud).
     audiences: audience ? [audience, MCP_RESOURCE].filter(Boolean) : [],
     jwks: createRemoteJWKSet(new URL(env('AUTH_JWKS_URI') || p.jwksUri)),
@@ -85,8 +102,8 @@ const PROVIDERS = (<%~ JSON.stringify(it.jwt) %> as any[]).map((p, i) => {
     claims: p.claims as Record<string, string | undefined>,
   };
 });
-const BY_ISSUER = new Map(PROVIDERS.map((p) => [p.issuer, p]));
-if (BY_ISSUER.size !== PROVIDERS.length) {
+const BY_ISSUER = new Map(PROVIDERS.flatMap((p) => p.issuers.map((issuer) => [issuer, p] as const)));
+if (BY_ISSUER.size !== PROVIDERS.reduce((n, p) => n + p.issuers.length, 0)) {
   // The token's iss picks the provider, so two providers cannot share one.
   throw new Error('[apso] Two auth providers have the same issuer. Check AUTH_JWT_ISSUER and its numbered variants.');
 }
@@ -145,15 +162,24 @@ export class AuthGuard implements CanActivate {
     try {
       // The token's own issuer picks the provider, before anything is
       // verified; then only that provider's keys and settings are used.
-      provider = BY_ISSUER.get(decodeJwt(token).iss as string);
+      const iss = decodeJwt(token).iss as string;
+      provider = BY_ISSUER.get(iss);
       if (!provider) throw new Error('issuer not configured');
+      let audiences = provider.audiences;
+<% if (it.jwt.some((p) => p.provider === 'better-auth')) { %>
+      // Better Auth: only an OAuth access token may be one issued for the MCP URL.
+      const accessToken = provider.provider === 'better-auth' && decodeProtectedHeader(token).typ === 'at+jwt';
+      if (provider.provider === 'better-auth' && !accessToken) audiences = [provider.audience];
+<% } %>
       ({ payload } = await jwtVerify(token, provider.jwks, {
-        issuer: provider.issuer,
+        issuer: iss,
         algorithms: provider.algorithms,
         // Cognito's audience is checked below.
-        audience:
-          provider.provider !== 'cognito' && provider.audiences.length > 0 ? provider.audiences : undefined,
+        audience: provider.provider !== 'cognito' && audiences.length > 0 ? audiences : undefined,
       }));
+<% if (it.jwt.some((p) => p.provider === 'better-auth')) { %>
+      if (accessToken && typeof (payload as any).azp !== 'string') throw new Error('access token without azp');
+<% } %>
     } catch {
       throw new UnauthorizedException('Invalid token');
     }
@@ -188,7 +214,7 @@ export class AuthGuard implements CanActivate {
       organizationId: tenant,
       roles: roles(claim(payload, CLAIMS.roles)),
       permissions: roles(claim(payload, CLAIMS.permissions)),
-      issuer: provider.issuer,
+      issuer: payload.iss as string,
       provider: provider.provider,
       claims: payload,
     };

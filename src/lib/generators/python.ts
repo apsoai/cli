@@ -13,8 +13,6 @@ import {
   MigrationGenerationOptions,
   Entity,
   AuthConfig,
-  isJwtAuth,
-  authProviders,
   resolveJwtProviders,
   Field,
   ComputedField,
@@ -32,6 +30,7 @@ import {
 import { camelCase } from "../utils/casing";
 import { getEventEmittingEntities } from "../events";
 import {
+  authEntityNames,
   entityScope,
   hasPermissions,
   nestedScopeEntities,
@@ -744,10 +743,12 @@ ${downStatements || "    pass"}
       console.warn(
         `[apso] Nested scopeBy paths are enforced in TypeScript services only; ${nested.join(", ")} will not be filtered by those paths in this Python service`
       );
-    const session = authProviders(auth).find((a) => !isJwtAuth(a));
-    if (session)
+    // Auth entities are for service callers only, which only TypeScript
+    // services enforce so far.
+    const stored = authEntityNames(entities, auth);
+    if (stored.length > 0)
       throw new Error(
-        `auth.provider "${session.provider}" is generated for TypeScript services only. For Python, use "jwt" (Better Auth issues JWTs with its JWT plugin).`
+        `${stored.join(", ")}: the entities that store Better Auth's rows are served by TypeScript services only for now. Generate with --language typescript, or keep Better Auth's tables out of this Python service (auth.userEntity, auth.sessionEntity and auth.accountUserEntity name the ones in it).`
       );
     // The API key check is part of every service; auth adds user sign-in.
     // One entry per trusted issuer; undefined when there is no sign-in.

@@ -43,6 +43,9 @@ import (
 <% } %>
 	"log"
 	"net/http"
+<% if (it.jwt && it.jwt.some((p) => p.provider === 'better-auth')) { %>
+	"net/url"
+<% } %>
 	"os"
 <% if (it.jwt) { %>
 	"strconv"
@@ -344,11 +347,27 @@ var providers = byIssuer(
 func byIssuer(list ...*provider) map[string]*provider {
 	m := map[string]*provider{}
 	for _, p := range list {
-		if _, taken := m[p.issuer]; taken {
-			// The token's iss picks the provider, so two providers cannot share one.
-			log.Fatalf("[apso] Two auth providers have the issuer %q. Check AUTH_JWT_ISSUER and its numbered variants.", p.issuer)
+		issuers := []string{p.issuer}
+<% if (it.jwt && it.jwt.some((p) => p.provider === 'better-auth')) { %>
+		// Better Auth: the OAuth provider signs with the base URL, the JWT plugin
+		// with its origin as iss and aud. Both are this provider, with the same keys.
+		if u, err := url.Parse(p.issuer); p.name == "better-auth" && err == nil {
+			origin := u.Scheme + "://" + u.Host
+			if origin != p.issuer {
+				issuers = append(issuers, origin)
+			}
+			if p.audience == "" {
+				p.audience = origin
+			}
 		}
-		m[p.issuer] = p
+<% } %>
+		for _, issuer := range issuers {
+			if _, taken := m[issuer]; taken {
+				// The token's iss picks the provider, so two providers cannot share one.
+				log.Fatalf("[apso] Two auth providers have the issuer %q. Check AUTH_JWT_ISSUER and its numbered variants.", issuer)
+			}
+			m[issuer] = p
+		}
 	}
 	return m
 }
@@ -438,7 +457,7 @@ func userAuth(c *gin.Context) {
 		return
 	}
 	opts := []jwt.ParserOption{
-		jwt.WithIssuer(p.issuer),
+		jwt.WithIssuer(iss),
 		jwt.WithValidMethods(p.algorithms),
 		jwt.WithExpirationRequired(),
 	}
@@ -467,6 +486,13 @@ func userAuth(c *gin.Context) {
 	}
 <% } %>
 
+<% if (it.jwt.some((p) => p.provider === 'better-auth')) { %>
+	// Better Auth's OAuth access tokens (header type at+jwt) name their client in azp.
+	if _, named := claims["azp"].(string); p.name == "better-auth" && token.Header["typ"] == "at+jwt" && !named {
+		unauthorized(c, "Invalid token")
+		return
+	}
+<% } %>
 	if azp, ok := claims["azp"].(string); ok && len(p.authorizedParties) > 0 && !contains(p.authorizedParties, azp) {
 		unauthorized(c, "Invalid token")
 		return
@@ -487,7 +513,7 @@ func userAuth(c *gin.Context) {
 		WorkspaceID:    tenant,
 		OrganizationID: tenant,
 		Roles:          roles(claim(claims, p.roles)),
-		Issuer:         p.issuer,
+		Issuer:         iss,
 		Provider:       p.name,
 		Claims:         claims,
 	})

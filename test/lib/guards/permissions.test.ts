@@ -94,7 +94,7 @@ describe("grants entity", () => {
     expect(() => getPermissionConfig([...entities, grantsEntity({ fields: [{ name: "role", type: "text" }] })])).toThrow(
       '"permission" text field'
     );
-    expect(() => getPermissionConfig(entities, {}, { provider: "better-auth", permissionEntity: "Grant" })).toThrow(
+    expect(() => getPermissionConfig(entities, {}, { provider: "better-auth", url: "https://app.example.com/api/auth", permissionEntity: "Grant" })).toThrow(
       'auth.permissionEntity "Grant" is not an entity'
     );
   });

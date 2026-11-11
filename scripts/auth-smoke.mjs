@@ -31,6 +31,11 @@
  *     account, session, verification, membership) answer a service caller
  *     only: not a signed-in user, a join from another entity or an MCP tool
  *
+ * Better Auth is the exception to the next paragraph: its tokens come from a
+ * real Better Auth server (scripts/better-auth-issuer.mjs; better-auth is
+ * installed from npm into the work folder), and its session cookies and
+ * session tokens are refused.
+ *
  * Tokens are minted locally with the claim shapes each provider issues, signed
  * by a key this script serves as a JWKS. Service tokens are signed the way the
  * platform gateway signs them (ES256), with a key served as a second JWKS.
@@ -785,12 +790,11 @@ async function gatewayNextToSignIn(base, t, user) {
 
 // ---------- auth entities (rule R28 in apsoai/cli#208) ----------
 
-// The better-auth provider checks database sessions, which only TypeScript
-// services do. Better Auth's tables as its adapter expects them, plus the
-// membership entity the session check reads the tenant and role from.
+// Better Auth's tables as its adapter expects them, plus the membership
+// entity. Users sign in with Better Auth's JWT (see the Better Auth section
+// below); the stored sessions are rows only. TypeScript only for now.
 const uuid = { created_at: true, updated_at: true, primaryKeyType: "uuid" };
 const SESSION_AUTH = {
-  auth: { provider: "better-auth" },
   schema: {
     entities: [
       { name: "User", ...uuid, fields: [{ name: "email", type: "text", length: 255, is_email: true }, { name: "name", type: "text", nullable: true }] },
@@ -836,13 +840,14 @@ async function authEntitiesCase(name, _p, boot, project) {
     await add("a project", "/projects", { title: `${who} project`, organizationId, userId });
     seeded[who] = { ...made, userId, organizationId };
   }
-  const ana = { authorization: "Bearer session-of-ana" };
-  const ben = { authorization: "Bearer session-of-ben" };
+  const issuer = await betterAuthIssuer();
+  const ana = { authorization: `Bearer ${(await issuer.user("ana@apso.test", seeded.ana.organizationId)).token}` };
+  const ben = { authorization: `Bearer ${(await issuer.user("ben@apso.test", seeded.ben.organizationId)).token}` };
   const SECRETS = ["session-of-", "hash-of-", "reset-of-", "@apso.test"];
   const clean = (label, res) => t.assert(label, res.status === 200 && !SECRETS.some((secret) => res.text.includes(secret)), `${res.status} ${res.text.slice(0, 300)}`);
 
   const own = await call("GET", `${base}/projects`, { headers: ana });
-  t.assert("the session signs the user in to its own tenant", own.status === 200 && rows(own.json).length === 1 && rows(own.json)[0].title === "ana project", `${own.status} ${own.text.slice(0, 200)}`);
+  t.assert("Better Auth's token signs the user in to its own tenant", own.status === 200 && rows(own.json).length === 1 && rows(own.json)[0].title === "ana project", `${own.status} ${own.text.slice(0, 200)}`);
 
   const bodies = {
     "/users": { email: "eve@apso.test" },
@@ -864,7 +869,7 @@ async function authEntitiesCase(name, _p, boot, project) {
     t.expect(`[R28] user cannot delete another user's row in ${url}`, await call("DELETE", theirs, { headers: ana }), 403);
     t.expect(`[R28] no credential on ${url}`, await call("GET", base + url), 401);
   }
-  t.expect("[R28] a refused request changed nothing: the other user's session still signs in", await call("GET", `${base}/projects`, { headers: ben }), 200);
+  t.expect("[R28] a refused request changed nothing: the other user still signs in", await call("GET", `${base}/projects`, { headers: ben }), 200);
   const still = await call("GET", `${base}/projects`, { headers: ana });
   t.assert("[R28] a refused request changed nothing: the user is still in its own tenant", rows(still.json).length === 1 && rows(still.json)[0].title === "ana project", still.text.slice(0, 200));
 
@@ -886,7 +891,7 @@ async function authEntitiesCase(name, _p, boot, project) {
   t.assert("[R28] key caller joins one auth entity to another", joined.status === 200 && rows(joined.json).every((row) => row.user?.email), `${joined.status} ${joined.text.slice(0, 200)}`);
   t.expect("[R28] key caller updates an account", await call("PATCH", `${base}/accounts/${seeded.ben["/accounts"]}`, { headers: key(KEY), body: { password: "hash-of-ben-2" } }), 200);
   t.expect("[R28] key caller deletes a session", await call("DELETE", `${base}/sessions/${seeded.ben["/sessions"]}`, { headers: key(KEY) }), 200, 204);
-  t.expect("[R28] a deleted session no longer signs in", await call("GET", `${base}/projects`, { headers: ben }), 401);
+  t.expect("a stored session's token is not a credential", await call("GET", `${base}/projects`, { headers: { authorization: "Bearer session-of-ana" } }), 401);
 
   // MCP: generate refuses to make an auth entity's routes tools. Last, because
   // it leaves the project half generated; the next case generates it again.
@@ -922,7 +927,7 @@ PLATFORM = {
   APSO_SERVICE_ID: SERVICE_ID,
 };
 // "no-auth" is a service generated with no auth block at all.
-const cases = { "no-auth": {}, ...providers(`http://127.0.0.1:${jwksPort}`), ...(language === "typescript" ? { "better-auth": SESSION_AUTH } : {}) };
+const cases = { "no-auth": {}, ...providers(`http://127.0.0.1:${jwksPort}`) };
 
 // ---------- two issuers (apsoai/cli#206; rule R3) ----------
 // A service that trusts two issuers: staff (generic "jwt") and customers
@@ -1034,6 +1039,181 @@ const cases = { "no-auth": {}, ...providers(`http://127.0.0.1:${jwksPort}`), ...
   };
 }
 
+// ---------- Better Auth (apsoai/cli#204) ----------
+// The better-auth provider verifies the JWTs a Better Auth server issues. The
+// tokens here come from a real one (scripts/better-auth-issuer.mjs, with
+// better-auth installed into the work folder): users sign up, get an active
+// organization and fetch the JWT plugin's token over HTTP, and an MCP client's
+// access token comes from the OAuth provider's authorization code flow. Only
+// the tokens Better Auth will not issue (expired, another issuer or audience,
+// an access token without azp) are signed here, with that server's own key.
+const BETTER_AUTH_VERSION = "1.7.21";
+const BETTER_AUTH_ORIGIN = `http://127.0.0.1:${await freePort()}`;
+const BETTER_AUTH = { provider: "better-auth", url: `${BETTER_AUTH_ORIGIN}/api/auth` };
+// Fixed, so the Better Auth server can register it before the service has a port.
+const MCP_RESOURCE = "https://api.smoke.test/mcp";
+const OTHER_RESOURCE = "https://other.smoke.test/mcp";
+let betterAuthServer;
+
+/** Start the Better Auth server once per run; returns what the cases need from it. */
+async function betterAuthIssuer() {
+  const api = BETTER_AUTH.url;
+  const json = { "content-type": "application/json", origin: BETTER_AUTH_ORIGIN };
+  const post = async (url, body, headers = {}) => {
+    const res = await fetch(url, { method: "POST", headers: { ...json, ...headers }, body: JSON.stringify(body) });
+    if (!res.ok) throw new Error(`Better Auth: POST ${url} answered ${res.status} ${(await res.text()).slice(0, 300)}`);
+    return res;
+  };
+  if (!betterAuthServer) {
+    const dir = path.join(work, "better-auth");
+    fs.mkdirSync(dir);
+    fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ private: true, type: "module" }));
+    fs.copyFileSync(path.join(path.dirname(CLI), "..", "scripts", "better-auth-issuer.mjs"), path.join(dir, "issuer.mjs"));
+    sh("npm", ["install", "--no-audit", "--no-fund", `better-auth@${BETTER_AUTH_VERSION}`, `@better-auth/oauth-provider@${BETTER_AUTH_VERSION}`], { cwd: dir });
+    betterAuthServer = spawn(process.execPath, ["issuer.mjs"], {
+      cwd: dir,
+      env: { ...process.env, PORT: new URL(BETTER_AUTH_ORIGIN).port, RESOURCES: `${MCP_RESOURCE},${OTHER_RESOURCE}` },
+      stdio: ["ignore", "pipe", "inherit"],
+    });
+    await new Promise((resolve, reject) => {
+      betterAuthServer.stdout.once("data", resolve);
+      betterAuthServer.once("exit", (code) => reject(new Error(`the Better Auth server exited with ${code}`)));
+    });
+  }
+  /** Sign a user up; with `org`, make them a member of it and set it active. */
+  const user = async (name, org, role = "member") => {
+    const email = `${crypto.randomUUID()}-${name}`;
+    const signUp = await post(`${api}/sign-up/email`, { email, password: "smoke-password-1", name: email.split("@")[0] });
+    const cookie = signUp.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
+    const { token: sessionToken, user: row } = await signUp.json();
+    if (org !== undefined) {
+      await post(`${BETTER_AUTH_ORIGIN}/smoke/member`, { userId: row.id, organizationId: String(org), role });
+      await post(`${api}/organization/set-active`, { organizationId: String(org) }, { cookie });
+    }
+    // What the app's front end does: GET /api/auth/token with the session.
+    const res = await fetch(`${api}/token`, { headers: { cookie } });
+    return { id: row.id, cookie, sessionToken, token: (await res.json()).token };
+  };
+  /** An MCP client's access token for `resource`: authorization code with PKCE, as the signed-in user. */
+  const accessToken = async (cookie, resource) => {
+    const client = await (await post(`${BETTER_AUTH_ORIGIN}/smoke/client`, { cookie, resources: [resource] })).json();
+    const verifier = crypto.randomBytes(32).toString("base64url");
+    const redirect_uri = "https://client.smoke.test/callback";
+    const query = new URLSearchParams({
+      response_type: "code",
+      client_id: client.client_id,
+      redirect_uri,
+      scope: "openid",
+      state: "smoke",
+      code_challenge: crypto.createHash("sha256").update(verifier).digest("base64url"),
+      code_challenge_method: "S256",
+      resource,
+    });
+    const authorize = await fetch(`${api}/oauth2/authorize?${query}`, { headers: { cookie }, redirect: "manual" });
+    // A browser gets a 302; a fetch client gets the same URL in a JSON body.
+    const location = authorize.headers.get("location") ?? (await authorize.json().catch(() => ({}))).url ?? "";
+    const code = new URL(location, BETTER_AUTH_ORIGIN).searchParams.get("code");
+    if (!code) throw new Error(`Better Auth: no authorization code: ${authorize.status} ${location}`);
+    const res = await fetch(`${api}/oauth2/token`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri, client_id: client.client_id, code_verifier: verifier, resource }),
+    });
+    const { access_token } = await res.json();
+    if (!access_token) throw new Error(`Better Auth: no access token: ${res.status}`);
+    return access_token;
+  };
+  /** Any payload, signed with the Better Auth server's own key. */
+  const sign = async (payload, header) => (await (await post(`${BETTER_AUTH_ORIGIN}/smoke/sign`, { payload, header })).json()).token;
+  return { user, accessToken, sign };
+}
+
+const decode = (token) => token.split(".").slice(0, 2).map((part) => JSON.parse(Buffer.from(part, "base64url")));
+
+cases["better-auth"] = {
+  auth: BETTER_AUTH,
+  run: async (name, _p, boot) => {
+    const t = checker(name);
+    const issuer = await betterAuthIssuer();
+    const { base } = await boot({ MCP_RESOURCE_URL: MCP_RESOURCE });
+    const bearer = (token) => ({ authorization: `Bearer ${token}` });
+    const get = (headers, url = ORGS) => call("GET", base + url, { headers });
+    // The fresh database numbers the two organizations the checks create 1 and 2.
+    const users = {
+      1: await issuer.user("ana@apso.test", "1", "owner"),
+      2: await issuer.user("ben@apso.test", "2"),
+      none: await issuer.user("nat@apso.test"),
+      support: await issuer.user("sam@apso.test", "2", "support"),
+    };
+    const ana = users[1];
+    const [header, claims] = decode(ana.token);
+    t.assert(
+      "Better Auth's JWT plugin token: EdDSA, iss and aud are its origin, tenant and roles under the default claim names",
+      header.alg === "EdDSA" && claims.iss === BETTER_AUTH_ORIGIN && claims.aud === BETTER_AUTH_ORIGIN && claims.sub === ana.id && claims.activeOrganizationId === "1" && JSON.stringify(claims.roles) === '["owner"]',
+      JSON.stringify({ header, claims })
+    );
+    t.assert("a user with no active organization gets a token with no tenant claim", !("activeOrganizationId" in decode(users.none.token)[1]));
+
+    t.expect("the JWT plugin's token is accepted", await get(bearer(ana.token)), 200);
+    t.expect("a session cookie is refused", await get({ cookie: ana.cookie }), 401);
+    t.expect("a session token as the bearer token is refused", await get(bearer(ana.sessionToken)), 401);
+    t.expect("the signed session cookie value as the bearer token is refused", await get(bearer(decodeURIComponent(ana.cookie.split("=")[1]))), 401);
+    const now = Math.floor(Date.now() / 1000);
+    t.expect("expired (signed with Better Auth's key)", await get(bearer(await issuer.sign({ ...claims, iat: now - 1000, exp: now - 60 }))), 401);
+    t.expect("wrong issuer (signed with Better Auth's key)", await get(bearer(await issuer.sign({ ...claims, exp: now + 600, iss: "https://evil.example" }))), 401);
+    t.expect("wrong audience (signed with Better Auth's key)", await get(bearer(await issuer.sign({ ...claims, exp: now + 600, aud: "https://other.example" }))), 401);
+    t.expect("Better Auth's claims and key id, signed by another key", await get(bearer(mint({ ...claims, exp: now + 600 }, { alg: "EdDSA", key: edImpostor.privateKey, kid: header.kid }))), 401);
+    t.expect("the same payload re-signed with Better Auth's key is accepted, so the refusals above are for their reason", await get(bearer(await issuer.sign({ ...claims, exp: now + 600 }))), 200);
+
+    // Tenant scope from the activeOrganizationId claim; no claim is a 403.
+    const as = (org) => bearer(users[org ?? "none"].token);
+    await crudAndScope(base, t, as, as, bearer(users.none.token), () => bearer(users.support.token));
+
+    // OAuth access tokens (at+jwt), as an MCP client gets them.
+    const forMcp = await issuer.accessToken(ana.cookie, MCP_RESOURCE);
+    const [atHeader, atClaims] = decode(forMcp);
+    t.assert(
+      "Better Auth's OAuth access token: at+jwt, iss is the base URL, aud holds the resource, azp and the tenant are set",
+      atHeader.typ === "at+jwt" && atClaims.iss === BETTER_AUTH.url && [atClaims.aud].flat().includes(MCP_RESOURCE) && typeof atClaims.azp === "string" && atClaims.sub === ana.id && atClaims.activeOrganizationId === "1",
+      JSON.stringify({ atHeader, atClaims })
+    );
+    if (language !== "typescript") {
+      // No MCP endpoint in these services, so its URL is not an audience.
+      t.expect("an access token issued for an MCP URL is refused (the audience is not this service's)", await get(bearer(forMcp)), 401);
+      return t.failures;
+    }
+    t.expect("an access token issued for the MCP URL is accepted", await get(bearer(forMcp)), 200);
+    const mine = await call("POST", base + PROJECTS, { headers: bearer(forMcp), body: { title: "From an MCP client", organizationId: 2 } });
+    t.assert("it is scoped to the tenant in its claim", String(mine.json?.organizationId) === "1", mine.text.slice(0, 200));
+    t.expect("an access token issued for another resource is refused", await get(bearer(await issuer.accessToken(ana.cookie, OTHER_RESOURCE))), 401);
+    const at = { typ: "at+jwt" };
+    t.expect("an access token without azp is refused (signed with Better Auth's key)", await get(bearer(await issuer.sign({ ...atClaims, azp: undefined }, at))), 401);
+    t.expect("the same access token payload with azp is accepted", await get(bearer(await issuer.sign(atClaims, at))), 200);
+    t.expect("a token for the MCP URL that is not an access token is refused (signed with Better Auth's key)", await get(bearer(await issuer.sign(atClaims))), 401);
+
+    const rpc = (headers = {}) =>
+      fetch(`${base}/mcp`, {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json, text/event-stream", ...headers },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+      });
+    const metadataUrl = /resource_metadata="([^"]+)"/.exec((await rpc()).headers.get("www-authenticate") ?? "")?.[1];
+    // The metadata URL is on the public host in MCP_RESOURCE_URL; ask this server for its path.
+    const metadata = metadataUrl ? await call("GET", base + new URL(metadataUrl).pathname) : { json: undefined, text: "no metadata URL in the 401" };
+    t.assert("mcp sign-in metadata lists Better Auth's base URL as the authorization server", JSON.stringify(metadata.json?.authorization_servers) === JSON.stringify([BETTER_AUTH.url]), metadata.text);
+    const client = new Client({ name: "auth-smoke-better-auth", version: "1" });
+    const tools = await client
+      .connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`), { requestInit: { headers: bearer(forMcp) } }))
+      .then(() => client.listTools())
+      .then((r) => r.tools.length, () => 0);
+    t.assert("mcp lists tools for the access token", tools > 0);
+    t.assert("mcp refuses a session token", (await rpc(bearer(ana.sessionToken))).status === 401);
+    return t.failures;
+  },
+};
+// The auth entities case above, on the same provider.
+if (language === "typescript") cases["auth-entities"] = { ...SESSION_AUTH, auth: BETTER_AUTH };
+
 const work = fs.mkdtempSync(path.join(os.tmpdir(), "apso-auth-smoke-"));
 const failures = [];
 try {
@@ -1054,7 +1234,7 @@ try {
   for (const [name, p] of Object.entries(cases)) {
     if (only.length > 0 && !only.includes(name)) continue;
     console.log(`==> ${language} / ${name}`);
-    const db = `auth_smoke_${language}_${name.replace(/\W/g, "_")}`;
+    const db = `auth_smoke_${language}_${name.replace(/\W/g, "_")}_${process.pid}`;
     let server;
     // (Re)start the service on an empty database with these APSO_* settings.
     const boot = async (env = {}) => {
@@ -1087,6 +1267,7 @@ try {
   }
 } finally {
   jwks.close();
+  betterAuthServer?.kill();
   if (!process.env.AUTH_SMOKE_KEEP) fs.rmSync(work, { recursive: true, force: true });
 }
 

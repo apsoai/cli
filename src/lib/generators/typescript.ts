@@ -38,11 +38,8 @@ import {
 } from "../guards";
 import { getEventEmittingEntities } from "../events";
 import {
-  isDbSessionAuth,
   authProviders,
   resolveJwtProviders,
-  DB_SESSION_AUTH_DEFAULTS,
-  DbSessionAuthConfig,
 } from "../types/auth";
 
 const unlinkAsync = promisify(fs.unlink);
@@ -522,11 +519,10 @@ export class TypeScriptGenerator extends BaseGenerator {
     relationshipMap?: RelationshipMap
   ): Promise<GeneratedFile[]> {
     const hasScopes = hasScopedEntities(entities);
-    const normalizedAuth = this.normalizeAuthConfig(auth);
-    // One entry per trusted issuer; undefined for no sign-in or a session provider.
+    // One entry per trusted issuer; undefined when there is no sign-in.
     const jwtProviders = resolveJwtProviders(auth);
     const jwt = jwtProviders.length > 0 ? jwtProviders : undefined;
-    const hasAuth = Boolean(normalizedAuth || jwt);
+    const hasAuth = Boolean(jwt);
 
     // Roles come from the caller's identity; without auth there are none, and
     // a permissions block that is silently not enforced is worse than an error.
@@ -540,31 +536,19 @@ export class TypeScriptGenerator extends BaseGenerator {
     const scopedEntities = getScopedEntities(entities, relationshipMap);
     const files: GeneratedFile[] = [];
 
-    const authEntities: string[] = normalizedAuth
-      ? [
-          normalizedAuth.sessionEntity as string,
-          normalizedAuth.userEntity as string,
-          ...(normalizedAuth.accountUserEntity
-            ? [normalizedAuth.accountUserEntity]
-            : []),
-        ]
-      : [];
     const templateData = {
       scopedEntities,
       // Nested paths are only enforced on list and create with a caller's tenant.
       hasNestedFk:
         hasAuth && scopedEntities.some((e) => e.scopes.some((s) => s.fkField)),
-      authConfig: normalizedAuth,
       hasAuth,
       authProvider: authProviders(auth).map((a) => a.provider).join(", "),
-      authEntities,
       // Routes only a service caller reaches (sessions, accounts, ...).
       authRoutes: authEntityRoutes(entities, auth),
       jwt,
       permissions,
-      // OAuth sign-in for MCP clients: tokens come from the JWT issuer.
-      mcpAuth:
-        Boolean(jwt) && entities.some((e) => mcpOperations(e).length > 0),
+      // OAuth sign-in for MCP clients: tokens come from the listed issuers.
+      mcpAuth: hasAuth && entities.some((e) => mcpOperations(e).length > 0),
     };
 
     // The API key check is part of every service.
@@ -576,7 +560,7 @@ export class TypeScriptGenerator extends BaseGenerator {
     // Generate auth.guard.ts if auth is configured
     if (hasAuth) {
       const authGuardContent = await this.renderTemplate(
-        jwt ? "./guards/jwt-auth.guard.eta" : "./guards/auth.guard.eta",
+        "./guards/jwt-auth.guard.eta",
         templateData
       );
       files.push({
@@ -676,22 +660,5 @@ export class TypeScriptGenerator extends BaseGenerator {
         content,
       },
     ];
-  }
-
-  /**
-   * Normalizes auth config by applying defaults for DB session providers
-   */
-  private normalizeAuthConfig(
-    auth: AuthConfig | undefined
-  ): DbSessionAuthConfig | undefined {
-    const [provider] = authProviders(auth);
-    if (provider && isDbSessionAuth(provider)) {
-      return {
-        ...DB_SESSION_AUTH_DEFAULTS,
-        ...provider,
-      };
-    }
-
-    return undefined;
   }
 }
