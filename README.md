@@ -127,7 +127,7 @@ curl -i -H "x-api-key: $APSO_API_KEY" -H "Prefer: count=exact" "http://localhost
 
 - A filter is `column=operator.value`. Operators: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `like` and `ilike` (`*` is the wildcard), `in.(a,b)`, `is.null`, `is.not_null`, `is.true`, `is.false`. Put `not.` in front to negate.
 - A list is a JSON array. The `Content-Range` response header gives the rows returned, and the total when the request sends `Prefer: count=exact`.
-- With no `limit` a list returns 5 rows. When more exist the status is 206 and `Content-Range` has the total. The largest `limit` is 100.
+- With no `limit` a list returns 25 rows, the same default as Python and Go services. When more exist the status is 206 and `Content-Range` has the total. The largest `limit` is 100.
 - A filter on a related row needs the relation in `select`: `select=id,tasks!inner(title)&tasks.title=eq.Ship`.
 - The older nestjsx parameters (`filter`, `or` in its `field||$op||value` form, `join`, `sort`, `s`, `fields`, `page`, `per_page`, `cache`) get a 400 that names the PostgREST equivalent.
 - MCP list tools take the same arguments: one per column, plus `select`, `order`, `limit`, `offset`, `or`, `and`, and `embedded` for filters on related rows.

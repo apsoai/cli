@@ -820,9 +820,9 @@ async function postgrestTools(base, t, { owner, otherOwner, asOwner, asOther, li
   const description = listed.find((tool) => tool.name === "list_projects")?.description ?? "";
   t.assert("[R21] mcp list tool's description is in PostgREST terms", /op\.value/.test(description) && !/filter, sort, join/.test(description), description);
 
-  // Six more projects and a task for tenant 1, one project for tenant 2.
+  // 26 more projects and a task for tenant 1, so it has more than the default page of 25. One project for tenant 2.
   const ids = [project.id];
-  for (let i = 0; i < 6; i += 1) ids.push((await call("POST", base + PROJECTS, { headers: owner, body: { title: `mcp page ${i}` } })).json?.id);
+  for (let i = 0; i < 26; i += 1) ids.push((await call("POST", base + PROJECTS, { headers: owner, body: { title: `mcp page ${i}` } })).json?.id);
   const theirs = await call("POST", base + PROJECTS, { headers: otherOwner, body: { title: "mcp scoped" } });
   const task = await call("POST", base + route("Tasks"), { headers: owner, body: { title: "mcp task", projectId: project.id } });
   const theirTask = await call("POST", base + route("Tasks"), { headers: otherOwner, body: { title: "mcp task", projectId: theirs.json?.id } });
@@ -850,18 +850,18 @@ async function postgrestTools(base, t, { owner, otherOwner, asOwner, asOther, li
   const refusedRest = await call("GET", `${base}${ORGS}?select=*,projects(*)`, { headers: owner });
   t.assert("[R7] a select embed of a relation outside the tenant scope is a 403 that names the relation", refusedRest.status === 403 && refusedRest.text.includes('The relation \\"projects\\" cannot be loaded'), `${refusedRest.status} ${refusedRest.text.slice(0, 200)}`);
 
-  // The default page: 5 rows, and a count of the caller's rows only.
+  // The default page: 25 rows, and a count of the caller's rows only.
   // What the service caller sees of tenant 1 is the expected answer.
   const stored = await call("GET", `${base}${PROJECTS}?organizationId=eq.1&select=id&order=id.asc&limit=100`, { headers: key(KEY) });
   const own = rows(stored.json).map((row) => row.id);
   const total = own.length;
   t.assert("[R13] the service caller lists tenant 1's projects for the checks below", stored.status === 200 && ids.every((id) => own.includes(id)) && !own.includes(theirs.json.id), stored.text.slice(0, 200));
   const page = await fetch(`${base}${PROJECTS}`, { headers: owner });
-  t.assert("[R6] a full default page is a 206 whose Content-Range total is the caller's rows only", page.status === 206 && page.headers.get("content-range") === `0-4/${total}` && (await page.json()).length === 5, `${page.status} Content-Range ${page.headers.get("content-range")}`);
+  t.assert("[R6] a full default page is a 206 whose Content-Range total is the caller's rows only", page.status === 206 && page.headers.get("content-range") === `0-24/${total}` && (await page.json()).length === 25, `${page.status} Content-Range ${page.headers.get("content-range")}`);
   const exact = await fetch(`${base}${PROJECTS}?limit=2&select=id`, { headers: { ...owner, prefer: "count=exact" } });
   t.assert("[R6] Prefer: count=exact counts the caller's rows only", exact.status === 206 && exact.headers.get("content-range") === `0-1/${total}` && exact.headers.get("preference-applied") === "count=exact", `${exact.status} Content-Range ${exact.headers.get("content-range")}`);
   const partial = await asOwner.callTool({ name: "list_projects", arguments: { select: "id" } });
-  t.assert("[R6,R23] mcp list with no limit says the result is partial and counts the caller's rows only", rowsOf(partial)?.length === 5 && partial.content?.[1]?.text === `Partial result: rows 0-4 of ${total}. Send limit and offset for the rest.`, JSON.stringify(partial.content).slice(0, 300));
+  t.assert("[R6,R23] mcp list with no limit says the result is partial and counts the caller's rows only", rowsOf(partial)?.length === 25 && partial.content?.[1]?.text === `Partial result: rows 0-24 of ${total}. Send limit and offset for the rest.`, JSON.stringify(partial.content).slice(0, 300));
   const all = await asOwner.callTool({ name: "list_projects", arguments: { select: "id", limit: 100 } });
   t.assert("[R6,R23] mcp list with a limit returns every row of the caller's tenant and no other", same(idsOf(all), own) && all.content?.length === 1, text(all));
 

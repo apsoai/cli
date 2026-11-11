@@ -74,8 +74,8 @@ const skipScope = (req: any) => {
     query: {
         // The default page: a list with no limit returns at most this many
         // rows. When more exist the answer is a 206 and its Content-Range
-        // header has the total (0-4/42). The largest limit is 100.
-        limit: 5,
+        // header has the total (0-24/42). The largest limit is 100.
+        limit: 25,
         <% if (it.associations.length) { %>
             join: {
                 <% it.associations.forEach((assoc) => { %>
