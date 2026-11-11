@@ -46,6 +46,24 @@ describe("ensureCrudDeps", () => {
     expect(fs.readFileSync(path.join(dir, "package.json"), "utf8")).toBe(before);
   });
 
+  test("raises a range that starts below the release the generated code needs", () => {
+    const dir = projectWith({
+      dependencies: { "@apso/crud": "^1.0.1", "@apso/crud-core": "1.0.3", "@apso/crud-request": "^1.0.1", "@apso/crud-typeorm": "~1.0.2" },
+    });
+
+    expect(ensureCrudDeps(dir)).toEqual(["@apso/crud", "@apso/crud-core", "@apso/crud-typeorm", "@apso/postgrest-request"]);
+    expect(readPkg(dir).dependencies).toEqual(APSO_CRUD_DEPS);
+    expect(ensureCrudDeps(dir)).toEqual([]);
+  });
+
+  test("leaves a local build or a tag alone", () => {
+    const deps = { ...APSO_CRUD_DEPS, "@apso/crud": "file:../apso-crud-1.0.3.tgz", "@apso/crud-core": "next" };
+    const dir = projectWith({ dependencies: deps });
+
+    expect(ensureCrudDeps(dir)).toEqual([]);
+    expect(readPkg(dir).dependencies).toEqual(deps);
+  });
+
   test("is a no-op without a package.json", () => {
     expect(ensureCrudDeps(fs.mkdtempSync(path.join(os.tmpdir(), "apso-crud-deps-")))).toEqual([]);
   });

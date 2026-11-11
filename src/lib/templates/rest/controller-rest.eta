@@ -6,7 +6,10 @@ import { ApiTags, ApiResponse, ApiOperation, ApiBody } from '@nestjs/swagger';
 <% if (it.mcp.length) { %>
 import { McpTool } from '@apso/mcp';
 <% } %>
-import {<%= it.entityName %>, <%= it.entityName %>Create, <%= it.entityName %>Update} from './dtos/<%= it.entityName%>.dto'
+import {<%= it.entityName %>Create, <%= it.entityName %>Update} from './dtos/<%= it.entityName%>.dto'
+// The entity, not the response DTO: the documented filter parameters (one per
+// column, which is also what an MCP list tool accepts) come from its columns.
+import { <%= it.entityName %> } from './<%= it.entityName %>.entity';
 import {<%= it.svcName %>} from './<%= it.entityName %>.service';
 <% if (it.relationAccess) { %>
 import { RelationAccess, RelationRoot } from '../guards/relations.interceptor';
@@ -58,6 +61,9 @@ const skipScope = (req: any) => {
         replace: <%= it.entityName %>Update,
     },
     validation: false,
+    // List queries are PostgREST syntax only (?status=eq.open&select=id,name&order=id.desc).
+    // A nestjsx parameter (filter, join, sort, s, fields, page, per_page, cache) gets a 400.
+    dialects: ['postgrest'],
     params: {
         id: {
             field: 'id',
@@ -66,12 +72,10 @@ const skipScope = (req: any) => {
         },
     },
     query: {
-        /**
-        * commenting out limit and pagination because of an issue with Crud lib: https://github.com/nestjsx/crud/issues/777
-        */
-        // TODO: make limit env driven?
+        // The default page: a list with no limit returns at most this many
+        // rows. When more exist the answer is a 206 and its Content-Range
+        // header has the total (0-4/42). The largest limit is 100.
         limit: 5,
-        alwaysPaginate: true,
         <% if (it.associations.length) { %>
             join: {
                 <% it.associations.forEach((assoc) => { %>
@@ -160,7 +164,7 @@ export class <%= it.ctrlName %> implements CrudController<<%= it.entityName %>>{
     @Override('getManyBase')
     @ApiOperation({ summary: 'Retrieve multiple <%= it.pluralEntityName %>' })
 <% if (it.mcp.includes('read')) { %>
-    @McpTool({ name: 'list_<%= it.mcpPluralName %>', description: 'List <%= it.pluralEntityName %>. Supports filter, sort, join, limit and page.' })
+    @McpTool({ name: 'list_<%= it.mcpPluralName %>' })
 <% } %>
     getMany(
         @ParsedRequest() req: CrudRequest,

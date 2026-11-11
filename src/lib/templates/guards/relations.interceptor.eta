@@ -55,8 +55,8 @@ export function relationOutsideTenant(root: string, path: string, roles: string[
  * RelationAccess - the one place that decides which relations a request may
  * load. It is on every generated controller, listed above @Crud so it runs
  * after the CRUD request is parsed, and reads the relation paths from the
- * parsed request. ?join, a select embed and any other query syntax arrive
- * there in the same shape, at every depth. A filter or sort on a related
+ * parsed request. A select embed (?select=*,tasks(*)) arrives there as a
+ * relation path, at every depth. A filter or sort on a related
  * entity's field needs the relation loaded, so it meets the same check.
  *
  * A user caller is refused a relation that would load another tenant's rows<% if (it.permissions) { %>
