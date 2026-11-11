@@ -1158,10 +1158,12 @@ async function betterAuthIssuer() {
   };
   if (!betterAuthServer) {
     const dir = path.join(work, "better-auth");
-    fs.mkdirSync(dir);
+    // With AUTH_SMOKE_PROJECT the work folder is reused, and Better Auth is already installed in it.
+    const installed = fs.existsSync(path.join(dir, "node_modules"));
+    fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ private: true, type: "module" }));
     fs.copyFileSync(path.join(path.dirname(CLI), "..", "scripts", "better-auth-issuer.mjs"), path.join(dir, "issuer.mjs"));
-    sh("npm", ["install", "--no-audit", "--no-fund", `better-auth@${BETTER_AUTH_VERSION}`, `@better-auth/oauth-provider@${BETTER_AUTH_VERSION}`], { cwd: dir });
+    if (!installed) sh("npm", ["install", "--no-audit", "--no-fund", `better-auth@${BETTER_AUTH_VERSION}`, `@better-auth/oauth-provider@${BETTER_AUTH_VERSION}`], { cwd: dir });
     betterAuthServer = spawn(process.execPath, ["issuer.mjs"], {
       cwd: dir,
       env: { ...process.env, PORT: new URL(BETTER_AUTH_ORIGIN).port, RESOURCES: `${MCP_RESOURCE},${OTHER_RESOURCE},${API_RESOURCE}` },

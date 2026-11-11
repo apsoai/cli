@@ -51,7 +51,7 @@ export const MUTATIONS = [
     legs: ["jwt"],
     typescript: [[TS.auth, /audience: provider\.provider !== "cognito" && audiences\.length > 0 \? audiences : undefined,/, ""]],
     python: [[PY.auth, /"verify_aud": bool\(AUDIENCE\) and not cognito/, '"verify_aud": False']],
-    go: [[GO.auth, /if p\.audience != "" && !cognito \{/, "if false {"]],
+    go: [[GO.auth, /if p\.audience != "" && !cognito \{/, "if false && !cognito {"]],
   },
   {
     id: "issuer-check",
