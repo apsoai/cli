@@ -36,6 +36,7 @@ import {
   entityScope,
   getPermissionConfig,
   hasPermissions,
+  mcpToolNames,
   nestedScopeEntities,
   assertTenantClaim,
   relationScopes,
@@ -411,6 +412,8 @@ export class PythonGenerator extends BaseGenerator {
       pluralEntityName,
       primaryKeyType,
       associations: [...new Set(relationshipsForTemplate)],
+      // Operations exposed as MCP tools, and the names the tools get.
+      ...mcpToolNames(entity, options.auth),
     };
 
     const content = await this.renderTemplate("./routers/router", data);
@@ -744,10 +747,7 @@ ${downStatements || "    pass"}
     auth?: AuthConfig,
     relationshipMap: RelationshipMap = this.config.relationshipMap ?? {}
   ): Promise<GeneratedFile[]> {
-    if (entities.some((entity) => entity.mcp))
-      throw new Error(
-        "mcp in .apsorc is served by TypeScript services only for now; remove it or generate with --language typescript"
-      );
+    const mcp = entities.some((e) => mcpToolNames(e, auth).mcp.length > 0);
     // Fails on a grants entity that would be an escalation path.
     const permissions = getPermissionConfig(entities, relationshipMap, auth);
     if (permissions && !auth)
@@ -765,6 +765,7 @@ ${downStatements || "    pass"}
     const jwt = resolveJwtProviders(auth);
     const data = {
       jwt: jwt.length > 0 ? jwt : undefined,
+      mcp,
       // Routes only a service caller reaches (sessions, accounts, ...).
       authRoutes: authEntityRoutes(entities, auth),
       relationScopes: relationScopes(entities, relationshipMap, Boolean(auth)) ?? {},
@@ -777,6 +778,9 @@ ${downStatements || "    pass"}
         path: "permissions.py",
         content: await this.renderTemplate("./permissions", { permissions }),
       });
+    // The /mcp endpoint; app/main.py mounts it (see ensurePythonMcpWiring).
+    if (mcp)
+      files.push({ path: "mcp.py", content: await this.renderTemplate("./mcp", {}) });
     return files;
   }
 

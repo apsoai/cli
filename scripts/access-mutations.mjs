@@ -63,6 +63,15 @@ export const MUTATIONS = [
     go: [[GO.auth, /p, ok := providers\[iss\]\n/, "p, ok := providers[iss]\n\tif !ok {\n\t\tfor _, listed := range providers {\n\t\t\tp, ok = listed, true\n\t\t}\n\t}\n"]],
   },
   {
+    id: "mcp-audience-any-token",
+    removes: "the rule that only a Better Auth access token may be one issued for the MCP URL",
+    rules: ["R2"],
+    legs: ["better-auth"],
+    typescript: [[TS.auth, /if \(provider\.provider === "better-auth" && !accessToken\) audiences = \[provider\.audience\];/, ""]],
+    python: [[PY.auth, /(get_unverified_header\(token\)\.get\("typ"\) != "at\+jwt":\n\s+)audiences = \[AUDIENCE\]/, "$1pass"]],
+    go: [[GO.auth, /\(p\.name != "better-auth" \|\| token\.Header\["typ"\] == "at\+jwt"\)/, "true"]],
+  },
+  {
     id: "auth-entity-routes",
     removes: "the refusal of a signed-in user on an auth entity's routes",
     rules: ["R28"],
@@ -261,6 +270,8 @@ export const MUTATIONS = [
     rules: ["R21"],
     legs: ["jwt"],
     typescript: [["src/autogen/Project/Project.controller.ts", /@Override\("deleteOneBase"\)/, '@Override("deleteOneBase")\n  @McpTool({ name: "delete_project", description: "not opted in" })']],
+    python: [["app/autogen/routers/project.py", /summary="Delete a single Project",\n/, 'summary="Delete a single Project",\n    openapi_extra=mcp_tool("delete_project", "not opted in"),\n']],
+    go: [["autogen/routes/mcp.go", /var mcpTools = \[\]MCPTool\{\n/, 'var mcpTools = []MCPTool{\n\t{Name: "delete_project", Description: "not opted in", Method: "DELETE", Path: "/projects/:id", InputSchema: json.RawMessage(`{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}`)},\n']],
   },
   {
     id: "mcp-token-check",
@@ -268,12 +279,14 @@ export const MUTATIONS = [
     rules: ["R22"],
     legs: ["jwt"],
     typescript: [[TS.key, /verify: \(request: any\) => guard\.authenticate\(request\),/, 'verify: async () => ({ userId: "anyone", roles: [] }),']],
+    python: [["app/autogen/mcp.py", /await require_auth\(request, Response\(\)\)/, "pass"]],
+    go: [["autogen/routes/mcp.go", /middleware\.AuthMiddleware\(nil\),/, "func(c *gin.Context) { _ = middleware.AuthMiddleware; c.Next() },"]],
   },
 ];
 
 /** Rules with no removal, and why. A rule marked enforced must be here or in MUTATIONS. */
 export const NOT_BREAKABLE = {
-  R23: "A tool call is the REST route run through the app's own HTTP pipeline inside @apso/mcp, a library. The generated service has no separate tool path to remove a check from.",
+  R23: "A tool call is the REST route run through the app's own HTTP pipeline: inside @apso/mcp in TypeScript, and as an in-memory request to the app in Python and Go. There is no separate tool path to remove a check from.",
   R26: "Enforced by `apso generate`, not by generated code. The suite's cases run the CLI; test/lib covers the check itself.",
   R27: "Enforced by `apso generate`, not by generated code. The suite's cases run the CLI; test/lib covers the check itself.",
 };

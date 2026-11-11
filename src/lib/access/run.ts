@@ -102,7 +102,7 @@ export async function accessTest(
           user: issuer?.user,
           roles: issuer?.roles,
           badTokens: issuer?.badTokens(),
-          mcp: language === "typescript" ? (headers) => connectMcp(base, headers) : undefined,
+          mcp: (headers) => connectMcp(base, headers),
           log,
           warn: (line) => notes.push(`Warning (not a rule failure): ${line}`),
         });

@@ -153,19 +153,19 @@
       "id": "R21",
       "group": "MCP",
       "rule": "Only operations the schema opts in are tools.",
-      "status": { "typescript": "enforced", "python": "refused", "go": "refused" }
+      "status": { "typescript": "enforced", "python": "enforced", "go": "enforced" }
     },
     {
       "id": "R22",
       "group": "MCP",
       "rule": "When sign-in is configured, every MCP request needs a valid token issued for the MCP endpoint, including listing tools.",
-      "status": { "typescript": "enforced", "python": "refused", "go": "refused" }
+      "status": { "typescript": "enforced", "python": "enforced", "go": "enforced" }
     },
     {
       "id": "R23",
       "group": "MCP",
       "rule": "A tool call gets the same answer as the same REST call: same sign-in, permission and tenant checks.",
-      "status": { "typescript": "enforced", "python": "refused", "go": "refused" }
+      "status": { "typescript": "enforced", "python": "enforced", "go": "enforced" }
     },
     {
       "id": "R24",

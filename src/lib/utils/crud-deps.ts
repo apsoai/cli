@@ -96,6 +96,77 @@ export function ensureMcpWiring(projectDir: string, rootFolder: string): string[
   return [...changed, relative];
 }
 
+/** The official MCP SDK for Python; 2.x has the constructor-handler server the generated mcp.py uses. */
+export const PYTHON_MCP_DEP = "mcp>=2.3,<3";
+
+/** The entry point of a Python or Go project and the MCP call the CLI adds to it. */
+function appMcpWiring(language: "python" | "go") {
+  const python = language === "python";
+  const relative = python ? path.join("app", "main.py") : path.join("cmd", "main.go");
+  const anchor = python
+    ? "app.include_router(autogen_router)"
+    : "routes.RegisterAllRoutes(api, db)";
+  const call = python
+    ? "\n\n# Serve the routes marked with mcp_tool as MCP tools at /mcp.\nfrom app.autogen.mcp import mount_mcp  # noqa: E402\n\nmount_mcp(app)"
+    : "\n\n\t// Serve the routes .apsorc marks with mcp as MCP tools at /mcp.\n\troutes.MountMCP(r, api)";
+  return { relative, anchor, call };
+}
+
+/**
+ * Take the MCP call back out of a Python or Go entry point when no entity has
+ * `mcp` any more: the generated file it calls is no longer written, so the
+ * service would not build or start. Only the exact lines the CLI added are
+ * removed.
+ *
+ * @param {string} projectDir - The project root.
+ * @param {"python" | "go"} language - The project's language.
+ * @returns {string[]} Files changed.
+ */
+export function removeAppMcpWiring(
+  projectDir: string,
+  language: "python" | "go"
+): string[] {
+  const { relative, call } = appMcpWiring(language);
+  const file = path.join(projectDir, relative);
+  const text = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+  if (!text.includes(call)) return [];
+  fs.writeFileSync(file, text.replace(call, ""));
+  return [relative];
+}
+
+/**
+ * Wire the generated MCP endpoint into a Python or Go project: one call in the
+ * app's entry point, after the generated routes are registered (and the SDK in
+ * pyproject.toml for Python; go mod tidy adds it for Go). Safe to run again.
+ *
+ * @param {string} projectDir - The project root.
+ * @param {"python" | "go"} language - The project's language.
+ * @returns {string[]} Files changed (empty when the project was already wired).
+ */
+export function ensureAppMcpWiring(
+  projectDir: string,
+  language: "python" | "go"
+): string[] {
+  const python = language === "python";
+  const changed =
+    python && addMissingPythonDep(projectDir, PYTHON_MCP_DEP)
+      ? ["pyproject.toml"]
+      : [];
+  const { relative, anchor, call } = appMcpWiring(language);
+  const file = path.join(projectDir, relative);
+  const text = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+  if (text.includes(python ? "mount_mcp" : "MountMCP")) return changed;
+  // An entry point that no longer looks like the template's is the owner's to edit.
+  if (!text.includes(anchor))
+    throw new Error(
+      python
+        ? `mcp in .apsorc: could not add the MCP endpoint to ${relative}. After your routers are included, add: from app.autogen.mcp import mount_mcp, then mount_mcp(app). Without it no tools are served.`
+        : `mcp in .apsorc: could not add the MCP endpoint to ${relative}. After routes.RegisterAllRoutes, call routes.MountMCP(engine, group) with the Gin engine and the group the routes are registered on. Without it no tools are served.`
+    );
+  fs.writeFileSync(file, text.replace(anchor, anchor + call));
+  return [...changed, relative];
+}
+
 /** JWT verification library the generated TypeScript JWT guard imports. */
 export const JOSE_DEP: Record<string, string> = { jose: "^5.10.0" };
 

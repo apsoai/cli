@@ -25,7 +25,7 @@
  *     through ?join, and allow a role in it; a RolePermission row added by an
  *     owner grants a permission in that tenant only; a member cannot grant
  *     itself; a permission in the token is honored
- *   - mcp (TypeScript) serves only the opted-in operations as tools at /mcp,
+ *   - mcp serves only the opted-in operations as tools at /mcp,
  *     and a tool call meets the same auth, permission and scope guards as REST
  *   - with the better-auth provider (TypeScript), the auth entities (user,
  *     account, session, verification, membership) answer a service caller
@@ -257,10 +257,10 @@ function providers(base) {
 
 // ---------- project ----------
 
-// Permissions and MCP tools need sign-in. Only TypeScript serves MCP tools.
+// Permissions and MCP tools need sign-in.
 const entities = (auth) => {
   const full = Boolean(auth);
-  const mcp = (ops) => (full && language === "typescript" ? { mcp: ops } : {});
+  const mcp = (ops) => (full ? { mcp: ops } : {});
   return [
     { name: "Organization", created_at: true, updated_at: true, fields: [{ name: "name", type: "text" }] },
     // Projects are readable as MCP tools.
@@ -371,10 +371,10 @@ async function start(project, db, extra = {}) {
     });
     [cmd, args] = [process.execPath, ["dist/main"]];
   } else if (language === "go") {
-    Object.assign(env, { DATABASE_URL: `${PG}/${db}?sslmode=disable`, DATABASE_SYNC: "true", PORT: String(port), GIN_MODE: "release" });
+    Object.assign(env, { DATABASE_URL: `${PG}/${db}?sslmode=disable`, DATABASE_SYNC: "true", PORT: String(port), GIN_MODE: "release", MCP_RESOURCE_URL: `http://127.0.0.1:${port}/mcp` });
     [cmd, args] = [path.join(project, "bin", "server"), []];
   } else {
-    Object.assign(env, { DATABASE_URL: `${PG.replace(/^postgres(ql)?:/, "postgresql+asyncpg:")}/${db}`, DATABASE_SYNC: "true", PORT: String(port) });
+    Object.assign(env, { DATABASE_URL: `${PG.replace(/^postgres(ql)?:/, "postgresql+asyncpg:")}/${db}`, DATABASE_SYNC: "true", PORT: String(port), MCP_RESOURCE_URL: `http://127.0.0.1:${port}/mcp` });
     [cmd, args] = [path.join(project, ".venv", "bin", "python"), ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", String(port)]];
   }
   const child = spawn(cmd, args, { cwd: project, env: { ...env, ...extra } });
@@ -515,7 +515,7 @@ async function jwtCase(name, p, boot) {
   if (name === "jwt") {
     const as = (roles, org = "1", extra = {}) => bearer(sign({ ...p.claims(org), app_metadata: { org_id: org, roles }, ...extra }));
     await rolePermissions(base, t, as(["owner"]), as(["member"]), as(["member"], "2"), as(["member"], "1", { permissions: ["invoice:delete"] }), (permissions) => as(["member"], "1", { permissions }));
-    if (language === "typescript") await mcpTools(base, t, as(["owner"]), as(["member"]), as(["owner"], "2"), as(["owner"], "1", { aud: `${base}/mcp` }));
+    await mcpTools(base, t, as(["owner"]), as(["member"]), as(["owner"], "2"), as(["owner"], "1", { aud: `${base}/mcp` }));
   }
   if (name === "jwt") {
     await keyNextToSignIn(base, t, valid("1"));
@@ -551,7 +551,7 @@ async function schemaCases(p, boot, t, sign) {
     key: key(KEY),
     user,
     roles: Boolean(rolesClaim),
-    mcp: language === "typescript" ? (headers) => access.connectMcp(base, headers) : undefined,
+    mcp: (headers) => access.connectMcp(base, headers),
     log: console.log,
     warn: (line) => warnings.add(line),
   });
@@ -574,15 +574,13 @@ function buildTimeCases(project) {
     t.assert(label, r.status !== 0 && pattern.test(out), `exit ${r.status}: ${out.slice(-400)}`);
   };
   refuses("[R27] generate refuses a tenant scope when the provider has no tenant claim", { auth: { provider: "auth0", jwt: { issuer: "https://issuer.apso.test/", audience: "api" } }, entities: [org, doc({ scopeBy: "organizationId" })], relationships: [{ from: "Organization", to: "Doc", type: "OneToMany" }] }, /tenant claim/);
-  // Permissions are enforced in every language, so their schema checks are too.
+  // Permissions and MCP tools are generated in every language, so their schema checks run in each.
   refuses("[R27] generate refuses permissions without sign-in", { entities: [doc({ permissions: { read: ["owner"] } })] }, /permissions.*auth block/);
   refuses("[R27] generate refuses a grants entity anyone can write", { auth: jwtAuth, entities: [doc({ permissions: { read: ["owner"] } }), { name: "RolePermission", fields: [{ name: "role", type: "text" }, { name: "permission", type: "text" }] }] }, /grant themselves any permission/);
   refuses("[R27] generate refuses a grants entity with no tenant in a tenant-scoped schema", { auth: jwtAuth, entities: [org, doc({ scopeBy: "organizationId", permissions: { read: ["owner"] } }), { name: "RolePermission", permissions: { create: ["owner"], update: ["owner"], delete: ["owner"] }, fields: [{ name: "role", type: "text" }, { name: "permission", type: "text" }] }], relationships: [{ from: "Organization", to: "Doc", type: "OneToMany" }] }, /every tenant/);
-  if (language === "typescript") {
-    refuses("[R27] generate refuses MCP tools without sign-in", { entities: [doc({ mcp: true })] }, /mcp.*auth block/i);
-  } else {
+  refuses("[R27] generate refuses MCP tools without sign-in", { entities: [doc({ mcp: true })] }, /mcp.*auth block/i);
+  if (language !== "typescript") {
     // What this language cannot enforce it refuses, so the rule is never silently missing.
-    refuses("[R26,R21,R22,R23] generate refuses MCP tools for this language", { auth: jwtAuth, entities: [doc({ mcp: true })] }, /mcp.*TypeScript services only/);
     refuses("[R26,R6] generate refuses a scopeBy path through a parent for this language", { auth: jwtAuth, entities: [org, { name: "Project", scopeBy: "organizationId", fields: [{ name: "title", type: "text" }] }, doc({ scopeBy: "project.organizationId" })], relationships: [{ from: "Organization", to: "Project", type: "OneToMany" }, { from: "Project", to: "Doc", type: "OneToMany" }] }, /path through a parent/);
   }
   // Every sign-in provider is a JWT provider in every language; the removed ones and an incomplete one fail.
@@ -633,9 +631,17 @@ async function mcpTools(base, t, owner, member, otherOwner, ownerForMcp) {
   const issuedForMcp = await (await connect(ownerForMcp)).listTools().then((r) => r.tools.length, () => 0);
   t.assert("[R22] mcp accepts a token issued for the MCP endpoint's URL", issuedForMcp > 0);
 
-  const names = (await asOwner.listTools()).tools.map((tool) => tool.name).sort();
+  const listed = (await asOwner.listTools()).tools;
+  const names = listed.map((tool) => tool.name).sort();
   const expected = ["create_invoice", "delete_invoice", "get_invoice", "get_project", "list_invoices", "list_projects", "update_invoice"];
   t.assert("[R21] mcp lists only the opted-in operations", JSON.stringify(names) === JSON.stringify(expected), names.join(","));
+  if (language !== "typescript") {
+    // Python reads these from its OpenAPI document; Go has none, so the CLI writes them from .apsorc.
+    const schema = (name) => listed.find((tool) => tool.name === name)?.inputSchema?.properties ?? {};
+    t.assert("[R21] mcp create tool's schema has the entity's fields under body", schema("create_invoice").body?.properties?.total?.type === "integer", JSON.stringify(schema("create_invoice")).slice(0, 300));
+    t.assert("[R21] mcp list tool's schema has limit, filter and join", ["limit", "filter", "join"].every((k) => k in schema("list_invoices")), Object.keys(schema("list_invoices")).join(","));
+    t.assert("[R21] mcp get tool's schema has id", "id" in schema("get_invoice"));
+  }
 
   const denied = await asMember.callTool({ name: "list_invoices", arguments: {} });
   t.assert("[R23] mcp call by a member lacks invoice:read", denied.isError === true && text(denied).includes("invoice:read"), text(denied));
@@ -843,7 +849,6 @@ async function keyNextToSignIn(base, t, user) {
     t.expect("[R13] key caller deletes an invoice without a role", await call("DELETE", `${base}${INVOICES}/${invoice.json.id}`, { headers: key(KEY) }), 200, 204);
   }
 
-  if (language !== "typescript") return;
   // /mcp follows the same rules.
   const rpc = (headers) =>
     fetch(`${base}/mcp`, {
@@ -995,11 +1000,9 @@ async function authEntitiesCase(name, _p, boot, project) {
   t.expect("[R28] key caller deletes a session", await call("DELETE", `${base}/sessions/${seeded.ben["/sessions"]}`, { headers: key(KEY) }), 200, 204);
   t.expect("[R1] a stored session's token is not a credential", await call("GET", `${base}/projects`, { headers: { authorization: "Bearer session-of-ana" } }), 401);
 
-  // Only TypeScript services serve MCP tools.
-  if (language !== "typescript") return t.failures;
   // MCP: generate refuses to make an auth entity's routes tools. Last, because
   // it leaves the project half generated; the next case generates it again.
-  for (const entity of ["User", "account", "session", "verification", "AccountUser"]) {
+  for (const entity of ["User", T.account, T.session, T.verification, "AccountUser"]) {
     const rcPath = path.join(project, ".apsorc");
     const rc = JSON.parse(fs.readFileSync(rcPath, "utf8"));
     fs.writeFileSync(rcPath, JSON.stringify({ ...rc, entities: rc.entities.map((e) => (e.name === entity ? { ...e, mcp: ["read"] } : e)) }, null, 2));
@@ -1117,7 +1120,6 @@ const cases = { "no-auth": {}, ...providers(`http://127.0.0.1:${jwksPort}`) };
       t.expect("[R11] invoice:read in the second issuer's permissions claim (perms) lists invoices", await get(customer(id2, { perms: ["invoice:read"] }), INVOICES), 200);
       t.expect("[R11] a second-issuer token with invoice:read under the first issuer's claim name is refused", await get(customer(id2, { permissions: ["invoice:read"] }), INVOICES), 403);
       t.expect("[R11] invoice:read in the first issuer's permissions claim (permissions) lists invoices", await get(staff(id1, { permissions: ["invoice:read"] }), INVOICES), 200);
-      if (language !== "typescript") return t.failures;
 
       // MCP sign-in discovery names both issuers, and a token from either works.
       const rpc = (headers = {}) =>
@@ -1395,11 +1397,6 @@ cases["better-auth"] = {
     );
     await accessTokenTenant(base, t, issuer, bearer(ana.token));
 
-    if (language !== "typescript") {
-      // No MCP endpoint in these services, so its URL is not an audience.
-      t.expect("[R2] an access token issued for an MCP URL is refused (the audience is not this service's)", await get(bearer(forMcp)), 401);
-      return t.failures;
-    }
     t.expect("[R2] an access token issued for the MCP URL is accepted", await get(bearer(forMcp)), 200);
     const mine = await call("POST", base + PROJECTS, { headers: bearer(forMcp), body: { title: "From an MCP client", organizationId: 2 } });
     t.assert("[R8] it is scoped to the tenant in its claim", String(mine.json?.organizationId) === "1", mine.text.slice(0, 200));

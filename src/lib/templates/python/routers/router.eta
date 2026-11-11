@@ -17,6 +17,9 @@ from ..schemas.<%= it.entityName.toLowerCase() %> import (
 )
 from ..services.<%= it.entityName.toLowerCase() %> import <%= it.entityName %>Service
 from ..utils.query import parse_query_params, QueryParseError
+<% if (it.mcp.length) { %>
+from ..mcp import LIST_PARAMETERS, mcp_tool
+<% } %>
 
 router = APIRouter(
     prefix="/<%= it.pluralEntityName.toLowerCase() %>",
@@ -27,6 +30,9 @@ router = APIRouter(
 @router.get(
     "",
     summary="Retrieve multiple <%= it.pluralEntityName %>",
+<% if (it.mcp.includes('read')) { %>
+    openapi_extra=mcp_tool("list_<%= it.mcpPluralName %>", "List <%= it.pluralEntityName %>. Supports filter, sort, join, limit and page.", LIST_PARAMETERS),
+<% } %>
     response_model=Union[<%= it.entityName %>List, List[<%= it.entityName %>Schema]],
 )
 async def get_many(
@@ -115,6 +121,9 @@ async def get_many(
     "/{id}",
     response_model=<%= it.entityName %>Schema,
     summary="Retrieve a single <%= it.entityName %>",
+<% if (it.mcp.includes('read')) { %>
+    openapi_extra=mcp_tool("get_<%= it.mcpName %>", "Get one <%= it.entityName %> by id."),
+<% } %>
 )
 async def get_one(
     id: <% if (it.primaryKeyType === 'uuid') { %>str<% } else { %>int<% } %>,
@@ -152,6 +161,9 @@ async def get_one(
     response_model=<%= it.entityName %>Schema,
     status_code=status.HTTP_201_CREATED,
     summary="Create a single <%= it.entityName %>",
+<% if (it.mcp.includes('create')) { %>
+    openapi_extra=mcp_tool("create_<%= it.mcpName %>", "Create a <%= it.entityName %>."),
+<% } %>
 )
 async def create_one(
     request: Request,
@@ -187,6 +199,9 @@ async def create_many(
     "/{id}",
     response_model=<%= it.entityName %>Schema,
     summary="Update a single <%= it.entityName %>",
+<% if (it.mcp.includes('update')) { %>
+    openapi_extra=mcp_tool("update_<%= it.mcpName %>", "Update fields of one <%= it.entityName %> by id."),
+<% } %>
 )
 async def update_one(
     request: Request,
@@ -235,6 +250,9 @@ async def replace_one(
     "/{id}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete a single <%= it.entityName %>",
+<% if (it.mcp.includes('delete')) { %>
+    openapi_extra=mcp_tool("delete_<%= it.mcpName %>", "Delete one <%= it.entityName %> by id. This cannot be undone."),
+<% } %>
 )
 async def delete_one(
     request: Request,

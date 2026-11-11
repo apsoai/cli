@@ -143,7 +143,7 @@ export function buildModel(
     } else if (config) {
       skipped.push({ name: entity.name, reason: "its scopeBy is the caller's user id or email, which these cases do not cover" });
     }
-    const ops = language === "typescript" ? mcpOperations(entity) : [];
+    const ops = mcpOperations(entity);
     const one = snakeCase(entity.name);
     return {
       name: entity.name,

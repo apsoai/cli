@@ -264,9 +264,12 @@ func (s *keySource) serviceCaller(c *gin.Context) (caller *AuthContext, refused 
 	return &AuthContext{ServiceID: id, Roles: []string{}}, false
 }
 
+// The key source is chosen once, however many routes use AuthMiddleware.
+var chosenKeySource = sync.OnceValue(chooseKeySource)
+
 // AuthMiddleware accepts a valid API key<% if (it.jwt) { %>, else a signed-in user<% } %>. The database is unused.
 func AuthMiddleware(_ *gorm.DB) gin.HandlerFunc {
-	source := chooseKeySource()
+	source := chosenKeySource()
 	return func(c *gin.Context) {
 		// The caller's x-request-id is kept, or one is created; the response echoes it.
 		id := c.GetHeader(requestIDHeader)
@@ -334,6 +337,15 @@ type provider struct {
 	roles             string
 	permissions       string
 }
+
+// mcpResource is the public URL of the MCP endpoint, when the service serves
+// MCP tools. An MCP client asks the identity provider for a token for this URL,
+// so it is an accepted audience next to a provider's own.
+<% if (it.mcp) { %>
+var mcpResource = os.Getenv("MCP_RESOURCE_URL")
+<% } else { %>
+const mcpResource = ""
+<% } %>
 
 // providers by issuer. The first provider reads AUTH_JWT_ISSUER, the second
 // AUTH_JWT_ISSUER_2, and so on.
@@ -479,7 +491,7 @@ func userAuth(c *gin.Context, serviceOnly bool) {
 		jwt.WithExpirationRequired(),
 	}
 	cognito := p.name == "cognito"
-	if p.audience != "" && !cognito {
+	if p.audience != "" && !cognito && mcpResource == "" {
 		opts = append(opts, jwt.WithAudience(p.audience))
 	}
 	mc := jwt.MapClaims{}
@@ -489,6 +501,16 @@ func userAuth(c *gin.Context, serviceOnly bool) {
 		return
 	}
 	claims := map[string]interface{}(mc)
+	if p.audience != "" && !cognito && mcpResource != "" {
+		aud, _ := mc.GetAudience()
+		// Better Auth signs both kinds of token with one key: only an OAuth access
+		// token (header type at+jwt) may be one issued for the MCP URL.
+		forMcp := contains(aud, mcpResource) && (p.name != "better-auth" || token.Header["typ"] == "at+jwt")
+		if !contains(aud, p.audience) && !forMcp {
+			unauthorized(c, "Invalid token")
+			return
+		}
+	}
 <% if (it.jwt.some((p) => p.provider === 'cognito')) { %>
 	// Cognito ID tokens carry aud; access tokens carry client_id instead.
 	if cognito && p.audience != "" {
@@ -496,7 +518,7 @@ func userAuth(c *gin.Context, serviceOnly bool) {
 		if aud == nil {
 			aud = claims["client_id"]
 		}
-		if !containsAudience(aud, p.audience) {
+		if !containsAudience(aud, p.audience) && (mcpResource == "" || !containsAudience(aud, mcpResource)) {
 			unauthorized(c, "Invalid token")
 			return
 		}

@@ -11,6 +11,7 @@ import {
   isDbSessionAuth,
 } from "./types";
 import pluralize from "pluralize";
+import { snakeCase } from "./utils/casing";
 import {
   getRelationshipIdField,
   getRelationshipName,
@@ -235,6 +236,23 @@ export function hidesRelation(
 /** The auth entities' route names (sessions), for the key guard. */
 export const authEntityRoutes = (entities: Entity[], auth?: AuthConfig): string[] =>
   authEntityNames(entities, auth).map((name) => toRouteName(name));
+
+/**
+ * An entity's MCP operations and the names its tools get, the same in every
+ * language: list_line_items, get_line_item, create_line_item and so on.
+ */
+export function mcpToolNames(entity: Entity, auth?: AuthConfig) {
+  const mcp = mcpOperations(entity);
+  if (mcp.length > 0 && !auth)
+    throw new Error(
+      `${entity.name}.mcp needs an auth block in .apsorc: MCP tools act as the signed-in caller`
+    );
+  return {
+    mcp,
+    mcpName: snakeCase(entity.name),
+    mcpPluralName: snakeCase(pluralize(entity.name)),
+  };
+}
 
 export function hasPermissions(entities: Entity[]): boolean {
   return entities.some((entity) => entity.permissions);

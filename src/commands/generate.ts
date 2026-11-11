@@ -20,7 +20,9 @@ import {
   addMissingDeps,
   addMissingPythonDep,
   ensureCrudDeps,
+  ensureAppMcpWiring,
   ensureMcpWiring,
+  removeAppMcpWiring,
 } from "../lib/utils/crud-deps";
 import { upgradeOrmConfigForPglite } from "../lib/utils/pglite-upgrade";
 
@@ -361,6 +363,32 @@ export default class Generate extends BaseCommand {
       if (wired.length > 0)
         console.log(
           `[apso] Set up MCP tools at /mcp (updated ${wired.join(", ")}). Run npm install before building.`
+        );
+    }
+
+    if (
+      (language === "python" || language === "go") &&
+      !entities.some((entity) => entity.mcp)
+    ) {
+      const unwired = removeAppMcpWiring(process.cwd(), language);
+      if (unwired.length > 0)
+        console.log(
+          `[apso] No entity has mcp any more: removed the /mcp endpoint from ${unwired.join(", ")}.`
+        );
+    }
+
+    if (
+      (language === "python" || language === "go") &&
+      entities.some((entity) => entity.mcp)
+    ) {
+      const wired = ensureAppMcpWiring(process.cwd(), language);
+      if (wired.length > 0)
+        console.log(
+          `[apso] Set up MCP tools at /mcp (updated ${wired.join(", ")}). ${
+            language === "python"
+              ? "Reinstall the project's dependencies."
+              : "Run go mod tidy before building; the MCP SDK needs Go 1.25."
+          }`
         );
     }
 

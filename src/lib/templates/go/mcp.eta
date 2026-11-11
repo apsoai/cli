@@ -1,0 +1,307 @@
+<%~ includeFile('./header.eta', it) %>
+
+package routes
+
+// MCP tools at /mcp (Streamable HTTP, stateless), served with the official MCP
+// SDK for Go.
+//
+// A tool is a route. When an agent calls a tool, the request is sent through
+// the Gin engine in memory with the caller's headers, so authentication,
+// permissions and tenant scoping run exactly as they do for a REST caller.
+// Tools never call a service or the database.
+//
+// Gin has no OpenAPI document at run time, so each tool's input schema is
+// written here from .apsorc: path and query parameters are top-level
+// arguments, the JSON body is the "body" argument.
+//
+// Every request to /mcp passes the service's own auth check first. A request
+// with no valid credential gets the 401 that starts OAuth sign-in in an MCP
+// client, and /.well-known/oauth-protected-resource names the identity
+// provider (RFC 9728).
+//
+// Serve your own route as a tool by calling RegisterMCPTool before MountMCP.
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"strings"
+
+	"app/autogen/middleware"
+	"github.com/gin-gonic/gin"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+)
+
+// MCPTool is a route served as an MCP tool.
+type MCPTool struct {
+	Name        string
+	Description string
+	Method      string
+	// Path is the route under the API group, with :name parameters ("/invoices/:id").
+	Path string
+	// Query lists the arguments sent as query parameters.
+	Query []string
+	// InputSchema is the JSON Schema of the arguments, an object: path and
+	// query parameters at the top level, the JSON body under "body".
+	InputSchema json.RawMessage
+}
+
+const mcpListSchema = `{"type":"object","properties":{` +
+	`"filter":{"type":"array","items":{"type":"string"},"description":"field||$operator||value, one per condition"},` +
+	`"or":{"type":"array","items":{"type":"string"},"description":"field||$operator||value, any of which may match"},` +
+	`"sort":{"type":"array","items":{"type":"string"},"description":"field,ASC or field,DESC"},` +
+	`"join":{"type":"array","items":{"type":"string"},"description":"relation to load with each row"},` +
+	`"fields":{"type":"string","description":"field1,field2"},` +
+	`"limit":{"type":"integer","description":"page size"},` +
+	`"page":{"type":"integer","description":"page number, from 1"}},"required":[]}`
+
+var mcpListQuery = []string{"filter", "or", "sort", "join", "fields", "limit", "page"}
+
+// mcpTools holds the operations .apsorc opts in with "mcp".
+var mcpTools = []MCPTool{
+<% it.tools.forEach((tool) => { %>
+	{
+		Name:        <%~ JSON.stringify(tool.name) %>,
+		Description: <%~ JSON.stringify(tool.description) %>,
+		Method:      <%~ JSON.stringify(tool.method) %>,
+		Path:        <%~ JSON.stringify(tool.path) %>,
+<% if (tool.list) { %>
+		Query:       mcpListQuery,
+		InputSchema: json.RawMessage(mcpListSchema),
+<% } else { %>
+		InputSchema: json.RawMessage(<%~ JSON.stringify(tool.schema) %>),
+<% } %>
+	},
+<% }) %>
+}
+
+// RegisterMCPTool serves one more route as a tool. Call it before MountMCP.
+func RegisterMCPTool(t MCPTool) {
+	mcpTools = append(mcpTools, t)
+}
+
+const (
+	mcpPath = "/mcp"
+	prmPath = "/.well-known/oauth-protected-resource"
+)
+
+// Headers that describe the MCP request itself, not the caller. Everything
+// else (authorization, cookie, x-api-key, ...) is forwarded to the route.
+var mcpNotForwarded = map[string]bool{
+	"accept":               true,
+	"connection":           true,
+	"content-length":       true,
+	"content-type":         true,
+	"mcp-protocol-version": true,
+	"mcp-session-id":       true,
+	"transfer-encoding":    true,
+}
+
+func mcpEnv(name, fallback string) string {
+	if v := os.Getenv(name); v != "" {
+		return v
+	}
+	return fallback
+}
+
+// The identity providers an MCP client can sign the user in with: every token issuer.
+var mcpIssuers = []string{
+<% it.issuers.forEach((p) => { %>
+	mcpEnv(<%~ JSON.stringify(p.env) %>, <%~ JSON.stringify(p.issuer) %>),
+<% }) %>
+}
+
+func mcpFirst(v string) string {
+	return strings.TrimSpace(strings.Split(v, ",")[0])
+}
+
+// mcpResourceURL is the MCP endpoint's public URL: MCP_RESOURCE_URL, else
+// what the request used.
+func mcpResourceURL(c *gin.Context) string {
+	if v := os.Getenv("MCP_RESOURCE_URL"); v != "" {
+		return strings.TrimRight(v, "/")
+	}
+	proto := mcpFirst(c.GetHeader("X-Forwarded-Proto"))
+	if proto == "" {
+		proto = "http"
+		if c.Request.TLS != nil {
+			proto = "https"
+		}
+	}
+	host := mcpFirst(c.GetHeader("X-Forwarded-Host"))
+	if host == "" {
+		host = c.Request.Host
+	}
+	return proto + "://" + host + mcpPath
+}
+
+func mcpMetadataURL(c *gin.Context) string {
+	u, err := url.Parse(mcpResourceURL(c))
+	if err != nil {
+		return prmPath + mcpPath
+	}
+	return u.Scheme + "://" + u.Host + prmPath + u.Path
+}
+
+func mcpText(text string, isError bool) *mcp.CallToolResult {
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}, IsError: isError}
+}
+
+func mcpString(v interface{}) string {
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return fmt.Sprint(v)
+}
+
+// mcpCall sends a tool call through the engine's own HTTP pipeline, in memory.
+func mcpCall(ctx context.Context, engine http.Handler, base string, t MCPTool, req *mcp.CallToolRequest) *mcp.CallToolResult {
+	args := map[string]interface{}{}
+	if len(req.Params.Arguments) > 0 {
+		// Numbers keep their digits: a large id must not turn into 1e+21.
+		d := json.NewDecoder(bytes.NewReader(req.Params.Arguments))
+		d.UseNumber()
+		if err := d.Decode(&args); err != nil {
+			return mcpText("Arguments must be a JSON object", true)
+		}
+	}
+
+	missing := []string{}
+	parts := strings.Split(t.Path, "/")
+	for i, p := range parts {
+		if !strings.HasPrefix(p, ":") {
+			continue
+		}
+		v, ok := args[p[1:]]
+		if !ok || v == nil || v == "" {
+			missing = append(missing, p[1:])
+			continue
+		}
+		parts[i] = url.PathEscape(mcpString(v))
+	}
+	if len(missing) > 0 {
+		return mcpText("Missing "+strings.Join(missing, ", "), true)
+	}
+
+	query := url.Values{}
+	for _, key := range t.Query {
+		switch v := args[key].(type) {
+		case nil:
+		case []interface{}:
+			for _, item := range v {
+				query.Add(key, mcpString(item))
+			}
+		default:
+			query.Add(key, mcpString(v))
+		}
+	}
+	target := base + strings.Join(parts, "/")
+	if len(query) > 0 {
+		target += "?" + query.Encode()
+	}
+
+	var body io.Reader
+	if b, ok := args["body"]; ok && b != nil {
+		raw, err := json.Marshal(b)
+		if err != nil {
+			return mcpText("body is not valid JSON", true)
+		}
+		body = bytes.NewReader(raw)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, t.Method, target, body)
+	if err != nil {
+		return mcpText(err.Error(), true)
+	}
+	// No caller headers means no credentials, and the route refuses the call.
+	if req.Extra != nil {
+		for key, values := range req.Extra.Header {
+			if !mcpNotForwarded[strings.ToLower(key)] {
+				httpReq.Header[key] = values
+			}
+		}
+	}
+	httpReq.Header.Set("Accept", "application/json")
+	if body != nil {
+		httpReq.Header.Set("Content-Type", "application/json")
+	}
+
+	rec := httptest.NewRecorder()
+	engine.ServeHTTP(rec, httpReq)
+	text := rec.Body.String()
+	if text == "" {
+		text = fmt.Sprintf("HTTP %d", rec.Code)
+	}
+	return mcpText(text, rec.Code >= 400)
+}
+
+// MountMCP serves the tools at POST /mcp on the engine. api is the group the
+// routes are registered on. Call it after RegisterAllRoutes.
+func MountMCP(r *gin.Engine, api *gin.RouterGroup) {
+	server := mcp.NewServer(&mcp.Implementation{Name: "api", Version: "1.0"}, nil)
+	seen := map[string]bool{}
+	for _, t := range mcpTools {
+		t := t
+		if seen[t.Name] {
+			panic(fmt.Sprintf("MCP tool %s %s: another tool is already named %q", t.Method, t.Path, t.Name))
+		}
+		seen[t.Name] = true
+		destructive := t.Method == http.MethodDelete
+		server.AddTool(&mcp.Tool{
+			Name:        t.Name,
+			Description: t.Description,
+			InputSchema: t.InputSchema,
+			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: t.Method == http.MethodGet, DestructiveHint: &destructive},
+		}, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			return mcpCall(ctx, r, api.BasePath(), t, req), nil
+		})
+	}
+	handler := mcp.NewStreamableHTTPHandler(
+		func(*http.Request) *mcp.Server { return server },
+		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true},
+	)
+
+	r.Any(mcpPath,
+		func(c *gin.Context) {
+			if c.Request.Method != http.MethodPost {
+				c.Header("Allow", http.MethodPost)
+				c.AbortWithStatus(http.StatusMethodNotAllowed)
+				return
+			}
+			// The 401 is what starts sign-in: it points the client at the
+			// metadata. Set before the auth check answers, cleared once it passes.
+			if c.GetHeader("x-api-key") == "" && c.GetHeader("x-apso-service-token") == "" {
+				challenge := `Bearer resource_metadata="` + mcpMetadataURL(c) + `"`
+				if c.GetHeader("Authorization") != "" {
+					challenge += `, error="invalid_token"`
+				}
+				c.Header("WWW-Authenticate", challenge)
+			}
+		},
+		// The same check every /api route runs: API key, then the user's token.
+		middleware.AuthMiddleware(nil),
+		func(c *gin.Context) {
+			c.Writer.Header().Del("WWW-Authenticate")
+			handler.ServeHTTP(c.Writer, c.Request)
+		},
+	)
+
+	// Tells an MCP client where to sign in. Public by design, and readable
+	// from a browser-based client on another origin.
+	metadata := func(c *gin.Context) {
+		c.Header("Access-Control-Allow-Origin", "*")
+		c.Header("Cache-Control", "max-age=300")
+		c.JSON(http.StatusOK, gin.H{
+			"resource":                 mcpResourceURL(c),
+			"authorization_servers":    mcpIssuers,
+			"bearer_methods_supported": []string{"header"},
+		})
+	}
+	r.GET(prmPath, metadata)
+	r.GET(prmPath+mcpPath, metadata)
+}
