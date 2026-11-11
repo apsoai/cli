@@ -27,8 +27,8 @@ interface Rule {
 export const ENTITY_PERMISSIONS: Record<string, Partial<Record<Operation, Rule>>> = <%~ JSON.stringify(it.permissions.routes, null, 2) %>;
 
 /**
- * Read rules a ?join must satisfy, by relation name, so a caller who cannot
- * read an entity cannot read it through a join either.
+ * Read rules a loaded relation must satisfy, by relation name, so a caller who
+ * cannot read an entity cannot read it through another entity's route either.
  */
 const JOIN_PERMISSIONS: Record<string, Rule[]> = <%~ JSON.stringify(it.permissions.joins, null, 2) %>;
 
@@ -85,10 +85,17 @@ export class PermissionGuard implements CanActivate {
       this.deny(request, rule.permission);
     }
 
-    const join = request.query?.join;
-    const joins: string[] = join === undefined ? [] : Array.isArray(join) ? join : [join];
-    for (const value of joins) {
-      for (const relation of String(value).split('||')[0].split('.')) {
+    return true;
+  }
+
+  /**
+   * The read rules of every relation a request loads. Called by RelationAccess
+   * (relations.interceptor.ts) with the parsed request's relation paths
+   * (projects.tasks), whatever query syntax named them.
+   */
+  async checkRelations(request: any, paths: string[]): Promise<void> {
+    for (const path of paths) {
+      for (const relation of path.split('.')) {
         for (const joined of JOIN_PERMISSIONS[relation] ?? []) {
           if (!(await this.allowed(request, joined))) {
             this.deny(request, joined.permission);
@@ -96,8 +103,6 @@ export class PermissionGuard implements CanActivate {
         }
       }
     }
-
-    return true;
   }
 
   /** 403, with the reason on request.apso.denied for the log. */

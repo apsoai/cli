@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"math"
 	"net/url"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
 
+	"app/autogen/middleware"
 	"gorm.io/gorm"
 )
 
@@ -23,9 +25,22 @@ const (
 // ErrQuery is a client-facing (HTTP 400) query error. The generated handler
 // maps any *QueryError to a 400 response so a malformed dialect request never
 // surfaces as a 500 (apso #60).
-type QueryError struct{ Msg string }
+type QueryError struct {
+	Msg string
+	// Forbidden makes the handler answer 403: the query is well formed, and
+	// the caller may not run it.
+	Forbidden bool
+}
 
 func (e *QueryError) Error() string { return e.Msg }
+
+// Status is the HTTP status the handler answers with.
+func (e *QueryError) Status() int {
+	if e.Forbidden {
+		return 403
+	}
+	return 400
+}
 
 func queryErr(format string, a ...interface{}) *QueryError {
 	return &QueryError{Msg: fmt.Sprintf(format, a...)}
@@ -744,6 +759,10 @@ func ApplyQueryE(db *gorm.DB, opts QueryOptions, allowedFields map[string]bool) 
 
 	// Joins (Preloads)
 	for _, j := range opts.Joins {
+		// Every relation a request loads (join or select embed) is checked for the caller.
+		if refused := middleware.RelationRefused(query.Statement.Context, modelName(query), j.Relation); refused != "" {
+			return query, 0, 1, &QueryError{Forbidden: true, Msg: fmt.Sprintf("The relation %q cannot be loaded from %s: its rows are tenant-scoped", refused, modelName(query))}
+		}
 		query = query.Preload(preloadName(j.Relation))
 	}
 
@@ -766,6 +785,18 @@ func ApplyQueryE(db *gorm.DB, opts QueryOptions, allowedFields map[string]bool) 
 	}
 
 	return query, total, pageCount, nil
+}
+
+// modelName is the entity a query starts from (the struct passed to Model).
+func modelName(query *gorm.DB) string {
+	t := reflect.TypeOf(query.Statement.Model)
+	for t != nil && (t.Kind() == reflect.Ptr || t.Kind() == reflect.Slice) {
+		t = t.Elem()
+	}
+	if t == nil {
+		return ""
+	}
+	return t.Name()
 }
 
 // quoteColumn quotes an allowlisted column name: the columns keep their

@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql import Select, select
 
+from ..auth import check_relation
+
 T = TypeVar("T")
 
 MAX_LIMIT = 200
@@ -701,9 +703,11 @@ def parse_query_params(params: Any, dialect_header: Optional[str] = None) -> Que
 class QueryBuilder:
     """Build and execute filtered/sorted/paginated SQLAlchemy queries."""
 
-    def __init__(self, model: Type[T], db: AsyncSession, scope: Optional[List[Any]] = None):
+    def __init__(self, model: Type[T], db: AsyncSession, scope: Optional[List[Any]] = None, auth: Any = None):
         self.model = model
         self.db = db
+        # The caller, checked for every relation a request loads.
+        self.auth = auth
         # Conditions every query must meet (the caller's tenant, .apsorc scopeBy).
         self.scope = list(scope or [])
 
@@ -796,8 +800,13 @@ class QueryBuilder:
 
         query = self._apply_sorts(query, options)
 
-        for j in options.joins:
-            rel = getattr(self.model, j.relation, None)
+        return self._load(query, [j.relation for j in options.joins])
+
+    def _load(self, query: Select, relations: Sequence[str]) -> Select:
+        """Load the relations a request names (join or select embed), each checked for the caller."""
+        for name in relations:
+            check_relation(self.auth, self.model.__name__, name)
+            rel = getattr(self.model, name, None)
             if rel is not None:
                 query = query.options(selectinload(rel))
         return query
@@ -893,11 +902,7 @@ class QueryBuilder:
     ) -> Optional[Any]:
         query = select(self.model).where(self.model.id == id, *self.scope)
 
-        if joins:
-            for join_name in joins:
-                rel = getattr(self.model, join_name, None)
-                if rel is not None:
-                    query = query.options(selectinload(rel))
+        query = self._load(query, joins or [])
 
         result = await self.db.execute(query)
         return result.scalar_one_or_none()

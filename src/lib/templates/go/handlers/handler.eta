@@ -84,7 +84,7 @@ func (h *<%= it.entityName %>Handler) FindAll(c *gin.Context) {
 			}
 <% } %>
 			if qe, ok := utils.AsQueryError(err); ok {
-				c.JSON(http.StatusBadRequest, gin.H{"error": qe.Error()})
+				c.JSON(qe.Status(), gin.H{"error": qe.Error()})
 				return
 			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -102,7 +102,7 @@ func (h *<%= it.entityName %>Handler) FindAll(c *gin.Context) {
 		}
 <% } %>
 		if qe, ok := utils.AsQueryError(err); ok {
-			c.JSON(http.StatusBadRequest, gin.H{"error": qe.Error()})
+			c.JSON(qe.Status(), gin.H{"error": qe.Error()})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

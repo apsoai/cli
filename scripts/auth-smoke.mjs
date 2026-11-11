@@ -957,12 +957,17 @@ async function authEntitiesCase(name, _p, boot, project) {
   const postgrest = { ...ana, "x-crud-dialect": "postgrest" };
   clean("[R28] user: ?join=user on projects loads no user row", await call("GET", `${base}/projects?join=user`, { headers: ana }));
   clean("[R28] user: nested joins through user load no account or session", await call("GET", `${base}/projects?join=user&join=user.accounts&join=user.sessions`, { headers: ana }));
-  clean("[R28] user: nested joins from organizations load no membership, user or account", await call("GET", `${base}/organizations?join=accountUsers&join=accountUsers.user&join=projects&join=projects.user&join=projects.user.accounts`, { headers: ana }));
-  clean("[R28] user: a select embed loads no membership, user, account or session", await call("GET", `${base}/organizations?select=${language === "python" ? "*" : "name"},accountUsers(role,user(email,accounts(password),sessions(token))),projects(title,user(email))`, { headers: postgrest }));
+  clean("[R28] user: nested joins from organizations load no membership, user or account", await call("GET", `${base}/organizations?join=accountUsers&join=accountUsers.user&join=accountUsers.user.accounts`, { headers: ana }));
+  clean("[R28] user: a select embed from organizations loads no membership, user, account or session", await call("GET", `${base}/organizations?select=${language === "python" ? "*" : "name"},accountUsers(role,user(email,accounts(password),sessions(token)))`, { headers: postgrest }));
+  clean("[R28] user: a select embed from projects loads no user", await call("GET", `${base}/projects?select=${language === "python" ? "*" : "title"},user(email,accounts(password))`, { headers: postgrest }));
+  // Organization has no tenant scope and Project has one, so the relation rule
+  // refuses the load before either entity's rows are read.
+  t.expect("[R7,R28] user: a join from organizations through projects to a user is refused", await call("GET", `${base}/organizations?join=projects&join=projects.user&join=projects.user.accounts`, { headers: ana }), 403);
+  t.expect("[R7,R28] user: a select embed from organizations through projects to a user is refused", await call("GET", `${base}/organizations?select=*,projects(*,user(*))`, { headers: postgrest }), 403);
   // Either the filter is refused or matches nothing, or it is ignored: then the
   // answer is the same whether or not a user has that email.
-  const byEmail = (email) => call("GET", `${base}/organizations?join=projects&join=projects.user&filter=projects.user.email||$eq||${email}`, { headers: ana });
-  const [oracle, control] = [await byEmail("ben@apso.test"), await byEmail("nobody@apso.test")];
+  const byEmail = (email) => call("GET", `${base}/projects?join=user&filter=user.email||$eq||${email}`, { headers: ana });
+  const [oracle, control] = [await byEmail("ana@apso.test"), await byEmail("nobody@apso.test")];
   t.assert("[R28] user: a filter on an auth entity's column through a relation tells nothing", oracle.status !== 200 || rows(oracle.json).length === 0 || oracle.text === control.text, `${oracle.status} ${oracle.text.slice(0, 200)}`);
 
   // The service caller (the Better Auth adapter on the app's server) is not limited.

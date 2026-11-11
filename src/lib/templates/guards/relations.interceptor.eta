@@ -1,0 +1,100 @@
+<%~ includeFile('../header.eta') %>
+
+import {
+  Injectable,
+  CallHandler,
+  ExecutionContext,
+  ForbiddenException,
+  NestInterceptor,
+  SetMetadata,
+} from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import { PARSED_CRUD_REQUEST_KEY } from '@apso/crud';
+<% if (it.permissions) { %>
+import { PermissionGuard } from './permission.guard';
+<% } %>
+
+/** Names the entity a controller serves, for RelationAccess. */
+export const RELATION_ROOT = 'apsoRelationRoot';
+export const RelationRoot = (entity: string) => SetMetadata(RELATION_ROOT, entity);
+
+interface RelationScope {
+  /** Set when the entity's reads are tenant-scoped: the roles that skip its scope. */
+  bypassRoles?: string[];
+  /** Relation name -> [the entity it loads, whether a caller limited to its tenant here stays in it there]. */
+  relations: Record<string, [string, boolean]>;
+}
+
+/** Every entity's relations, from .apsorc relationships and scopeBy. */
+export const RELATION_SCOPES: Record<string, RelationScope> = <%~ JSON.stringify(it.relationScopes ?? {}, null, 2) %>;
+
+/**
+ * The first relation in `path` that would load rows outside the caller's
+ * tenant, if any. The tenant filter limits only the entity a request starts
+ * from, so a relation onto a tenant-scoped entity is loaded only when the
+ * caller holds a role that skips that entity's scope, or is limited to its
+ * tenant on the entity the relation starts from and the target is scoped by
+ * the same keys.
+ */
+export function relationOutsideTenant(root: string, path: string, roles: string[]): string | undefined {
+  const skips = (entity?: RelationScope) => Boolean(entity?.bypassRoles?.some((role) => roles.includes(role)));
+  let from = RELATION_SCOPES[root];
+  for (const name of path.split('.')) {
+    const hop = from?.relations[name];
+    if (!hop) return undefined;
+    const [entity, sameTenant] = hop;
+    const to = RELATION_SCOPES[entity];
+    const inTenant = sameTenant && from.bypassRoles !== undefined && !skips(from);
+    if (to?.bypassRoles !== undefined && !skips(to) && !inTenant) return name;
+    from = to;
+  }
+  return undefined;
+}
+
+/**
+ * RelationAccess - the one place that decides which relations a request may
+ * load. It is on every generated controller, listed above @Crud so it runs
+ * after the CRUD request is parsed, and reads the relation paths from the
+ * parsed request. ?join, a select embed and any other query syntax arrive
+ * there in the same shape, at every depth. A filter or sort on a related
+ * entity's field needs the relation loaded, so it meets the same check.
+ *
+ * A user caller is refused a relation that would load another tenant's rows<% if (it.permissions) { %>
+
+ * or an entity its role cannot read<% } %>. A service caller (valid API key) is
+ * not limited. A request with no parsed CRUD request is refused.
+ */
+@Injectable()
+export class RelationAccess implements NestInterceptor {
+  constructor(
+    private reflector: Reflector,
+<% if (it.permissions) { %>
+    private permissions: PermissionGuard,
+<% } %>
+  ) {}
+
+  async intercept(context: ExecutionContext, next: CallHandler) {
+    const request = context.switchToHttp().getRequest();
+    const parsed = request[PARSED_CRUD_REQUEST_KEY]?.parsed;
+    const root = this.reflector.get<string>(RELATION_ROOT, context.getClass());
+    if (!parsed || !root) {
+      throw new Error('RelationAccess needs @RelationRoot and must be listed above @Crud');
+    }
+    if (request.auth?.serviceId) {
+      return next.handle();
+    }
+    const paths: string[] = (parsed.join ?? []).map((join: { field: string }) => join.field);
+    const roles: string[] = request.auth?.roles ?? [];
+    for (const path of paths) {
+      const relation = relationOutsideTenant(root, path, roles);
+      if (relation) {
+        request.apso = { ...request.apso, denied: 'relation outside the tenant scope' };
+        throw new ForbiddenException(`The relation "${relation}" cannot be loaded from ${root}: its rows are tenant-scoped`);
+      }
+    }
+<% if (it.permissions) { %>
+    await this.permissions.checkRelations(request, paths);
+<% } %>
+    return next.handle();
+  }
+}

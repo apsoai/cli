@@ -57,7 +57,7 @@ class <%= it.entityName %>Service:
             cast(getattr(<%= it.entityName %>, field), String) == str(value)
             for field, value in self._scope_values(op).items()
         ]
-        return QueryBuilder(<%= it.entityName %>, self.db, scope=scope)
+        return QueryBuilder(<%= it.entityName %>, self.db, auth=self.auth, scope=scope)
 
     def _with_tenant(self, payload: dict) -> dict:
         """Set every scopeBy field to the caller's value, converted to the column's type."""
@@ -73,7 +73,7 @@ class <%= it.entityName %>Service:
 <% } else { %>
 
     def _qb(self, op: str) -> QueryBuilder:
-        return QueryBuilder(<%= it.entityName %>, self.db)
+        return QueryBuilder(<%= it.entityName %>, self.db, auth=self.auth)
 <% } %>
 
     async def get_many(self, options: QueryOptions) -> PaginatedResult:

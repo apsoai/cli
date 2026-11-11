@@ -19,6 +19,7 @@ const TS = {
   auth: "src/autogen/guards/auth.guard.ts",
   scope: "src/autogen/guards/scope.guard.ts",
   permission: "src/autogen/guards/permission.guard.ts",
+  relations: "src/autogen/guards/relations.interceptor.ts",
   controllers: "src/autogen/*/*.controller.ts",
 };
 const PY = { auth: "app/autogen/auth.py", services: "app/autogen/services/*.py" };
@@ -86,7 +87,6 @@ export const MUTATIONS = [
     legs: ["jwt"],
     typescript: [
       [TS.controllers, /filter: \(req: any\) =>\s*(skipScope\(req\)\s*\?\s*\{\}\s*:)?/g, "filter: (req: any) => true ? {} :"],
-      [TS.scope, /request\.query\[`filter\.\$\{scope\.field\}`\] = `\$eq:\$\{scopeValue\}`;/, ""],
       [TS.scope, /const hasAccess = await this\.verifyResourceAccess\(/, "const hasAccess = true || await this.verifyResourceAccess("],
     ],
     python: [[PY.services, /, scope=scope\)/g, ")"]],
@@ -98,6 +98,15 @@ export const MUTATIONS = [
     rules: ["R7"],
     legs: ["jwt"],
     typescript: [[TS.controllers, /filter: \(req: any\) =>\s*(skipScope\(req\)\s*\?\s*\{\}\s*:)?/g, "filter: (req: any) => true ? {} :"]],
+  },
+  {
+    id: "relation-tenant-check",
+    removes: "the tenant check on the relations a request loads",
+    rules: ["R7"],
+    legs: ["jwt"],
+    typescript: [[TS.relations, /const relation = relationOutsideTenant\(root, path, roles\);/, "const relation = relationOutsideTenant(root, path, roles) && undefined;"]],
+    python: [[PY.auth, /refused = relation_refused\(auth, root, path\)/, "refused = None"]],
+    go: [[GO.auth, /if to\.Scoped && !skips\(to\) && !inTenant \{/, "if false && to.Scoped && !skips(to) && !inTenant {"]],
   },
   {
     id: "tenant-overwrite",

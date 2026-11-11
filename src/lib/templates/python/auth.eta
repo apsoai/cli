@@ -32,6 +32,7 @@ second reads the same names ending in _2 (AUTH_JWT_ISSUER_2), and so on.
 """
 import hashlib
 import hmac
+import json
 import os
 import uuid
 from dataclasses import dataclass, field
@@ -341,3 +342,50 @@ async def require_auth(request: Request, response: Response) -> AuthContext:
 <% } %>
     request.state.auth = ctx
     return ctx
+
+
+# Every entity's relations, from .apsorc relationships and scopeBy:
+# entity -> {"bypassRoles": the roles that skip its tenant scope (None when it
+# is not scoped), "relations": {name: [the entity it loads, whether a caller
+# limited to its tenant here stays in it there]}}.
+RELATION_SCOPES: dict = json.loads(<%~ JSON.stringify(JSON.stringify(it.relationScopes)) %>)
+
+
+def relation_refused(auth: Optional[AuthContext], root: str, path: str) -> Optional[str]:
+    """
+    The one place that decides which relations a request may load: the first
+    relation in `path` that would load rows outside the caller's tenant, if
+    any. The tenant filter limits only the entity a request starts from, so a
+    relation onto a tenant-scoped entity is loaded only when the caller holds a
+    role that skips that entity's scope, or is limited to its tenant on the
+    entity the relation starts from and the target is scoped by the same keys.
+    A service caller (valid API key) is not limited.
+    """
+    if not RELATION_SCOPES or (auth is not None and auth.service_id):
+        return None
+    roles = set(auth.roles) if auth is not None else set()
+
+    def skips(entity: Optional[dict]) -> bool:
+        return bool(entity and roles & set(entity.get("bypassRoles") or []))
+
+    start = RELATION_SCOPES.get(root)
+    for name in path.split("."):
+        hop = (start or {}).get("relations", {}).get(name)
+        if not hop:
+            return None
+        to = RELATION_SCOPES.get(hop[0]) or {}
+        in_tenant = hop[1] and start.get("bypassRoles") is not None and not skips(start)
+        if to.get("bypassRoles") is not None and not skips(to) and not in_tenant:
+            return name
+        start = to
+    return None
+
+
+def check_relation(auth: Optional[AuthContext], root: str, path: str) -> None:
+    """403 when relation_refused names a relation in `path`."""
+    refused = relation_refused(auth, root, path)
+    if refused:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f'The relation "{refused}" cannot be loaded from {root}: its rows are tenant-scoped',
+        )

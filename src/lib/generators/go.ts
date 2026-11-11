@@ -22,6 +22,7 @@ import {
   entityScope,
   hasPermissions,
   nestedScopeEntities,
+  relationScopes,
   assertTenantClaim,
 } from "../guards";
 import {
@@ -748,7 +749,8 @@ ${modelRefs}
 
   async generateGuards(
     entities: Entity[],
-    auth?: AuthConfig
+    auth?: AuthConfig,
+    relationshipMap: RelationshipMap = this.config.relationshipMap ?? {}
   ): Promise<GeneratedFile[]> {
     if (entities.some((entity) => entity.mcp))
       throw new Error(
@@ -773,6 +775,7 @@ ${modelRefs}
       authRoutes: authEntityNames(entities, auth).map((name) =>
         kebabCase(pluralize(name))
       ),
+      relationScopes: relationScopes(entities, relationshipMap, Boolean(auth)) ?? {},
     };
     const content = await this.renderTemplate("./middleware/auth", data);
     const files: GeneratedFile[] = [{ path: "middleware/auth.go", content }];
