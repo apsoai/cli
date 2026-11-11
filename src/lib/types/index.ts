@@ -25,6 +25,7 @@ export {
   JwtClaimsMapping,
   JwtAuthConfig,
   AuthConfig,
+  AuthProviderConfig,
   AuthContext,
   DB_SESSION_AUTH_DEFAULTS,
   JWT_AUTH_DEFAULTS,
@@ -33,6 +34,8 @@ export {
   assertSignInProvider,
   ResolvedJwtAuth,
   resolveJwtAuth,
+  authProviders,
+  resolveJwtProviders,
 } from "./auth";
 export {
   TargetLanguage,

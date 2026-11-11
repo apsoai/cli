@@ -12,8 +12,10 @@ import {
   GeneratorConfig,
   TargetLanguage,
   assertSignInProvider,
+  authProviders,
   resolveJwtAuth,
 } from "../../../src/lib/types";
+import { tenantClaimWarnings } from "../../../src/lib/guards";
 import { addMissingPythonDep } from "../../../src/lib/utils/crud-deps";
 import { ensureDevKey } from "../../../src/lib/utils/template";
 
@@ -215,7 +217,7 @@ describe("the API key check built into every service", () => {
 
   test('the removed "api-key" provider fails with what replaced it', () => {
     expect(() => assertSignInProvider({ provider: "api-key" })).toThrow(/was removed.*APSO_API_KEY.*x-api-key/);
-    expect(() => assertSignInProvider(jwt("jwt"))).not.toThrow();
+    expect(() => authProviders(jwt("jwt"))).not.toThrow();
     expect(() => assertSignInProvider()).not.toThrow();
   });
 
@@ -320,5 +322,74 @@ describe("guard regeneration (cli#129)", () => {
       expect(first).not.toContain("Generated at");
       expect(await guardFile("typescript", auth)).toBe(first);
     }
+  });
+});
+
+describe("a list of providers", () => {
+  const a: AuthConfig = { provider: "jwt", jwt: { issuer: "https://staff.example.com" }, claims: { workspaceId: "org" } };
+  const b: AuthConfig = { provider: "auth0", jwt: { issuer: "https://customers.example.com/", audience: "api" }, claims: { workspaceId: "tenant.id" } };
+
+  test("a single object and a one-item list are the same thing", () => {
+    expect(authProviders(a)).toEqual([a]);
+    expect(authProviders([a])).toEqual([a]);
+    expect(authProviders()).toEqual([]);
+  });
+
+  test("lists that cannot be generated fail with the reason", () => {
+    expect(() => authProviders([])).toThrow(/empty list/);
+    expect(() => authProviders([a, a])).toThrow(/issuer "https:\/\/staff.example.com" twice/);
+    expect(() => authProviders([a, { provider: "better-auth" }])).toThrow(/"better-auth" has to be the only provider/);
+    expect(() => authProviders([a, { provider: "api-key" } as any])).toThrow(/was removed/);
+    expect(() => authProviders([a, { ...b, jwt: { issuer: "" } }])).toThrow(/issuer is required/);
+  });
+
+  test("every language checks each issuer with its own settings", async () => {
+    for (const language of ["typescript", "python", "go"] as TargetLanguage[]) {
+      const files = await generators[language].generateGuards(entities, [a, b]);
+      const guard = files.find((f) => /auth\.(guard\.ts|py|go)$/.test(f.path))!.content;
+      for (const text of ["https://staff.example.com", "https://customers.example.com/", "tenant.id", "AUTH_JWT_ISSUER"])
+        expect(guard).toContain(text);
+    }
+    const files = await generators.typescript.generateGuards([{ ...entities[2], mcp: true }], [a, b]);
+    expect(files.find((f) => f.path === "guards/auth.guard.ts")!.content).toContain(
+      "authorizationServers: PROVIDERS.map((p) => p.issuer)"
+    );
+  });
+});
+
+describe("tenant-scoped entities and a provider with no tenant claim", () => {
+  const issuer = "https://issuer.example.com/";
+  const plain: AuthConfig = { provider: "jwt", jwt: { issuer } };
+
+  test("warns once per provider, naming the entities and the fix", () => {
+    expect(tenantClaimWarnings(entities, plain)).toEqual([
+      `auth provider "jwt" (${issuer}) has no tenant claim, but Project is tenant-scoped. Tokens from this provider will get 403 "No tenant in the auth context" on that entity. Set auth.claims.organizationId to the claim that holds the tenant.`,
+    ]);
+    const many = ["Invoice", "Customer", "Order", "Ticket", "Note"].map((name) => ({
+      name,
+      scopeBy: "organizationId",
+      // Still warned: only the listed roles skip the scope.
+      scopeOptions: { bypassRoles: ["support"] },
+      fields: [],
+    }));
+    const [warning, ...rest] = tenantClaimWarnings(many, [
+      plain,
+      { provider: "auth0", jwt: { issuer: "https://b.example.com/" }, claims: { workspaceId: "org" } },
+    ]);
+    expect(rest).toEqual([]);
+    expect(warning).toContain("but Invoice, Customer and 3 more are tenant-scoped");
+    expect(warning).toContain("Set claims.organizationId on that provider");
+  });
+
+  test("does not warn when a claim is set, by the config or by the provider's defaults", () => {
+    expect(tenantClaimWarnings(entities, { ...plain, claims: { organizationId: "org_id" } })).toEqual([]);
+    expect(tenantClaimWarnings(entities, { provider: "clerk", jwt: { issuer } })).toEqual([]);
+    expect(tenantClaimWarnings(entities, { provider: "better-auth" })).toEqual([]);
+    expect(tenantClaimWarnings(entities)).toEqual([]);
+  });
+
+  test("does not warn with no tenant-scoped entities", () => {
+    expect(tenantClaimWarnings(entities.slice(0, 2), plain)).toEqual([]);
+    expect(tenantClaimWarnings([{ name: "Draft", scopeBy: "userId", fields: [] }], plain)).toEqual([]);
   });
 });

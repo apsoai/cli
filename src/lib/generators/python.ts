@@ -14,7 +14,8 @@ import {
   Entity,
   AuthConfig,
   isJwtAuth,
-  resolveJwtAuth,
+  authProviders,
+  resolveJwtProviders,
   Field,
   ComputedField,
 } from "../types";
@@ -743,12 +744,15 @@ ${downStatements || "    pass"}
       console.warn(
         `[apso] Nested scopeBy paths are enforced in TypeScript services only; ${nested.join(", ")} will not be filtered by those paths in this Python service`
       );
-    if (auth && !isJwtAuth(auth))
+    const session = authProviders(auth).find((a) => !isJwtAuth(a));
+    if (session)
       throw new Error(
-        `auth.provider "${auth.provider}" is generated for TypeScript services only. For Python, use "jwt" (Better Auth issues JWTs with its JWT plugin).`
+        `auth.provider "${session.provider}" is generated for TypeScript services only. For Python, use "jwt" (Better Auth issues JWTs with its JWT plugin).`
       );
     // The API key check is part of every service; auth adds user sign-in.
-    const data = { jwt: auth && resolveJwtAuth(auth) };
+    // One entry per trusted issuer; undefined when there is no sign-in.
+    const jwt = resolveJwtProviders(auth);
+    const data = { jwt: jwt.length > 0 ? jwt : undefined };
     return [
       { path: "auth.py", content: await this.renderTemplate("./auth", data) },
     ];

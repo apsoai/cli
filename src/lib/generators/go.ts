@@ -15,7 +15,8 @@ import {
   AuthConfig,
   Field,
   isJwtAuth,
-  resolveJwtAuth,
+  authProviders,
+  resolveJwtProviders,
 } from "../types";
 import {
   entityScope,
@@ -756,12 +757,15 @@ ${modelRefs}
       console.warn(
         `[apso] Nested scopeBy paths are enforced in TypeScript services only; ${nested.join(", ")} will not be filtered by those paths in this Go service`
       );
-    if (auth && !isJwtAuth(auth))
+    const session = authProviders(auth).find((a) => !isJwtAuth(a));
+    if (session)
       throw new Error(
-        `auth.provider "${auth.provider}" is generated for TypeScript services only. For Go, use "jwt" (Better Auth issues JWTs with its JWT plugin).`
+        `auth.provider "${session.provider}" is generated for TypeScript services only. For Go, use "jwt" (Better Auth issues JWTs with its JWT plugin).`
       );
     // The API key check is part of every service; auth adds user sign-in.
-    const data = { jwt: auth && resolveJwtAuth(auth) };
+    // One entry per trusted issuer; undefined when there is no sign-in.
+    const jwt = resolveJwtProviders(auth);
+    const data = { jwt: jwt.length > 0 ? jwt : undefined };
     const content = await this.renderTemplate("./middleware/auth", data);
     const files: GeneratedFile[] = [{ path: "middleware/auth.go", content }];
     // Shared helpers for services and handlers of entities with a direct scopeBy.

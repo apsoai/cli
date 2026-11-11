@@ -803,6 +803,116 @@ PLATFORM = {
 // "no-auth" is a service generated with no auth block at all.
 const cases = { "no-auth": {}, ...providers(`http://127.0.0.1:${jwksPort}`) };
 
+// ---------- two issuers (apsoai/cli#206; rule R3) ----------
+// A service that trusts two issuers: staff (generic "jwt") and customers
+// ("auth0"). Each has its own key, audience and claim names. The customer
+// realm publishes its key at its own JWKS URL under the same kid as the staff
+// key, so the only way to the right key is through the token's issuer.
+{
+  const customerKey = keyPair();
+  const customerJwks = http
+    .createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ keys: [{ ...customerKey.publicKey.export({ format: "jwk" }), kid: "k1", alg: "RS256", use: "sig" }] }));
+    })
+    .unref();
+  await new Promise((r) => customerJwks.listen(0, "127.0.0.1", r));
+  const STAFF = `http://127.0.0.1:${jwksPort}/staff`;
+  const CUSTOMERS = `http://127.0.0.1:${customerJwks.address().port}/`;
+  const bearer = (token) => ({ authorization: `Bearer ${token}` });
+  // Staff tokens: tenant in "org", roles in "roles", permissions in "permissions".
+  const staffClaims = (org, extra = {}) => ({ iss: STAFF, aud: "staff-api", sub: "staff_1", org, roles: ["member"], ...extra });
+  // Customer tokens: tenant in "tenant.id", roles in "groups", permissions in "perms".
+  const customerClaims = (tenant, extra = {}) => ({ iss: CUSTOMERS, aud: "customer-api", sub: "auth0|cust_1", tenant: tenant === undefined ? undefined : { id: tenant }, groups: ["member"], ...extra });
+  const staff = (org, extra) => bearer(mint(staffClaims(org, extra)));
+  const customer = (tenant, extra) => bearer(mint(customerClaims(tenant, extra), { key: customerKey.privateKey }));
+
+  cases["two-issuers"] = {
+    auth: [
+      { provider: "jwt", jwt: { issuer: STAFF, audience: "staff-api" }, claims: { workspaceId: "org" } },
+      { provider: "auth0", jwt: { issuer: CUSTOMERS, audience: "customer-api", jwksUri: `${CUSTOMERS}jwks` }, claims: { workspaceId: "tenant.id", roles: "groups", permissions: "perms" } },
+    ],
+    run: async (name, _p, boot) => {
+      const t = checker(name);
+      const { base } = await boot();
+      const get = (headers, url = ORGS) => call("GET", base + url, { headers });
+
+      t.expect("[R3] a token from the first issuer is accepted", await get(staff("1")), 200);
+      t.expect("[R3] a token from the second issuer is accepted", await get(customer("1")), 200);
+      t.expect("[R3] an issuer that is not listed is refused (signed with the first issuer's key)", await get(bearer(mint(staffClaims("1", { iss: "https://evil.example/" })))), 401);
+      t.expect("[R3] an issuer that is not listed is refused (signed with the second issuer's key)", await get(bearer(mint(customerClaims("1", { iss: "https://evil.example/" }), { key: customerKey.privateKey }))), 401);
+      t.expect("[R3] a token with no issuer is refused", await get(staff("1", { iss: undefined })), 401);
+      t.expect("[R3] the second issuer's name without its trailing slash is another issuer", await get(customer("1", { iss: CUSTOMERS.slice(0, -1) })), 401);
+      t.expect("[R3] a first-issuer token with the second issuer's audience is refused", await get(staff("1", { aud: "customer-api" })), 401);
+      t.expect("[R3] a second-issuer token with the first issuer's audience is refused", await get(customer("1", { aud: "staff-api" })), 401);
+      t.expect("[R3] signed by the first issuer's key but claiming the second issuer is refused", await get(bearer(mint(customerClaims("1")))), 401);
+      t.expect("[R3] signed by the second issuer's key but claiming the first issuer is refused", await get(bearer(mint(staffClaims("1"), { key: customerKey.privateKey }))), 401);
+
+      // Each issuer's own claim names end up as the one tenant the scope uses.
+      const org1 = await call("POST", base + ORGS, { headers: staff("1"), body: { name: "Acme" } });
+      const org2 = await call("POST", base + ORGS, { headers: customer("1"), body: { name: "Beta" } });
+      if (!t.expect("create organization (first issuer)", org1, 200, 201) || !t.expect("create organization (second issuer)", org2, 200, 201)) return t.failures;
+      const [id1, id2] = [String(org1.json.id), String(org2.json.id)];
+      const project = await call("POST", base + PROJECTS, { headers: staff(id1), body: { title: "Staff made", organizationId: Number(id2) } });
+      if (!t.expect("[R6] first issuer's user creates a project", project, 200, 201)) return t.failures;
+      const pid = project.json.id;
+      const has = (res, id) => res.status === 200 && rows(res.json).some((row) => row.id === id);
+      const lacks = (res, id) => res.status === 200 && !rows(res.json).some((row) => row.id === id);
+      t.assert("[R8] the project is stored under the tenant in the first issuer's claim (org)", String(project.json?.organizationId) === id1, `organizationId=${project.json?.organizationId}`);
+      t.assert("[R6] second issuer's user of the same tenant (tenant.id) lists the project", has(await get(customer(id1), PROJECTS), pid));
+      t.assert("[R6] second issuer's user of another tenant does not list it", lacks(await get(customer(id2), PROJECTS), pid));
+      t.expect("[R6] second issuer's user of another tenant cannot read it", await get(customer(id2), `${PROJECTS}/${pid}`), 403, 404);
+      const theirs = await call("POST", base + PROJECTS, { headers: customer(id2), body: { title: "Customer made", organizationId: Number(id1) } });
+      if (t.expect("[R6] second issuer's user creates a project", theirs, 200, 201)) {
+        t.assert("[R8] it is stored under the tenant in the second issuer's claim (tenant.id)", String(theirs.json?.organizationId) === id2, `organizationId=${theirs.json?.organizationId}`);
+        t.assert("[R6] first issuer's user of another tenant does not list it", lacks(await get(staff(id1), PROJECTS), theirs.json.id));
+      }
+      t.expect("[R9] a second-issuer token that names its tenant the first issuer's way (org) has no tenant", await get(customer(undefined, { org: id1 }), PROJECTS), 403);
+      t.expect("[R9] a first-issuer token that names its tenant the second issuer's way (tenant.id) has no tenant", await get(staff(undefined, { tenant: { id: id1 } }), PROJECTS), 403);
+
+      // Roles come from each issuer's own claim too: "support" skips the scope on tickets.
+      const TICKETS = route("Tickets");
+      const ticket = await call("POST", base + TICKETS, { headers: staff(id1), body: { title: "Login broken" } });
+      if (t.expect("create ticket", ticket, 200, 201)) {
+        const tid = ticket.json.id;
+        t.assert("[R10] support role in the first issuer's claim (roles) lists another tenant's ticket", has(await get(staff(id2, { roles: ["support"] }), TICKETS), tid));
+        t.assert("[R10] support role in the second issuer's claim (groups) lists another tenant's ticket", has(await get(customer(id2, { groups: ["support"] }), TICKETS), tid));
+        t.assert("[R10] a second-issuer token with the role under the first issuer's claim name is not support", lacks(await get(customer(id2, { roles: ["support"] }), TICKETS), tid));
+      }
+      if (language !== "typescript") return t.failures;
+
+      // Permissions: Invoice read is for owners, or a permission in the token.
+      const INVOICES = route("Invoices");
+      t.expect("[R11] owner role in the second issuer's claim (groups) lists invoices", await get(customer(id2, { groups: ["owner"] }), INVOICES), 200);
+      t.expect("[R11] a second-issuer token with owner under the first issuer's claim name is refused", await get(customer(id2, { roles: ["owner"] }), INVOICES), 403);
+      t.expect("[R11] invoice:read in the second issuer's permissions claim (perms) lists invoices", await get(customer(id2, { perms: ["invoice:read"] }), INVOICES), 200);
+      t.expect("[R11] a second-issuer token with invoice:read under the first issuer's claim name is refused", await get(customer(id2, { permissions: ["invoice:read"] }), INVOICES), 403);
+      t.expect("[R11] invoice:read in the first issuer's permissions claim (permissions) lists invoices", await get(staff(id1, { permissions: ["invoice:read"] }), INVOICES), 200);
+
+      // MCP sign-in discovery names both issuers, and a token from either works.
+      const rpc = (headers = {}) =>
+        fetch(`${base}/mcp`, {
+          method: "POST",
+          headers: { "content-type": "application/json", accept: "application/json, text/event-stream", ...headers },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+        });
+      const metadataUrl = /resource_metadata="([^"]+)"/.exec((await rpc()).headers.get("www-authenticate") ?? "")?.[1];
+      const metadata = metadataUrl ? await call("GET", metadataUrl) : { json: undefined, text: "no metadata URL in the 401" };
+      t.assert("[R22] mcp sign-in metadata lists every issuer as an authorization server", JSON.stringify(metadata.json?.authorization_servers) === JSON.stringify([STAFF, CUSTOMERS]), metadata.text);
+      for (const [who, claims, opts] of [["first", staffClaims(id1, { aud: `${base}/mcp` }), {}], ["second", customerClaims(id2, { aud: `${base}/mcp` }), { key: customerKey.privateKey }]]) {
+        const client = new Client({ name: "auth-smoke-two-issuers", version: "1" });
+        const tools = await client
+          .connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`), { requestInit: { headers: bearer(mint(claims, opts)) } }))
+          .then(() => client.listTools())
+          .then((r) => r.tools.length, () => 0);
+        t.assert(`[R22] mcp accepts a token the ${who} issuer issued for the MCP endpoint`, tools > 0);
+      }
+      t.assert("[R22] mcp refuses a token from an issuer that is not listed", (await rpc(bearer(mint(staffClaims(id1, { iss: "https://evil.example/", aud: `${base}/mcp` }))))).status === 401);
+      return t.failures;
+    },
+  };
+}
+
 const work = fs.mkdtempSync(path.join(os.tmpdir(), "apso-auth-smoke-"));
 const failures = [];
 try {
@@ -838,7 +948,7 @@ try {
     };
     try {
       generate(project, p.auth);
-      const f = p.auth ? await jwtCase(name, p, boot) : await keyCase(name, boot);
+      const f = p.run ? await p.run(name, p, boot) : p.auth ? await jwtCase(name, p, boot) : await keyCase(name, boot);
       if (f.length > 0) console.log(server.log().slice(-2000));
       failures.push(...f);
     } catch (e) {
