@@ -89,8 +89,8 @@ export function addMissingDeps(
   return missing;
 }
 
-/** MCP library the generated controllers import when an entity sets `mcp`. */
-export const MCP_DEP: Record<string, string> = { "@apso/mcp": "^0.2.0" };
+/** MCP library the generated controllers import when an entity sets `mcp`. 0.2.1 is the first that answers behind a Lambda adapter. */
+export const MCP_DEP: Record<string, string> = { "@apso/mcp": "^0.2.1" };
 
 const SWAGGER_SETUP = "SwaggerModule.setup('_docs', app, document);";
 
