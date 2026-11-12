@@ -29,19 +29,21 @@ import * as fs from "fs";
 import * as os from "os";
 import { promisify } from "util";
 import {
-  apiKeyTemplateData,
+  authEntityNames,
+  authEntityRoutes,
+  getPermissionConfig,
   getScopedEntities,
+  hasPermissions,
   hasScopedEntities,
+  relationScopes,
+  removedScopeOptionErrors,
+  toRouteName,
+  mcpOperations,
 } from "../guards";
 import { getEventEmittingEntities } from "../events";
 import {
-  isApiKeyAuth,
-  isDbSessionAuth,
-  isJwtAuth,
-  resolveApiKeyAuth,
-  resolveJwtAuth,
-  DB_SESSION_AUTH_DEFAULTS,
-  DbSessionAuthConfig,
+  authProviders,
+  resolveJwtProviders,
 } from "../types/auth";
 
 const unlinkAsync = promisify(fs.unlink);
@@ -78,6 +80,7 @@ export class TypeScriptGenerator extends BaseGenerator {
     if (!config.entities || config.entities.length === 0) {
       errors.push("No entities defined in configuration");
     }
+    errors.push(...removedScopeOptionErrors(config.entities ?? []));
 
     // Validate each entity
     for (const entity of config.entities) {
@@ -102,6 +105,14 @@ export class TypeScriptGenerator extends BaseGenerator {
     if (config.apiType && !["rest", "graphql"].includes(config.apiType)) {
       errors.push(
         `Invalid API type: '${config.apiType}'. Must be 'rest' or 'graphql'`
+      );
+    }
+
+    // The GraphQL templates are incomplete, and no access guard runs on
+    // GraphQL resolvers, so a GraphQL service would answer without credentials.
+    if (config.apiType === "graphql") {
+      errors.push(
+        'apiType "Graphql" cannot be generated for TypeScript: the built-in API key and sign-in checks cover REST routes only, so a GraphQL service would answer requests with no credentials. Set "apiType": "Rest" in .apsorc.'
       );
     }
 
@@ -187,9 +198,20 @@ export class TypeScriptGenerator extends BaseGenerator {
     const { entity, relationships, relationshipMap, auth } = options;
     const { name: entityName } = entity;
 
+    // Auth entities are for service callers only, so no other entity's
+    // controller joins onto them.
+    const authEntities = new Set(authEntityNames(options.allEntities, auth));
+    const joinable = (r: { name: string }) =>
+      authEntities.has(entityName) || !authEntities.has(r.name);
     const relationshipsForTemplate = getRelationshipForTemplate(
       entityName,
-      relationships
+      relationships?.filter((r) => joinable(r))
+    );
+    const joinMap: RelationshipMap = Object.fromEntries(
+      Object.entries(relationshipMap ?? {}).map(([name, list]) => [
+        name,
+        list.filter((r) => joinable(r)),
+      ])
     );
 
     // Handle nested relationships for joins
@@ -201,11 +223,7 @@ export class TypeScriptGenerator extends BaseGenerator {
     const nestedJoinsStream = fs.createWriteStream(nestedJoinsFile, {
       encoding: "utf8",
     });
-    await streamNestedRelationships(
-      entityName,
-      relationshipMap,
-      nestedJoinsStream
-    );
+    await streamNestedRelationships(entityName, joinMap, nestedJoinsStream);
     nestedJoinsStream.end();
     await new Promise<void>((resolve) => {
       nestedJoinsStream.on("finish", () => resolve());
@@ -219,21 +237,17 @@ export class TypeScriptGenerator extends BaseGenerator {
       ? getScopedEntities([entity], relationshipMap)[0]
       : undefined;
     const scopes = scoped?.scopes ?? [];
-    // Only emitted when scopeOptions differ from the defaults, so services
-    // without them keep the same generated controller.
-    const scopeOptions =
-      scoped &&
-      (scoped.bypassRoles.length > 0 ||
-        !scoped.injectOnCreate ||
-        ["find", "get", "create", "update", "delete"].some(
-          (op) => !scoped.enforceOn.includes(op)
-        ))
-        ? {
-            enforceOn: scoped.enforceOn,
-            bypassRoles: scoped.bypassRoles,
-            injectOnCreate: scoped.injectOnCreate,
-          }
-        : undefined;
+    // Which requests the tenant filter covers; a service caller (API key)
+    // always skips it.
+    const scopeOptions = scoped && {
+      bypassRoles: scoped.bypassRoles,
+    };
+
+    const mcp = mcpOperations(entity);
+    if (mcp.length > 0 && !auth)
+      throw new Error(
+        `${entityName}.mcp needs an auth block in .apsorc: MCP tools act as the signed-in caller`
+      );
 
     const data = {
       svcName,
@@ -250,6 +264,12 @@ export class TypeScriptGenerator extends BaseGenerator {
       crudAuth: scopes.filter((s) => s.direct),
       crudAuthNested: scopes.filter((s) => s.fkField),
       scopeOptions,
+      // Every controller checks which relations a request may load.
+      relationAccess: this.hasRelationAccess(options.allEntities, relationshipMap, auth),
+      // Operations exposed as MCP tools, and the names the tools get.
+      mcp,
+      mcpName: snakeCase(entityName),
+      mcpPluralName: snakeCase(pluralEntityName),
     };
 
     const controllerContent = await this.renderTemplate(
@@ -489,16 +509,13 @@ export class TypeScriptGenerator extends BaseGenerator {
   async generateIndexModule(
     entities: Entity[],
     apiType: string,
-    opts?: { emitEvents?: boolean; auth?: AuthConfig }
+    _opts?: { emitEvents?: boolean; auth?: AuthConfig }
   ): Promise<GeneratedFile[]> {
-    // generateGuards emits GuardsModule whenever auth or scopeBy is configured;
-    // listing it here is what turns its global guards on.
+    // Listing GuardsModule is what turns the global guards on; every service
+    // has at least the API key check.
     const content = await this.renderTemplate(
       `./${apiType}/index-module-${apiType}`,
-      {
-        entities,
-        hasGuards: Boolean(opts?.auth) || hasScopedEntities(entities),
-      }
+      { entities }
     );
 
     return [
@@ -515,58 +532,75 @@ export class TypeScriptGenerator extends BaseGenerator {
     relationshipMap?: RelationshipMap
   ): Promise<GeneratedFile[]> {
     const hasScopes = hasScopedEntities(entities);
-    const normalizedAuth = this.normalizeAuthConfig(auth);
-    const jwt = auth && isJwtAuth(auth) ? resolveJwtAuth(auth) : undefined;
-    const apiKey =
-      auth && isApiKeyAuth(auth)
-        ? apiKeyTemplateData(resolveApiKeyAuth(auth), entities)
-        : undefined;
-    const hasAuth = Boolean(normalizedAuth || jwt || apiKey);
+    // One entry per trusted issuer; undefined when there is no sign-in.
+    const jwtProviders = resolveJwtProviders(auth);
+    const jwt = jwtProviders.length > 0 ? jwtProviders : undefined;
+    const hasAuth = Boolean(jwt);
 
-    if (!hasScopes && !hasAuth) {
-      return [];
+    // Roles come from the caller's identity; without auth there are none, and
+    // a permissions block that is silently not enforced is worse than an error.
+    const permissions = getPermissionConfig(entities, relationshipMap, auth);
+    if (permissions && !hasAuth) {
+      throw new Error(
+        "permissions in .apsorc need an auth block: roles come from the signed-in caller"
+      );
     }
 
     const scopedEntities = getScopedEntities(entities, relationshipMap);
     const files: GeneratedFile[] = [];
 
-    const authEntities: string[] = normalizedAuth
-      ? [
-          normalizedAuth.sessionEntity as string,
-          normalizedAuth.userEntity as string,
-          ...(normalizedAuth.accountUserEntity
-            ? [normalizedAuth.accountUserEntity]
-            : []),
-        ]
-      : apiKey
-      ? [apiKey.apiKeyEntity]
-      : [];
     const templateData = {
       scopedEntities,
+      // Every entity by route: the scope guard checks relations in write bodies.
+      routeEntities: entities.map((e) => ({ route: toRouteName(e.name), name: e.name })),
       // Nested paths are only enforced on list and create with a caller's tenant.
       hasNestedFk:
         hasAuth && scopedEntities.some((e) => e.scopes.some((s) => s.fkField)),
-      authConfig: normalizedAuth,
       hasAuth,
-      authProvider: auth?.provider,
-      authEntities,
+      authProvider: authProviders(auth).map((a) => a.provider).join(", "),
+      // Routes only a service caller reaches (sessions, accounts, ...).
+      authRoutes: authEntityRoutes(entities, auth),
       jwt,
-      apiKey,
+      permissions,
+      // OAuth sign-in for MCP clients: tokens come from the listed issuers.
+      mcpAuth: hasAuth && entities.some((e) => mcpOperations(e).length > 0),
     };
+
+    // The API key check is part of every service.
+    files.push({
+      path: "guards/key.guard.ts",
+      content: await this.renderTemplate("./guards/key.guard.eta", templateData),
+    });
 
     // Generate auth.guard.ts if auth is configured
     if (hasAuth) {
       const authGuardContent = await this.renderTemplate(
-        jwt
-          ? "./guards/jwt-auth.guard.eta"
-          : apiKey
-          ? "./guards/api-key-auth.guard.eta"
-          : "./guards/auth.guard.eta",
+        "./guards/jwt-auth.guard.eta",
         templateData
       );
       files.push({
         path: "guards/auth.guard.ts",
         content: authGuardContent,
+      });
+    }
+
+    if (this.hasRelationAccess(entities, relationshipMap, auth)) {
+      files.push({
+        path: "guards/relations.interceptor.ts",
+        content: await this.renderTemplate("./guards/relations.interceptor.eta", {
+          permissions: Boolean(permissions),
+          relationScopes: relationScopes(entities, relationshipMap, hasAuth),
+        }),
+      });
+    }
+
+    if (permissions) {
+      files.push({
+        path: "guards/permission.guard.ts",
+        content: await this.renderTemplate(
+          "./guards/permission.guard.eta",
+          templateData
+        ),
       });
     }
 
@@ -653,21 +687,15 @@ export class TypeScriptGenerator extends BaseGenerator {
     ];
   }
 
-  /**
-   * Normalizes auth config by applying defaults for DB session providers
-   */
-  private normalizeAuthConfig(
-    auth: AuthConfig | undefined
-  ): DbSessionAuthConfig | undefined {
-    if (!auth) return undefined;
-
-    if (isDbSessionAuth(auth)) {
-      return {
-        ...DB_SESSION_AUTH_DEFAULTS,
-        ...auth,
-      };
-    }
-
-    return undefined;
+  /** True when requests can load a relation that is tenant-scoped or limited by role. */
+  private hasRelationAccess(
+    entities: Entity[],
+    relationshipMap?: RelationshipMap,
+    auth?: AuthConfig
+  ): boolean {
+    return Boolean(
+      auth &&
+        (hasPermissions(entities) || relationScopes(entities, relationshipMap, true))
+    );
   }
 }

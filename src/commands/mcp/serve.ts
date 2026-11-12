@@ -23,6 +23,7 @@ import {
   searchExistingIssues,
   fileIssue,
 } from "../../lib/doctor/runner";
+import { writeAccessManifest } from "../../lib/utils/crud-deps";
 import { createFile } from "../../lib/utils/file-system";
 import { apsorcToServiceSchema } from "../../lib/utils/schema-convert";
 import { registerSchemaTools } from "../../lib/mcp-schema-tools";
@@ -133,8 +134,6 @@ export default class McpServe extends BaseCommand {
             "auth0",
             "clerk",
             "cognito",
-            "api-key",
-            "custom-db-session",
             "none",
           ])
           .optional()
@@ -168,7 +167,10 @@ export default class McpServe extends BaseCommand {
         };
 
         if (auth) {
-          schemaTemplate.auth = { provider: auth };
+          schemaTemplate.auth =
+            auth === "better-auth"
+              ? { provider: auth, url: "https://YOUR_APP/api/auth" }
+              : { provider: auth };
         }
 
         const instructions = [
@@ -507,6 +509,10 @@ export default class McpServe extends BaseCommand {
             await createFile(fullPath, file.content);
             filesGenerated.push(file.path);
           }
+          // The access marker, as apso generate writes it: the generated
+          // code has the built-in access check.
+          if (guardFiles.length > 0)
+            writeAccessManifest(process.cwd(), this.config.version);
 
           // Generate index module
           const indexFiles = await generator.generateIndexModule(
@@ -532,7 +538,11 @@ export default class McpServe extends BaseCommand {
             content: [
               {
                 type: "text" as const,
-                text: `Generated ${lang} REST API for ${entities.length} entities (${filesGenerated.length} files) in ${elapsed}ms.\n\nOutput: ${autogenPath}\n\nEntities: ${entities.map((e) => e.name).join(", ")}${warnings}\n\nNext steps:\n1. Run \`npm install\` to install dependencies\n2. Run \`apso dev\` to start the local development server\n3. Open http://localhost:3001/api/docs for OpenAPI documentation`,
+                text: `Generated ${lang} REST API for ${entities.length} entities (${filesGenerated.length} files) in ${elapsed}ms.\n\nOutput: ${autogenPath}\n\nEntities: ${entities.map((e) => e.name).join(", ")}${warnings}\n\nNext steps:\n1. Run \`npm install\` to install dependencies\n2. Run \`apso dev\` to start the local development server\n3. Open http://localhost:3001/api/docs for OpenAPI documentation${
+                  lang === "typescript"
+                    ? "\n\nList routes take the PostgREST query syntax only: one filter per column as op.value, plus select, order, limit and offset. Example: GET /Projects?status=eq.open&select=id,title,organization(name)&order=id.desc&limit=20. A list is a JSON array; the Content-Range response header has the row range and, with the request header Prefer: count=exact, the total. The older nestjsx parameters (filter, join, sort, s, fields, page) get a 400."
+                    : ""
+                }`,
               },
             ],
           };
@@ -563,8 +573,6 @@ export default class McpServe extends BaseCommand {
             "clerk",
             "cognito",
             "jwt",
-            "api-key",
-            "custom-db-session",
           ])
           .optional()
           .describe("Authentication provider (default: better-auth)"),
@@ -574,7 +582,17 @@ export default class McpServe extends BaseCommand {
 
         const authConfigs: Record<string, object> = {
           "better-auth": {
-            auth: { provider: "better-auth" },
+            // The service verifies the JWTs Better Auth issues (JWT plugin); it does not look sessions up.
+            auth: {
+              provider: "better-auth",
+              // Better Auth's base URL. Keys are read from <url>/jwks.
+              url: "https://YOUR_APP/api/auth",
+              // The names your definePayload puts in the token.
+              claims: {
+                workspaceId: "activeOrganizationId",
+                roles: "roles",
+              },
+            },
             entities: [
               {
                 name: "User",
@@ -696,39 +714,6 @@ export default class McpServe extends BaseCommand {
             entities: [],
             relationships: [],
           },
-          "api-key": {
-            auth: {
-              provider: "api-key",
-              apiKeyHeader: "x-api-key",
-              apiKeyEntity: "ApiKey",
-            },
-            entities: [
-              {
-                name: "ApiKey",
-                created_at: true,
-                updated_at: true,
-                scopeBy: "organizationId",
-                fields: [
-                  { name: "name", type: "text", length: 100 },
-                  { name: "keyHash", type: "text", length: 255 },
-                  { name: "prefix", type: "text", length: 10 },
-                  { name: "scopes", type: "json-plain", nullable: true },
-                  { name: "expiresAt", type: "date", nullable: true },
-                  { name: "lastUsedAt", type: "date", nullable: true },
-                  { name: "status", type: "enum", values: ["active", "revoked"], default: "active" },
-                ],
-              },
-            ],
-            relationships: [
-              { from: "Organization", to: "ApiKey", type: "OneToMany" },
-              { from: "ApiKey", to: "Organization", type: "ManyToOne" },
-            ],
-          },
-          "custom-db-session": {
-            auth: { provider: "custom-db-session" },
-            entities: [],
-            relationships: [],
-          },
         };
 
         const config = authConfigs[authProvider] || authConfigs["better-auth"];
@@ -737,7 +722,7 @@ export default class McpServe extends BaseCommand {
           content: [
             {
               type: "text" as const,
-              text: `# Auth Setup: ${authProvider}\n\nMerge the following into your .apsorc file:\n\n\`\`\`json\n${JSON.stringify(config, null, 2)}\n\`\`\`\n\nAfter updating .apsorc:\n1. Run \`apso generate\` (or use the scaffold_api tool) to regenerate code\n2. Run \`npm install\` if new dependencies are needed\n3. Run \`apso dev\` to start the server and create auth tables\n\n${authProvider === "better-auth" ? "**Important:** BetterAuth stores passwords in the `account` table (not User). The `providerId` field must be set to \"credential\" for email/password login to work. Use `@apso/better-auth-adapter@latest` in your frontend." : authProvider === "api-key" ? "Store each key's hex SHA-256 in ApiKey.keyHash, never the key itself; callers send the key in the x-api-key header." : "Replace the issuer, audience and claim names with your " + authProvider + " tenant's values. The service checks each token's signature against the issuer's JWKS. See https://docs.apso.ai/develop/auth/byoa."}`,
+              text: `# Auth Setup: ${authProvider}\n\nMerge the following into your .apsorc file:\n\n\`\`\`json\n${JSON.stringify(config, null, 2)}\n\`\`\`\n\nAfter updating .apsorc:\n1. Run \`apso generate\` (or use the scaffold_api tool) to regenerate code\n2. Run \`npm install\` if new dependencies are needed\n3. Run \`apso dev\` to start the server and create auth tables\n\n${authProvider === "better-auth" ? "**How sign-in works:** the service verifies JWTs from Better Auth; a session cookie or session token gets 401. In your Better Auth config add the `jwt()` plugin, and add the tenant and roles to the token with its `definePayload` option, for example `{ email: user.email, activeOrganizationId: session.activeOrganizationId, roles: [memberRole] }`. The front end gets the token from `GET /api/auth/token` (`authClient.token()` with the `jwtClient` plugin) and sends it as `Authorization: Bearer <token>`. Set `url` to your Better Auth base URL.\n\n**The tables below are for the server only:** `@apso/better-auth-adapter` stores Better Auth's rows through this API with an API key (`x-api-key`). A signed-in user gets 403 on their routes. BetterAuth stores passwords in the `account` table (not User); the `providerId` field must be set to \"credential\" for email/password login to work." : "Replace the issuer, audience and claim names with your " + authProvider + " tenant's values. The service checks each token's signature against the issuer's JWKS. See https://docs.apso.ai/develop/auth/byoa."}`,
             },
           ],
         };

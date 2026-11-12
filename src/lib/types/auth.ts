@@ -1,14 +1,14 @@
 /**
- * Supported authentication provider types
+ * Supported authentication provider types. The auth block is for user sign-in
+ * only: the API key check is built into every generated service and is set
+ * through its environment (APSO_API_KEY), not here.
  */
 export type AuthProviderType =
   | "better-auth"
-  | "custom-db-session"
   | "auth0"
   | "clerk"
   | "cognito"
-  | "jwt"
-  | "api-key";
+  | "jwt";
 
 /**
  * Base configuration common to all auth providers
@@ -18,43 +18,13 @@ export interface BaseAuthConfig {
    * The authentication provider type
    */
   provider: AuthProviderType;
-}
-
-/**
- * Configuration for DB-backed session providers (Better Auth, custom-db-session)
- */
-export interface DbSessionAuthConfig extends BaseAuthConfig {
-  provider: "better-auth" | "custom-db-session";
 
   /**
-   * Entity name for sessions. Default: "session"
+   * Entity whose rows grant permissions to roles at runtime (fields `role`
+   * and `permission`, e.g. "invoice:delete"). Used only when the entity
+   * exists in .apsorc. Default: "RolePermission"
    */
-  sessionEntity?: string;
-
-  /**
-   * Entity name for users. Default: "User"
-   */
-  userEntity?: string;
-
-  /**
-   * Junction entity for user-organization mapping. Default: "AccountUser"
-   */
-  accountUserEntity?: string;
-
-  /**
-   * Cookie name prefix for session tokens. Default: service name
-   */
-  cookiePrefix?: string;
-
-  /**
-   * Field name on accountUserEntity for organization ID. Default: "organizationId"
-   */
-  organizationField?: string;
-
-  /**
-   * Field name on accountUserEntity for user's role. Default: "role"
-   */
-  roleField?: string;
+  permissionEntity?: string;
 }
 
 /**
@@ -79,8 +49,8 @@ export interface JwtConfig {
   jwksUri?: string;
 
   /**
-   * Algorithms to accept. Default: ["RS256"]. Better Auth's JWT plugin signs
-   * with EdDSA by default.
+   * Algorithms to accept. Default: ["RS256"]. The better-auth provider
+   * always accepts EdDSA (Better Auth's default) as well.
    */
   algorithms?: string[];
 
@@ -119,6 +89,12 @@ export interface JwtClaimsMapping {
    * Claim for user email
    */
   email?: string;
+
+  /**
+   * Claim holding permission strings ("invoice:delete"), for providers that
+   * manage permissions themselves (Auth0 RBAC). Default: "permissions"
+   */
+  permissions?: string;
 }
 
 /**
@@ -145,45 +121,65 @@ export interface JwtAuthConfig extends BaseAuthConfig {
 }
 
 /**
- * Configuration for API key authentication
+ * Better Auth, verified by the JWTs it issues: the JWT plugin's token for the
+ * app's own REST calls, and the OAuth access tokens (header type at+jwt) its
+ * OAuth provider issues to MCP clients. The service does not look sessions up.
+ *
+ * The token's `iss` is `url`, or the origin of `url`: the OAuth provider signs
+ * with the base URL, the JWT plugin with Better Auth's `baseURL` option, which
+ * is normally the origin. Both are checked against the keys at `url`/jwks.
  */
-export interface ApiKeyAuthConfig extends BaseAuthConfig {
-  provider: "api-key";
+export interface BetterAuthConfig extends BaseAuthConfig {
+  provider: "better-auth";
 
   /**
-   * Header name for API key. Default: "x-api-key"
+   * Better Auth's base URL including its base path, e.g.
+   * "https://app.example.com/api/auth". The issuer and the JWKS URL
+   * (`url`/jwks) default from it.
    */
-  apiKeyHeader?: string;
+  url: string;
 
   /**
-   * Entity name for API keys. Default: "ApiKey"
+   * Overrides. `audience` defaults to the origin of `url`, which is what the
+   * JWT plugin puts in `aud` unless its `jwt.audience` option is set.
    */
-  apiKeyEntity?: string;
+  jwt?: Partial<JwtConfig>;
 
   /**
-   * Field on apiKeyEntity holding the hex SHA-256 of the key. Default: "keyHash"
+   * Claim names. Defaults: userId "sub", email "email", tenant
+   * "activeOrganizationId", roles "roles", permissions "permissions". Better
+   * Auth puts only the user in the token by default; the tenant and roles are
+   * added with the JWT plugin's `definePayload`.
    */
-  keyField?: string;
+  claims?: JwtClaimsMapping;
 
   /**
-   * Field name on apiKeyEntity for workspace/organization ID.
-   * Default: "organizationId"
+   * The entities that store Better Auth's session, user and membership rows
+   * in this service (written by @apso/better-auth-adapter with an API key).
+   * They are not read to sign a caller in; naming them marks them as auth
+   * entities, which only a service caller reaches. Defaults: "session",
+   * "User", "AccountUser".
    */
-  workspaceField?: string;
-
-  /**
-   * Field name on apiKeyEntity for role/permissions
-   */
-  roleField?: string;
+  sessionEntity?: string;
+  userEntity?: string;
+  accountUserEntity?: string;
 }
 
+/** Kept under its old name for code that marks the auth entities. */
+export type DbSessionAuthConfig = BetterAuthConfig;
+
 /**
- * Union type of all auth configurations
+ * One sign-in provider
  */
-export type AuthConfig =
-  | DbSessionAuthConfig
-  | JwtAuthConfig
-  | ApiKeyAuthConfig;
+export type AuthProviderConfig = BetterAuthConfig | JwtAuthConfig;
+
+/**
+ * The .apsorc auth block: one provider, or a list of providers when the
+ * service trusts more than one issuer. A token is matched to its provider by
+ * its `iss` claim and checked against that provider's keys, audience and
+ * claim mapping only.
+ */
+export type AuthConfig = AuthProviderConfig | AuthProviderConfig[];
 
 /**
  * The normalized AuthContext that all providers produce.
@@ -216,7 +212,7 @@ export interface AuthContext {
   roles: string[];
 
   /**
-   * For API key auth: the service/key identifier
+   * Set for a service caller (a valid API key): the key's identifier
    */
   serviceId?: string;
 
@@ -232,17 +228,12 @@ export interface AuthContext {
 }
 
 /**
- * Default values for DB session auth configuration
+ * Default names of the entities that store Better Auth's rows
  */
-export const DB_SESSION_AUTH_DEFAULTS: Required<
-  Omit<DbSessionAuthConfig, "provider" | "cookiePrefix">
-> & { cookiePrefix?: string } = {
+export const DB_SESSION_AUTH_DEFAULTS = {
   sessionEntity: "session",
   userEntity: "User",
   accountUserEntity: "AccountUser",
-  organizationField: "organizationId",
-  roleField: "role",
-  cookiePrefix: undefined, // Will use service name if not specified
 };
 
 /**
@@ -259,53 +250,19 @@ export const JWT_AUTH_DEFAULTS: Required<
 };
 
 /**
- * Default values for API key auth configuration
- */
-export const API_KEY_AUTH_DEFAULTS: Required<
-  Omit<ApiKeyAuthConfig, "provider" | "workspaceField" | "roleField">
-> = {
-  apiKeyHeader: "x-api-key",
-  apiKeyEntity: "ApiKey",
-  keyField: "keyHash",
-};
-
-/**
- * Type guard: Check if auth config is DB session based
- * @param {AuthConfig} auth - The auth configuration to check
- * @returns {boolean} True if the auth config is DB session based
+ * True for the provider whose own tables (sessions, users, memberships) are
+ * stored in this service: Better Auth. The name predates the removal of the
+ * session lookup; every provider is verified as a JWT now.
  */
 export function isDbSessionAuth(
-  auth: AuthConfig
-): auth is DbSessionAuthConfig {
-  return auth.provider === "better-auth" || auth.provider === "custom-db-session";
-}
-
-/**
- * Type guard: Check if auth config is JWT based
- * @param {AuthConfig} auth - The auth configuration to check
- * @returns {boolean} True if the auth config is JWT based
- */
-export function isJwtAuth(auth: AuthConfig): auth is JwtAuthConfig {
-  return (
-    auth.provider === "auth0" ||
-    auth.provider === "clerk" ||
-    auth.provider === "cognito" ||
-    auth.provider === "jwt"
-  );
-}
-
-/**
- * Type guard: Check if auth config is API key based
- * @param {AuthConfig} auth - The auth configuration to check
- * @returns {boolean} True if the auth config is API key based
- */
-export function isApiKeyAuth(auth: AuthConfig): auth is ApiKeyAuthConfig {
-  return auth.provider === "api-key";
+  auth: AuthProviderConfig
+): auth is BetterAuthConfig {
+  return auth.provider === "better-auth";
 }
 
 /** A JWT auth config with every default filled in, as the templates use it. */
 export interface ResolvedJwtAuth {
-  provider: JwtAuthConfig["provider"];
+  provider: AuthProviderConfig["provider"];
   issuer: string;
   audience?: string;
   jwksUri: string;
@@ -315,21 +272,17 @@ export interface ResolvedJwtAuth {
     Omit<JwtClaimsMapping, "userId">;
 }
 
-/** An API key auth config with every default filled in. */
-export type ResolvedApiKeyAuth = Required<
-  Omit<ApiKeyAuthConfig, "roleField">
-> &
-  Pick<ApiKeyAuthConfig, "roleField">;
-
 /**
  * Claim defaults per provider. Clerk's v2 session token nests the active
  * organization under `o`; Cognito puts group membership in `cognito:groups`.
  */
-const PROVIDER_CLAIMS: Record<JwtAuthConfig["provider"], JwtClaimsMapping> = {
-  auth0: { userId: "sub", email: "email" },
+const PROVIDER_CLAIMS: Record<AuthProviderConfig["provider"], JwtClaimsMapping> = {
+  // Names for the app's definePayload to use; Better Auth has no defaults for these.
+  "better-auth": { userId: "sub", email: "email", workspaceId: "activeOrganizationId", roles: "roles", permissions: "permissions" },
+  auth0: { userId: "sub", email: "email", permissions: "permissions" },
   clerk: { userId: "sub", email: "email", workspaceId: "o.id", roles: "o.rol" },
   cognito: { userId: "sub", email: "email", roles: "cognito:groups" },
-  jwt: { userId: "sub", email: "email", roles: "roles" },
+  jwt: { userId: "sub", email: "email", roles: "roles", permissions: "permissions" },
 };
 
 const ALLOWED_ALGORITHMS = new Set([
@@ -342,14 +295,24 @@ const ALLOWED_ALGORITHMS = new Set([
  * Only asymmetric algorithms are accepted: the key comes from the issuer's
  * JWKS, so there is no shared secret to configure or leak.
  */
-export function resolveJwtAuth(auth: JwtAuthConfig): ResolvedJwtAuth {
-  const issuer = auth.jwt?.issuer?.trim();
+export function resolveJwtAuth(auth: AuthProviderConfig): ResolvedJwtAuth {
+  const betterAuth = auth.provider === "better-auth";
+  const url = betterAuth ? auth.url?.trim().replace(/\/+$/, "") : undefined;
+  if (betterAuth && !/^https?:\/\/[^/]/.test(url ?? ""))
+    throw new Error(
+      'auth.url is required for the "better-auth" provider: Better Auth\'s base URL starting with http:// or https://, for example "https://app.example.com/api/auth". The service no longer looks sessions up in its database. It verifies the JWTs Better Auth issues, so turn on Better Auth\'s JWT plugin and send its token in the Authorization: Bearer header.'
+    );
+  const issuer = auth.jwt?.issuer?.trim() || url;
   if (!issuer)
     throw new Error(
       `auth.jwt.issuer is required for the "${auth.provider}" provider`
     );
-  const algorithms = auth.jwt.algorithms?.length
-    ? auth.jwt.algorithms
+  const configured = auth.jwt?.algorithms ?? [];
+  // EdDSA is Better Auth's default key type, so it is always accepted there.
+  const algorithms = betterAuth
+    ? [...new Set(["EdDSA", ...configured])]
+    : configured.length > 0
+    ? configured
     : ["RS256"];
   const bad = algorithms.filter((a) => !ALLOWED_ALGORITHMS.has(a));
   if (bad.length > 0)
@@ -362,26 +325,70 @@ export function resolveJwtAuth(auth: JwtAuthConfig): ResolvedJwtAuth {
   return {
     provider: auth.provider,
     issuer,
-    audience: auth.jwt.audience?.trim() || undefined,
+    // Better Auth's default audience (the origin) is filled in by the service,
+    // from the issuer it runs with.
+    audience: auth.jwt?.audience?.trim() || undefined,
     jwksUri:
-      auth.jwt.jwksUri?.trim() ||
-      `${issuer.replace(/\/+$/, "")}/.well-known/jwks.json`,
+      auth.jwt?.jwksUri?.trim() ||
+      (url
+        ? `${url}/jwks`
+        : `${issuer.replace(/\/+$/, "")}/.well-known/jwks.json`),
     algorithms,
-    authorizedParties: auth.jwt.authorizedParties ?? [],
+    authorizedParties: auth.jwt?.authorizedParties ?? [],
     claims: { ...claims, userId: claims.userId || "sub" },
   };
 }
 
-/** Fill API key defaults. */
-export function resolveApiKeyAuth(auth: ApiKeyAuthConfig): ResolvedApiKeyAuth {
-  return {
-    provider: "api-key",
-    apiKeyHeader: (
-      auth.apiKeyHeader || API_KEY_AUTH_DEFAULTS.apiKeyHeader
-    ).toLowerCase(),
-    apiKeyEntity: auth.apiKeyEntity || API_KEY_AUTH_DEFAULTS.apiKeyEntity,
-    keyField: auth.keyField || API_KEY_AUTH_DEFAULTS.keyField,
-    workspaceField: auth.workspaceField || "organizationId",
-    roleField: auth.roleField,
-  };
+/**
+ * Reject the removed providers with what replaced them.
+ */
+export function assertSignInProvider(auth?: { provider?: string }): void {
+  if (auth?.provider === "api-key")
+    throw new Error(
+      'auth.provider "api-key" was removed. The API key check is now built into every generated service: remove the auth block (or set it to your user sign-in provider), set APSO_API_KEY in the service\'s environment, and send the key in the x-api-key header. The ApiKey entity is no longer read.'
+    );
+  if (auth?.provider === "custom-db-session")
+    throw new Error(
+      'auth.provider "custom-db-session" was removed. Generated services no longer look sessions up in the database; they verify JWTs. Use "jwt" with the issuer that signs your users\' tokens (auth.jwt.issuer, and auth.jwt.jwksUri for its public keys), or "better-auth" with auth.url if the sessions come from Better Auth.'
+    );
+}
+
+/**
+ * The auth block as a list of providers, rejecting lists that cannot be
+ * generated. Every provider is checked as a JWT: a token names its issuer, so
+ * the guard can pick one provider before checking anything.
+ */
+export function authProviders(auth?: AuthConfig): AuthProviderConfig[] {
+  if (!auth) return [];
+  const list = Array.isArray(auth) ? auth : [auth];
+  if (list.length === 0)
+    throw new Error(
+      "auth is an empty list. List at least one provider, or remove the auth block."
+    );
+  for (const provider of list) assertSignInProvider(provider);
+  const seen = new Set<string>();
+  for (const provider of list) {
+    const { issuer } = resolveJwtAuth(provider);
+    // Better Auth's JWT plugin signs with the origin of its URL.
+    const issuers =
+      provider.provider === "better-auth"
+        ? new Set([issuer, new URL(issuer).origin])
+        : [issuer];
+    for (const name of issuers) {
+      if (seen.has(name))
+        throw new Error(
+          `auth lists the issuer "${name}" twice. Each provider needs its own issuer: the token's iss claim is what picks the provider.`
+        );
+      seen.add(name);
+    }
+  }
+  return list;
+}
+
+/**
+ * The providers of the auth block with defaults filled in. Empty for no auth
+ * block.
+ */
+export function resolveJwtProviders(auth?: AuthConfig): ResolvedJwtAuth[] {
+  return authProviders(auth).map((provider) => resolveJwtAuth(provider));
 }

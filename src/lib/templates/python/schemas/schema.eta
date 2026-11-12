@@ -5,7 +5,7 @@ from typing import Optional, List, Any
 from datetime import datetime, date
 from decimal import Decimal
 from uuid import UUID
-from pydantic import BaseModel, Field, ConfigDict, field_serializer
+from pydantic import BaseModel, Field, ConfigDict, field_serializer, model_validator
 from sqlalchemy import inspect as sa_inspect
 <% if (it.importEnums) { -%>
 from ..models import enums
@@ -20,6 +20,14 @@ def _columns(value: Any) -> Any:
     if not hasattr(value, "__table__"):
         return value
     return {a.key: getattr(value, a.key) for a in sa_inspect(value).mapper.column_attrs}
+
+
+def _loaded(value: Any) -> Any:
+    """An ORM row as the attributes its query loaded: a relation is in a response only when the request joined it."""
+    if not hasattr(value, "__table__"):
+        return value
+    state = sa_inspect(value)
+    return {key: getattr(value, key) for key in state.attrs.keys() if key not in state.unloaded}
 
 
 class <%= it.entityName %>Base(BaseModel):
@@ -60,6 +68,11 @@ class <%= it.entityName %>(BaseModel):
     """Full schema for <%= it.entityName %> including all fields"""
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _loaded_only(cls, value: Any) -> Any:
+        return _loaded(value)
+
 <% if (it.addDefaultPKProperty) { -%>
 <% if (it.primaryKeyType === 'uuid') { -%>
     id: UUID
@@ -81,15 +94,15 @@ class <%= it.entityName %>(BaseModel):
     <%= assoc.camelCasedId %>: Optional[<% if (assoc.referencedEntityPrimaryKeyType === 'uuid') { %>UUID<% } else { %>int<% } %>] = None
 <% }); -%>
 <% /* Add relationship fields */ -%>
-<% it.associations.filter(a => a.type === 'OneToMany' || a.type === 'ManyToMany').forEach((assoc) => { -%>
+<% it.associations.filter(a => !a.hidden && (a.type === 'OneToMany' || a.type === 'ManyToMany')).forEach((assoc) => { -%>
     <%= assoc.pluralizedRelationshipName %>: Optional[List[Any]] = None
 <% }); -%>
-<% it.associations.filter(a => a.type === 'ManyToOne' || a.type === 'OneToOne').forEach((assoc) => { -%>
+<% it.associations.filter(a => !a.hidden && (a.type === 'ManyToOne' || a.type === 'OneToOne')).forEach((assoc) => { -%>
     <%= assoc.relationshipName %>: Optional[Any] = None
 <% }); -%>
 <% const relationFields = [
-  ...it.associations.filter(a => a.type === 'OneToMany' || a.type === 'ManyToMany').map(a => a.pluralizedRelationshipName),
-  ...it.associations.filter(a => a.type === 'ManyToOne' || a.type === 'OneToOne').map(a => a.relationshipName),
+  ...it.associations.filter(a => !a.hidden && (a.type === 'OneToMany' || a.type === 'ManyToMany')).map(a => a.pluralizedRelationshipName),
+  ...it.associations.filter(a => !a.hidden && (a.type === 'ManyToOne' || a.type === 'OneToOne')).map(a => a.relationshipName),
 ]; -%>
 <% if (relationFields.length > 0) { -%>
 

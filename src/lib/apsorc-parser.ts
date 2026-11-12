@@ -7,7 +7,7 @@ import {
   Relationship,
   RelationshipMap,
 } from "./types/relationship";
-import { AuthConfig } from "./types/auth";
+import { AuthConfig, authProviders } from "./types/auth";
 import { TargetLanguage } from "./types/generator";
 import {
   getRelationshipIdField,
@@ -54,7 +54,7 @@ type ParsedApsorcData = {
   entities: Entity[];
   relationshipMap: RelationshipMap;
 };
-type ParsedApsorc = {
+export type ParsedApsorc = {
   rootFolder: string;
   apiType: string;
   entities: Entity[];
@@ -206,6 +206,7 @@ const parseRc = (): ApsorcType => {
   const entities = apsoConfig.entities || [];
   const relationships = apsoConfig.relationships || [];
   const auth = apsoConfig.auth as AuthConfig | undefined;
+  authProviders(auth);
   const language = apsoConfig.language as TargetLanguage | undefined;
   const emitEvents = apsoConfig.emitEvents as boolean | undefined;
   const http = apsoConfig.http as boolean | undefined;

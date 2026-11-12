@@ -13,12 +13,10 @@ import {
   MigrationGenerationOptions,
   Entity,
   AuthConfig,
-  isApiKeyAuth,
-  isJwtAuth,
-  resolveApiKeyAuth,
-  resolveJwtAuth,
+  resolveJwtProviders,
   Field,
   ComputedField,
+  RelationshipMap,
 } from "../types";
 import {
   arrayElementType,
@@ -33,9 +31,16 @@ import {
 import { camelCase } from "../utils/casing";
 import { getEventEmittingEntities } from "../events";
 import {
-  apiKeyTemplateData,
+  authEntityRoutes,
+  hidesRelation,
   entityScope,
+  getPermissionConfig,
+  hasPermissions,
+  mcpToolNames,
   nestedScopeEntities,
+  relationScopes,
+  removedScopeOptionErrors,
+  scopedReferences,
 } from "../guards";
 import { pyString } from "../ddl/migration-file";
 import {
@@ -206,6 +211,7 @@ export class PythonGenerator extends BaseGenerator {
     if (!config.entities || config.entities.length === 0) {
       errors.push("No entities defined in configuration");
     }
+    errors.push(...removedScopeOptionErrors(config.entities ?? []));
 
     // Validate each entity
     for (const entity of config.entities) {
@@ -408,6 +414,8 @@ export class PythonGenerator extends BaseGenerator {
       pluralEntityName,
       primaryKeyType,
       associations: [...new Set(relationshipsForTemplate)],
+      // Operations exposed as MCP tools, and the names the tools get.
+      ...mcpToolNames(entity, options.auth),
     };
 
     const content = await this.renderTemplate("./routers/router", data);
@@ -440,6 +448,16 @@ export class PythonGenerator extends BaseGenerator {
       primaryKeyType,
       associations: [...new Set(relationshipsForTemplate)],
       scope: entityScope(entity, Boolean(options.auth)),
+      // Foreign keys a write must check: those onto tenant-scoped entities.
+      references: Object.entries(
+        scopedReferences(
+          entity,
+          relationshipsForTemplate
+            .filter((a) => a.type === "ManyToOne" || (a.type === "OneToOne" && a.joinTable))
+            .map((a) => [a.camelCasedId, a.name]),
+          relationScopes(options.allEntities, options.relationshipMap ?? this.config.relationshipMap, Boolean(options.auth))
+        )
+      ).map(([field, target]) => ({ field, target })),
     };
 
     const content = await this.renderTemplate("./services/service", data);
@@ -512,7 +530,12 @@ export class PythonGenerator extends BaseGenerator {
       createdAt,
       updatedAt,
       columns,
-      associations: relationshipsTemplate,
+      // Auth entities are for service callers only, so no other entity's
+      // response carries one.
+      associations: relationshipsTemplate.map((r: any) => ({
+        ...r,
+        hidden: hidesRelation(entityName, r.name, allEntities, options.auth),
+      })),
       apiType: apiType ?? "rest",
       importEnums: typeExistsInEntity(entity, "enum") !== -1,
     };
@@ -622,11 +645,11 @@ ${downStatements || "    pass"}
   async generateIndexModule(
     entities: Entity[],
     _apiType: string,
-    opts?: { auth?: AuthConfig }
+    _opts?: { auth?: AuthConfig }
   ): Promise<GeneratedFile[]> {
     const content = await this.renderTemplate("./index-module", {
       entities,
-      hasAuth: Boolean(opts?.auth),
+      permissions: hasPermissions(entities),
     });
 
     return [
@@ -733,30 +756,43 @@ ${downStatements || "    pass"}
 
   async generateGuards(
     entities: Entity[],
-    auth?: AuthConfig
+    auth?: AuthConfig,
+    relationshipMap: RelationshipMap = this.config.relationshipMap ?? {}
   ): Promise<GeneratedFile[]> {
-    if (!auth) return [];
-    const nested = nestedScopeEntities(entities);
-    if (nested.length > 0)
-      console.warn(
-        `[apso] Nested scopeBy paths are enforced in TypeScript services only; ${nested.join(", ")} will not be filtered by those paths in this Python service`
-      );
-    let data: Record<string, unknown>;
-    if (isJwtAuth(auth)) {
-      data = { jwt: resolveJwtAuth(auth) };
-    } else if (isApiKeyAuth(auth)) {
-      const apiKey = apiKeyTemplateData(resolveApiKeyAuth(auth), entities);
-      data = {
-        apiKey: { ...apiKey, pyModule: apiKey.apiKeyEntity.toLowerCase() },
-      };
-    } else {
+    const mcp = entities.some((e) => mcpToolNames(e, auth).mcp.length > 0);
+    // Fails on a grants entity that would be an escalation path.
+    const permissions = getPermissionConfig(entities, relationshipMap, auth);
+    if (permissions && !auth)
       throw new Error(
-        `auth.provider "${auth.provider}" is generated for TypeScript services only. For Python, use "jwt" (Better Auth issues JWTs with its JWT plugin) or "api-key".`
+        "permissions in .apsorc need an auth block: roles come from the signed-in caller"
       );
-    }
-    return [
+    const nested = auth ? nestedScopeEntities(entities) : [];
+    if (nested.length > 0)
+      throw new Error(
+        `${nested.join(", ")}: a scopeBy path through a parent (for example "project.organizationId") is enforced in TypeScript services only for now. In Python, put the tenant field on the entity and scope by it, or generate with --language typescript.`
+      );
+    // The API key check is part of every service; auth adds user sign-in.
+    // One entry per trusted issuer; undefined when there is no sign-in.
+    const jwt = resolveJwtProviders(auth);
+    const data = {
+      jwt: jwt.length > 0 ? jwt : undefined,
+      mcp,
+      // Routes only a service caller reaches (sessions, accounts, ...).
+      authRoutes: authEntityRoutes(entities, auth),
+      relationScopes: relationScopes(entities, relationshipMap, Boolean(auth)) ?? {},
+    };
+    const files: GeneratedFile[] = [
       { path: "auth.py", content: await this.renderTemplate("./auth", data) },
     ];
+    if (permissions)
+      files.push({
+        path: "permissions.py",
+        content: await this.renderTemplate("./permissions", { permissions }),
+      });
+    // The /mcp endpoint; app/main.py mounts it (see ensurePythonMcpWiring).
+    if (mcp)
+      files.push({ path: "mcp.py", content: await this.renderTemplate("./mcp", {}) });
+    return files;
   }
 
   async generateQueryUtils(

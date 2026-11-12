@@ -553,7 +553,7 @@ describe("guard regeneration (cli#129)", () => {
         scopeBy: "workspaceId",
       },
     ];
-    const auth = { provider: "better-auth" as const };
+    const auth = { provider: "better-auth" as const, url: "https://app.example.com/api/auth" };
 
     const first = await generator.generateGuards(entities, auth);
     await new Promise((resolve) => {

@@ -10,7 +10,7 @@ import (
 	"errors"
 
 	"app/autogen/dto"
-<% if (it.scope) { %>
+<% if (it.scope || it.references.length) { %>
 	"app/autogen/middleware"
 <% } %>
 	"app/autogen/models"
@@ -48,18 +48,18 @@ func New<%= it.entityName %>Service(db *gorm.DB) *<%= it.entityName %>Service {
 }
 <% if (it.scope) { %>
 
-// scoped limits q to the caller's tenant for op ("find", "get", "create",
-// "update", "delete") per .apsorc scopeBy, and returns the scope column values.
-// Both are unchanged when op is not enforced or the caller holds a bypass role.
+// scoped limits q to the caller's tenant per .apsorc scopeBy, on every
+// operation (op names it), and returns the scope column values. Both are
+// unchanged for a service caller or a bypass role.
 func (s *<%= it.entityName %>Service) scoped(ctx context.Context, q *gorm.DB, op string) (*gorm.DB, map[string]string, error) {
-	switch op {
-	case <%~ it.scope.enforceOn.map((o) => JSON.stringify(o)).join(', ') %>:
-	default:
-		return q, nil, nil
-	}
+	_ = op
 	a, ok := middleware.FromContext(ctx)
 	if !ok {
 		return nil, nil, ErrForbidden
+	}
+	// A service caller (valid API key) is not tenant-scoped.
+	if a.ServiceID != "" {
+		return q, nil, nil
 	}
 <% if (it.scope.bypassRoles.length > 0) { %>
 	if hasAnyRole(a.Roles, <%~ it.scope.bypassRoles.map((r) => JSON.stringify(r)).join(', ') %>) {
@@ -89,7 +89,7 @@ func (s *<%= it.entityName %>Service) FindAll(ctx context.Context, opts utils.Qu
 	var items []models.<%= it.entityName %>
 
 	query := s.db.WithContext(ctx).Model(&models.<%= it.entityName %>{})
-<% it.associations.filter(a => a.eager).forEach((assoc) => { %>
+<% it.associations.filter(a => a.eager && !a.hidden).forEach((assoc) => { %>
 	query = query.Preload("<%= assoc.fieldName %>")
 <% }) %>
 <% if (it.scope) { %>
@@ -130,7 +130,7 @@ func (s *<%= it.entityName %>Service) FindAllBare(ctx context.Context, opts util
 	var items []models.<%= it.entityName %>
 
 	query := s.db.WithContext(ctx).Model(&models.<%= it.entityName %>{})
-<% it.associations.filter(a => a.eager).forEach((assoc) => { %>
+<% it.associations.filter(a => a.eager && !a.hidden).forEach((assoc) => { %>
 	query = query.Preload("<%= assoc.fieldName %>")
 <% }) %>
 <% if (it.scope) { %>
@@ -161,7 +161,7 @@ func (s *<%= it.entityName %>Service) FindOne(ctx context.Context, id string) (*
 	var item models.<%= it.entityName %>
 
 	query := s.db.WithContext(ctx)
-<% it.associations.filter(a => a.eager).forEach((assoc) => { %>
+<% it.associations.filter(a => a.eager && !a.hidden).forEach((assoc) => { %>
 	query = query.Preload("<%= assoc.fieldName %>")
 <% }) %>
 <% if (it.scope) { %>
@@ -196,7 +196,7 @@ func (s *<%= it.entityName %>Service) Create(ctx context.Context, input *dto.<%=
 		<%= assoc.fkField %>: input.<%= assoc.fkField %>,
 <% }) %>
 	}
-<% if (it.scope && it.scope.injectOnCreate) { %>
+<% if (it.scope) { %>
 
 	// The caller's tenant, never one from the body (.apsorc scopeBy).
 	_, scopeVals, scopeErr := s.scoped(ctx, s.db, "create")
@@ -210,6 +210,17 @@ func (s *<%= it.entityName %>Service) Create(ctx context.Context, input *dto.<%=
 		}
 	}
 <% }) %>
+<% } %>
+<% if (it.references.length) { %>
+
+	// Foreign keys to tenant-scoped entities must name rows the caller can read.
+	if err := middleware.CheckReferences(ctx, s.db, map[string][]interface{}{
+<% it.references.forEach((r) => { %>
+		<%~ JSON.stringify(r.target) %>: {item.<%= r.goField %>},
+<% }) %>
+	}); err != nil {
+		return nil, err
+	}
 <% } %>
 
 	if err := s.db.WithContext(ctx).Create(&item).Error; err != nil {
@@ -271,6 +282,15 @@ func (s *<%= it.entityName %>Service) Update(ctx context.Context, id string, inp
 		delete(updates, col)
 	}
 <% } %>
+<% if (it.references.length) { %>
+	if err := middleware.CheckReferences(ctx, s.db, map[string][]interface{}{
+<% it.references.forEach((r) => { %>
+		<%~ JSON.stringify(r.target) %>: {updates[<%~ JSON.stringify(r.column) %>]},
+<% }) %>
+	}); err != nil {
+		return nil, err
+	}
+<% } %>
 
 	if len(updates) > 0 {
 		if err := s.db.WithContext(ctx).Model(&item).Updates(updates).Error; err != nil {
@@ -280,7 +300,7 @@ func (s *<%= it.entityName %>Service) Update(ctx context.Context, id string, inp
 
 	// Reload with associations
 	query := s.db.WithContext(ctx)
-<% it.associations.filter(a => a.eager).forEach((assoc) => { %>
+<% it.associations.filter(a => a.eager && !a.hidden).forEach((assoc) => { %>
 	query = query.Preload("<%= assoc.fieldName %>")
 <% }) %>
 <% if (it.primaryKeyType === 'uuid') { %>
@@ -335,8 +355,9 @@ func (s *<%= it.entityName %>Service) toResponse(item *models.<%= it.entityName 
 		<%= assoc.fkField %>: item.<%= assoc.fkField %>,
 <% }) %>
 	}
-	// Relations loaded by ?join= or eager loading.
-<% it.associations.forEach((assoc) => { %>
+	// Relations loaded by ?join= or eager loading. A relation onto an auth
+	// entity is left out: those rows are for service callers only.
+<% it.associations.filter(a => !a.hidden).forEach((assoc) => { %>
 <% if (assoc.type === 'ManyToOne' || assoc.type === 'OneToOne') { %>
 	if item.<%= assoc.fieldName %> != nil {
 		related := (&<%= assoc.name %>Service{}).toResponse(item.<%= assoc.fieldName %>)

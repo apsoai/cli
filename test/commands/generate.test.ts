@@ -76,3 +76,32 @@ describe("apso generate removes stale autogen files", () => {
     // Two full generates, plus Biome formatting for TypeScript: slow on CI runners.
   }, 30_000);
 });
+
+describe("apso generate with tenant-scoped entities and no tenant claim", () => {
+  test("warns and still succeeds", async () => {
+    jest.spyOn(console, "log").mockReturnValue();
+    const warn = jest.spyOn(Generate.prototype, "warn").mockImplementation((w) => w);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "apso-generate-"));
+    process.chdir(dir);
+    fs.writeFileSync(
+      path.join(dir, ".apsorc"),
+      JSON.stringify({
+        version: 2,
+        rootFolder: "src",
+        language: "typescript",
+        apiType: "Rest",
+        auth: { provider: "jwt", jwt: { issuer: "https://issuer.example.com/" } },
+        entities: [{ ...entity("Invoice"), scopeBy: "organizationId" }],
+        relationships: [],
+      })
+    );
+    // Resolving is exit code 0; a failed generate rejects.
+    await Generate.run(["--skip-format"]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toContain(
+      'auth provider "jwt" (https://issuer.example.com/) has no tenant claim, but Invoice is tenant-scoped'
+    );
+    expect(fs.existsSync(path.join(dir, "src", "autogen", "guards", "auth.guard.ts"))).toBe(true);
+  }, 30_000);
+});
+

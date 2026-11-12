@@ -1,0 +1,124 @@
+<%~ includeFile('../header.eta') %>
+
+import {
+  Injectable,
+  CallHandler,
+  ExecutionContext,
+  ForbiddenException,
+  NestInterceptor,
+  SetMetadata,
+} from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import { PARSED_CRUD_REQUEST_KEY } from '@apso/crud';
+<% if (it.permissions) { %>
+import { PermissionGuard } from './permission.guard';
+<% } %>
+
+/** Names the entity a controller serves, for RelationAccess. */
+export const RELATION_ROOT = 'apsoRelationRoot';
+export const RelationRoot = (entity: string) => SetMetadata(RELATION_ROOT, entity);
+
+interface RelationScope {
+  /** Set when the entity's reads are tenant-scoped: the roles that skip its scope. */
+  bypassRoles?: string[];
+  /** Set with bypassRoles: the entity's scopeBy fields and the caller value each must equal. */
+  scope?: Record<string, string>;
+  /** Relation name -> [the entity it loads, whether a caller limited to its tenant here stays in it there]. */
+  relations: Record<string, [string, boolean]>;
+}
+
+/** Every entity's relations, from .apsorc relationships and scopeBy. */
+export const RELATION_SCOPES: Record<string, RelationScope> = <%~ JSON.stringify(it.relationScopes ?? {}, null, 2) %>;
+
+/**
+ * The first relation in `path` that would load rows outside the caller's
+ * tenant, if any. The tenant filter limits only the entity a request starts
+ * from, so a relation onto a tenant-scoped entity is loaded only when the
+ * caller holds a role that skips that entity's scope, or is limited to its
+ * tenant on the entity the relation starts from and the target is scoped by
+ * the same keys.
+ *
+ * When the path is allowed, `tenant` holds the scopeBy fields of the entity
+ * the path ends on, if the caller is limited to its tenant there. The rows the
+ * relation loads must match them, so a row that points at another tenant's
+ * row does not carry it into a response.
+ */
+export function relationOutsideTenant(
+  root: string,
+  path: string,
+  roles: string[],
+): { refused?: string; tenant?: Record<string, string> } {
+  const skips = (entity?: RelationScope) => Boolean(entity?.bypassRoles?.some((role) => roles.includes(role)));
+  let from = RELATION_SCOPES[root];
+  let tenant: Record<string, string> | undefined;
+  for (const name of path.split('.')) {
+    const hop = from?.relations[name];
+    if (!hop) return {};
+    const [entity, sameTenant] = hop;
+    const to = RELATION_SCOPES[entity];
+    const inTenant = sameTenant && from.bypassRoles !== undefined && !skips(from);
+    if (to?.bypassRoles !== undefined && !skips(to) && !inTenant) return { refused: name };
+    // Allowed as a same-tenant hop: its rows are held to that tenant.
+    tenant = inTenant && to?.bypassRoles !== undefined && !skips(to) ? to.scope : undefined;
+    from = to;
+  }
+  return { tenant };
+}
+
+/**
+ * RelationAccess - the one place that decides which relations a request may
+ * load. It is on every generated controller, listed above @Crud so it runs
+ * after the CRUD request is parsed, and reads the relation paths from the
+ * parsed request. A select embed (?select=*,tasks(*)) arrives there as a
+ * relation path, at every depth. A filter or sort on a related
+ * entity's field needs the relation loaded, so it meets the same check.
+ *
+ * A user caller is refused a relation that would load another tenant's rows<% if (it.permissions) { %>
+
+ * or an entity its role cannot read<% } %>. A service caller (valid API key) is
+ * not limited. A request with no parsed CRUD request is refused.
+ */
+@Injectable()
+export class RelationAccess implements NestInterceptor {
+  constructor(
+    private reflector: Reflector,
+<% if (it.permissions) { %>
+    private permissions: PermissionGuard,
+<% } %>
+  ) {}
+
+  async intercept(context: ExecutionContext, next: CallHandler) {
+    const request = context.switchToHttp().getRequest();
+    const parsed = request[PARSED_CRUD_REQUEST_KEY]?.parsed;
+    const root = this.reflector.get<string>(RELATION_ROOT, context.getClass());
+    if (!parsed || !root) {
+      throw new Error('RelationAccess needs @RelationRoot and must be listed above @Crud');
+    }
+    if (request.auth?.serviceId) {
+      return next.handle();
+    }
+    const joins: { field: string; on?: { field: string; operator: string; value: unknown }[] }[] = parsed.join ?? [];
+    const paths: string[] = joins.map((join) => join.field);
+    const roles: string[] = request.auth?.roles ?? [];
+    for (const join of joins) {
+      const { refused, tenant } = relationOutsideTenant(root, join.field, roles);
+      if (refused) {
+        request.apso = { ...request.apso, denied: 'relation outside the tenant scope' };
+        throw new ForbiddenException(`The relation "${refused}" cannot be loaded from ${root}: its rows are tenant-scoped`);
+      }
+      // The join itself carries the tenant condition, so it also holds for a
+      // filter or sort on the related entity's fields.
+      for (const [field, key] of Object.entries(tenant ?? {})) {
+        const value = request[key] ?? request.user?.[key] ?? request.auth?.[key] ?? request.auth?.workspaceId;
+        if (value == null || value === '') {
+          throw new ForbiddenException('No tenant in the auth context');
+        }
+        join.on = [...(join.on ?? []), { field, operator: '$eq', value }];
+      }
+    }
+<% if (it.permissions) { %>
+    await this.permissions.checkRelations(request, paths);
+<% } %>
+    return next.handle();
+  }
+}

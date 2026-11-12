@@ -4,8 +4,8 @@ package routes
 
 import (
 <% if (httpEntities.length > 0) { %>	"app/autogen/handlers"
-<% } %><% if (it.hasAuth) { %>	"app/autogen/middleware"
-<% } %>	"app/autogen/models"
+<% } %>	"app/autogen/middleware"
+	"app/autogen/models"
 	"app/autogen/services"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -14,11 +14,14 @@ import (
 // RegisterAllRoutes registers all entity routes
 func RegisterAllRoutes(r *gin.RouterGroup, db *gorm.DB) {
 	models.UseNames(db)
-<% if (it.hasAuth) { %>
-	// Every route in this group requires authentication (.apsorc auth).
+	// Every route in this group needs a valid API key or a signed-in user.
 	r.Use(middleware.AuthMiddleware(db))
-
+<% if (it.permissions) { %>
+	// Role permissions from .apsorc are checked after authentication.
+	r.Use(middleware.PermissionMiddleware(db, r.BasePath()))
 <% } %>
+
+
 <% httpEntities.forEach((entity) => { %>
 	// <%= entity.name %> routes
 	<%= entity.camelName %>Service := services.New<%= entity.name %>Service(db)

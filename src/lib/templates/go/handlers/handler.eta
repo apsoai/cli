@@ -78,13 +78,13 @@ func (h *<%= it.entityName %>Handler) FindAll(c *gin.Context) {
 	if opts.Bare {
 		rows, err := h.service.FindAllBare(c.Request.Context(), opts)
 		if err != nil {
-<% if (it.scope) { %>
+<% if (it.scope || it.references) { %>
 			if scopeError(c, err) {
 				return
 			}
 <% } %>
 			if qe, ok := utils.AsQueryError(err); ok {
-				c.JSON(http.StatusBadRequest, gin.H{"error": qe.Error()})
+				c.JSON(qe.Status(), gin.H{"error": qe.Error()})
 				return
 			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -96,13 +96,13 @@ func (h *<%= it.entityName %>Handler) FindAll(c *gin.Context) {
 
 	result, err := h.service.FindAll(c.Request.Context(), opts)
 	if err != nil {
-<% if (it.scope) { %>
+<% if (it.scope || it.references) { %>
 		if scopeError(c, err) {
 			return
 		}
 <% } %>
 		if qe, ok := utils.AsQueryError(err); ok {
-			c.JSON(http.StatusBadRequest, gin.H{"error": qe.Error()})
+			c.JSON(qe.Status(), gin.H{"error": qe.Error()})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -138,7 +138,7 @@ func (h *<%= it.entityName %>Handler) FindOne(c *gin.Context) {
 
 	result, err := h.service.FindOne(c.Request.Context(), id)
 	if err != nil {
-<% if (it.scope) { %>
+<% if (it.scope || it.references) { %>
 		if scopeError(c, err) {
 			return
 		}
@@ -175,7 +175,7 @@ func (h *<%= it.entityName %>Handler) Create(c *gin.Context) {
 
 	result, err := h.service.Create(c.Request.Context(), &input)
 	if err != nil {
-<% if (it.scope) { %>
+<% if (it.scope || it.references) { %>
 		if scopeError(c, err) {
 			return
 		}
@@ -226,7 +226,7 @@ func (h *<%= it.entityName %>Handler) Update(c *gin.Context) {
 
 	result, err := h.service.Update(c.Request.Context(), id, &input)
 	if err != nil {
-<% if (it.scope) { %>
+<% if (it.scope || it.references) { %>
 		if scopeError(c, err) {
 			return
 		}
@@ -263,7 +263,7 @@ func (h *<%= it.entityName %>Handler) Delete(c *gin.Context) {
 <% } %>
 
 	if err := h.service.Delete(c.Request.Context(), id); err != nil {
-<% if (it.scope) { %>
+<% if (it.scope || it.references) { %>
 		if scopeError(c, err) {
 			return
 		}

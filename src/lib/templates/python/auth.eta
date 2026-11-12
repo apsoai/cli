@@ -3,38 +3,47 @@
 """
 Authentication for every route on the generated /api router.
 
+The API key check is built into every Apso service and is not configurable in
+.apsorc. The key source is chosen once, when the service starts, first match
+wins:
+1. APSO_API_KEY is set: the x-api-key header must match it. The variable holds
+   the key itself (not a hash); several keys separated by commas are accepted,
+   so a key can be rotated without downtime.
+2. APSO_SERVICE_TOKEN_JWKS_URL is set: the platform's gateway has checked the
+   key and sends a signed token in x-apso-service-token.
+3. Neither: API keys are off and only signed-in users are accepted. A service
+   with no sign-in configured then refuses every request.
+
+A caller with a valid key is a service caller (AuthContext.service_id): it may
+call any route and is not tenant-scoped. A request whose key fails is refused,
+whatever else it carries.
 <% if (it.jwt) { %>
-Verifies <%= it.jwt.provider %> JWTs from the Authorization: Bearer header against the
-issuer's published keys (JWKS), checks issuer, expiry<% if (it.jwt.audience) { %>, audience<% } %> and algorithm,
-and maps the token's claims into an AuthContext on request.state.auth.
-AUTH_JWT_ISSUER, AUTH_JWT_AUDIENCE and AUTH_JWKS_URI override the .apsorc values.
-<% } else { %>
-Reads an API key from the <%= it.apiKey.apiKeyHeader %> header and looks up the <%= it.apiKey.apiKeyEntity %> row
-whose <%= it.apiKey.keyField %> is the key's hex SHA-256.
+
+A request with no key needs a <%= it.jwt.map((p) => p.provider).join(', ') %> JWT in the Authorization: Bearer header.
+The token's iss claim picks the provider; a token from an issuer that is not
+configured is refused. It is verified against that issuer's published keys
+(JWKS) with issuer, expiry, audience (when one is configured) and algorithm
+checked; its claims, by that provider's claim names, become the AuthContext on
+request.state.auth.
+AUTH_JWT_ISSUER, AUTH_JWT_AUDIENCE, AUTH_JWKS_URI and AUTH_JWT_AUTHORIZED_PARTIES
+override the .apsorc values. With several providers they set the first; the
+second reads the same names ending in _2 (AUTH_JWT_ISSUER_2), and so on.
 <% } %>
 """
-<% if (it.apiKey) { %>
 import hashlib
-from datetime import date, datetime, timezone
-<% } else { %>
+import hmac
+import json
 import os
-<% } %>
+import uuid
 from dataclasses import dataclass, field
-from typing import Any, List, Optional
+from typing import Any, List, NoReturn, Optional
+from urllib.parse import urlsplit
 
-<% if (it.jwt) { %>
 import jwt
-from fastapi import HTTPException, Request, status
+from fastapi import HTTPException, Request, Response, status
 from jwt import PyJWKClient
+from sqlalchemy import String, cast, func, select
 from starlette.concurrency import run_in_threadpool
-<% } else { %>
-from fastapi import Depends, HTTPException, Request, status
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.database import get_db
-from .models.<%= it.apiKey.pyModule %> import <%= it.apiKey.apiKeyEntity %>
-<% } %>
 
 
 @dataclass
@@ -47,6 +56,11 @@ class AuthContext:
     workspace_id: Optional[str] = None
     organization_id: Optional[str] = None
     roles: List[str] = field(default_factory=list)
+    # The issuer that signed the caller in, and its provider type in .apsorc.
+    issuer: Optional[str] = None
+    provider: Optional[str] = None
+    # Permission strings from the token ("invoice:delete"), read by permissions.py.
+    permissions: List[str] = field(default_factory=list)
     claims: dict = field(default_factory=dict)
 
 
@@ -60,20 +74,48 @@ def _unauthorized(detail: str) -> HTTPException:
 <% if (it.jwt) { %>
 
 
-ISSUER = os.getenv("AUTH_JWT_ISSUER") or <%~ JSON.stringify(it.jwt.issuer) %>
-AUDIENCE = os.getenv("AUTH_JWT_AUDIENCE") or <%~ JSON.stringify(it.jwt.audience || '') %>
-JWKS_URI = os.getenv("AUTH_JWKS_URI") or <%~ JSON.stringify(it.jwt.jwksUri) %>
-ALGORITHMS = <%~ JSON.stringify(it.jwt.algorithms) %>
-# Origins allowed in the azp claim; empty allows any.
-AUTHORIZED_PARTIES = [
-    p.strip()
-    for p in (os.getenv("AUTH_JWT_AUTHORIZED_PARTIES") or <%~ JSON.stringify(it.jwt.authorizedParties.join(',')) %>).split(",")
-    if p.strip()
-]
-CLAIMS = <%~ JSON.stringify(it.jwt.claims) %>
+_CONFIGURED = <%~ JSON.stringify(it.jwt) %>
 
-# Fetches and caches the issuer's keys on first use.
-_jwks = PyJWKClient(JWKS_URI, cache_keys=True)
+<% if (it.mcp) { %>
+# The public URL of the MCP endpoint (see mcp.py). An MCP client asks the
+# identity provider for a token for this URL, so it is an accepted audience
+# next to a provider's own. No configured audience means none is checked.
+MCP_RESOURCE = os.getenv("MCP_RESOURCE_URL") or ""
+<% } else { %>
+MCP_RESOURCE = ""
+<% } %>
+
+
+def _provider(i: int, p: dict) -> dict:
+    """One trusted issuer: its own keys, audience and claim names."""
+    # The first provider reads AUTH_JWT_ISSUER, the second AUTH_JWT_ISSUER_2, and so on.
+    s = "" if i == 0 else f"_{i + 1}"
+    parties = os.getenv(f"AUTH_JWT_AUTHORIZED_PARTIES{s}") or ",".join(p["authorizedParties"])
+    issuer = os.getenv(f"AUTH_JWT_ISSUER{s}") or p["issuer"]
+    # Better Auth: the OAuth provider signs with the base URL, the JWT plugin
+    # with its origin as iss and aud. Both are this provider, with the same keys.
+    origin = "{0.scheme}://{0.netloc}".format(urlsplit(issuer)) if p["provider"] == "better-auth" else ""
+    return {
+        "provider": p["provider"],
+        "issuer": issuer,
+        "issuers": {issuer, origin} if origin else {issuer},
+        "audience": os.getenv(f"AUTH_JWT_AUDIENCE{s}") or p.get("audience") or origin,
+        # Fetches and caches the issuer's keys on first use.
+        "jwks": PyJWKClient(os.getenv(f"AUTH_JWKS_URI{s}") or p["jwksUri"], cache_keys=True),
+        "algorithms": p["algorithms"],
+        # Origins allowed in the azp claim; empty allows any.
+        "authorized_parties": [x.strip() for x in parties.split(",") if x.strip()],
+        "claims": p["claims"],
+    }
+
+
+_PROVIDERS = [_provider(i, p) for i, p in enumerate(_CONFIGURED)]
+PROVIDERS = {issuer: p for p in _PROVIDERS for issuer in p["issuers"]}
+if len(PROVIDERS) != sum(len(p["issuers"]) for p in _PROVIDERS):
+    # The token's iss picks the provider, so two providers cannot share one.
+    raise RuntimeError(
+        "[apso] Two auth providers have the same issuer. Check AUTH_JWT_ISSUER and its numbered variants."
+    )
 
 
 def _claim(payload: dict, path: Optional[str]) -> Any:
@@ -104,14 +146,31 @@ def _roles(value: Any) -> List[str]:
     return [value] if isinstance(value, str) and value else []
 
 
-async def require_auth(request: Request) -> AuthContext:
-    """FastAPI dependency: verify the bearer token and attach the AuthContext."""
+async def _require_user(request: Request) -> AuthContext:
+    """Verify the bearer token and return the signed-in user's AuthContext."""
     header = request.headers.get("authorization", "")
     if not header.startswith("Bearer "):
         raise _unauthorized("No bearer token provided")
     token = header[len("Bearer "):]
+    # The token's own issuer picks the provider, before anything is verified;
+    # then only that provider's keys and settings are used.
     try:
-        signing_key = await run_in_threadpool(_jwks.get_signing_key_from_jwt, token)
+        iss = jwt.decode(token, options={"verify_signature": False}).get("iss")
+    except jwt.PyJWTError:
+        raise _unauthorized("Invalid token")
+    p = PROVIDERS.get(iss) if isinstance(iss, str) else None
+    if p is None:
+        raise _unauthorized("Invalid token")
+    AUDIENCE, CLAIMS, cognito = p["audience"], p["claims"], p["provider"] == "cognito"
+    audiences = [a for a in (AUDIENCE, MCP_RESOURCE) if a] if AUDIENCE else []
+<% if (it.jwt.some((p) => p.provider === 'better-auth')) { %>
+    # Better Auth signs both kinds of token with one key: only an OAuth access
+    # token (header type at+jwt) may be one issued for the MCP URL.
+    if p["provider"] == "better-auth" and jwt.get_unverified_header(token).get("typ") != "at+jwt":
+        audiences = [AUDIENCE]
+<% } %>
+    try:
+        signing_key = await run_in_threadpool(p["jwks"].get_signing_key_from_jwt, token)
     except jwt.PyJWKClientConnectionError:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -123,27 +182,29 @@ async def require_auth(request: Request) -> AuthContext:
         payload = jwt.decode(
             token,
             signing_key.key,
-            algorithms=ALGORITHMS,
-            issuer=ISSUER,
-<% if (it.jwt.provider !== 'cognito') { %>
-            audience=AUDIENCE or None,
-            options={"require": ["exp", "iss"], "verify_aud": bool(AUDIENCE)},
-<% } else { %>
-            options={"require": ["exp", "iss"], "verify_aud": False},
-<% } %>
+            algorithms=p["algorithms"],
+            issuer=iss,
+            # Cognito's audience is checked below.
+            audience=None if cognito else audiences or None,
+            options={"require": ["exp", "iss"], "verify_aud": bool(AUDIENCE) and not cognito},
         )
     except jwt.PyJWTError:
         raise _unauthorized("Invalid token")
-<% if (it.jwt.provider === 'cognito') { %>
+<% if (it.jwt.some((p) => p.provider === 'cognito')) { %>
     # Cognito ID tokens carry aud; access tokens carry client_id instead.
-    if AUDIENCE:
+    if cognito and AUDIENCE:
         aud = payload.get("aud", payload.get("client_id"))
-        if not (AUDIENCE in aud if isinstance(aud, list) else aud == AUDIENCE):
+        if not set(aud if isinstance(aud, list) else [aud]) & set(audiences):
             raise _unauthorized("Invalid token")
 <% } %>
 
     azp = payload.get("azp")
-    if AUTHORIZED_PARTIES and azp is not None and azp not in AUTHORIZED_PARTIES:
+<% if (it.jwt.some((p) => p.provider === 'better-auth')) { %>
+    # Better Auth's OAuth access tokens (header type at+jwt) name their client in azp.
+    if p["provider"] == "better-auth" and jwt.get_unverified_header(token).get("typ") == "at+jwt" and not isinstance(azp, str):
+        raise _unauthorized("Invalid token")
+<% } %>
+    if p["authorized_parties"] and azp is not None and azp not in p["authorized_parties"]:
         raise _unauthorized("Invalid token")
 
     user_id = _str(_claim(payload, CLAIMS.get("userId")))
@@ -158,60 +219,258 @@ async def require_auth(request: Request) -> AuthContext:
         workspace_id=tenant,
         organization_id=tenant,
         roles=_roles(_claim(payload, CLAIMS.get("roles"))),
+        issuer=iss,
+        provider=p["provider"],
+        permissions=_roles(_claim(payload, CLAIMS.get("permissions"))),
         claims=payload,
     )
-    request.state.auth = ctx
-    return ctx
-<% } else { %>
-
-
-def _expired(value: Any) -> bool:
-    if value is None:
-        return False
-    if isinstance(value, datetime):
-        if value.tzinfo is None:
-            value = value.replace(tzinfo=timezone.utc)
-        return value <= datetime.now(timezone.utc)
-    if isinstance(value, date):
-        return value <= date.today()
-    return False
-
-
-async def require_auth(request: Request, db: AsyncSession = Depends(get_db)) -> AuthContext:
-    """FastAPI dependency: authenticate the API key and attach the AuthContext."""
-    key = request.headers.get(<%~ JSON.stringify(it.apiKey.apiKeyHeader) %>)
-    if not key:
-        raise _unauthorized("No API key provided")
-    digest = hashlib.sha256(key.encode()).hexdigest()
-    result = await db.execute(
-        select(<%= it.apiKey.apiKeyEntity %>).where(<%= it.apiKey.apiKeyEntity %>.<%= it.apiKey.keyField %> == digest)
-    )
-    record = result.scalar_one_or_none()
-    if record is None:
-        raise _unauthorized("Invalid API key")
-<% if (it.apiKey.hasStatus) { %>
-    if getattr(record.status, "value", record.status) != "active":
-        raise _unauthorized("API key is not active")
-<% } %>
-<% if (it.apiKey.hasExpiresAt) { %>
-    if _expired(record.expiresAt):
-        raise _unauthorized("API key has expired")
-<% } %>
-
-    tenant = getattr(record, <%~ JSON.stringify(it.apiKey.workspaceField) %>, None)
-    tenant = str(tenant) if tenant is not None else None
-<% if (it.apiKey.roleField) { %>
-    role = getattr(record, <%~ JSON.stringify(it.apiKey.roleField) %>, None)
-    roles = [str(getattr(role, "value", role))] if role is not None else []
-<% } else { %>
-    roles: List[str] = []
-<% } %>
-    ctx = AuthContext(
-        service_id=str(record.id),
-        workspace_id=tenant,
-        organization_id=tenant,
-        roles=roles,
-    )
-    request.state.auth = ctx
     return ctx
 <% } %>
+
+
+NO_SOURCE = (
+    "This service has no API key source and no sign-in configured, so it refuses every request. "
+    'Set APSO_API_KEY in its environment; "apso dev" creates a development key in .env.'
+)
+NO_CREDENTIAL = "No credential on the request. Send the API key in the x-api-key header."
+WRONG_KEY = "The key in the x-api-key header does not match APSO_API_KEY."
+NO_SERVICE_TOKEN = (
+    "This service takes API keys through the platform gateway, and the request has no valid "
+    "x-apso-service-token. Call the service at its gateway URL with a key issued for it."
+)
+KEYS_OFF = "An x-api-key header was sent, but API keys are off on this service. Set APSO_API_KEY to turn them on."
+HAS_SIGN_IN = <%= it.jwt ? 'True' : 'False' %>
+
+# The detailed 401 is for a developer's machine only: "apso dev" sets
+# APSO_LOCAL, and Lambda ignores it.
+LOCAL = os.getenv("APSO_LOCAL") == "1" and not os.getenv("AWS_LAMBDA_FUNCTION_NAME")
+
+# The key source, chosen once at start-up.
+_KEYS = [
+    hashlib.sha256(k.strip().encode()).digest()
+    for k in os.getenv("APSO_API_KEY", "").split(",")
+    if k.strip()
+]
+_SERVICE_JWKS_URL = "" if _KEYS else os.getenv("APSO_SERVICE_TOKEN_JWKS_URL", "")
+_SERVICE_JWKS = PyJWKClient(_SERVICE_JWKS_URL, cache_keys=True) if _SERVICE_JWKS_URL else None
+_SERVICE_ISSUER = os.getenv("APSO_SERVICE_TOKEN_ISSUER", "")
+_SERVICE_ID = os.getenv("APSO_SERVICE_ID", "")
+
+if _KEYS:
+    print(f"[apso] API keys: checked against APSO_API_KEY ({len(_KEYS)} set)", flush=True)
+elif _SERVICE_JWKS:
+    print("[apso] API keys: checked by the platform gateway (APSO_SERVICE_TOKEN_JWKS_URL)", flush=True)
+    if not (_SERVICE_ISSUER and _SERVICE_ID):
+        print(
+            "[apso] WARNING: APSO_SERVICE_TOKEN_ISSUER and APSO_SERVICE_ID must both be set; "
+            "until then every API key is refused.",
+            flush=True,
+        )
+else:
+    print("[apso] API keys: off (neither APSO_API_KEY nor APSO_SERVICE_TOKEN_JWKS_URL is set)", flush=True)
+    if not HAS_SIGN_IN:
+        print(f"[apso] WARNING: {NO_SOURCE}", flush=True)
+
+
+def _refuse(request: Request, reason: str) -> NoReturn:
+    """401. The reason goes to the log, and to the caller only on a developer's machine."""
+    request_id = request.state.request_id
+    print(f"[apso] 401 {request.method} {request.url.path} request={request_id}: {reason}", flush=True)
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail={"message": reason if LOCAL else "Unauthorized", "requestId": request_id},
+        headers={"x-request-id": request_id},
+    )
+
+
+def _service_token_key_id(token: str) -> Optional[str]:
+    """The key id from the gateway's token (sub "apikey:<id>"), when the token is valid for this service."""
+    if not (_SERVICE_JWKS and _SERVICE_ISSUER and _SERVICE_ID):
+        return None
+    try:
+        signing_key = _SERVICE_JWKS.get_signing_key_from_jwt(token)
+        payload = jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=["ES256"],
+            issuer=_SERVICE_ISSUER,
+            audience=_SERVICE_ID,
+            options={"require": ["exp", "iss", "aud", "sub"]},
+        )
+    except jwt.PyJWTError:
+        return None
+    sub = payload["sub"]
+    return sub[len("apikey:"):] or None if isinstance(sub, str) and sub.startswith("apikey:") else None
+
+
+async def _service_caller(request: Request) -> Optional[AuthContext]:
+    """
+    The service caller when the request carries a valid key, None when it
+    presents none. A key that fails the chosen source is refused here; no
+    other source and no user token is tried.
+    """
+    key = request.headers.get("x-api-key")
+    if _KEYS:
+        if not key:
+            return None
+        digest = hashlib.sha256(key.encode()).digest()
+        # Every key is compared, in constant time.
+        matches = [k for k in _KEYS if hmac.compare_digest(k, digest)]
+        if not matches:
+            _refuse(request, WRONG_KEY)
+        key_id = matches[0].hex()[:8]
+    elif _SERVICE_JWKS:
+        token = request.headers.get("x-apso-service-token")
+        if not key and not token:
+            return None
+        key_id = await run_in_threadpool(_service_token_key_id, token) if token else None
+        if not key_id:
+            _refuse(request, NO_SERVICE_TOKEN)
+    else:
+        if not key:
+            return None
+        _refuse(request, KEYS_OFF)
+    return AuthContext(service_id=key_id)
+
+
+<% if (it.jwt && it.authRoutes.length > 0) { %>
+AUTH_ENTITY_ROUTES = {<%~ it.authRoutes.map((r) => JSON.stringify(r)).join(', ') %>}
+
+
+<% } %>
+async def require_auth(request: Request, response: Response) -> AuthContext:
+    """FastAPI dependency: accept a valid API key<% if (it.jwt) { %>, else a signed-in user<% } %>; attach the AuthContext."""
+    request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
+    request.state.request_id = request_id
+    response.headers["x-request-id"] = request_id
+    ctx = await _service_caller(request)
+    if ctx is None:
+<% if (it.jwt) { %>
+        try:
+            ctx = await _require_user(request)
+        except HTTPException as e:
+            if e.status_code != status.HTTP_401_UNAUTHORIZED:
+                raise
+            _refuse(request, f"{e.detail}. Send a signed-in user's token, or an API key in the x-api-key header.")
+<% if (it.authRoutes.length > 0) { %>
+        # Auth entities are for service callers only.
+        if request.url.path.split("/")[2:3] and request.url.path.split("/")[2].lower() in AUTH_ENTITY_ROUTES:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This route is for service callers only")
+<% } %>
+<% } else { %>
+        _refuse(request, NO_CREDENTIAL if _KEYS or _SERVICE_JWKS else NO_SOURCE)
+<% } %>
+    request.state.auth = ctx
+    return ctx
+
+
+# Every entity's relations, from .apsorc relationships and scopeBy:
+# entity -> {"bypassRoles": the roles that skip its tenant scope (None when it
+# is not scoped), "relations": {name: [the entity it loads, whether a caller
+# limited to its tenant here stays in it there]}}.
+RELATION_SCOPES: dict = json.loads(<%~ JSON.stringify(JSON.stringify(it.relationScopes)) %>)
+
+
+def relation_refused(auth: Optional[AuthContext], root: str, path: str) -> Optional[str]:
+    """
+    The one place that decides which relations a request may load: the first
+    relation in `path` that would load rows outside the caller's tenant, if
+    any. The tenant filter limits only the entity a request starts from, so a
+    relation onto a tenant-scoped entity is loaded only when the caller holds a
+    role that skips that entity's scope, or is limited to its tenant on the
+    entity the relation starts from and the target is scoped by the same keys.
+    A service caller (valid API key) is not limited.
+    """
+    if not RELATION_SCOPES or (auth is not None and auth.service_id):
+        return None
+    roles = set(auth.roles) if auth is not None else set()
+
+    def skips(entity: Optional[dict]) -> bool:
+        return bool(entity and roles & set(entity.get("bypassRoles") or []))
+
+    start = RELATION_SCOPES.get(root)
+    for name in path.split("."):
+        hop = (start or {}).get("relations", {}).get(name)
+        if not hop:
+            return None
+        to = RELATION_SCOPES.get(hop[0]) or {}
+        in_tenant = hop[1] and start.get("bypassRoles") is not None and not skips(start)
+        if to.get("bypassRoles") is not None and not skips(to) and not in_tenant:
+            return name
+        start = to
+    return None
+
+
+def tenant_values(auth: Optional[AuthContext], entity: str) -> Optional[dict]:
+    """
+    The caller's value for each scopeBy field of `entity`, or None when the
+    caller is not limited to a tenant there: the entity's reads are not
+    tenant-scoped, or the caller is a service caller or holds a role that
+    skips its scope.
+    """
+    scoped = RELATION_SCOPES.get(entity) or {}
+    if scoped.get("bypassRoles") is None or (auth is not None and auth.service_id):
+        return None
+    if auth is not None and set(auth.roles) & set(scoped["bypassRoles"]):
+        return None
+    by_key = {"userId": "user_id", "email": "email"}
+    return {
+        field: getattr(auth, by_key.get(key, "workspace_id"), None)
+        for field, key in (scoped.get("scope") or {}).items()
+    }
+
+
+def _tenant_conditions(model: Any, values: dict) -> list:
+    """SQL conditions that keep rows of `model` to the caller's tenant (compared as text)."""
+    if any(v in (None, "") for v in values.values()):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tenant in the auth context")
+    return [cast(getattr(model, field), String) == str(value) for field, value in values.items()]
+
+
+def relation_conditions(auth: Optional[AuthContext], root: str, name: str, target: Any) -> list:
+    """
+    The conditions the rows loaded through relation `name` of `root` must
+    meet. A relation the rule above allows because both ends are scoped by the
+    same keys still loads only rows of the caller's tenant, so a row that
+    points at another tenant's row does not carry it into a response.
+    """
+    hop = ((RELATION_SCOPES.get(root) or {}).get("relations") or {}).get(name)
+    # Only a hop the rule allows as a same-tenant one; any other is refused or not limited.
+    values = tenant_values(auth, hop[0]) if hop and hop[1] else None
+    return _tenant_conditions(target, values) if values else []
+
+
+async def check_references(auth: Optional[AuthContext], db: Any, references: dict) -> None:
+    """
+    The one place that checks the foreign keys of a write (R8). `references`
+    maps a tenant-scoped entity to the ids a body names in foreign keys to it.
+    Every id must be a row the caller could read; otherwise 403. A key set to
+    null is not checked, and a service caller or a role that skips the
+    target's scope is not limited. One query per referenced entity.
+    """
+    from . import models
+
+    for entity, sent in references.items():
+        ids = {i for i in sent if i is not None}
+        values = tenant_values(auth, entity)
+        if not ids or values is None:
+            continue
+        model = getattr(models, entity)
+        found = await db.execute(
+            select(func.count()).select_from(model).where(model.id.in_(ids), *_tenant_conditions(model, values))
+        )
+        if found.scalar() != len(ids):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have access to a row this request references",
+            )
+
+
+def check_relation(auth: Optional[AuthContext], root: str, path: str) -> None:
+    """403 when relation_refused names a relation in `path`."""
+    refused = relation_refused(auth, root, path)
+    if refused:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f'The relation "{refused}" cannot be loaded from {root}: its rows are tenant-scoped',
+        )

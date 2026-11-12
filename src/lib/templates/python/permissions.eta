@@ -1,0 +1,121 @@
+<%~ includeFile('./header.eta', it) %>
+
+"""
+Role permissions from .apsorc, checked on every route of the generated /api
+router after authentication.
+
+A signed-in user may perform a guarded operation when any of these holds:
+- one of its roles is in the .apsorc default list
+- its token carries the permission (for example Auth0 RBAC "permissions")
+<% if (it.permissions.grants) { %>
+- a <%= it.permissions.grants.entity %> row grants the permission to one of its roles<% if (it.permissions.grants.tenantField) { %>
+  in its tenant (or in every tenant, when <%= it.permissions.grants.tenantField %> is null)<% } %>
+
+<% } %>
+Grants only add access; they never take away a default. An operation that is
+not listed is open to any authenticated caller. A service caller (valid API
+key) is not limited by role. Every interface that calls this API (REST, SDK,
+MCP) goes through this check.
+"""
+import re
+from typing import Dict, List, Set
+
+from fastapi import Depends, HTTPException, Request, status
+<% if (it.permissions.grants) { %>
+from sqlalchemy import <% if (it.permissions.grants.tenantField) { %>String, cast, or_, <% } %>select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.database import get_db
+from .models.<%= it.permissions.grants.entity.toLowerCase() %> import <%= it.permissions.grants.entity %>
+
+<% } %>
+from .auth import AuthContext, require_auth
+
+# Guarded operations by route: the permission name and the roles that have it by default.
+ENTITY_PERMISSIONS: Dict[str, Dict[str, dict]] = <%~ JSON.stringify(it.permissions.routes, null, 4) %>
+
+# Read rules a join must satisfy, by relation name, so a caller who cannot
+# read an entity cannot read it through a join either.
+JOIN_PERMISSIONS: Dict[str, List[dict]] = <%~ JSON.stringify(it.permissions.joins, null, 4) %>
+
+OPERATIONS = {
+    "GET": "read",
+    "HEAD": "read",
+    "POST": "create",
+    "PUT": "update",
+    "PATCH": "update",
+    "DELETE": "delete",
+}
+
+# A relation embedded in a PostgREST select: rel(...), alias:rel!inner(...).
+_EMBED = re.compile(r"([A-Za-z_]\w*)(?:![A-Za-z]+)?\(")
+
+
+def _joined(request: Request) -> List[str]:
+    """Every relation the query asks to load, under either query dialect."""
+    names: List[str] = []
+    for raw in request.query_params.getlist("join"):
+        names.extend(raw.split("||")[0].split("."))
+    for raw in request.query_params.getlist("select"):
+        names.extend(_EMBED.findall(raw))
+    return [n.strip() for n in names if n.strip()]
+
+
+async def require_permission(
+    request: Request,
+    auth: AuthContext = Depends(require_auth),
+<% if (it.permissions.grants) { %>
+    db: AsyncSession = Depends(get_db),
+<% } %>
+) -> None:
+    """FastAPI dependency: 403 unless the caller may perform this operation."""
+    if auth.service_id:
+        return
+    granted: Set[str] = set()
+    loaded = False
+
+    async def allowed(rule: dict) -> bool:
+        nonlocal granted, loaded
+        if set(rule["roles"]) & set(auth.roles):
+            return True
+        if not loaded:
+            # The caller's permissions from its token and grants, loaded once per request.
+            granted = set(auth.permissions)
+<% if (it.permissions.grants) { %>
+            if auth.roles:
+                # ponytail: one query per guarded request; cache per role and
+                # tenant with a short TTL if this shows up in latency.
+                query = select(<%= it.permissions.grants.entity %>.permission).where(<%= it.permissions.grants.entity %>.role.in_(auth.roles))
+<% if (it.permissions.grants.tenantField) { %>
+                tenant = <%= it.permissions.grants.entity %>.<%= it.permissions.grants.tenantField %>
+
+                if auth.workspace_id in (None, ""):
+                    query = query.where(tenant.is_(None))
+                else:
+                    query = query.where(or_(tenant.is_(None), cast(tenant, String) == str(auth.workspace_id)))
+<% } %>
+                granted.update((await db.execute(query)).scalars().all())
+<% } %>
+            loaded = True
+        return rule["permission"] in granted
+
+    def deny(rule: dict) -> None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Missing permission {rule['permission']}",
+        )
+
+    route = request.scope.get("route")
+    path = getattr(route, "path", None) or request.url.path
+    # /api/invoices/{id}, or /invoices/{id} where the route keeps its router's own path.
+    segments = [p for p in path.split("/") if p]
+    if segments[:1] == ["api"]:
+        segments = segments[1:]
+    entity = segments[0].lower() if segments else ""
+    rule = ENTITY_PERMISSIONS.get(entity, {}).get(OPERATIONS.get(request.method, ""))
+    if rule and not await allowed(rule):
+        deny(rule)
+    for relation in _joined(request):
+        for joined in JOIN_PERMISSIONS.get(relation, []):
+            if not await allowed(joined):
+                deny(joined)

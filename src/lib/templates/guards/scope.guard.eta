@@ -1,6 +1,8 @@
 <%~ includeFile('../header.eta') %>
 
 import {
+  BadRequestException,
+  ConflictException,
   Injectable,
   CanActivate,
   ExecutionContext,
@@ -8,7 +10,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { InjectRepository } from '@nestjs/typeorm';
-import { <% if (it.hasNestedFk) { %>DataSource, <% } %>Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 
 <% /* Import all entities that have scoped relationships (from sibling autogen folders) */ %>
 <% it.scopedEntities.forEach((entity) => { %>
@@ -56,10 +58,6 @@ export const Public = () =>
 export interface ScopeConfig {
   /** The scope fields or paths (e.g., 'workspaceId' or 'task.workspaceId') */
   scopes: ScopeField[];
-  /** Whether to inject scope on create */
-  injectOnCreate: boolean;
-  /** Which operations to enforce scope on */
-  enforceOn: string[];
   /** Roles that can bypass scope enforcement */
   bypassRoles: string[];
 }
@@ -105,12 +103,23 @@ export const ENTITY_SCOPES: Record<string, ScopeConfig> = {
       }<%= scopeIndex < entity.scopes.length - 1 ? ',' : '' %>
 <% }) %>
     ],
-    injectOnCreate: <%= entity.injectOnCreate %>,
-    enforceOn: [<%~ entity.enforceOn.map(op => `'${op}'`).join(', ') %>],
     bypassRoles: [<%~ entity.bypassRoles.map(role => `'${role}'`).join(', ') %>],
   }<%= index < it.scopedEntities.length - 1 ? ',' : '' %>
 <% }) %>
 };
+
+/**
+ * Every entity by its route, so a write body can be checked against the
+ * entity's relations whether or not the entity itself is scoped.
+ */
+export const ROUTE_ENTITIES: Record<string, string> = {
+<% it.routeEntities.forEach((entity) => { %>
+  '<%= entity.route %>': '<%= entity.name %>',
+<% }) %>
+};
+const ENTITY_ROUTES: Record<string, string> = Object.fromEntries(
+  Object.entries(ROUTE_ENTITIES).map(([route, name]) => [name, route]),
+);
 
 @Injectable()
 export class ScopeGuard implements CanActivate {
@@ -120,12 +129,24 @@ export class ScopeGuard implements CanActivate {
     @InjectRepository(<%= entity.name %>)
     private <%= entity.repoName %>: Repository<<%= entity.name %>>,
 <% }) %>
-<% if (it.hasNestedFk) { %>
     private dataSource: DataSource,
-<% } %>
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    try {
+      return await this.check(context);
+    } catch (error) {
+      if (error instanceof ForbiddenException) {
+        // The reason, for the log.
+        const request = context.switchToHttp().getRequest();
+        const denied = /tenant/.test(error.message) ? 'no tenant' : 'outside the tenant scope';
+        request.apso = { ...request.apso, denied };
+      }
+      throw error;
+    }
+  }
+
+  private async check(context: ExecutionContext): Promise<boolean> {
     // Check if route should skip scope check
     const skipCheck = this.reflector.getAllAndOverride<boolean>(
       SKIP_SCOPE_CHECK,
@@ -148,6 +169,11 @@ export class ScopeGuard implements CanActivate {
 
     const request = context.switchToHttp().getRequest();
 
+    // A service caller (valid API key) is not tenant-scoped.
+    if (request.auth?.serviceId) {
+      return true;
+    }
+
     // Get the resource path from the request
     const path = request.route?.path || request.path;
     const method = request.method;
@@ -162,8 +188,12 @@ export class ScopeGuard implements CanActivate {
 
     // Check if this is a scoped entity
     const scopeConfig = ENTITY_SCOPES[entityType];
+    const writes = method === 'POST' || method === 'PUT' || method === 'PATCH';
     if (!scopeConfig) {
-      // Not a scoped entity, allow through
+      // Not a scoped entity; its body still must not reach a scoped row.
+      if (writes) {
+        await this.checkBody(request, entityType);
+      }
       return true;
     }
 
@@ -173,13 +203,14 @@ export class ScopeGuard implements CanActivate {
       return true;
     }
 
+    // A body must not reach another entity's rows or write over an existing row.
+    if (writes) {
+      await this.checkBody(request, entityType, scopeConfig);
+    }
+
     // Map HTTP method to operation
     const operation = this.mapMethodToOperation(method, request.params?.id);
 
-    // Check if this operation should be enforced
-    if (!scopeConfig.enforceOn.includes(operation)) {
-      return true;
-    }
 <% if (it.hasNestedFk) { %>
 
     // Nested paths (task.workspaceId): load the caller's parent ids for the
@@ -200,8 +231,8 @@ export class ScopeGuard implements CanActivate {
       }
     }
 
-    // For POST requests, inject scope values if configured
-    if (operation === 'create' && scopeConfig.injectOnCreate) {
+    // On create the scope values come from the caller, never from the body.
+    if (operation === 'create') {
       this.injectScopeValues(request, scopeConfig);
     }
 <% if (it.hasAuth) { %>
@@ -212,7 +243,7 @@ export class ScopeGuard implements CanActivate {
     }
 <% } %>
 
-    // For GET (list) requests, add scope filter
+    // For GET (list) requests, require the caller's tenant
     if (operation === 'find') {
       this.addScopeFilter(request, scopeConfig);
     }
@@ -302,10 +333,6 @@ export class ScopeGuard implements CanActivate {
   }
 
   private injectScopeValues(request: any, scopeConfig: ScopeConfig): void {
-    if (!request.body || typeof request.body !== 'object') {
-      return;
-    }
-
     for (const scope of scopeConfig.scopes) {
       if (scope.direct) {
         const scopeValue = this.getScopeValue(request, scope.contextKey);
@@ -314,35 +341,157 @@ export class ScopeGuard implements CanActivate {
           throw new ForbiddenException('No tenant in the auth context');
         }
         // Always the caller's tenant, never one from the body.
-        request.body[scope.field] = scopeValue;
+        for (const item of this.bodyItems(request.body)) {
+          item[scope.field] = scopeValue;
+        }
 <% } else { %>
-        if (scopeValue && !request.body[scope.field]) {
-          request.body[scope.field] = scopeValue;
+        for (const item of this.bodyItems(request.body)) {
+          if (scopeValue && !item[scope.field]) {
+            item[scope.field] = scopeValue;
+          }
         }
 <% } %>
       }
     }
   }
 
-  private addScopeFilter(request: any, scopeConfig: ScopeConfig): void {
-    if (!request.query) {
-      request.query = {};
+  /** The rows a write body carries: the body itself and each row of a bulk create. */
+  private bodyItems(body: any): any[] {
+    const plain = (v: any) => v !== null && typeof v === 'object' && !Array.isArray(v);
+    if (!plain(body)) {
+      return [];
     }
+    return [body, ...(Array.isArray(body.bulk) ? body.bulk.filter(plain) : [])];
+  }
 
-    for (const scope of scopeConfig.scopes) {
-      if (scope.direct) {
-        const scopeValue = this.getScopeValue(request, scope.contextKey);
-<% if (it.hasAuth) { %>
-        if (!scopeValue) {
-          throw new ForbiddenException('No tenant in the auth context');
+  /**
+   * Relations and ids in a write body. TypeORM saves a relation object in
+   * place of the foreign key column, saves the rows listed under a to-many
+   * relation, and updates the row a body names by id. So before the
+   * checks below run:
+   * - the body's own id is dropped: the database assigns it on create, and
+   *   on update the row is the one the route names. A key the client chooses
+   *   is kept on create, and refused when a row already has it
+   * - a to-one relation becomes its foreign key, which is then checked like
+   *   any other column
+   * - a foreign key to a tenant-scoped entity, sent as a column or as a
+   *   relation, must name a row the caller could read (null is allowed)
+   * - rows of a scoped entity listed under a relation must be the caller's
+   *   own, and only their ids are kept
+   * A referenced row is looked up once per request, however many rows of a
+   * bulk create name it.
+   */
+  private async checkBody(
+    request: any,
+    entityType: string,
+    scopeConfig?: ScopeConfig,
+  ): Promise<void> {
+    if (Array.isArray(request.body)) {
+      throw new BadRequestException('The body must be an object');
+    }
+    const name = ROUTE_ENTITIES[entityType];
+    if (!name) {
+      return;
+    }
+    const metadata = this.dataSource.getMetadata(name);
+    const scopeFields = (scopeConfig?.scopes ?? []).map((s) => s.fkField ?? s.field);
+    const denied = () => new ForbiddenException('You do not have access to this resource');
+    const roles: string[] = request.auth?.roles ?? request.user?.roles ?? request.roles ?? [];
+    // An entity whose rows the caller reads only inside its tenant.
+    const limited = (scope?: ScopeConfig): scope is ScopeConfig =>
+      Boolean(scope) && !scope!.bypassRoles.some((role) => roles.includes(role));
+    const lookups = new Map<string, Promise<boolean>>();
+    const readable = (route: string, id: unknown, scope: ScopeConfig): Promise<boolean> => {
+      const key = `${route}:${id}`;
+      if (!lookups.has(key)) lookups.set(key, this.verifyResourceAccess(route, String(id), request, scope));
+      return lookups.get(key)!;
+    };
+
+    for (const item of this.bodyItems(request.body)) {
+      if (scopeConfig) {
+        const chosen: Record<string, any> = {};
+        for (const column of metadata.primaryColumns) {
+          const sent = item[column.propertyName];
+          if (column.isGenerated || request.method !== 'POST') {
+            delete item[column.propertyName];
+          } else if (sent != null) {
+            chosen[column.propertyName] = sent;
+          }
         }
-<% } %>
-        if (scopeValue) {
-          // Add filter for @apso/crud
-          request.query[`filter.${scope.field}`] = `$eq:${scopeValue}`;
+        // A key the client chooses: a create must not write over the row that has it.
+        if (Object.keys(chosen).length > 0) {
+          if (Object.values(chosen).some((v) => typeof v === 'object')) throw denied();
+          if (await this.dataSource.getRepository(name).findOne({ where: chosen })) {
+            throw new ConflictException('A row with this key already exists');
+          }
         }
       }
+      for (const relation of metadata.relations) {
+        const key = relation.propertyName;
+        const value = item[key];
+        const target = relation.inverseEntityMetadata;
+        const targetRoute = ENTITY_ROUTES[target.name];
+        const targetScope = ENTITY_SCOPES[targetRoute];
+        const isObject = value !== null && typeof value === 'object';
+
+        const [join] = relation.joinColumns;
+        if ((relation.isManyToOne || relation.isOneToOneOwner) && relation.joinColumns.length === 1) {
+          if (!targetScope && !scopeFields.includes(join.propertyName)) continue;
+          const referenced = join.referencedColumn!.propertyName;
+          let id: any;
+          if (Object.prototype.hasOwnProperty.call(item, key)) {
+            id = isObject ? (Array.isArray(value) ? undefined : value[referenced]) : value;
+            if (id !== null && typeof id === 'object') throw denied();
+            if (join.isVirtual) {
+              // No column property to move the id to: keep the id alone.
+              item[key] = id == null ? null : { [referenced]: id };
+            } else {
+              delete item[key];
+              if (id !== undefined) item[join.propertyName] = id;
+            }
+          }
+          // The foreign key as it will be saved. The entity's own scope fields
+          // are set from the caller or checked as its parent, further on.
+          if (!join.isVirtual) id = item[join.propertyName];
+          if (id == null || scopeFields.includes(join.propertyName) || !limited(targetScope)) continue;
+          if (typeof id === 'object' || !(await readable(targetRoute, id, targetScope))) throw denied();
+          continue;
+        }
+
+        // A to-many (or inverse one-to-one) relation: saving it writes the listed rows.
+        if (!Object.prototype.hasOwnProperty.call(item, key)) continue;
+        if (!targetScope) continue;
+        // A shared row cannot take over or let go of scoped rows.
+        if (!scopeConfig) throw denied();
+        const primary = target.primaryColumns[0].propertyName;
+        const kept: any[] = [];
+        for (const row of Array.isArray(value) ? value : value == null ? [] : [value]) {
+          const id = row !== null && typeof row === 'object' ? row[primary] : row;
+          if (id == null || typeof id === 'object') throw denied();
+          if (!(await readable(targetRoute, id, targetScope))) throw denied();
+          kept.push({ [primary]: id });
+        }
+        item[key] = Array.isArray(value) ? kept : kept[0] ?? null;
+      }
     }
+  }
+
+  /**
+   * A list request needs the caller's tenant. The filter itself is the
+   * controller's @CrudAuth, which applies to every query dialect; nothing is
+   * added to the query string here.
+   */
+  private addScopeFilter(request: any, scopeConfig: ScopeConfig): void {
+<% if (it.hasAuth) { %>
+    for (const scope of scopeConfig.scopes) {
+      if (scope.direct && !this.getScopeValue(request, scope.contextKey)) {
+        throw new ForbiddenException('No tenant in the auth context');
+      }
+    }
+<% } else { %>
+    void request;
+    void scopeConfig;
+<% } %>
   }
 
   private getScopeValue(request: any, contextKey: string): string | undefined {
@@ -389,10 +538,9 @@ export class ScopeGuard implements CanActivate {
       request.apsoScope = { ...request.apsoScope, [scope.fkField]: ids };
 
       if (operation === 'create' || operation === 'update') {
-        const body = request.body && typeof request.body === 'object' ? request.body : {};
-        const items = Array.isArray(body.bulk) ? body.bulk : [body];
-        for (const item of items) {
-          const fk = item?.[scope.fkField] ?? item?.[scope.field]?.[pk];
+        // checkBody has already turned a relation object into this foreign key.
+        for (const item of this.bodyItems(request.body)) {
+          const fk = item[scope.fkField];
           if (fk != null && !ids.some((id: any) => String(id) === String(fk))) {
             throw new ForbiddenException('You do not have access to this resource');
           }

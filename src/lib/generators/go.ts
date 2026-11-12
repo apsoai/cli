@@ -14,15 +14,19 @@ import {
   Entity,
   AuthConfig,
   Field,
-  isApiKeyAuth,
-  isJwtAuth,
-  resolveApiKeyAuth,
-  resolveJwtAuth,
+  resolveJwtProviders,
 } from "../types";
 import {
-  apiKeyTemplateData,
+  authEntityNames,
+  hidesRelation,
   entityScope,
+  getPermissionConfig,
+  hasPermissions,
+  mcpToolNames,
   nestedScopeEntities,
+  relationScopes,
+  removedScopeOptionErrors,
+  scopedReferences,
 } from "../guards";
 import {
   arrayElementType,
@@ -101,6 +105,17 @@ const gormTag = (settings: string[]): string =>
     .replace(/\\/g, "\\\\")
     .replace(/"/g, '\\"');
 
+/** The JSON Schema of a Go DTO field type, for MCP tool input schemas. */
+const jsonType = (goType: string): Record<string, unknown> => {
+  if (goType === "string") return { type: "string" };
+  if (goType === "time.Time") return { type: "string", format: "date-time" };
+  if (goType === "bool") return { type: "boolean" };
+  if (goType.startsWith("int") || goType.startsWith("uint")) return { type: "integer" };
+  if (goType.startsWith("float")) return { type: "number" };
+  if (goType.startsWith("[]") || goType.endsWith("Array")) return { type: "array" };
+  return {};
+};
+
 /**
  * Go/Gin generator that produces GORM models, DTOs, Gin handlers,
  * and service layer code.
@@ -132,6 +147,7 @@ export class GoGenerator extends BaseGenerator {
     if (!config.entities || config.entities.length === 0) {
       errors.push("No entities defined in configuration");
     }
+    errors.push(...removedScopeOptionErrors(config.entities ?? []));
 
     // Validate each entity
     for (const entity of config.entities) {
@@ -397,6 +413,14 @@ export class GoGenerator extends BaseGenerator {
       primaryKeySwaggerType: this.getPrimaryKeySwaggerType(primaryKeyType),
       associations: [...new Set(relationshipsForTemplate)],
       scope: entityScope(entity, Boolean(options.auth)),
+      // A write that names a row the caller cannot read is answered like a scope error.
+      references:
+        this.goReferences(
+          entity,
+          this.goAssociations(entity, relationships, options.allEntities),
+          options.allEntities,
+          options.auth
+        ).length > 0,
     };
 
     const content = await this.renderTemplate("./handlers/handler", data);
@@ -434,8 +458,14 @@ export class GoGenerator extends BaseGenerator {
       createdAt,
       updatedAt,
       columns,
-      associations: [...new Set(goRelationships)],
+      // Auth entities are for service callers only, so no other entity's
+      // response carries one.
+      associations: goRelationships.map((r: any) => ({
+        ...r,
+        hidden: hidesRelation(entityName, r.name, allEntities, options.auth),
+      })),
       scope: this.goScope(entity, Boolean(options.auth)),
+      references: this.goReferences(entity, goRelationships, allEntities, options.auth),
     };
 
     const content = await this.renderTemplate("./services/service", data);
@@ -602,7 +632,7 @@ ${downStatements}
 
     const content = await this.renderTemplate("./index-module", {
       entities: entitiesData,
-      hasAuth: Boolean(opts?.auth),
+      permissions: hasPermissions(entities),
     });
 
     const modelRefs = entities
@@ -742,43 +772,153 @@ ${modelRefs}
     };
   }
 
+  /**
+   * The foreign keys of an entity that a write must check: those onto
+   * tenant-scoped entities, with the Go field and column of each.
+   */
+  private goReferences(
+    entity: Entity,
+    associations: any[],
+    allEntities: Entity[],
+    auth?: AuthConfig
+  ): { target: string; goField: string; column: string }[] {
+    const owned = associations.filter((a) => a.owns);
+    const scoped = scopedReferences(
+      entity,
+      owned.map((a) => [`${a.camelReferenceName}Id`, a.name]),
+      relationScopes(allEntities, this.config.relationshipMap, Boolean(auth))
+    );
+    return owned
+      .filter((a) => scoped[`${a.camelReferenceName}Id`])
+      .map((a) => ({ target: a.name, goField: a.fkField, column: a.fkColumn }));
+  }
+
+  /**
+   * The MCP tools of every entity that opts in. Gin has no OpenAPI document at
+   * run time, so each tool's input schema is written from .apsorc here, from
+   * the same columns and foreign keys as the DTOs.
+   */
+  private goMcpTools(
+    entities: Entity[],
+    auth: AuthConfig | undefined,
+    relationshipMap: RelationshipMap
+  ) {
+    return entities.flatMap((entity) => {
+      const { mcp, mcpName, mcpPluralName } = mcpToolNames(entity, auth);
+      if (mcp.length === 0) return [];
+      const scoped = new Set(entityScope(entity, true)?.fields.map((f) => f.field));
+      const properties: Record<string, unknown> = {};
+      const required: string[] = [];
+      for (const c of this.getGoFieldsForTemplate(entity.fields ?? [], entity) as any[]) {
+        properties[c.name] =
+          c.type === "enum" && Array.isArray(c.values)
+            ? { type: "string", enum: c.values }
+            : jsonType(c.goType);
+        if (c.mustSend) required.push(c.name);
+      }
+      for (const a of this.goAssociations(entity, relationshipMap[entity.name] || [], entities)) {
+        if (!a.owns) continue;
+        const name = `${a.camelReferenceName}Id`;
+        properties[name] = jsonType(a.fkGoType.replace(/^\*/, ""));
+        if (!a.fkNullable && !scoped.has(name)) required.push(name);
+      }
+      const id = { type: entity.primaryKeyType === "uuid" ? "string" : "integer" };
+      const schema = (props: Record<string, unknown>, req: string[]) =>
+        JSON.stringify({ type: "object", properties: props, required: req });
+      const body = (req: string[]) => ({ type: "object", properties, required: req });
+      const plural = pluralize(entity.name);
+      const path = `/${kebabCase(plural)}`;
+      const one = `${path}/:id`;
+      const tool = (
+        op: string,
+        name: string,
+        method: string,
+        toolPath: string,
+        description: string,
+        toolSchema?: string
+      ) =>
+        mcp.includes(op as any)
+          ? [{ name, method, path: toolPath, description, schema: toolSchema, list: !toolSchema }]
+          : [];
+      return [
+        ...tool("read", `list_${mcpPluralName}`, "GET", path, `List ${plural}. Supports filter, sort, join, limit and page.`),
+        ...tool("read", `get_${mcpName}`, "GET", one, `Get one ${entity.name} by id.`, schema({ id }, ["id"])),
+        ...tool("create", `create_${mcpName}`, "POST", path, `Create a ${entity.name}.`, schema({ body: body(required) }, ["body"])),
+        ...tool("update", `update_${mcpName}`, "PATCH", one, `Update fields of one ${entity.name} by id.`, schema({ id, body: body([]) }, ["id", "body"])),
+        ...tool("delete", `delete_${mcpName}`, "DELETE", one, `Delete one ${entity.name} by id. This cannot be undone.`, schema({ id }, ["id"])),
+      ];
+    });
+  }
+
   async generateGuards(
     entities: Entity[],
-    auth?: AuthConfig
+    auth?: AuthConfig,
+    relationshipMap: RelationshipMap = this.config.relationshipMap ?? {}
   ): Promise<GeneratedFile[]> {
-    if (!auth) return [];
-    const nested = nestedScopeEntities(entities);
-    if (nested.length > 0)
-      console.warn(
-        `[apso] Nested scopeBy paths are enforced in TypeScript services only; ${nested.join(", ")} will not be filtered by those paths in this Go service`
-      );
-    let data: Record<string, unknown>;
-    if (isJwtAuth(auth)) {
-      data = { jwt: resolveJwtAuth(auth) };
-    } else if (isApiKeyAuth(auth)) {
-      const apiKey = apiKeyTemplateData(resolveApiKeyAuth(auth), entities);
-      const entity = entities.find((e) => e.name === apiKey.apiKeyEntity)!;
-      // Columns keep their .apsorc names (the models tag each one).
-      const column = (name: string) => name;
-      data = {
-        apiKey: {
-          ...apiKey,
-          goModel: pascalCase(entity.name),
-          keyColumn: column(apiKey.keyField),
-          expiresColumn: column("expiresAt"),
-          workspaceColumn: column(apiKey.workspaceField),
-          roleColumn: apiKey.roleField ? column(apiKey.roleField) : undefined,
-        },
-      };
-    } else {
+    const tools = this.goMcpTools(entities, auth, relationshipMap ?? {});
+    // Fails on a grants entity that would be an escalation path.
+    const permissions = getPermissionConfig(entities, relationshipMap, auth);
+    if (permissions && !auth)
       throw new Error(
-        `auth.provider "${auth.provider}" is generated for TypeScript services only. For Go, use "jwt" (Better Auth issues JWTs with its JWT plugin) or "api-key".`
+        "permissions in .apsorc need an auth block: roles come from the signed-in caller"
       );
-    }
+    const nested = auth ? nestedScopeEntities(entities) : [];
+    if (nested.length > 0)
+      throw new Error(
+        `${nested.join(", ")}: a scopeBy path through a parent (for example "project.organizationId") is enforced in TypeScript services only for now. In Go, put the tenant field on the entity and scope by it, or generate with --language typescript.`
+      );
+    // The API key check is part of every service; auth adds user sign-in.
+    // One entry per trusted issuer; undefined when there is no sign-in.
+    const jwt = resolveJwtProviders(auth);
+    const data = {
+      jwt: jwt.length > 0 ? jwt : undefined,
+      mcp: tools.length > 0,
+      // Routes only a service caller reaches (sessions, accounts, ...).
+      authRoutes: authEntityNames(entities, auth).map((name) =>
+        kebabCase(pluralize(name))
+      ),
+      relationScopes: relationScopes(entities, relationshipMap, Boolean(auth)) ?? {},
+      tables: Object.fromEntries(entities.map((e) => [e.name, tableName(e)])),
+    };
     const content = await this.renderTemplate("./middleware/auth", data);
     const files: GeneratedFile[] = [{ path: "middleware/auth.go", content }];
+    if (permissions) {
+      // Go routes are kebab-case (/role-permissions); the rules are the same.
+      const rulesOf = (name: string) =>
+        permissions.routes[pluralize(name).toLowerCase()] ?? {};
+      const grants = permissions.grants && {
+        ...permissions.grants,
+        table: tableName(entities.find((e) => e.name === permissions.grants!.entity)!),
+      };
+      files.push({
+        path: "middleware/permission.go",
+        content: await this.renderTemplate("./middleware/permission", {
+          routes: entities
+            .filter((e) => e.permissions)
+            .map((e) => ({
+              path: kebabCase(pluralize(e.name)),
+              rules: Object.entries(rulesOf(e.name)).map(([op, rule]) => ({ op, ...rule })),
+            })),
+          joins: Object.entries(permissions.joins).map(([name, rules]) => ({ name, rules })),
+          grants,
+        }),
+      });
+    }
+    // The /mcp endpoint; cmd/main.go mounts it (see ensureGoMcpWiring).
+    if (tools.length > 0)
+      files.push({
+        path: "routes/mcp.go",
+        content: await this.renderTemplate("./mcp", {
+          tools,
+          // The same variables auth.go reads: AUTH_JWT_ISSUER, then _2 and so on.
+          issuers: jwt.map((p, i) => ({
+            env: `AUTH_JWT_ISSUER${i === 0 ? "" : `_${i + 1}`}`,
+            issuer: p.issuer,
+          })),
+        }),
+      });
     // Shared helpers for services and handlers of entities with a direct scopeBy.
-    if (entities.some((e) => entityScope(e, true))) {
+    if (auth && entities.some((e) => entityScope(e, true))) {
       files.push(
         {
           path: "services/scope.go",

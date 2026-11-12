@@ -13,21 +13,15 @@ export type ScopeOperation = "find" | "get" | "create" | "update" | "delete";
  */
 export interface ScopeOptions {
   /**
-   * If true (default), scope fields are automatically injected from
-   * the request context on create when not provided.
-   */
-  injectOnCreate?: boolean;
-
-  /**
-   * Which operations should enforce scope. Defaults to all operations.
-   */
-  enforceOn?: ScopeOperation[];
-
-  /**
    * Roles allowed to bypass scope enforcement (e.g., 'system_admin').
    */
   bypassRoles?: string[];
 }
+
+/** Operations a role list can guard (read covers list and get by id). */
+export const PERMISSION_OPERATIONS = ["read", "create", "update", "delete"] as const;
+export type PermissionOperation = typeof PERMISSION_OPERATIONS[number];
+export type EntityPermissions = Partial<Record<PermissionOperation, string[]>>;
 
 export interface Entity {
   name: string;
@@ -60,6 +54,21 @@ export interface Entity {
    * Optional configuration for how scope enforcement should behave.
    */
   scopeOptions?: ScopeOptions;
+
+  /**
+   * Roles allowed to perform each operation. A missing key lets any
+   * authenticated caller do it; an empty list lets nobody. Requires `auth`.
+   * Example: { "delete": ["admin"] }
+   */
+  permissions?: EntityPermissions;
+
+  /**
+   * Expose this entity's CRUD routes as MCP tools (TypeScript, needs `auth`
+   * and @apso/mcp). `true` exposes read, create, update and delete; a list
+   * exposes only those operations. Off by default.
+   * Example: ["read", "create"]
+   */
+  mcp?: boolean | PermissionOperation[];
 
   /**
    * When true, state changes to this entity (insert/update/remove) emit a

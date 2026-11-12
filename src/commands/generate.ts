@@ -8,18 +8,24 @@ import {
   isLanguageSupported,
   getImplementedLanguages,
 } from "../lib";
-import { TargetLanguage, GeneratorConfig, isJwtAuth } from "../lib/types";
+import { TargetLanguage, GeneratorConfig } from "../lib/types";
 import BaseCommand from "../lib/base-command";
 import { isInteractive, missingFlag } from "../lib/utils/interactive";
 import { performance } from "perf_hooks";
 import { createFile, removeStaleGeneratedFiles } from "../lib/utils/file-system";
 import { installCoAuthorHook } from "../lib/utils/git-hooks";
+import { tenantClaimWarnings } from "../lib/guards";
 import {
   JOSE_DEP,
   PYJWT_DEP,
   addMissingDeps,
   addMissingPythonDep,
   ensureCrudDeps,
+  ensureAppMcpWiring,
+  ensureLoggingWiring,
+  ensureMcpWiring,
+  removeAppMcpWiring,
+  writeAccessManifest,
 } from "../lib/utils/crud-deps";
 import { upgradeOrmConfigForPglite } from "../lib/utils/pglite-upgrade";
 
@@ -145,6 +151,7 @@ export default class Generate extends BaseCommand {
     if (validationResult.warnings.length > 0) {
       console.log(`[apso] Warnings:\n${validationResult.warnings.join("\n")}`);
     }
+    for (const warning of tenantClaimWarnings(entities, auth)) this.warn(warning);
 
     // Generate enums
     const enumFiles = await generator.generateEnums(entities, lowerCaseApiType);
@@ -338,12 +345,14 @@ export default class Generate extends BaseCommand {
 
     // Generated TS code imports @apso/crud*. Projects from the v1 template
     // (@nestjsx/crud) don't declare those, and every entity then fails to
-    // compile with TS2307. Declare them so the next install picks them up.
+    // compile with TS2307. Older v2 projects declare a release without the
+    // PostgREST-only option the controllers set. Declare the packages, or
+    // raise their range, so the next install picks them up.
     if (language === "typescript" && generatedFileCount > 0) {
       const added = ensureCrudDeps(process.cwd());
       if (added.length > 0) {
         console.log(
-          `[apso] Added ${added.join(", ")} to package.json (the generated code imports them). Run npm install before building.`
+          `[apso] Set ${added.join(", ")} in package.json to the version the generated code needs. Run npm install before building.`
         );
       }
       // The pre-deploy checks run on PGlite; give a stock v1 config support.
@@ -354,27 +363,74 @@ export default class Generate extends BaseCommand {
       }
     }
 
-    // The generated auth code imports a JWT library; declare it.
-    if (auth && isJwtAuth(auth)) {
-      if (
-        language === "typescript" &&
-        addMissingDeps(process.cwd(), JOSE_DEP).length > 0
-      )
+    // Entities that opt in to MCP need the library and its endpoint.
+    if (language === "typescript" && entities.some((entity) => entity.mcp)) {
+      const wired = ensureMcpWiring(process.cwd(), rootFolder);
+      if (wired.length > 0)
         console.log(
-          "[apso] Added jose to package.json (the generated auth guard imports it). Run npm install before building."
-        );
-      if (
-        language === "python" &&
-        addMissingPythonDep(process.cwd(), PYJWT_DEP)
-      )
-        console.log(
-          `[apso] Added ${PYJWT_DEP} to pyproject.toml (the generated auth module imports it). Reinstall the project's dependencies.`
-        );
-      if (language === "go")
-        console.log(
-          "[apso] The generated auth middleware imports github.com/golang-jwt/jwt/v5 and github.com/MicahParks/keyfunc/v3. Run go mod tidy before building."
+          `[apso] Set up MCP tools at /mcp (updated ${wired.join(", ")}). Run npm install before building.`
         );
     }
+
+    if (
+      (language === "python" || language === "go") &&
+      !entities.some((entity) => entity.mcp)
+    ) {
+      const unwired = removeAppMcpWiring(process.cwd(), language);
+      if (unwired.length > 0)
+        console.log(
+          `[apso] No entity has mcp any more: removed the /mcp endpoint from ${unwired.join(", ")}.`
+        );
+    }
+
+    if (
+      (language === "python" || language === "go") &&
+      entities.some((entity) => entity.mcp)
+    ) {
+      const wired = ensureAppMcpWiring(process.cwd(), language);
+      if (wired.length > 0)
+        console.log(
+          `[apso] Set up MCP tools at /mcp (updated ${wired.join(", ")}). ${
+            language === "python"
+              ? "Reinstall the project's dependencies."
+              : "Run go mod tidy before building; the MCP SDK needs Go 1.25."
+          }`
+        );
+    }
+
+    // Request logging: who called, the request id, and why a guard refused.
+    if (language === "typescript" && generatedFileCount > 0) {
+      const logging = ensureLoggingWiring(process.cwd(), rootFolder);
+      if (logging.changed.length > 0)
+        console.log(
+          `[apso] Set up request logging with @apso/logging (updated ${logging.changed.join(", ")}). Run npm install before building.`
+        );
+      if (logging.manual.length > 0)
+        console.warn(
+          `[apso] Could not add request logging to ${logging.manual.join(", ")}. There, import { useApsoLogging } from '@apso/logging', create the app with NestFactory.create(AppModule, { bufferLogs: true }) and call useApsoLogging(app) on the next line.`
+        );
+    }
+
+    // The generated auth code (the API key check in every service, and JWT
+    // sign-in) imports a JWT library; declare it.
+    if (
+      language === "typescript" &&
+      addMissingDeps(process.cwd(), JOSE_DEP).length > 0
+    )
+      console.log(
+        "[apso] Added jose to package.json (the generated guards import it). Run npm install before building."
+      );
+    if (
+      language === "python" &&
+      addMissingPythonDep(process.cwd(), PYJWT_DEP)
+    )
+      console.log(
+        `[apso] Added ${PYJWT_DEP} to pyproject.toml (the generated auth module imports it). Reinstall the project's dependencies.`
+      );
+    if (language === "go")
+      console.log(
+        "[apso] The generated auth middleware imports github.com/golang-jwt/jwt/v5 and github.com/MicahParks/keyfunc/v3. Run go mod tidy before building."
+      );
     if (language === "python") {
       const main = path.join(process.cwd(), "app", "main.py");
       if (
@@ -395,6 +451,16 @@ export default class Generate extends BaseCommand {
           "[apso] cmd/main.go runs db.AutoMigrate(models.All()...) for DATABASE_SYNC. gorm can't create the enum types, constraints and names the migrations from apso migrate use, so the two databases would differ. Replace that call with: models.Migrate(db)"
         );
     }
+
+    // The marker the hosted platform reads from the pushed source: this code
+    // has the built-in access check.
+    if (
+      guardFiles.length > 0 &&
+      writeAccessManifest(process.cwd(), this.config.version)
+    )
+      console.warn(
+        "[apso] .apso/manifest.json is git-ignored. Commit it: the Apso platform reads it from the pushed code to confirm the service checks API keys itself."
+      );
 
     const totalBuildTime = performance.now() - totalBuildStart;
     console.log(

@@ -1,10 +1,19 @@
 <%~ includeFile('./header.eta') %>
 
-import { Controller, Body } from "@nestjs/common";
+import { Controller, Body<% if (it.relationAccess) { %>, UseInterceptors<% } %> } from "@nestjs/common";
 import { Crud, <% if (it.crudAuth.length || it.crudAuthNested.length) { %>CrudAuth, <% } %>CrudController, Override, ParsedRequest, CrudRequest, ParsedBody, CreateManyDto } from '@apso/crud';
 import { ApiTags, ApiResponse, ApiOperation, ApiBody } from '@nestjs/swagger';
-import {<%= it.entityName %>, <%= it.entityName %>Create, <%= it.entityName %>Update} from './dtos/<%= it.entityName%>.dto'
+<% if (it.mcp.length) { %>
+import { McpTool } from '@apso/mcp';
+<% } %>
+import {<%= it.entityName %>Create, <%= it.entityName %>Update} from './dtos/<%= it.entityName%>.dto'
+// The entity, not the response DTO: the documented filter parameters (one per
+// column, which is also what an MCP list tool accepts) come from its columns.
+import { <%= it.entityName %> } from './<%= it.entityName %>.entity';
 import {<%= it.svcName %>} from './<%= it.entityName %>.service';
+<% if (it.relationAccess) { %>
+import { RelationAccess, RelationRoot } from '../guards/relations.interceptor';
+<% } %>
   
 <% if (it.crudAuthNested.length) { %>
 // A nested scopeBy path (task.workspaceId) limits rows to the parents ScopeGuard
@@ -16,24 +25,19 @@ const nestedScope = (req: any, fk: string) => {
 };
 <% } %>
 <% if (it.scopeOptions && (it.crudAuth.length || it.crudAuthNested.length)) { %>
-// .apsorc scopeOptions: which requests the tenant filter covers and which
-// roles skip it.
-const ENFORCE_ON = [<%~ it.scopeOptions.enforceOn.map((op) => `'${op}'`).join(', ') %>];
+// The callers that skip the tenant filter (.apsorc scopeOptions.bypassRoles).
 const BYPASS_ROLES: string[] = [<%~ it.scopeOptions.bypassRoles.map((r) => `'${r}'`).join(', ') %>];
-const scopeOperation = (req: any) => {
-    switch (req.method) {
-        case 'GET': return req.params?.id ? 'get' : 'find';
-        case 'POST': return 'create';
-        case 'PUT':
-        case 'PATCH': return 'update';
-        case 'DELETE': return 'delete';
-        default: return 'find';
-    }
-};
 const skipScope = (req: any) => {
+    // A service caller (valid API key) is not tenant-scoped.
+    if (req.auth?.serviceId) return true;
     const roles: string[] = req.auth?.roles ?? req.user?.roles ?? [];
-    return roles.some((r) => BYPASS_ROLES.includes(r)) || !ENFORCE_ON.includes(scopeOperation(req));
+    return roles.some((r) => BYPASS_ROLES.includes(r));
 };
+<% } %>
+<% if (it.relationAccess) { %>
+// Above @Crud, so it runs after @Crud's interceptor has parsed the request.
+@UseInterceptors(RelationAccess)
+@RelationRoot('<%= it.entityName %>')
 <% } %>
 @Crud({
     model: {
@@ -45,6 +49,9 @@ const skipScope = (req: any) => {
         replace: <%= it.entityName %>Update,
     },
     validation: false,
+    // List queries are PostgREST syntax only (?status=eq.open&select=id,name&order=id.desc).
+    // A nestjsx parameter (filter, join, sort, s, fields, page, per_page, cache) gets a 400.
+    dialects: ['postgrest'],
     params: {
         id: {
             field: 'id',
@@ -53,12 +60,10 @@ const skipScope = (req: any) => {
         },
     },
     query: {
-        /**
-        * commenting out limit and pagination because of an issue with Crud lib: https://github.com/nestjsx/crud/issues/777
-        */
-        // TODO: make limit env driven?
-        limit: 5,
-        alwaysPaginate: true,
+        // The default page: a list with no limit returns at most this many
+        // rows. When more exist the answer is a 206 and its Content-Range
+        // header has the total (0-24/42). The largest limit is 100.
+        limit: 25,
         <% if (it.associations.length) { %>
             join: {
                 <% it.associations.forEach((assoc) => { %>
@@ -91,7 +96,7 @@ const skipScope = (req: any) => {
         ...nestedScope(req, '<%= s.fkField %>'),
 <% }) %>
     }),
-    persist: (req: any) => <% if (it.scopeOptions) { %>skipScope(req)<% if (!it.scopeOptions.injectOnCreate) { %> || scopeOperation(req) === 'create'<% } %> ? {} : <% } %>({
+    persist: (req: any) => <% if (it.scopeOptions) { %>skipScope(req) ? {} : <% } %>({
 <% it.crudAuth.forEach((s) => { %>
         <%= s.field %>: req.<%= s.contextKey %> ?? req.user?.<%= s.contextKey %> ?? req.auth?.<%= s.contextKey %> ?? req.auth?.workspaceId,
 <% }) %>
@@ -146,6 +151,9 @@ export class <%= it.ctrlName %> implements CrudController<<%= it.entityName %>>{
 
     @Override('getManyBase')
     @ApiOperation({ summary: 'Retrieve multiple <%= it.pluralEntityName %>' })
+<% if (it.mcp.includes('read')) { %>
+    @McpTool({ name: 'list_<%= it.mcpPluralName %>' })
+<% } %>
     getMany(
         @ParsedRequest() req: CrudRequest,
     ) {
@@ -154,6 +162,9 @@ export class <%= it.ctrlName %> implements CrudController<<%= it.entityName %>>{
 
     @Override('getOneBase')
     @ApiOperation({ summary: 'Retrieve a single <%= it.entityName %>' })
+<% if (it.mcp.includes('read')) { %>
+    @McpTool({ name: 'get_<%= it.mcpName %>', description: 'Get one <%= it.entityName %> by id.' })
+<% } %>
     get(
         @ParsedRequest() req: CrudRequest,
     ) {
@@ -180,6 +191,9 @@ export class <%= it.ctrlName %> implements CrudController<<%= it.entityName %>>{
         } */ %>
 
     })
+<% if (it.mcp.includes('create')) { %>
+    @McpTool({ name: 'create_<%= it.mcpName %>', description: 'Create a <%= it.entityName %>.' })
+<% } %>
     create(
         @ParsedRequest() req: CrudRequest,
         @Body() dto: <%= it.entityName %>Create,
@@ -198,6 +212,9 @@ export class <%= it.ctrlName %> implements CrudController<<%= it.entityName %>>{
 
     @Override('updateOneBase')
     @ApiOperation({ summary: 'Update a single <%= it.entityName %>' })
+<% if (it.mcp.includes('update')) { %>
+    @McpTool({ name: 'update_<%= it.mcpName %>', description: 'Update fields of one <%= it.entityName %> by id.' })
+<% } %>
     update(
         @ParsedRequest() req: CrudRequest,
         @Body() dto: <%= it.entityName %>Update,
@@ -216,6 +233,9 @@ export class <%= it.ctrlName %> implements CrudController<<%= it.entityName %>>{
 
     @Override('deleteOneBase')
     @ApiOperation({ summary: 'Delete a single <%= it.entityName %>' })
+<% if (it.mcp.includes('delete')) { %>
+    @McpTool({ name: 'delete_<%= it.mcpName %>', description: 'Delete one <%= it.entityName %> by id. This cannot be undone.' })
+<% } %>
     delete(
         @ParsedRequest() req: CrudRequest,
     ) {

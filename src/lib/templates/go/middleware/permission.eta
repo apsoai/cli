@@ -1,0 +1,174 @@
+<%~ includeFile('../header.eta', it) %>
+
+package middleware
+
+// PermissionMiddleware checks the role permissions from .apsorc on every route
+// of the /api group, after AuthMiddleware.
+//
+// A signed-in user may perform a guarded operation when any of these holds:
+//   - one of its roles is in the .apsorc default list
+//   - its token carries the permission (for example Auth0 RBAC "permissions")
+<% if (it.grants) { %>
+//   - a <%= it.grants.entity %> row grants the permission to one of its roles<% if (it.grants.tenantField) { %> in its
+//     tenant (or in every tenant, when <%= it.grants.tenantField %> is null)<% } %>
+
+<% } %>
+//
+// Grants only add access; they never take away a default. An operation that
+// is not listed is open to any authenticated caller. A service caller (valid
+// API key) is not limited by role. Every interface that calls this API (REST,
+// SDK, MCP) goes through this check.
+
+import (
+	"net/http"
+	"regexp"
+	"strings"
+
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
+)
+
+// permissionRule is a guarded operation: its permission name and the roles
+// that have it by default.
+type permissionRule struct {
+	permission string
+	roles      []string
+}
+
+// entityPermissions holds the guarded operations by route.
+var entityPermissions = map[string]map[string]permissionRule{
+<% it.routes.forEach((route) => { %>
+	<%~ JSON.stringify(route.path) %>: {
+<% route.rules.forEach((r) => { %>
+		<%~ JSON.stringify(r.op) %>: {<%~ JSON.stringify(r.permission) %>, []string{<%~ r.roles.map((x) => JSON.stringify(x)).join(', ') %>}},
+<% }) %>
+	},
+<% }) %>
+}
+
+// joinPermissions holds the read rules a join must satisfy, by relation name,
+// so a caller who cannot read an entity cannot read it through a join either.
+var joinPermissions = map[string][]permissionRule{
+<% it.joins.forEach((join) => { %>
+	<%~ JSON.stringify(join.name) %>: {
+<% join.rules.forEach((r) => { %>
+		{<%~ JSON.stringify(r.permission) %>, []string{<%~ r.roles.map((x) => JSON.stringify(x)).join(', ') %>}},
+<% }) %>
+	},
+<% }) %>
+}
+
+var permissionOperations = map[string]string{
+	http.MethodGet:    "read",
+	http.MethodHead:   "read",
+	http.MethodPost:   "create",
+	http.MethodPut:    "update",
+	http.MethodPatch:  "update",
+	http.MethodDelete: "delete",
+}
+
+// A relation embedded in a PostgREST select: rel(...), alias:rel!inner(...).
+var embedPattern = regexp.MustCompile(`([A-Za-z_]\w*)(?:![A-Za-z]+)?\(`)
+
+// joinedRelations lists every relation the query asks to load, under either
+// query dialect. ?join=Invoices loads the same relation as ?join=invoices, so
+// the first letter is lowered to the .apsorc name.
+func joinedRelations(c *gin.Context) []string {
+	q := c.Request.URL.Query()
+	raw := []string{}
+	for _, j := range q["join"] {
+		raw = append(raw, strings.Split(strings.SplitN(j, "||", 2)[0], ".")...)
+	}
+	for _, s := range q["select"] {
+		for _, m := range embedPattern.FindAllStringSubmatch(s, -1) {
+			raw = append(raw, m[1])
+		}
+	}
+	names := []string{}
+	for _, n := range raw {
+		if n = strings.TrimSpace(n); n != "" {
+			names = append(names, strings.ToLower(n[:1])+n[1:])
+		}
+	}
+	return names
+}
+
+// grantedPermissions returns the caller's permissions from its token<% if (it.grants) { %> and
+// its roles' <%= it.grants.entity %> rows. A failed query grants nothing<% } %>.
+func grantedPermissions(db *gorm.DB, a *AuthContext) map[string]bool {
+	granted := map[string]bool{}
+	for _, p := range a.Permissions {
+		granted[p] = true
+	}
+<% if (it.grants) { %>
+	if len(a.Roles) > 0 {
+		// ponytail: one query per guarded request; cache per role and tenant
+		// with a short TTL if this shows up in latency.
+		q := db.Table(<%~ JSON.stringify(it.grants.table) %>).Where(`"role" IN ?`, a.Roles)
+<% if (it.grants.tenantField) { %>
+		if a.WorkspaceID == "" {
+			q = q.Where(`"<%= it.grants.tenantField %>" IS NULL`)
+		} else {
+			q = q.Where(`("<%= it.grants.tenantField %>" IS NULL OR CAST("<%= it.grants.tenantField %>" AS text) = ?)`, a.WorkspaceID)
+		}
+<% } %>
+		var rows []string
+		if err := q.Pluck("permission", &rows).Error; err == nil {
+			for _, p := range rows {
+				granted[p] = true
+			}
+		}
+	}
+<% } %>
+	return granted
+}
+
+// PermissionMiddleware answers 403 unless the caller may perform the
+// operation. basePath is the path of the group the routes are registered on.
+func PermissionMiddleware(db *gorm.DB, basePath string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		a, ok := GetAuthContext(c)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Forbidden"})
+			return
+		}
+		if a.ServiceID != "" {
+			c.Next()
+			return
+		}
+		// Loaded once per request, and only when a default role does not decide.
+		var granted map[string]bool
+		allowed := func(r permissionRule) bool {
+			for _, have := range a.Roles {
+				for _, want := range r.roles {
+					if have == want {
+						return true
+					}
+				}
+			}
+			if granted == nil {
+				granted = grantedPermissions(db, a)
+			}
+			return granted[r.permission]
+		}
+		deny := func(r permissionRule) {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Missing permission " + r.permission})
+		}
+
+		rest := strings.TrimPrefix(strings.TrimPrefix(c.FullPath(), basePath), "/")
+		entity := strings.SplitN(rest, "/", 2)[0]
+		if r, ok := entityPermissions[entity][permissionOperations[c.Request.Method]]; ok && !allowed(r) {
+			deny(r)
+			return
+		}
+		for _, relation := range joinedRelations(c) {
+			for _, r := range joinPermissions[relation] {
+				if !allowed(r) {
+					deny(r)
+					return
+				}
+			}
+		}
+		c.Next()
+	}
+}

@@ -3,11 +3,8 @@ import inquirer from "inquirer";
 import BaseCommand from "../../lib/base-command";
 import { credentials, projectLink } from "../../lib/config";
 import { schemaApi } from "../../lib/api/services";
-import { parseApsorc } from "../../lib/apsorc-parser";
-import {
-  apsorcToServiceSchema,
-  computeSchemaHash,
-} from "../../lib/utils/schema-convert";
+import { parseApsorc, readApsorcFile } from "../../lib/apsorc-parser";
+import { computeSchemaHash } from "../../lib/utils/schema-convert";
 
 export default class SchemaPush extends BaseCommand {
   static description = "Push local schema to the platform";
@@ -39,16 +36,16 @@ export default class SchemaPush extends BaseCommand {
       this.error("Project not linked. Run 'apso link' first.");
     }
 
-    // Parse local schema
-    let parsed;
+    // Check the schema parses, then push the file as it is: the platform
+    // stores the .apsorc whole, so nothing in it is lost on the way.
+    let localSchema;
     try {
-      parsed = parseApsorc();
+      parseApsorc();
+      localSchema = readApsorcFile().apsorc;
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : String(error);
       this.error(`Failed to parse .apsorc: ${msg}`);
     }
-
-    const localSchema = apsorcToServiceSchema(parsed);
 
     // Check diff first
     const diff = await schemaApi.diff(
@@ -108,7 +105,7 @@ export default class SchemaPush extends BaseCommand {
 
     // Update sync metadata
     const localHash = computeSchemaHash(localSchema);
-    const remoteHash = computeSchemaHash(updatedSchema.entities);
+    const remoteHash = computeSchemaHash(updatedSchema ?? localSchema);
     projectLink.updateSyncMetadata({
       lastSyncedAt: new Date().toISOString(),
       localSchemaHash: localHash,
