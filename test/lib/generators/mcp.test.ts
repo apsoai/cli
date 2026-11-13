@@ -92,7 +92,7 @@ describe.each(["python", "go"] as const)("mcp in a %s service", (language) => {
     for (const name of names) expect(off).not.toContain(name);
   });
 
-  test("the endpoint is generated only when an entity opts in, and needs sign-in", async () => {
+  test("the endpoint is generated only when an entity opts in", async () => {
     const file = language === "python" ? "mcp.py" : "routes/mcp.go";
     const on = await generator(language, [invoice(true)]).generateGuards([invoice(true)], jwt, {});
     const endpoint = on.find((f) => f.path === file)!.content;
@@ -101,14 +101,54 @@ describe.each(["python", "go"] as const)("mcp in a %s service", (language) => {
     expect(endpoint).toContain(language === "python" ? '[p["issuer"] for p in _PROVIDERS]' : "https://issuer.example.com/");
     const off = await generator(language, [invoice()]).generateGuards([invoice()], jwt, {});
     expect(off.some((f) => f.path === file)).toBe(false);
-    await expect(generator(language, [invoice(true)]).generateGuards([invoice(true)], undefined, {})).rejects.toThrow(
-      "LineItem.mcp needs an auth block"
-    );
+    // mcp no longer needs an auth block in any language (apsoai/cli#232).
+    await expect(generator(language, [invoice(true)]).generateGuards([invoice(true)], undefined, {})).resolves.toBeDefined();
   });
 
   test("a token issued for the MCP endpoint's URL is an accepted audience", async () => {
     const files = await generator(language, [invoice(true)]).generateGuards([invoice(true)], jwt, {});
     expect(files.find((f) => /auth\.(py|go)$/.test(f.path))!.content).toContain("MCP_RESOURCE_URL");
+  });
+
+  // apsoai/cli#232: /mcp for signed-in users, /mcp/internal for service callers.
+  const addresses = async (auth?: AuthConfig) => {
+    const files = await generator(language, [invoice(true)]).generateGuards([invoice(true)], auth, {});
+    return {
+      endpoint: files.find((f) => f.path === (language === "python" ? "mcp.py" : "routes/mcp.go"))!.content,
+      auth: files.find((f) => /auth\.(py|go)$/.test(f.path))!.content,
+    };
+  };
+  // The lines that mount each address, and what the external one needs.
+  const internal = language === "python" ? "Route(MCP_PATH + INTERNAL, endpoint=Endpoint(INTERNAL))" : 'serve(mcpInternal, internalIssuer != "", "Authorization")';
+  const external = language === "python" ? 'Route(MCP_PATH, endpoint=Endpoint(""))' : 'serve("", true, "x-api-key", "x-apso-service-token")';
+  const issuers = language === "python" ? "_PROVIDERS" : "mcpIssuers";
+
+  test("with sign-in both addresses are served, each without the other's credential", async () => {
+    const { endpoint } = await addresses(jwt);
+    expect(endpoint).toContain(internal);
+    expect(endpoint).toContain(external);
+    // Python drops the headers an address does not read in one place; Go names them where it mounts the address.
+    if (language === "python")
+      expect(endpoint).toContain('self.ignored = {b"authorization"} if suffix else {b"x-api-key", b"x-apso-service-token"}');
+  });
+
+  test("with no auth block only the internal address is served", async () => {
+    const { endpoint } = await addresses();
+    expect(endpoint).toContain(internal);
+    expect(endpoint).not.toContain(external);
+    expect(endpoint).not.toContain(issuers);
+  });
+
+  test("the internal address names Apso sign-in only when the platform sets its issuer", async () => {
+    const { endpoint } = await addresses();
+    expect(endpoint).toContain("APSO_INTERNAL_AUTH_ISSUER");
+    expect(endpoint).toContain(language === "python" ? "if INTERNAL_ISSUER:" : 'if internalIssuer != "" {');
+  });
+
+  test("a gateway token for an Apso user (sub user:<id>) is a service caller, like one for a key", async () => {
+    const { auth } = await addresses();
+    expect(auth).toContain('"user:"');
+    expect(auth).toContain('"apikey:"');
   });
 });
 

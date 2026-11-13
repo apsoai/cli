@@ -904,7 +904,9 @@ ${modelRefs}
         }),
       });
     }
-    // The /mcp endpoint; cmd/main.go mounts it (see ensureGoMcpWiring).
+    // The MCP addresses; cmd/main.go mounts them (see ensureGoMcpWiring).
+    // The external one, /mcp, is served when there is an issuer to sign in
+    // with; /mcp/internal takes the API key.
     if (tools.length > 0)
       files.push({
         path: "routes/mcp.go",
