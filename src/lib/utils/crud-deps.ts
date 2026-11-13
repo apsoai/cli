@@ -89,8 +89,8 @@ export function addMissingDeps(
   return missing;
 }
 
-/** MCP library the generated controllers import when an entity sets `mcp`. 0.2.1 is the first that answers behind a Lambda adapter. */
-export const MCP_DEP: Record<string, string> = { "@apso/mcp": "^0.2.1" };
+/** MCP library the generated controllers import when an entity sets `mcp`. 0.3.0 is the first that serves /mcp/internal next to /mcp. */
+export const MCP_DEP: Record<string, string> = { "@apso/mcp": "^0.3.0" };
 
 const SWAGGER_SETUP = "SwaggerModule.setup('_docs', app, document);";
 
@@ -119,7 +119,7 @@ export function ensureMcpWiring(projectDir: string, rootFolder: string): string[
     "import { mountMcp } from '@apso/mcp';\n" +
       text.replace(
         SWAGGER_SETUP,
-        `${SWAGGER_SETUP}\n\n  // Serve the routes marked with @McpTool as MCP tools at /mcp.\n  mountMcp(app, document);`
+        `${SWAGGER_SETUP}\n\n  // Serve the routes marked with @McpTool as MCP tools: /mcp/internal for API keys, /mcp for signed-in users.\n  mountMcp(app, document);`
       )
   );
   return [...changed, relative];

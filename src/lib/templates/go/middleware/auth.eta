@@ -198,8 +198,10 @@ func chooseKeySource() *keySource {
 	return s
 }
 
-// keyID returns the key id from the gateway's token (sub "apikey:<id>"), or ""
-// when the token is not valid for this service.
+// keyID returns the caller from the gateway's token: the key id of sub
+// "apikey:<id>", or sub "user:<id>" as it is, an Apso sign-in the gateway
+// checked (it sends one for /mcp/internal only). It is "" when the token is
+// not valid for this service.
 func (s *keySource) keyID(token string) string {
 	if token == "" || s.issuer == "" || s.serviceID == "" {
 		return ""
@@ -217,6 +219,9 @@ func (s *keySource) keyID(token string) string {
 	)
 	if err != nil || !parsed.Valid {
 		return ""
+	}
+	if user, ok := strings.CutPrefix(claims.Subject, "user:"); ok && user != "" {
+		return claims.Subject
 	}
 	id, _ := strings.CutPrefix(claims.Subject, "apikey:")
 	if id == claims.Subject {

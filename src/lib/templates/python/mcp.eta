@@ -1,8 +1,19 @@
 <%~ includeFile('./header.eta', it) %>
 
 """
-MCP tools at /mcp (Streamable HTTP, stateless), served with the official MCP
-SDK for Python.
+MCP tools (Streamable HTTP, stateless), served with the official MCP SDK for
+Python at two addresses, one per audience:
+
+<% if (it.external) { %>
+- /mcp, the external address, for your end users. It takes a signed-in user's
+  token in Authorization: Bearer and nothing else: an API key is not read here.
+<% } else { %>
+- /mcp, the external address, for your end users, is not served: .apsorc has
+  no auth block to sign them in with.
+<% } %>
+- /mcp/internal, for your own team, agents and scripts. It takes the service's
+  API key (the same key source as the REST routes) and nothing else: the
+  Authorization header is not read here. The caller is a service caller.
 
 A tool is a route. A route is marked with openapi_extra=mcp_tool(...), and its
 input schema comes from its OpenAPI operation: path and query parameters are
@@ -11,16 +22,25 @@ a tool, the request is sent through this app in memory with the caller's
 headers, so authentication, permissions and tenant scoping run exactly as they
 do for a REST caller. Tools never call a service or the database.
 
-Every request to /mcp passes the service's own auth check first. A request
-with no valid credential gets the 401 that starts OAuth sign-in in an MCP
-client, and /.well-known/oauth-protected-resource names the identity provider
-(RFC 9728).
+Every request passes the service's own auth check first, on the credential
+its address reads. A request with no valid credential gets a 401.
+<% if (it.external) { %>
+On /mcp that 401 starts OAuth sign-in in an MCP client, and
+/.well-known/oauth-protected-resource names the identity provider (RFC 9728).
+<% } %>
+
+When APSO_INTERNAL_AUTH_ISSUER is set (the platform sets it), the 401 on
+/mcp/internal starts an Apso sign-in the same way, and
+/.well-known/oauth-protected-resource/mcp/internal names that issuer. The
+platform's gateway turns the Apso token into the service token this service
+checks.
 
 Mark your own routes the same way:
 
     @router.post("/{id}/approve", openapi_extra=mcp_tool("approve_invoice", "Approve an invoice."))
 """
 import json
+import os
 import re
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
@@ -35,11 +55,16 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from .auth import MCP_RESOURCE, _PROVIDERS, require_auth
+from .auth import <% if (it.external) { %>_PROVIDERS, <% } %>require_auth
 
 MCP_PATH = "/mcp"
+INTERNAL = "/internal"
 MCP_EXTENSION = "x-mcp-tool"
 PRM_PATH = "/.well-known/oauth-protected-resource"
+# The public URL of the external address; the internal one is this + /internal.
+MCP_RESOURCE = os.getenv("MCP_RESOURCE_URL") or ""
+# Where an MCP client signs in to Apso for the internal address.
+INTERNAL_ISSUER = os.getenv("APSO_INTERNAL_AUTH_ISSUER") or ""
 
 # Headers that describe the MCP request itself, not the caller. Everything
 # else (authorization, cookie, x-api-key, ...) is forwarded to the route.
@@ -184,22 +209,22 @@ async def _call_tool(app: FastAPI, tool: dict, args: Dict[str, Any], caller_head
     return _text(response.text or f"HTTP {response.status_code}", response.status_code >= 400)
 
 
-def _resource_url(request: Request) -> str:
-    """The MCP endpoint's public URL: MCP_RESOURCE_URL, else what the request used."""
+def _resource_url(request: Request, suffix: str = "") -> str:
+    """An MCP address's public URL: from MCP_RESOURCE_URL, else from what the request used."""
     if MCP_RESOURCE:
-        return MCP_RESOURCE.rstrip("/")
+        return MCP_RESOURCE.rstrip("/") + suffix
     proto = request.headers.get("x-forwarded-proto", request.url.scheme).split(",")[0].strip()
     host = request.headers.get("x-forwarded-host", request.headers.get("host", "localhost")).split(",")[0].strip()
-    return f"{proto}://{host}{MCP_PATH}"
+    return f"{proto}://{host}{MCP_PATH}{suffix}"
 
 
-def _metadata_url(request: Request) -> str:
-    resource = urlsplit(_resource_url(request))
+def _metadata_url(request: Request, suffix: str = "") -> str:
+    resource = urlsplit(_resource_url(request, suffix))
     return f"{resource.scheme}://{resource.netloc}{PRM_PATH}{resource.path}"
 
 
 def mount_mcp(app: FastAPI) -> None:
-    """Serve the routes marked with mcp_tool as MCP tools at POST /mcp. Call it after the routers are included."""
+    """Serve the routes marked with mcp_tool as MCP tools. Call it after the routers are included."""
     tools: Dict[str, dict] = {}
 
     async def list_tools(ctx: Any, params: Any) -> types.ListToolsResult:
@@ -228,48 +253,67 @@ def mount_mcp(app: FastAPI) -> None:
     manager = StreamableHTTPSessionManager(app=server, stateless=True, json_response=True)
 
     class Endpoint:
+        """One MCP address: /mcp (suffix "") or /mcp/internal."""
+
+        def __init__(self, suffix: str) -> None:
+            self.suffix = suffix
+            # The credential this address does not read: a user's token on the
+            # internal one, a key on the external one. It is dropped before the
+            # auth check, so a tool's route never sees it either.
+            self.ignored = {b"authorization"} if suffix else {b"x-api-key", b"x-apso-service-token"}
+
         async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+            sent_token = any(h[0].lower() == b"authorization" for h in scope["headers"])
+            scope = {**scope, "headers": [h for h in scope["headers"] if h[0].lower() not in self.ignored]}
             request = Request(scope, receive)
             if request.method != "POST":
                 await Response(status_code=405, headers={"allow": "POST"})(scope, receive, send)
                 return
             try:
-                # The same check every /api route runs: API key, then the user's token.
+                # The same check every /api route runs, on what is left: only a
+                # key can pass on the internal address, only a user's token on the external one.
                 await require_auth(request, Response())
             except HTTPException as e:
                 headers = dict(e.headers or {})
-                presents_key = "x-api-key" in request.headers or "x-apso-service-token" in request.headers
-                if e.status_code == 401 and not presents_key:
+                if e.status_code == 401 and (INTERNAL_ISSUER or not self.suffix):
                     # The 401 is what starts sign-in: it points the client at the metadata.
-                    challenge = f'Bearer resource_metadata="{_metadata_url(request)}"'
-                    if "authorization" in request.headers:
+                    challenge = f'Bearer resource_metadata="{_metadata_url(request, self.suffix)}"'
+                    if sent_token:
                         challenge += ', error="invalid_token"'
                     headers["www-authenticate"] = challenge
                 await JSONResponse({"detail": e.detail}, status_code=e.status_code, headers=headers)(scope, receive, send)
                 return
             await manager.handle_request(scope, receive, send)
 
-    async def metadata(request: Request) -> Response:
-        # Tells an MCP client where to sign in. Public by design, and readable
-        # from a browser-based client on another origin.
-        return JSONResponse(
-            {
-                "resource": _resource_url(request),
-                # Every provider's issuer, in .apsorc order. For Better Auth that
-                # is its base URL, the issuer of its OAuth access tokens.
-                "authorization_servers": [p["issuer"] for p in _PROVIDERS],
-                "bearer_methods_supported": ["header"],
-            },
-            headers={"access-control-allow-origin": "*", "cache-control": "max-age=300"},
-        )
+    def metadata(suffix: str, issuers: List[str]) -> Any:
+        async def document(request: Request) -> Response:
+            # Tells an MCP client where to sign in. Public by design, and readable
+            # from a browser-based client on another origin.
+            return JSONResponse(
+                {
+                    "resource": _resource_url(request, suffix),
+                    "authorization_servers": issuers,
+                    "bearer_methods_supported": ["header"],
+                },
+                headers={"access-control-allow-origin": "*", "cache-control": "max-age=300"},
+            )
 
-    app.router.routes.extend(
-        [
-            Route(MCP_PATH, endpoint=Endpoint()),
-            Route(PRM_PATH, metadata, methods=["GET"]),
-            Route(PRM_PATH + MCP_PATH, metadata, methods=["GET"]),
-        ]
-    )
+        return document
+
+    routes = [Route(MCP_PATH + INTERNAL, endpoint=Endpoint(INTERNAL))]
+    if INTERNAL_ISSUER:
+        routes.append(Route(PRM_PATH + MCP_PATH + INTERNAL, metadata(INTERNAL, [INTERNAL_ISSUER]), methods=["GET"]))
+<% if (it.external) { %>
+    # Every provider's issuer, in .apsorc order. For Better Auth that is its
+    # base URL, the issuer of its OAuth access tokens.
+    external = metadata("", [p["issuer"] for p in _PROVIDERS])
+    routes += [
+        Route(MCP_PATH, endpoint=Endpoint("")),
+        Route(PRM_PATH, external, methods=["GET"]),
+        Route(PRM_PATH + MCP_PATH, external, methods=["GET"]),
+    ]
+<% } %>
+    app.router.routes.extend(routes)
 
     inner = app.router.lifespan_context
 

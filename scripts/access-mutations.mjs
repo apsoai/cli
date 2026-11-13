@@ -330,6 +330,30 @@ export const MUTATIONS = [
     python: [["app/autogen/mcp.py", /await require_auth\(request, Response\(\)\)/, "pass"]],
     go: [["autogen/routes/mcp.go", /middleware\.AuthMiddleware\(nil\),/, "func(c *gin.Context) { _ = middleware.AuthMiddleware; c.Next() },"]],
   },
+  {
+    id: "mcp-internal-check",
+    removes: "the service caller check on the internal MCP address",
+    rules: ["R29"],
+    legs: ["no-auth"],
+    typescript: [[TS.key, /verify: \(request: any\) => guard\.authenticateInternal\(request\),/, "verify: async () => ({}),"]],
+  },
+  {
+    id: "mcp-external-key",
+    removes: "the removal of API key headers from a tool call on the external MCP address",
+    rules: ["R29"],
+    legs: ["jwt"],
+    typescript: [[TS.key, /ignoredHeaders: \["x-api-key", "x-apso-service-token"\],/, ""]],
+    python: [["app/autogen/mcp.py", / else \{b"x-api-key", b"x-apso-service-token"\}/, " else set()"]],
+    go: [["autogen/routes/mcp.go", /serve\("", true, "x-api-key", "x-apso-service-token"\)/, 'serve("", true)']],
+  },
+  {
+    id: "mcp-internal-user-token",
+    removes: "the removal of the Authorization header on the internal MCP address (a user's token becomes a credential there)",
+    rules: ["R29"],
+    legs: ["jwt"],
+    python: [["app/autogen/mcp.py", /\{b"authorization"\} if suffix else/, "set() if suffix else"]],
+    go: [["autogen/routes/mcp.go", /serve\(mcpInternal, internalIssuer != "", "Authorization"\)/, 'serve(mcpInternal, internalIssuer != "")']],
+  },
 ];
 
 /** Rules with no removal, and why. A rule marked enforced must be here or in MUTATIONS. */
