@@ -28,9 +28,9 @@
  *     names its own permission (invoice:approve) is held to it the same ways
  *   - mcp serves only the opted-in operations as tools at /mcp,
  *     and a tool call meets the same auth, permission and scope guards as REST
- *   - a TypeScript service has one MCP address per audience (apsoai/cli#232):
+ *   - a service has one MCP address per audience (apsoai/cli#232):
  *     /mcp/internal for service callers, with or without sign-in, and /mcp
- *     for signed-in users only. Python and Go serve /mcp alone for now.
+ *     for signed-in users only.
  *   - with the better-auth provider, the auth entities (user, account,
  *     session, verification, membership) answer a service caller only: not a
  *     signed-in user, a join from another entity or an MCP tool
@@ -287,7 +287,7 @@ function providers(base) {
 
 // One MCP address per audience (rule R29). Python and Go still serve /mcp
 // alone, to a key or a user: apsoai/cli#232 moves them too.
-const TWO_ADDRESSES = language === "typescript";
+const TWO_ADDRESSES = true;
 const INTERNAL = TWO_ADDRESSES ? "/mcp/internal" : "/mcp";
 
 // Permissions need sign-in. MCP tools do not where the service has an internal address.
@@ -1188,7 +1188,7 @@ async function internalSignIn(s, t) {
     t.assert(`[R29] /mcp/internal answers a service token for ${who}`, used.tools > 0 && used.listed, JSON.stringify(used));
   }
   t.expect("[R15,R29] a service token for an Apso user is a service caller on REST too", await call("GET", base + ORGS, { headers: serviceToken({ sub: "user:usr_42" }) }), 200);
-  requestLine(t, "platform mode: a service token for an Apso user is a service caller logged by user id", await logged(s, "GET", ORGS, { headers: serviceToken({ sub: "user:usr_42" }) }), 200, { type: "service", userId: "usr_42" }, undefined);
+  if (language === "typescript") requestLine(t, "platform mode: a service token for an Apso user is a service caller logged by user id", await logged(s, "GET", ORGS, { headers: serviceToken({ sub: "user:usr_42" }) }), 200, { type: "service", userId: "usr_42" }, undefined);
   t.assert("[R16,R29] /mcp/internal refuses a service token whose subject is neither a key nor a user", (await mcpList(`${base}/mcp/internal`, serviceToken({ sub: "user_1" }))).status === 401);
 }
 

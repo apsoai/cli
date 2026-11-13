@@ -207,7 +207,7 @@
       "id": "R29",
       "group": "MCP",
       "rule": "MCP tools have one address per audience. `/mcp/internal` exists whenever an entity has `mcp`, with or without sign-in, and answers service callers only: an API key, or the gateway's service token for a key or an Apso user. A user token is not a credential there. `/mcp` exists only when sign-in is configured and answers signed-in users only: an API key or a service token is not a credential there and does not reach the route a tool calls.",
-      "status": { "typescript": "enforced", "python": "pending", "go": "pending" },
+      "status": { "typescript": "enforced", "python": "enforced", "go": "enforced" },
       "issue": "apsoai/cli#232"
     }
   ]

@@ -87,7 +87,7 @@ An entity with `mcp` in `.apsorc` is served as MCP tools. A TypeScript service h
 
 The generated guard holds both checks (`authenticate` and `authenticateInternal` in `guards/key.guard.ts`) and hands them to `@apso/mcp` 0.3.0 or later, which serves the two addresses.
 
-Python and Go services still serve `/mcp` alone, to a key or a user, and R29 is `pending` for them. `apso generate` no longer refuses `mcp` without an `auth` block in any language.
+Python and Go services serve the same two addresses with the same rules, in their own MCP module. `apso generate` no longer refuses `mcp` without an `auth` block in any language.
 
 ## Running it
 

@@ -343,6 +343,16 @@ export const MUTATIONS = [
     rules: ["R29"],
     legs: ["jwt"],
     typescript: [[TS.key, /ignoredHeaders: \["x-api-key", "x-apso-service-token"\],/, ""]],
+    python: [["app/autogen/mcp.py", / else \{b"x-api-key", b"x-apso-service-token"\}/, " else set()"]],
+    go: [["autogen/routes/mcp.go", /serve\("", true, "x-api-key", "x-apso-service-token"\)/, 'serve("", true)']],
+  },
+  {
+    id: "mcp-internal-user-token",
+    removes: "the removal of the Authorization header on the internal MCP address (a user's token becomes a credential there)",
+    rules: ["R29"],
+    legs: ["jwt"],
+    python: [["app/autogen/mcp.py", /\{b"authorization"\} if suffix else/, "set() if suffix else"]],
+    go: [["autogen/routes/mcp.go", /serve\(mcpInternal, internalIssuer != "", "Authorization"\)/, 'serve(mcpInternal, internalIssuer != "")']],
   },
 ];
 
