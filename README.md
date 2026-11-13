@@ -134,6 +134,26 @@ curl -i -H "x-api-key: $APSO_API_KEY" -H "Prefer: count=exact" "http://localhost
 
 The full list of what is supported and what is refused is in the `@apso/crud` package, in `docs/DIALECTS.md`. Python and Go services accept this syntax and, for now, the nestjsx syntax as well.
 
+## MCP tools on a generated API
+
+Add `mcp` to an entity in `.apsorc` and its routes are served as MCP tools. `"mcp": true` exposes read, create, update and delete. A list such as `["read"]` exposes only those.
+
+A TypeScript service has two MCP addresses:
+
+| Address | Who it is for | Credential |
+|---------|---------------|------------|
+| `/mcp/internal` | Your team, agents and scripts | The service's API key in `x-api-key` |
+| `/mcp` | Your app's end users | A token from the sign-in provider in the `auth` block |
+
+- `/mcp/internal` exists whenever an entity has `mcp`. It does not need an `auth` block. A caller there is a service caller: every tool, no tenant scope.
+- `/mcp` exists only when `.apsorc` has an `auth` block. A caller there is the signed-in user, under the same scope and permission rules as REST. An API key is not accepted there.
+
+```bash
+claude mcp add --transport http my-api http://localhost:3000/mcp/internal --header "x-api-key: $APSO_API_KEY"
+```
+
+Set `MCP_RESOURCE_URL` to the public URL of `/mcp` when the service runs behind a proxy. Details are in [docs/access-rules.md](docs/access-rules.md#mcp-addresses). Python and Go services serve `/mcp` alone for now.
+
 ## Commands
 
 | Command | Subcommands | Description |

@@ -67,6 +67,28 @@ MCP list tools go through the same routes. The suite checks that a list tool ref
 
 A new case that sends a query needs a PostgREST form. Add a nestjsx form beside it, marked with `nx(...)`, only while Python and Go still accept that syntax.
 
+## MCP addresses
+
+An entity with `mcp` in `.apsorc` is served as MCP tools. A TypeScript service has one address per audience (R29, [apsoai/cli#232](https://github.com/apsoai/cli/issues/232)). `B` is the service's public base URL.
+
+| | External, `B/mcp` | Internal, `B/mcp/internal` |
+|---|---|---|
+| For | The app's end users | The owner's team, agents and scripts |
+| Credential | `Authorization: Bearer <token>` from a sign-in provider in the `auth` block | The service's API key in `x-api-key`, or the platform gateway's `x-apso-service-token` |
+| Caller | The signed-in user, under scope and permission rules | A service caller: every tool, no tenant scope, no role check |
+| Exists when | `.apsorc` has an `auth` block | Always. `mcp` does not need an `auth` block |
+
+- `/mcp` never makes a caller a service caller. A key or a service token sent there is not checked, and it is not passed on to the route a tool calls.
+- `/mcp/internal` uses the key source the REST routes use (R14). The `Authorization` header is not read there.
+- The gateway's service token names an API key (`sub` is `apikey:<key id>`) or a member of the Apso workspace who signed in to the internal address (`sub` is `user:<Apso user id>`). Both are service callers, on the REST routes too. The request log's caller is `{ type: 'service', keyId }` or `{ type: 'service', userId }`.
+- A refused request gets 401. On `/mcp` the 401 carries `WWW-Authenticate: Bearer resource_metadata="B/.well-known/oauth-protected-resource/mcp"`, and that document (also served at `B/.well-known/oauth-protected-resource`) names the sign-in provider.
+- On `/mcp/internal` the 401 carries a challenge only when `APSO_INTERNAL_AUTH_ISSUER` is set, which the Apso platform does. Then `B/.well-known/oauth-protected-resource/mcp/internal` names that issuer. Without the variable the document is not served.
+- `MCP_RESOURCE_URL` is the public URL of `/mcp`. The internal address is that value plus `/internal`. With it unset both are built from the request's host.
+
+The generated guard holds both checks (`authenticate` and `authenticateInternal` in `guards/key.guard.ts`) and hands them to `@apso/mcp` 0.3.0 or later, which serves the two addresses.
+
+Python and Go services still serve `/mcp` alone, to a key or a user, and R29 is `pending` for them. `apso generate` no longer refuses `mcp` without an `auth` block in any language.
+
 ## Running it
 
 ```bash

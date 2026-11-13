@@ -330,6 +330,20 @@ export const MUTATIONS = [
     python: [["app/autogen/mcp.py", /await require_auth\(request, Response\(\)\)/, "pass"]],
     go: [["autogen/routes/mcp.go", /middleware\.AuthMiddleware\(nil\),/, "func(c *gin.Context) { _ = middleware.AuthMiddleware; c.Next() },"]],
   },
+  {
+    id: "mcp-internal-check",
+    removes: "the service caller check on the internal MCP address",
+    rules: ["R29"],
+    legs: ["no-auth"],
+    typescript: [[TS.key, /verify: \(request: any\) => guard\.authenticateInternal\(request\),/, "verify: async () => ({}),"]],
+  },
+  {
+    id: "mcp-external-key",
+    removes: "the removal of API key headers from a tool call on the external MCP address",
+    rules: ["R29"],
+    legs: ["jwt"],
+    typescript: [[TS.key, /ignoredHeaders: \["x-api-key", "x-apso-service-token"\],/, ""]],
+  },
 ];
 
 /** Rules with no removal, and why. A rule marked enforced must be here or in MUTATIONS. */

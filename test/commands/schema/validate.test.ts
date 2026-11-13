@@ -120,19 +120,15 @@ describe("apso schema validate: the rules apso generate enforces", () => {
         expect.stringContaining("Invoice.mcp must be true or a list of"),
       ]);
     });
-    test("mcp with no auth block fails", async () => {
-      expect(await check({ invoice: { mcp: true } })).toEqual([
-        expect.stringContaining("Invoice.mcp needs an auth block"),
-      ]);
+    test("mcp with no auth block passes: the tools are served to service callers only", async () => {
+      expect(await check({ invoice: { mcp: true } })).toEqual([]);
     });
-    test("mcp passes in Python and Go, and needs sign-in there too", async () => {
+    test("mcp passes in Python and Go, with or without sign-in", async () => {
       for (const language of ["python", "go"] as TargetLanguage[]) {
         // eslint-disable-next-line no-await-in-loop -- each language is checked in turn
         expect(await check({ auth: JWT, invoice: { mcp: true } }, language)).toEqual([]);
         // eslint-disable-next-line no-await-in-loop -- each language is checked in turn
-        expect(await check({ invoice: { mcp: true } }, language)).toEqual([
-          expect.stringContaining("Invoice.mcp needs an auth block"),
-        ]);
+        expect(await check({ invoice: { mcp: true } }, language)).toEqual([]);
       }
     });
   });

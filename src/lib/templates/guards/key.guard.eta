@@ -15,6 +15,9 @@
  * A caller with a valid key is a service caller (request.auth.serviceId): it
  * may call any route, is not tenant-scoped and skips role permission checks.
  * A request whose key fails is refused, whatever else it carries.
+ * The gateway's token names an API key (sub "apikey:<id>") or, for a member
+ * of the Apso workspace signed in to /mcp/internal, that user (sub
+ * "user:<id>"). Both are service callers.
  *
  * For logging, the guards record who is calling on request.apso.caller and
  * why a request was refused on request.apso.denied.
@@ -53,7 +56,10 @@ export const Public =
 
 /** What request.auth holds for a caller that presented a valid API key. */
 export interface ServiceCaller {
-  /** The key's id: from the platform, or the first 8 hex digits of its SHA-256. */
+  /**
+   * The key's id: from the platform, or the first 8 hex digits of its SHA-256.
+   * For an Apso user the gateway vouches for, "user:<Apso user id>".
+   */
   serviceId: string;
   roles: string[];
   permissions: string[];
@@ -164,14 +170,31 @@ export class ApiKeyGuard implements CanActivate {
     this.refuse(request, NO_SOURCE, 'no key source');
 <% } %>
   }
-<% if (it.mcpAuth) { %>
+<% if (it.mcp) { %>
 
-  /** The same check for a request outside the guard chain (the /mcp endpoint). */
-  async authenticate(request: any): Promise<unknown> {
+  /**
+   * The check on /mcp/internal: service callers only, through the same key
+   * source as the REST routes. A user's token is not a credential there.
+   */
+  async authenticateInternal(request: any): Promise<unknown> {
     this.requestId(request);
     if (await this.serviceCaller(request)) {
       return request.auth;
     }
+    if (this.keys.length > 0 || this.jwks) {
+      this.refuse(request, NO_CREDENTIAL, 'no credential');
+    }
+    this.refuse(request, NO_SOURCE, 'no key source');
+  }
+<% } %>
+<% if (it.mcpAuth) { %>
+
+  /**
+   * The check on /mcp: a signed-in user's token only. An API key or a service
+   * token is not a credential there and never makes the caller a service caller.
+   */
+  async authenticate(request: any): Promise<unknown> {
+    this.requestId(request);
     const auth = await this.authGuard.authenticate(request);
     this.userCaller(request);
     return auth;
@@ -199,6 +222,8 @@ export class ApiKeyGuard implements CanActivate {
   private async serviceCaller(request: any): Promise<boolean> {
     const key = request.headers['x-api-key'];
     let serviceId: string | undefined;
+    // Set when the gateway's token names an Apso user instead of a key.
+    let userId: string | undefined;
     if (this.keys.length > 0) {
       if (!key) return false;
       const digest = sha256(String(key));
@@ -209,20 +234,25 @@ export class ApiKeyGuard implements CanActivate {
     } else if (this.jwks) {
       const token = request.headers['x-apso-service-token'];
       if (!key && !token) return false;
-      serviceId = token ? await this.verifyServiceToken(String(token)) : undefined;
-      if (!serviceId) this.refuse(request, NO_SERVICE_TOKEN, 'no valid service token');
+      const sub = token ? await this.verifyServiceToken(String(token)) : undefined;
+      if (!sub) this.refuse(request, NO_SERVICE_TOKEN, 'no valid service token');
+      if (sub.startsWith('user:')) userId = sub.slice('user:'.length);
+      serviceId = userId ? sub : sub.slice('apikey:'.length);
     } else {
       if (!key) return false;
       this.refuse(request, KEYS_OFF, 'api keys are off');
     }
     const caller: ServiceCaller = { serviceId: serviceId as string, roles: [], permissions: [] };
     request.auth = caller;
-    // The key's id, never the key.
-    request.apso = { ...request.apso, caller: { type: 'service', keyId: caller.serviceId } };
+    // The key's id, never the key. An Apso user the gateway vouches for is logged by user id.
+    request.apso = { ...request.apso, caller: { type: 'service', ...(userId ? { userId } : { keyId: caller.serviceId }) } };
     return true;
   }
 
-  /** The key id from the gateway's token (sub "apikey:<id>"), when the token is valid for this service. */
+  /**
+   * Who the gateway's token names (its sub, "apikey:<key id>" or
+   * "user:<Apso user id>"), when the token is valid for this service.
+   */
   private async verifyServiceToken(token: string): Promise<string | undefined> {
     if (!this.jwks || !this.issuer || !this.serviceId) return undefined;
     try {
@@ -232,8 +262,8 @@ export class ApiKeyGuard implements CanActivate {
         algorithms: ['ES256'],
         requiredClaims: ['exp', 'sub'],
       });
-      const id = /^apikey:(.+)$/.exec(payload.sub as string)?.[1];
-      return id;
+      const sub = payload.sub as string;
+      return /^(apikey|user):.+$/.test(sub) ? sub : undefined;
     } catch {
       return undefined;
     }
@@ -262,18 +292,40 @@ export class ApiKeyGuard implements CanActivate {
     });
   }
 }
+<% if (it.mcp) { %>
+
+/**
+ * The internal MCP address, /mcp/internal, for the service's own team, agents
+ * and scripts (@apso/mcp reads this under its MCP_INTERNAL_AUTH token). It
+ * takes service callers only. When APSO_INTERNAL_AUTH_ISSUER is set (the Apso
+ * platform sets it), a refused client is pointed at Apso sign-in, and the
+ * platform's gateway turns that sign-in into a service token.
+ */
+export const McpInternalAuthProvider = {
+  provide: 'APSO_MCP_INTERNAL_AUTH',
+  inject: [ApiKeyGuard],
+  useFactory: (guard: ApiKeyGuard) => ({
+    authorizationServers: process.env.APSO_INTERNAL_AUTH_ISSUER ? [process.env.APSO_INTERNAL_AUTH_ISSUER] : [],
+    resource: process.env.MCP_RESOURCE_URL ? `${process.env.MCP_RESOURCE_URL.replace(/\/$/, '')}/internal` : undefined,
+    ignoredHeaders: ['authorization'],
+    verify: (request: any) => guard.authenticateInternal(request),
+  }),
+};
+<% } %>
 <% if (it.mcpAuth) { %>
 
 /**
- * Sign-in settings @apso/mcp reads (its MCP_AUTH token). An MCP client that
- * calls /mcp without a valid token or key is pointed at the identity
- * provider, and every MCP request meets the same check as the REST API.
+ * The external MCP address, /mcp, for the app's end users (@apso/mcp reads
+ * this under its MCP_AUTH token). An MCP client that calls it without a valid
+ * user token is pointed at the identity provider. A key is ignored there and
+ * is not passed on to the route a tool calls.
  */
 export const McpAuthProvider = {
   provide: 'APSO_MCP_AUTH',
   inject: [ApiKeyGuard],
   useFactory: (guard: ApiKeyGuard) => ({
     ...MCP_SIGN_IN,
+    ignoredHeaders: ['x-api-key', 'x-apso-service-token'],
     verify: (request: any) => guard.authenticate(request),
   }),
 };
