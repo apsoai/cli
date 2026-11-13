@@ -368,7 +368,7 @@ export default class Generate extends BaseCommand {
       const wired = ensureMcpWiring(process.cwd(), rootFolder);
       if (wired.length > 0)
         console.log(
-          `[apso] Set up MCP tools at /mcp (updated ${wired.join(", ")}). Run npm install before building.`
+          `[apso] Set up MCP tools at /mcp/internal for API keys, and at /mcp for signed-in users when .apsorc has an auth block (updated ${wired.join(", ")}). Run npm install before building.`
         );
     }
 

@@ -224,7 +224,9 @@ describe("the API key check built into every service", () => {
     const module = files.find((f) => f.path === "guards/guards.module.ts")!.content;
     expect(module).toContain("useExisting: ApiKeyGuard");
     const guard = files.find((f) => f.path === "guards/key.guard.ts")!.content;
-    expect(guard).toContain("caller: { type: 'service', keyId: caller.serviceId }");
+    // A key caller is logged by key id, an Apso user the gateway vouches for by user id.
+    expect(guard).toContain("caller: { type: 'service', ...(userId ? { userId } : { keyId: caller.serviceId }) }");
+    expect(guard).toContain("/^(apikey|user):.+$/");
     expect(guard).toContain("request.apso = { ...request.apso, denied }");
     expect(guard).toContain("export const Public");
   });

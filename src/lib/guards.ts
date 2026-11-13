@@ -254,15 +254,12 @@ export const authEntityRoutes = (entities: Entity[], auth?: AuthConfig): string[
 /**
  * An entity's MCP operations and the names its tools get, the same in every
  * language: list_line_items, get_line_item, create_line_item and so on.
+ * `mcp` does not need an auth block: without one the tools are served to
+ * service callers only. The second argument is no longer read.
  */
-export function mcpToolNames(entity: Entity, auth?: AuthConfig) {
-  const mcp = mcpOperations(entity);
-  if (mcp.length > 0 && !auth)
-    throw new Error(
-      `${entity.name}.mcp needs an auth block in .apsorc: MCP tools act as the signed-in caller`
-    );
+export function mcpToolNames(entity: Entity, _auth?: AuthConfig) {
   return {
-    mcp,
+    mcp: mcpOperations(entity),
     mcpName: snakeCase(entity.name),
     mcpPluralName: snakeCase(pluralize(entity.name)),
   };
