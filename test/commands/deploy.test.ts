@@ -93,6 +93,23 @@ describe("deploy migration gating", () => {
   });
 });
 
+/** A command stand-in that records which commands it ran. */
+const fakeCommand = () => {
+  const ran: string[] = [];
+  return {
+    ran,
+    log: jest.fn(),
+    error: jest.fn((msg: string) => {
+      throw new Error(msg);
+    }) as never,
+    config: {
+      runCommand: jest.fn(async (id: string) => {
+        ran.push(id);
+      }),
+    },
+  };
+};
+
 describe("deploy signs you in when you aren't", () => {
   const ci = process.env.CI;
   afterEach(() => {
@@ -100,22 +117,6 @@ describe("deploy signs you in when you aren't", () => {
     if (ci === undefined) delete process.env.CI;
     else process.env.CI = ci;
   });
-  const fakeCommand = () => {
-    const ran: string[] = [];
-    return {
-      ran,
-      log: jest.fn(),
-      error: jest.fn((msg: string) => {
-        throw new Error(msg);
-      }) as never,
-      config: {
-        runCommand: jest.fn(async (id: string) => {
-          ran.push(id);
-        }),
-      },
-    };
-  };
-
   test("signed in: deploy goes straight on", async () => {
     jest.spyOn(credentials, "isValid").mockReturnValue(true);
     const cmd = fakeCommand();
