@@ -553,7 +553,7 @@ describe("guard regeneration (cli#129)", () => {
         scopeBy: "workspaceId",
       },
     ];
-    const auth = { provider: "better-auth" as const };
+    const auth = { provider: "better-auth" as const, url: "https://app.example.com/api/auth" };
 
     const first = await generator.generateGuards(entities, auth);
     await new Promise((resolve) => {
@@ -563,5 +563,48 @@ describe("guard regeneration (cli#129)", () => {
 
     expect(first.map((f) => f.path)).toContain("guards/auth.guard.ts");
     expect(second).toEqual(first);
+  });
+  test("a OneToOne FK column in uniques/indexes names the relation property", async () => {
+    const workspace: Entity = { name: "Workspace", fields: [{ name: "name", type: "text" }] };
+    const setting: Entity = {
+      name: "Setting",
+      fields: [{ name: "tz", type: "text" }],
+      uniques: [{ fields: ["workspaceId", "tz"] }],
+      indexes: [{ fields: ["workspaceId"] }],
+    };
+    const files = await new TypeScriptGenerator(createConfig([workspace, setting])).generateEntity({
+      entity: setting,
+      relationships: [{ name: "Workspace", type: "OneToOne", join: true, referenceName: "Workspace" }],
+      allEntities: [workspace, setting],
+      apiType: "rest",
+    });
+    const content = findFileContent(files, "Setting.entity");
+    // TypeORM has no "workspaceId" property here; "workspace" resolves to its join column.
+    expect(content).toContain('@Unique(["workspace", "tz"])');
+    expect(content).toContain('@Index(["workspace"])');
+  });
+});
+
+describe("array element types", () => {
+  test("an integer or boolean elementType gives number[] or boolean[]", async () => {
+    const entity: Entity = {
+      name: "Email",
+      fields: [
+        { name: "to", type: "array" },
+        { name: "ids", type: "array", elementType: "integer" },
+        { name: "flags", type: "array", elementType: "boolean" },
+      ],
+    };
+    const generator = new TypeScriptGenerator(createConfig([entity]));
+    const options = { entity, relationships: [], allEntities: [entity], apiType: "rest" };
+    const files = [
+      ...(await generator.generateEntity(options)),
+      ...(await generator.generateDto(options)),
+    ];
+    const entityFile = findFileContent(files, "Email.entity")!;
+    expect(entityFile).toContain("to: string[];");
+    expect(entityFile).toContain("ids: number[];");
+    expect(entityFile).toContain("flags: boolean[];");
+    expect(files.find((f) => f.path.includes("dto"))!.content).toContain(": number[];");
   });
 });

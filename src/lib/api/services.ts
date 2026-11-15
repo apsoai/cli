@@ -16,13 +16,14 @@ import {
   UserProfile,
   Workspace,
   Service,
-  ServiceSchema,
   GitHubRepo,
   GitHubConnection,
   BuildStatus,
   PaginatedResponse,
   TokenExchangeResponse,
 } from "./types";
+import type { ApsorcType } from "../apsorc-parser";
+import { diffApsorc } from "../utils/schema-convert";
 
 // ---------------------------------------------------------------------------
 // Adapters: backend (snake_case, nestjsx/crud) -> CLI types (camelCase)
@@ -230,36 +231,31 @@ async function resolveServiceId(serviceSlugOrId: string): Promise<string> {
 }
 
 /**
- * Schema API — the schema lives on the service as its `apsorc` field, and
- * versioned rows exist under /api/ServiceSchemas.
+ * Schema API. The schema lives on the service as its `apsorc` field: the
+ * .apsorc itself, whole, which is also what the web editor saves. Versioned
+ * rows exist under /api/ServiceSchemas.
  */
 export const schemaApi = {
-  async getByServiceId(serviceId: string): Promise<ServiceSchema> {
-    const raw = await api.get<Raw>(`/api/services/${serviceId}`);
-    return adaptSchemaFromService(raw);
-  },
-
-  async get(_workspaceSlug: string, serviceSlug: string): Promise<ServiceSchema> {
+  /** The service's .apsorc, or null when the platform has none yet. */
+  async get(_workspaceSlug: string, serviceSlug: string): Promise<ApsorcType | null> {
     const id = await resolveServiceId(serviceSlug);
-    return this.getByServiceId(id);
+    return apsorcFromService(await api.get<Raw>(`/api/services/${id}`));
   },
 
   async update(
     _workspaceSlug: string,
     serviceSlugOrId: string,
-    schema: Omit<ServiceSchema, "id" | "serviceId" | "version" | "createdAt" | "updatedAt">
-  ): Promise<ServiceSchema> {
+    apsorc: ApsorcType
+  ): Promise<ApsorcType | null> {
     const id = await resolveServiceId(serviceSlugOrId);
-    // Persist the schema onto the service's apsorc; the deploy pipeline reads it.
-    const raw = await api.patch<Raw>(`/api/services/${id}`, {
-      apsorc: JSON.stringify(schema),
-    });
-    return adaptSchemaFromService(raw);
+    return apsorcFromService(
+      await api.patch<Raw>(`/api/services/${id}`, { apsorc })
+    );
   },
 
-  // Validation and diff are computed locally by the CLI (the schema format is
-  // fully known client-side), so these do not call the BFF. Signatures are kept
-  // for the callers; the arguments are intentionally unused here.
+  // Validation is computed locally by the CLI (the schema format is fully
+  // known client-side), so this does not call the BFF. The signature is kept
+  // for the caller; the arguments are intentionally unused here.
   async validate(
     _workspaceSlug?: string,
     _serviceSlug?: string,
@@ -267,32 +263,21 @@ export const schemaApi = {
   ): Promise<{ valid: boolean; errors: string[] }> {
     return { valid: true, errors: [] };
   },
-  async diff(
-    _workspaceSlug?: string,
-    _serviceSlug?: string,
-    _localSchema?: unknown
-  ): Promise<{ hasChanges: boolean; added: string[]; removed: string[]; modified: string[] }> {
-    return { hasChanges: false, added: [], removed: [], modified: [] };
+
+  /** What pushing the local .apsorc would change on the platform. */
+  async diff(workspaceSlug: string, serviceSlug: string, local: ApsorcType) {
+    return diffApsorc(await this.get(workspaceSlug, serviceSlug), local);
   },
 };
 
-function adaptSchemaFromService(raw: Raw): ServiceSchema {
-  let entities: any[] = [];
+function apsorcFromService(raw: Raw): ApsorcType | null {
   const rc = raw.apsorc;
   try {
-    const parsed = typeof rc === "string" ? JSON.parse(rc) : rc;
-    entities = parsed?.entities ?? [];
+    // Old rows hold the .apsorc as a JSON string.
+    return (typeof rc === "string" ? JSON.parse(rc) : rc) ?? null;
   } catch {
-    entities = [];
+    return null;
   }
-  return {
-    id: String(raw.id),
-    serviceId: String(raw.id),
-    version: 1,
-    entities,
-    createdAt: raw.created_at ?? raw.createdAt,
-    updatedAt: raw.updated_at ?? raw.updatedAt,
-  };
 }
 
 /**

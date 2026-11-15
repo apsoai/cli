@@ -81,9 +81,11 @@ export const normalizeFieldType = (type: string): string => {
 };
 
 const typeToJsType: Record<string, string> = {
-  array: "string[]", // or handle elementType elsewhere
+  array: "string[]", // getFieldForTemplate uses the elementType's type
   boolean: "boolean",
   integer: "number",
+  int: "number",
+  float8: "number",
   float: "number",
   real: "number",
   double: "number",
@@ -132,6 +134,19 @@ const typeToJsType: Record<string, string> = {
 
 export const getJsTypeFromFieldType = (type: FieldType | string): string =>
   typeToJsType[type] ?? "string";
+
+/**
+ * Postgres element type of an "array" field, as the DDL writer reads it.
+ * Python read `arrayType` and Go `arrayItemType` before `elementType`; both
+ * still work so older schemas generate the same code.
+ *
+ * @param {Field} field - An "array" field from .apsorc.
+ * @returns {string} The element type, "text" when none is set.
+ */
+export const arrayElementType = (
+  field: Field & { arrayType?: string; arrayItemType?: string }
+): string =>
+  field.elementType || field.arrayType || field.arrayItemType || "text";
 
 export const getDefaultValueForField = (field: Field): string | null => {
   switch (field.type) {
@@ -182,10 +197,14 @@ export const getFieldForTemplate = (
       ...field,
       // Use normalized type for template lookup
       type: normalizedType as FieldType,
+      // Resolved here so every template and the DDL writer read one key.
+      ...(field.type === "array" && { elementType: arrayElementType(field) }),
       default: getDefaultValueForField(field),
       dataType:
         field.type === "enum"
           ? fieldToEnumType(field.name, entityName)
+          : field.type === "array"
+          ? `${getJsTypeFromFieldType(arrayElementType(field))}[]`
           : getJsTypeFromFieldType(field.type),
     };
   });

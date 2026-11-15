@@ -8,6 +8,9 @@ from fastapi import HTTPException, status
 from sqlalchemy import String, cast
 <% } %>
 
+<% if (it.references.length) { %>
+from ..auth import check_references
+<% } %>
 from ..models.<%= it.entityName.toLowerCase() %> import <%= it.entityName %>
 from ..schemas.<%= it.entityName.toLowerCase() %> import <%= it.entityName %>Create, <%= it.entityName %>Update
 from ..utils.query import QueryBuilder, QueryOptions, PaginatedResult
@@ -26,15 +29,15 @@ class <%= it.entityName %>Service:
 
     def _scope_values(self, op: str) -> dict:
         """
-        The caller's value for each scopeBy field for op ("find", "get",
-        "create", "update", "delete"); empty when op is not enforced or the
-        caller holds a bypass role. 403 when the caller has no tenant.
+        The caller's value for each scopeBy field, for every operation; empty
+        for a service caller or a bypass role. 403 when the caller has no tenant.
         """
-        if op not in <%~ JSON.stringify(it.scope.enforceOn) %>:
-            return {}
         a = self.auth
         if a is None:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tenant in the auth context")
+        # A service caller (valid API key) is not tenant-scoped.
+        if a.service_id:
+            return {}
 <% if (it.scope.bypassRoles.length > 0) { %>
         if set(a.roles) & set(<%~ JSON.stringify(it.scope.bypassRoles) %>):
             return {}
@@ -54,25 +57,33 @@ class <%= it.entityName %>Service:
             cast(getattr(<%= it.entityName %>, field), String) == str(value)
             for field, value in self._scope_values(op).items()
         ]
-        return QueryBuilder(<%= it.entityName %>, self.db, scope=scope)
+        return QueryBuilder(<%= it.entityName %>, self.db, auth=self.auth, scope=scope)
 
     def _with_tenant(self, payload: dict) -> dict:
         """Set every scopeBy field to the caller's value, converted to the column's type."""
-<% if (it.scope.injectOnCreate) { %>
         for field, value in self._scope_values("create").items():
             try:
                 value = getattr(<%= it.entityName %>, field).type.python_type(value)
             except (NotImplementedError, TypeError, ValueError):
                 pass
             payload[field] = value
-<% } %>
         return payload
 <% } else { %>
 
     def _qb(self, op: str) -> QueryBuilder:
-        return QueryBuilder(<%= it.entityName %>, self.db)
+        return QueryBuilder(<%= it.entityName %>, self.db, auth=self.auth)
 <% } %>
 
+<% if (it.references.length) { %>
+    async def _check_references(self, rows: List[dict]) -> None:
+        """Foreign keys to tenant-scoped entities must name rows the caller can read."""
+        await check_references(self.auth, self.db, {
+<% it.references.forEach((r) => { %>
+            <%~ JSON.stringify(r.target) %>: [row.get(<%~ JSON.stringify(r.field) %>) for row in rows],
+<% }) %>
+        })
+
+<% } %>
     async def get_many(self, options: QueryOptions) -> PaginatedResult:
         """
         Retrieve a paginated list of <%= it.pluralEntityName %> with filtering, sorting, and joins.
@@ -101,11 +112,14 @@ class <%= it.entityName %>Service:
         """
         Create a new <%= it.entityName %>.
         """
+        payload = data.model_dump(exclude_unset=True)
 <% if (it.scope) { %>
-        item = <%= it.entityName %>(**self._with_tenant(data.model_dump(exclude_unset=True)))
-<% } else { %>
-        item = <%= it.entityName %>(**data.model_dump(exclude_unset=True))
+        payload = self._with_tenant(payload)
 <% } %>
+<% if (it.references.length) { %>
+        await self._check_references([payload])
+<% } %>
+        item = <%= it.entityName %>(**payload)
         self.db.add(item)
         await self.db.commit()
         await self.db.refresh(item)
@@ -115,11 +129,14 @@ class <%= it.entityName %>Service:
         """
         Create multiple <%= it.pluralEntityName %>.
         """
+        payloads = [item.model_dump(exclude_unset=True) for item in data]
 <% if (it.scope) { %>
-        items = [<%= it.entityName %>(**self._with_tenant(item.model_dump(exclude_unset=True))) for item in data]
-<% } else { %>
-        items = [<%= it.entityName %>(**item.model_dump(exclude_unset=True)) for item in data]
+        payloads = [self._with_tenant(payload) for payload in payloads]
 <% } %>
+<% if (it.references.length) { %>
+        await self._check_references(payloads)
+<% } %>
+        items = [<%= it.entityName %>(**payload) for payload in payloads]
         self.db.add_all(items)
         await self.db.commit()
         for item in items:
@@ -144,6 +161,9 @@ class <%= it.entityName %>Service:
         for field in self._scope_values("update"):
             update_data.pop(field, None)
 <% } %>
+<% if (it.references.length) { %>
+        await self._check_references([update_data])
+<% } %>
         for field, value in update_data.items():
             setattr(item, field, value)
 
@@ -167,6 +187,9 @@ class <%= it.entityName %>Service:
 <% if (it.scope) { %>
         for field in self._scope_values("update"):
             replace_data.pop(field, None)
+<% } %>
+<% if (it.references.length) { %>
+        await self._check_references([replace_data])
 <% } %>
         for field, value in replace_data.items():
             setattr(item, field, value)

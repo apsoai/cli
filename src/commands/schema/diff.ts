@@ -1,8 +1,7 @@
 import BaseCommand from "../../lib/base-command";
 import { credentials, projectLink, globalConfig } from "../../lib/config";
 import { schemaApi } from "../../lib/api/services";
-import { parseApsorc } from "../../lib/apsorc-parser";
-import { apsorcToServiceSchema } from "../../lib/utils/schema-convert";
+import { parseApsorc, readApsorcFile } from "../../lib/apsorc-parser";
 
 // Inline ANSI color helpers (no dependency needed)
 const useColor = (): boolean => !globalConfig.read().noColor;
@@ -33,15 +32,14 @@ export default class SchemaDiff extends BaseCommand {
     }
 
     // Parse local schema
-    let parsed;
+    let localSchema;
     try {
-      parsed = parseApsorc();
+      parseApsorc();
+      localSchema = readApsorcFile().apsorc;
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : String(error);
       this.error(`Failed to parse .apsorc: ${msg}`);
     }
-
-    const localSchema = apsorcToServiceSchema(parsed);
 
     // Get diff from platform
     const diff = await schemaApi.diff(

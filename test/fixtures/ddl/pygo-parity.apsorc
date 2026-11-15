@@ -1,0 +1,87 @@
+{
+  "version": 2,
+  "rootFolder": "src",
+  "apiType": "Rest",
+  "entities": [
+    {
+      "name": "Account",
+      "created_at": true,
+      "updated_at": true,
+      "fields": [
+        { "name": "handle", "type": "text", "unique": true, "index": true },
+        { "name": "greeting", "type": "text", "default": "hi" },
+        { "name": "email", "type": "string", "unique": true },
+        { "name": "nick", "type": "varchar", "length": 40, "nullable": true, "default": "anon" },
+        { "name": "code", "type": "char", "length": 3, "nullable": true },
+        { "name": "active", "type": "boolean" },
+        { "name": "verified", "type": "boolean", "default": "true" },
+        { "name": "age", "type": "integer", "default": "18" },
+        { "name": "visits", "type": "bigint", "default": "0" },
+        { "name": "rank", "type": "smallint", "nullable": true },
+        { "name": "balance", "type": "decimal", "precision": 12, "scale": 4, "nullable": true },
+        { "name": "amount", "type": "numeric", "default": "0" },
+        { "name": "ratio", "type": "float", "nullable": true },
+        { "name": "score", "type": "double", "nullable": true },
+        { "name": "born", "type": "date", "nullable": true },
+        { "name": "lastLogin", "type": "timestamp", "nullable": true },
+        { "name": "seenAt", "type": "timestamptz", "nullable": true },
+        { "name": "prefs", "type": "json", "nullable": true },
+        { "name": "meta", "type": "jsonb", "nullable": true },
+        { "name": "raw", "type": "json-plain", "nullable": true },
+        { "name": "externalId", "type": "uuid", "nullable": true, "unique": true },
+        { "name": "tier", "type": "enum", "values": ["free", "pro"], "index": true },
+        { "name": "planType", "type": "enum", "values": ["basic", "premium"], "default": "premium", "nullable": true },
+        { "name": "labels", "type": "array" },
+        { "name": "lucky", "type": "array", "elementType": "integer", "nullable": true, "index": true }
+      ],
+      "indexes": [
+        { "fields": ["code", "tier"] },
+        { "fields": ["visits"], "unique": true },
+        { "fields": ["seenAt"] }
+      ],
+      "uniques": [
+        { "name": "unique_account_code_born", "fields": ["code", "born"] },
+        { "fields": ["ratio", "score"] }
+      ]
+    },
+    {
+      "name": "Profile",
+      "table": "account_profile",
+      "fields": [{ "name": "bio", "type": "varchar", "length": 500, "nullable": true }]
+    },
+    {
+      "name": "Tag",
+      "fields": [{ "name": "label", "type": "varchar", "unique": true }]
+    },
+    {
+      "name": "Post",
+      "created_at": true,
+      "fields": [
+        { "name": "title", "type": "string" },
+        { "name": "body", "type": "text", "nullable": true }
+      ]
+    },
+    {
+      "name": "Document",
+      "primaryKeyType": "uuid",
+      "created_at": true,
+      "updated_at": true,
+      "fields": [
+        { "name": "name", "type": "text" },
+        { "name": "pages", "type": "array", "arrayType": "integer", "nullable": true }
+      ]
+    },
+    {
+      "name": "Comment",
+      "fields": [{ "name": "text", "type": "text" }]
+    }
+  ],
+  "relationships": [
+    { "from": "Post", "to": "Account", "to_name": "author", "type": "ManyToOne", "cascadeDelete": true, "index": true },
+    { "from": "Post", "to": "Profile", "type": "ManyToOne", "nullable": true },
+    { "from": "Post", "to": "Tag", "type": "ManyToMany" },
+    { "from": "Account", "to": "Profile", "type": "OneToOne" },
+    { "from": "Comment", "to": "Document", "type": "ManyToOne", "cascadeDelete": true },
+    { "from": "Document", "to": "Tag", "to_name": "topics", "type": "ManyToMany" }
+  ]
+}

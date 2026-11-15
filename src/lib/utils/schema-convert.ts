@@ -1,7 +1,9 @@
 /**
  * Schema Conversion Utilities
  *
- * Converts between local .apsorc format and platform ServiceSchema format.
+ * The platform stores a service's .apsorc as it is, so push and pull send the
+ * file whole. apsorcToServiceSchema only feeds the entity, field and
+ * relationship counts that validate, deploy and the MCP server print.
  */
 
 import * as crypto from "crypto";
@@ -22,60 +24,6 @@ export interface ParsedApsorcInput {
   apiType: string;
   entities: Entity[];
   relationshipMap: RelationshipMap;
-}
-
-/**
- * Shape returned by serviceSchemaToApsorc for writing back to .apsorc
- */
-export interface ApsorcOutput {
-  version: number;
-  rootFolder: string;
-  apiType: string;
-  entities: ApsorcEntityOutput[];
-  relationships: ApsorcRelationshipOutput[];
-}
-
-export interface ApsorcEntityOutput {
-  name: string;
-  primaryKeyType?: "serial" | "uuid";
-  created_at?: boolean;
-  updated_at?: boolean;
-  fields?: ApsorcFieldOutput[];
-  scopeBy?: string | string[];
-}
-
-export interface ApsorcFieldOutput {
-  name: string;
-  type: string;
-  nullable?: boolean;
-  unique?: boolean;
-  default?: unknown;
-  index?: boolean;
-}
-
-export interface ApsorcRelationshipOutput {
-  from: string;
-  to: string;
-  type: "OneToMany" | "ManyToOne" | "ManyToMany" | "OneToOne";
-  to_name?: string;
-  nullable?: boolean;
-  bi_directional?: boolean;
-  cascadeDelete?: boolean;
-}
-
-/**
- * Map from SchemaRelationship type format to ApsorcRelationship type format
- */
-function platformTypeToApsorcType(
-  type: SchemaRelationship["type"]
-): ApsorcRelationshipOutput["type"] {
-  const map: Record<SchemaRelationship["type"], ApsorcRelationshipOutput["type"]> = {
-    "one-to-one": "OneToOne",
-    "one-to-many": "OneToMany",
-    "many-to-one": "ManyToOne",
-    "many-to-many": "ManyToMany",
-  };
-  return map[type];
 }
 
 /**
@@ -143,73 +91,6 @@ export function apsorcToServiceSchema(
 }
 
 /**
- * Convert platform ServiceSchema to .apsorc format for writing to disk.
- *
- * Reverses the conversion: flattens per-entity relationships back into a
- * top-level relationships array in v2 format.
- */
-export function serviceSchemaToApsorc(schema: ServiceSchema): ApsorcOutput {
-  const entities: ApsorcEntityOutput[] = [];
-  const relationships: ApsorcRelationshipOutput[] = [];
-
-  for (const schemaEntity of schema.entities) {
-    // Convert fields back to .apsorc format
-    const fields: ApsorcFieldOutput[] = (schemaEntity.fields || [])
-      .filter((f) => !f.primaryKey) // Primary keys are implicit in .apsorc
-      .map((field) => {
-        const out: ApsorcFieldOutput = {
-          name: field.name,
-          type: field.type,
-        };
-        if (field.nullable) out.nullable = true;
-        if (field.unique) out.unique = true;
-        if (field.default !== undefined) out.default = field.default;
-        if (field.index) out.index = true;
-        return out;
-      });
-
-    const entityOut: ApsorcEntityOutput = {
-      name: schemaEntity.name,
-    };
-
-    if (fields.length > 0) {
-      entityOut.fields = fields;
-    }
-
-    if (schemaEntity.scopeBy && schemaEntity.scopeBy.length > 0) {
-      entityOut.scopeBy =
-        schemaEntity.scopeBy.length === 1
-          ? schemaEntity.scopeBy[0]
-          : schemaEntity.scopeBy;
-    }
-
-    entities.push(entityOut);
-
-    // Convert per-entity relationships to flat array
-    if (schemaEntity.relationships) {
-      for (const rel of schemaEntity.relationships) {
-        relationships.push({
-          from: schemaEntity.name,
-          to: rel.target,
-          type: platformTypeToApsorcType(rel.type),
-          to_name: rel.inverseSide || undefined,
-          nullable: rel.nullable,
-          cascadeDelete: rel.cascade,
-        });
-      }
-    }
-  }
-
-  return {
-    version: 2,
-    rootFolder: "src",
-    apiType: "rest",
-    entities,
-    relationships,
-  };
-}
-
-/**
  * Recursively sort all object keys for deterministic serialization.
  */
 function sortKeys(value: unknown): unknown {
@@ -233,4 +114,39 @@ function sortKeys(value: unknown): unknown {
 export function computeSchemaHash(schema: unknown): string {
   const serialized = JSON.stringify(sortKeys(schema));
   return crypto.createHash("sha256").update(serialized).digest("hex");
+}
+
+type Apsorc = { entities?: { name: string }[] } & Record<string, unknown>;
+
+/**
+ * What pushing `local` would change on the platform's `remote` .apsorc:
+ * entities by name, plus one line when anything outside `entities`
+ * (relationships, auth, language and so on) differs.
+ */
+export function diffApsorc(
+  remote: Apsorc | null,
+  local: Apsorc
+): { hasChanges: boolean; added: string[]; removed: string[]; modified: string[] } {
+  const hashes = (rc: Apsorc | null) =>
+    new Map((rc?.entities ?? []).map((e) => [e.name, computeSchemaHash(e)]));
+  const settings = (rc: Apsorc | null) =>
+    computeSchemaHash({ ...rc, entities: undefined });
+  const before = hashes(remote);
+  const after = hashes(local);
+
+  const added = [...after.keys()].filter((name) => !before.has(name));
+  const removed = [...before.keys()].filter((name) => !after.has(name));
+  const modified = [...after.keys()].filter(
+    (name) => before.has(name) && before.get(name) !== after.get(name)
+  );
+  if (settings(remote) !== settings(local)) {
+    modified.push("relationships and settings");
+  }
+
+  return {
+    hasChanges: added.length + removed.length + modified.length > 0,
+    added,
+    removed,
+    modified,
+  };
 }

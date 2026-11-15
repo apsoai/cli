@@ -54,6 +54,16 @@ We use GitHub issues to track public bugs. Report a bug by [opening a new issue]
 7. Run linting: `npm run lint`
 8. Submit a pull request
 
+### Before a release: access rules
+
+A merge to `main` publishes a release. If your change touches the generated guards, the Python or Go auth and service templates, or the access suite, run the break-each-rule job first and make sure it passes (the `break each rule` workflow runs it on such pull requests; it can also be started by hand):
+
+```bash
+node scripts/break-each-rule.mjs typescript
+```
+
+It removes each protection from a generated service in turn and fails if the suite does not notice. See [docs/access-rules.md](docs/access-rules.md).
+
 ### Commit Messages
 
 We follow the [Conventional Commits](https://www.conventionalcommits.org/) specification.

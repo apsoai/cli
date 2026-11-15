@@ -4,6 +4,7 @@ import * as fs from "fs";
 import * as path from "path";
 import shell from "shelljs";
 import BaseCommand from "../lib/base-command";
+import { ensureDevKey } from "../lib/utils/template";
 
 export default class Dev extends BaseCommand {
   static description =
@@ -33,6 +34,9 @@ export default class Dev extends BaseCommand {
 
   private children: ChildProcess[] = [];
 
+  /** Set on the service: the local flag and the development API key. */
+  private devEnv: Record<string, string> = {};
+
   private cleanup = (): void => {
     for (const child of this.children) {
       child.kill("SIGTERM");
@@ -41,6 +45,19 @@ export default class Dev extends BaseCommand {
 
   async run(): Promise<void> {
     const { flags } = await this.parse(Dev);
+
+    // Every generated service refuses requests without a key or a signed-in
+    // user. A project cloned from git has no .env key, so create one.
+    const created = process.env.APSO_API_KEY
+      ? undefined
+      : ensureDevKey(process.cwd());
+    if (created)
+      this.log(
+        `Created a development API key in .env. Send it in the x-api-key header:\n  ${created}`
+      );
+    // Python and Go services do not read .env themselves.
+    const key = process.env.APSO_API_KEY ?? this.readEnvValue("APSO_API_KEY");
+    this.devEnv = { APSO_LOCAL: "1", ...(key ? { APSO_API_KEY: key } : {}) };
 
     if (flags.docker) {
       return this.runDocker(flags);
@@ -94,7 +111,7 @@ export default class Dev extends BaseCommand {
       );
     }
     this.log(`Starting TypeScript dev server (npm run ${script})...`);
-    await this.spawnAndWait("npm", ["run", script]);
+    await this.spawnAndWait("npm", ["run", script], this.devEnv);
   }
 
   /**
@@ -135,7 +152,7 @@ export default class Dev extends BaseCommand {
       "0.0.0.0",
       "--port",
       this.readEnvValue("PORT") || "3000",
-    ]);
+    ], this.devEnv);
   }
 
   /**
@@ -150,7 +167,7 @@ export default class Dev extends BaseCommand {
     }
 
     this.log("Starting Go dev server...");
-    await this.spawnAndWait("go", ["run", "cmd/main.go"]);
+    await this.spawnAndWait("go", ["run", "cmd/main.go"], this.devEnv);
   }
 
   /**
@@ -179,8 +196,11 @@ export default class Dev extends BaseCommand {
     if (flags.detach) args.push("-d");
 
     this.log(`Running: ${args.join(" ")}`);
+    // The templates' docker-compose.yml passes the key and the local flag on
+    // to the service's container.
     await this.spawnAndWait(args[0], args.slice(1), {
       AUTH_DISABLED: "true",
+      ...this.devEnv,
     });
   }
 

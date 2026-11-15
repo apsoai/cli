@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "rootFolder": "src",
+  "apiType": "Rest",
+  "entities": [
+    { "name": "Workspace", "fields": [{ "name": "name", "type": "text" }] },
+    {
+      "name": "Setting",
+      "fields": [{ "name": "tz", "type": "text" }],
+      "uniques": [{ "fields": ["workspaceId"] }, { "fields": ["workspaceId", "tz"] }],
+      "indexes": [{ "fields": ["tz", "workspaceId"] }]
+    }
+  ],
+  "relationships": [{ "from": "Setting", "to": "Workspace", "type": "OneToOne" }]
+}

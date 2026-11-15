@@ -156,6 +156,8 @@ export function changeDdl(
   };
 
   const up: string[] = renames(was, R);
+  // A new uuid-keyed table needs uuid-ossp; schemaDdl creates it, so do the same here.
+  up.unshift(...A.extensions.filter((x) => !R.extensions.includes(x)));
   const later: string[] = [];
 
   const rTables = new Map(R.tables.map((t) => [t.name, t]));

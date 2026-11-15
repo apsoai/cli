@@ -1,11 +1,10 @@
 import { expect } from "@jest/globals";
 import {
   apsorcToServiceSchema,
-  serviceSchemaToApsorc,
+  diffApsorc,
   computeSchemaHash,
   ParsedApsorcInput,
 } from "../../../src/lib/utils/schema-convert";
-import { ServiceSchema } from "../../../src/lib/api/types";
 
 describe("apsorcToServiceSchema", () => {
   test("converts entities with fields", () => {
@@ -124,64 +123,40 @@ describe("apsorcToServiceSchema", () => {
   });
 });
 
-describe("serviceSchemaToApsorc", () => {
-  test("roundtrip: apsorc -> serviceSchema -> apsorc preserves data", () => {
-    const original: ParsedApsorcInput = {
-      rootFolder: "src",
-      apiType: "rest",
-      entities: [
-        {
-          name: "Product",
-          fields: [
-            { name: "title", type: "text" },
-            { name: "price", type: "decimal", nullable: true },
-          ],
-        },
-      ],
-      relationshipMap: {},
-    };
+describe("diffApsorc", () => {
+  const base = {
+    version: 2,
+    entities: [{ name: "User" }, { name: "Post" }],
+    relationships: [],
+  };
 
-    const schema = apsorcToServiceSchema(original);
-    const fullSchema: ServiceSchema = {
-      id: "test",
-      serviceId: "svc",
-      version: 1,
-      createdAt: "2024-01-01",
-      updatedAt: "2024-01-01",
-      ...schema,
-    };
-
-    const roundtrip = serviceSchemaToApsorc(fullSchema);
-
-    expect(roundtrip.version).toBe(2);
-    expect(roundtrip.entities).toHaveLength(1);
-    expect(roundtrip.entities[0].name).toBe("Product");
-    expect(roundtrip.entities[0].fields).toHaveLength(2);
-    expect(roundtrip.entities[0].fields![0].name).toBe("title");
-    expect(roundtrip.entities[0].fields![1].nullable).toBe(true);
+  test("identical schemas have no changes, whatever the key order", () => {
+    const reordered = { relationships: [], entities: base.entities, version: 2 };
+    expect(diffApsorc(base, reordered).hasChanges).toBe(false);
   });
 
-  test("filters primary key fields from output", () => {
-    const schema: ServiceSchema = {
-      id: "test",
-      serviceId: "svc",
-      version: 1,
-      createdAt: "2024-01-01",
-      updatedAt: "2024-01-01",
-      entities: [
-        {
-          name: "User",
-          fields: [
-            { name: "id", type: "integer", primaryKey: true },
-            { name: "name", type: "text" },
-          ],
-        },
-      ],
+  test("names added, removed and modified entities", () => {
+    const local = {
+      ...base,
+      entities: [{ name: "User", mcp: true }, { name: "Tag" }],
     };
+    expect(diffApsorc(base, local)).toEqual({
+      hasChanges: true,
+      added: ["Tag"],
+      removed: ["Post"],
+      modified: ["User"],
+    });
+  });
 
-    const result = serviceSchemaToApsorc(schema);
-    expect(result.entities[0].fields).toHaveLength(1);
-    expect(result.entities[0].fields![0].name).toBe("name");
+  test("a change outside entities counts", () => {
+    const local = { ...base, auth: { provider: "auth0" } };
+    expect(diffApsorc(base, local).modified).toEqual([
+      "relationships and settings",
+    ]);
+  });
+
+  test("a service with no schema yet gets every entity as added", () => {
+    expect(diffApsorc(null, base).added).toEqual(["User", "Post"]);
   });
 });
 

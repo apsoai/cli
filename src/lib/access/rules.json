@@ -1,0 +1,207 @@
+{
+  "source": "apsoai/cli#208, draft 1. This file is the one place the rule list lives: correct a rule here and the suite, the check and `apso test access` follow.",
+  "statuses": {
+    "enforced": "The generated service enforces the rule in this language. The suite must run at least one case for it.",
+    "refused": "`apso generate` refuses the feature in this language. The suite must run a case that shows the refusal.",
+    "pending": "Not built yet. `issue` names the work that builds it and must add the cases.",
+    "na": "Does not apply to this language."
+  },
+  "rules": [
+    {
+      "id": "R0",
+      "group": "Default",
+      "rule": "The default is no access. A request is refused unless a rule below allows it. A missing setting, an unknown credential or an unrecognised case never opens anything.",
+      "status": { "typescript": "enforced", "python": "enforced", "go": "enforced" }
+    },
+    {
+      "id": "R1",
+      "group": "Who is calling",
+      "rule": "Every route needs a valid credential unless it is marked public. The health check is public.",
+      "status": { "typescript": "enforced", "python": "enforced", "go": "enforced" }
+    },
+    {
+      "id": "R2",
+      "group": "Who is calling",
+      "rule": "A token is accepted only when its signature, issuer, audience, expiry and algorithm all check out against the issuer's published keys.",
+      "status": { "typescript": "enforced", "python": "enforced", "go": "enforced" }
+    },
+    {
+      "id": "R3",
+      "group": "Who is calling",
+      "rule": "A token from an issuer that is not listed is refused. With several issuers, each token is checked only against its own issuer's keys, audience and claim names.",
+      "status": { "typescript": "enforced", "python": "enforced", "go": "enforced" }
+    },
+    {
+      "id": "R4",
+      "group": "Who is calling",
+      "rule": "Every accepted request has exactly one kind of caller: a user or a service.",
+      "status": { "typescript": "pending", "python": "pending", "go": "pending" },
+      "issue": "apsoai/cli#206"
+    },
+    {
+      "id": "R5",
+      "group": "Who is calling",
+      "rule": "An API key that does not match the chosen key source is refused.",
+      "status": { "typescript": "enforced", "python": "enforced", "go": "enforced" }
+    },
+    {
+      "id": "R6",
+      "group": "Tenant scope",
+      "rule": "A user caller reads and changes only rows of their own tenant.",
+      "status": { "typescript": "enforced", "python": "enforced", "go": "enforced" },
+      "note": "A scopeBy path through a parent (project.organizationId) is enforced in TypeScript and refused at generate in Python and Go. The scope covers every operation: `apso generate` refuses `scopeOptions.enforceOn`."
+    },
+    {
+      "id": "R7",
+      "group": "Tenant scope",
+      "rule": "Nothing in the query can widen that: not a filter, an `or` group, an embed, a sort or a count, in either query syntax. A TypeScript service accepts the PostgREST syntax only and answers 400 to a nestjsx parameter.",
+      "status": { "typescript": "enforced", "python": "enforced", "go": "enforced" },
+      "note": "A relation between two entities scoped by the same keys loads only rows of the caller's tenant, whatever the stored foreign key names."
+    },
+    {
+      "id": "R8",
+      "group": "Tenant scope",
+      "rule": "On create and update the tenant always becomes the caller's tenant, whatever the body says.",
+      "status": { "typescript": "enforced", "python": "enforced", "go": "enforced" },
+      "note": "No schema option turns this off: `apso generate` refuses `scopeOptions.injectOnCreate`. A foreign key to a tenant-scoped entity must name a row the caller can read, or the write is refused with 403. A service caller can set any tenant and any foreign key."
+    },
+    {
+      "id": "R9",
+      "group": "Tenant scope",
+      "rule": "A user token with no tenant is refused on tenant-scoped entities. The service never looks the tenant up.",
+      "status": { "typescript": "enforced", "python": "enforced", "go": "enforced" }
+    },
+    {
+      "id": "R10",
+      "group": "Tenant scope",
+      "rule": "Scope is skipped only for roles the schema names, and for service callers.",
+      "status": { "typescript": "enforced", "python": "enforced", "go": "enforced" }
+    },
+    {
+      "id": "R11",
+      "group": "Permissions",
+      "rule": "An operation limited to certain roles is refused to every other role, directly and through a join.",
+      "status": { "typescript": "enforced", "python": "enforced", "go": "enforced" }
+    },
+    {
+      "id": "R12",
+      "group": "Permissions",
+      "rule": "A grant adds a permission in the granting tenant only. It never removes a default, and a caller cannot grant a permission to themselves.",
+      "status": { "typescript": "enforced", "python": "enforced", "go": "enforced" }
+    },
+    {
+      "id": "R13",
+      "group": "Service callers",
+      "rule": "A caller with a valid API key is a service caller. It may call any route and sends its own tenant filter.",
+      "status": { "typescript": "enforced", "python": "enforced", "go": "enforced" }
+    },
+    {
+      "id": "R14",
+      "group": "Service callers",
+      "rule": "The key source is chosen once at start-up from the environment: a key set there, else the platform's gateway token, else keys are off. A key that fails its source is refused, and no other source is tried. With no key source and no sign-in configured, every request is refused.",
+      "status": { "typescript": "enforced", "python": "enforced", "go": "enforced" }
+    },
+    {
+      "id": "R15",
+      "group": "Platform gateway",
+      "rule": "A valid key at the gateway becomes a signed service token for that one service, valid for about a minute.",
+      "status": { "typescript": "pending", "python": "pending", "go": "pending" },
+      "issue": "apsoai/build-engine#179",
+      "platform": "The gateway checks the key against the platform's key table and signs the service token.",
+      "note": "The suite signs service tokens itself, so only the service's half (it accepts a valid token) has cases."
+    },
+    {
+      "id": "R16",
+      "group": "Platform gateway",
+      "rule": "A service token that is expired, changed, or issued for another service is refused.",
+      "status": { "typescript": "enforced", "python": "enforced", "go": "enforced" },
+      "platform": "Only a service the platform deployed is given the gateway's keys to check service tokens against."
+    },
+    {
+      "id": "R17",
+      "group": "Platform gateway",
+      "rule": "A service token header sent from outside is never trusted.",
+      "status": { "typescript": "pending", "python": "pending", "go": "pending" },
+      "issue": "apsoai/build-engine#179",
+      "platform": "The gateway replaces any service token header a caller sends.",
+      "note": "The service's half has cases: a token the gateway did not sign is refused."
+    },
+    {
+      "id": "R18",
+      "group": "Platform gateway",
+      "rule": "A request with no key reaches the service, and the service decides.",
+      "status": { "typescript": "pending", "python": "pending", "go": "pending" },
+      "issue": "apsoai/build-engine#179",
+      "platform": "The gateway lets a request with no key through unchanged.",
+      "note": "The service's half has cases: with no key, the user token decides."
+    },
+    {
+      "id": "R19",
+      "group": "Platform gateway",
+      "rule": "A browser cannot send the key.",
+      "status": { "typescript": "pending", "python": "pending", "go": "pending" },
+      "issue": "apsoai/build-engine#179",
+      "platform": "The gateway refuses the key header from browser origins."
+    },
+    {
+      "id": "R20",
+      "group": "Platform gateway",
+      "rule": "No service can read the key table, and the engine refuses to deploy code that has no guard.",
+      "status": { "typescript": "pending", "python": "pending", "go": "pending" },
+      "issue": "apsoai/build-engine#179",
+      "platform": "The key table is outside every service's database, and the engine checks for the guard before a deploy."
+    },
+    {
+      "id": "R21",
+      "group": "MCP",
+      "rule": "Only operations the schema opts in are tools.",
+      "status": { "typescript": "enforced", "python": "enforced", "go": "enforced" }
+    },
+    {
+      "id": "R22",
+      "group": "MCP",
+      "rule": "When sign-in is configured, every MCP request needs a valid token issued for the MCP endpoint, including listing tools.",
+      "status": { "typescript": "enforced", "python": "enforced", "go": "enforced" }
+    },
+    {
+      "id": "R23",
+      "group": "MCP",
+      "rule": "A tool call gets the same answer as the same REST call: same sign-in, permission and tenant checks.",
+      "status": { "typescript": "enforced", "python": "enforced", "go": "enforced" }
+    },
+    {
+      "id": "R24",
+      "group": "Logging",
+      "rule": "Every request, allowed or refused, writes one line with the caller, the request id, the route or tool, and the status.",
+      "status": { "typescript": "enforced", "python": "pending", "go": "pending" },
+      "issue": "apsoai/apso-packages#75"
+    },
+    {
+      "id": "R25",
+      "group": "Logging",
+      "rule": "No token, key or cookie value appears in any log line.",
+      "status": { "typescript": "enforced", "python": "pending", "go": "pending" },
+      "issue": "apsoai/apso-packages#75",
+      "note": "API keys have cases today. Tokens and cookies wait for the logging library."
+    },
+    {
+      "id": "R26",
+      "group": "Build time",
+      "rule": "A feature a language cannot enforce is refused by `apso generate` for that language.",
+      "status": { "typescript": "na", "python": "enforced", "go": "enforced" },
+      "note": "TypeScript enforces every feature, so it has nothing to refuse."
+    },
+    {
+      "id": "R27",
+      "group": "Build time",
+      "rule": "A schema that cannot be enforced fails at generate: MCP or permissions without sign-in, an unprotected grants entity. A tenant scope whose provider maps no tenant claim does not fail: generate warns, and at run time a token with no tenant gets the \"no tenant\" 403 on tenant-scoped entities, in every language.",
+      "status": { "typescript": "enforced", "python": "enforced", "go": "enforced" }
+    },
+    {
+      "id": "R28",
+      "group": "Service callers",
+      "rule": "The auth entities answer a service caller only. With the `better-auth` provider these are the session, user and membership entities named in the `auth` block, plus Better Auth's other tables. A signed-in user is refused on every one of their routes, no other entity's route loads them through a join or an embed, and `apso generate` refuses `mcp` on them.",
+      "status": { "typescript": "enforced", "python": "enforced", "go": "enforced" }
+    }
+  ]
+}

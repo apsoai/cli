@@ -13,26 +13,172 @@ import {
   MigrationGenerationOptions,
   Entity,
   AuthConfig,
-  isApiKeyAuth,
-  isJwtAuth,
-  resolveApiKeyAuth,
-  resolveJwtAuth,
+  resolveJwtProviders,
   Field,
+  ComputedField,
+  RelationshipMap,
 } from "../types";
-import { getFieldForTemplate, typeExistsInEntity, fieldToEnumType } from "../utils/field";
+import {
+  arrayElementType,
+  getFieldForTemplate,
+  typeExistsInEntity,
+  fieldToEnumType,
+} from "../utils/field";
 import {
   getRelationshipForTemplate,
   getRelationshipsForImport,
 } from "../utils/relationships";
-import { snakeCase, camelCase } from "../utils/casing";
+import { camelCase } from "../utils/casing";
 import { getEventEmittingEntities } from "../events";
 import {
-  apiKeyTemplateData,
+  authEntityRoutes,
+  hidesRelation,
   entityScope,
+  getPermissionConfig,
+  hasPermissions,
+  mcpToolNames,
   nestedScopeEntities,
+  relationScopes,
+  removedScopeOptionErrors,
+  scopedReferences,
 } from "../guards";
 import { pyString } from "../ddl/migration-file";
+import {
+  columnSpec,
+  enumTypeName,
+  joinTableOf,
+  relationColumn,
+  ModelColumn,
+  ModelConstraint,
+  schemaModel,
+  tableName,
+} from "../ddl";
+import { legacyGuardSql, legacyTable, legacyType, LegacyName } from "../ddl/sync";
 import pluralize from "pluralize";
+
+// Postgres array element type -> [SQLAlchemy column type, Python type]. The
+// column type must give the same Postgres type the DDL writer does.
+const arrayElementTypes: Record<string, [string, string]> = {
+  text: ["Text", "str"],
+  varchar: ["String", "str"],
+  uuid: ["PGUUID(as_uuid=True)", "UUID"],
+  integer: ["Integer", "int"],
+  int: ["Integer", "int"],
+  int4: ["Integer", "int"],
+  smallint: ["SmallInteger", "int"],
+  bigint: ["BigInteger", "int"],
+  numeric: ["Numeric", "Decimal"],
+  decimal: ["Numeric", "Decimal"],
+  real: ["REAL", "float"],
+  float: ["Float", "float"],
+  float8: ["Float", "float"],
+  "double precision": ["Float", "float"],
+  boolean: ["Boolean", "bool"],
+  bool: ["Boolean", "bool"],
+  date: ["Date", "date"],
+  timestamp: ["DateTime", "datetime"],
+  timestamptz: ["DateTime(timezone=True)", "datetime"],
+};
+
+// Field type -> Pydantic schema template, where the type has none of its own.
+const schemaTemplates: Record<string, string> = {
+  char: "varchar",
+  bigint: "integer",
+  smallint: "integer",
+  double: "float",
+  "json-plain": "json",
+};
+
+// DDL column type -> [SQLAlchemy type, Python type]; the SQLAlchemy type
+// creates that same Postgres type.
+const saTypes: Record<string, [string, string]> = {
+  text: ["Text", "str"],
+  integer: ["Integer", "int"],
+  bigint: ["BigInteger", "int"],
+  smallint: ["SmallInteger", "int"],
+  numeric: ["Numeric()", "Decimal"],
+  "double precision": ["DOUBLE_PRECISION", "float"],
+  boolean: ["Boolean", "bool"],
+  uuid: ["PGUUID(as_uuid=True)", "UUID"],
+  date: ["Date", "date"],
+  TIMESTAMP: ["DateTime", "datetime"],
+  "TIMESTAMP WITH TIME ZONE": ["DateTime(timezone=True)", "datetime"],
+  jsonb: ["JSONB", "dict"],
+  json: ["JSON", "dict"],
+};
+
+function saType(type: string): [string, string] {
+  const sized = type.match(/^(character varying|character|numeric)\((\d+)(?:,(\d+))?\)$/);
+  if (sized) {
+    const [, kind, a, b] = sized;
+    if (kind === "numeric") return [`Numeric(${a}, ${b})`, "Decimal"];
+    return [`${kind === "character" ? "CHAR" : "String"}(${a})`, "str"];
+  }
+  if (type.endsWith("[]")) {
+    const element = arrayElementTypes[type.slice(0, -2).toLowerCase()];
+    if (!element)
+      throw new Error(
+        `The Python generator does not support ${type} columns. Use one of: ${Object.keys(arrayElementTypes).join(", ")}.`
+      );
+    return [`ARRAY(${element[0]})`, `List[${element[1]}]`];
+  }
+  const known = saTypes[type];
+  if (!known) throw new Error(`The Python generator does not support ${type} columns.`);
+  return known;
+}
+
+const withArrayTypes = <T extends Field>(columns: T[], entityName: string) =>
+  columns.map((c) => {
+    if (c.type !== "array") return c;
+    const element = arrayElementType(c);
+    const types = arrayElementTypes[element.toLowerCase()];
+    if (!types)
+      throw new Error(
+        `Field ${entityName}.${c.name} has elementType "${element}", which the Python generator does not support. Use one of: ${Object.keys(arrayElementTypes).join(", ")}.`
+      );
+    return { ...c, arrayColumnType: types[0], arrayItemType: types[1] };
+  });
+
+/** The ForeignKey(...) of a DDL foreign key constraint. */
+const pyForeignKey = (fk: ModelConstraint) => {
+  const [, targetCol, onDelete, onUpdate] = fk.body.match(
+    /REFERENCES "[^"]+"\("([^"]+)"\) ON DELETE (.+) ON UPDATE (.+)$/
+  )!;
+  return `ForeignKey(${pyString(`${fk.references}.${targetCol}`)}, name=${pyString(
+    fk.name
+  )}, ondelete=${pyString(onDelete)}, onupdate=${pyString(onUpdate)})`;
+};
+
+/**
+ * A DDL column as a SQLAlchemy Column argument list: type, foreign key,
+ * key, NULL and default exactly as the DDL writer creates them.
+ */
+function pyColumnArgs(
+  table: string,
+  c: ModelColumn,
+  field: ComputedField | undefined,
+  fk: ModelConstraint | undefined,
+  primary: boolean
+): { args: string[]; pyType: string } {
+  const [type, enumOrPyType] =
+    field?.type === "enum"
+      ? [
+          `SAEnum(enums.${field.dataType}, name=${pyString(
+            enumTypeName(table, field.name)
+          )}, values_callable=lambda x: [e.value for e in x])`,
+          `enums.${field.dataType}`,
+        ]
+      : saType(c.type);
+  const args = [type];
+  if (fk) args.push(pyForeignKey(fk));
+  if (primary) args.push("primary_key=True");
+  if (c.serial) args.push("autoincrement=True");
+  else if (!primary) args.push(`nullable=${c.notNull ? "False" : "True"}`);
+  if (c.default !== undefined && !c.serial)
+    args.push(`server_default=text(${pyString(c.default)})`);
+  if (c.name === "updated_at") args.push("onupdate=func.now()");
+  return { args, pyType: c.notNull ? enumOrPyType : `Optional[${enumOrPyType}]` };
+}
 
 /**
  * Python/FastAPI generator that produces SQLAlchemy models, Pydantic schemas,
@@ -65,6 +211,7 @@ export class PythonGenerator extends BaseGenerator {
     if (!config.entities || config.entities.length === 0) {
       errors.push("No entities defined in configuration");
     }
+    errors.push(...removedScopeOptionErrors(config.entities ?? []));
 
     // Validate each entity
     for (const entity of config.entities) {
@@ -88,7 +235,12 @@ export class PythonGenerator extends BaseGenerator {
           "text",
           "varchar",
           "string",
+          "char",
           "integer",
+          "bigint",
+          "smallint",
+          "double",
+          "json-plain",
           "boolean",
           "float",
           "decimal",
@@ -125,21 +277,97 @@ export class PythonGenerator extends BaseGenerator {
     options: EntityGenerationOptions
   ): Promise<GeneratedFile[]> {
     const { entity, relationships, allEntities, apiType } = options;
-    const { name, fields = [], indexes, uniques } = entity;
+    const { name, fields = [] } = entity;
 
-    const columns = getFieldForTemplate(fields, name);
-    const createPrimaryKey =
-      columns.filter((column: Field) => column.primary === true).length === 0;
-
-    const createdAt = entity.created_at;
-    const updatedAt = entity.updated_at;
-    const primaryKeyType = entity.primaryKeyType || "serial";
+    // Every table object comes from the DDL writer's model of the schema, so
+    // create_all builds what the migrations from `apso migrate` build.
+    const model = schemaModel({
+      entities: allEntities,
+      relationshipMap: {
+        ...this.config.relationshipMap,
+        [name]: relationships,
+      },
+    });
+    const table = tableName(entity);
+    const byField = new Map(
+      getFieldForTemplate(fields, name).map((f) => [f.name, f])
+    );
+    const tableArgs = (t: string) => {
+      const pk = model.constraints.find((c) => c.kind === "pk" && c.table === t)!;
+      return {
+        pk,
+        args: [
+          `PrimaryKeyConstraint(${[...pk.columns, `name=${pyString(pk.name)}`]
+            .map((x) => (x.startsWith("name=") ? x : pyString(x)))
+            .join(", ")})`,
+          ...model.constraints
+            .filter((c) => c.kind === "unique" && c.table === t)
+            .map(
+              (c) =>
+                `UniqueConstraint(${c.columns
+                  .map((x) => pyString(x))
+                  .join(", ")}, name=${pyString(c.name)})`
+            ),
+          ...model.indexes
+            .filter((i) => i.table === t)
+            .map(
+              (i) =>
+                `Index(${[i.name, ...i.columns].map((x) => pyString(x)).join(", ")}${
+                  i.unique ? ", unique=True" : ""
+                })`
+            ),
+        ],
+      };
+    };
+    const columnsOf = (
+      t: string,
+      fieldOf?: (c: string) => ComputedField | undefined
+    ) => {
+      const { pk, args } = tableArgs(t);
+      const columns = model.tables
+        .find((x) => x.name === t)!
+        .columns.map((c) => ({
+          name: c.name,
+          ...pyColumnArgs(
+            t,
+            c,
+            fieldOf?.(c.name),
+            model.constraints.find(
+              (k) => k.kind === "fk" && k.table === t && k.columns[0] === c.name
+            ),
+            pk.columns.includes(c.name)
+          ),
+        }));
+      return { columns, tableArgs: args };
+    };
+    const own = columnsOf(table, (c) => byField.get(c));
 
     const relationshipsForTemplate = getRelationshipForTemplate(
       name,
       relationships,
       allEntities
     );
+    const byName = new Map(allEntities.map((e) => [e.name, e]));
+    const joinTables = relationshipsForTemplate
+      .filter((r) => r.type === "ManyToMany" && r.joinTable && byName.get(r.name))
+      .map((r) => {
+        const j = joinTableOf(entity, r, byName.get(r.name)!);
+        return { name: j.name, ...columnsOf(j.name) };
+      });
+    // A non-owning ManyToMany names the join table its owner declares.
+    const associations = relationshipsForTemplate.map((r) => {
+      if (r.type === "OneToOne" && r.joinTable)
+        return { ...r, fkColumn: relationColumn(r) };
+      if (r.type !== "ManyToMany" || !byName.get(r.name)) return r;
+      const target = byName.get(r.name)!;
+      if (r.joinTable) return { ...r, secondary: joinTableOf(entity, r, target).name };
+      const owner = getRelationshipForTemplate(
+        target.name,
+        (this.config.relationshipMap ?? {})[target.name] || [],
+        allEntities
+      ).find((o) => o.type === "ManyToMany" && o.joinTable && o.name === name);
+      return { ...r, secondary: owner && joinTableOf(target, owner, entity).name };
+    });
     const entitiesToImport = getRelationshipsForImport(
       name,
       relationshipsForTemplate
@@ -147,23 +375,11 @@ export class PythonGenerator extends BaseGenerator {
 
     const data = {
       name,
-      indexes: indexes || [],
-      uniques: uniques || [],
-      createPrimaryKey,
-      primaryKeyType,
-      snakeCasedName: snakeCase(name),
-      // Honor an explicit per-entity `table` override; otherwise derive from
-      // the entity name. See apsoai/cli#107 (Python/Go parity with #98).
-      tableName: entity.table || snakeCase(name),
-      // Foreign keys name the referenced entity's real table, override included.
-      tableNames: Object.fromEntries(
-        allEntities.map((e) => [e.name, e.table || snakeCase(e.name)])
-      ),
-      createdAt,
-      updatedAt,
-      pluralizedName: camelCase(pluralize(name)),
-      columns,
-      associations: [...new Set(relationshipsForTemplate)],
+      tableName: table,
+      columns: own.columns,
+      tableArgs: own.tableArgs,
+      joinTables,
+      associations,
       entitiesToImport,
       importEnums: typeExistsInEntity(entity, "enum") !== -1,
       apiType,
@@ -198,6 +414,8 @@ export class PythonGenerator extends BaseGenerator {
       pluralEntityName,
       primaryKeyType,
       associations: [...new Set(relationshipsForTemplate)],
+      // Operations exposed as MCP tools, and the names the tools get.
+      ...mcpToolNames(entity, options.auth),
     };
 
     const content = await this.renderTemplate("./routers/router", data);
@@ -230,6 +448,16 @@ export class PythonGenerator extends BaseGenerator {
       primaryKeyType,
       associations: [...new Set(relationshipsForTemplate)],
       scope: entityScope(entity, Boolean(options.auth)),
+      // Foreign keys a write must check: those onto tenant-scoped entities.
+      references: Object.entries(
+        scopedReferences(
+          entity,
+          relationshipsForTemplate
+            .filter((a) => a.type === "ManyToOne" || (a.type === "OneToOne" && a.joinTable))
+            .map((a) => [a.camelCasedId, a.name]),
+          relationScopes(options.allEntities, options.relationshipMap ?? this.config.relationshipMap, Boolean(options.auth))
+        )
+      ).map(([field, target]) => ({ field, target })),
     };
 
     const content = await this.renderTemplate("./services/service", data);
@@ -246,10 +474,23 @@ export class PythonGenerator extends BaseGenerator {
     const { entity, relationships, allEntities, apiType } = options;
     const { name: entityName, fields = [] } = entity;
 
-    const columns = getFieldForTemplate(fields, entityName);
+    const table = tableName(entity);
+    const columns = withArrayTypes(
+      getFieldForTemplate(fields, entityName),
+      entityName
+    ).map((c: any) => {
+      const spec = columnSpec(table, c);
+      return {
+        ...c,
+        schemaTemplate: schemaTemplates[c.type] || c.type,
+        // NOT NULL with no default: the create schema requires it.
+        required: spec.notNull && spec.default === undefined,
+      };
+    });
     const relationshipsTemplate = getRelationshipForTemplate(
       entityName,
-      relationships
+      relationships,
+      allEntities
     );
 
     // Add foreign key columns for ManyToOne relationships
@@ -289,7 +530,12 @@ export class PythonGenerator extends BaseGenerator {
       createdAt,
       updatedAt,
       columns,
-      associations: relationshipsTemplate,
+      // Auth entities are for service callers only, so no other entity's
+      // response carries one.
+      associations: relationshipsTemplate.map((r: any) => ({
+        ...r,
+        hidden: hidesRelation(entityName, r.name, allEntities, options.auth),
+      })),
       apiType: apiType ?? "rest",
       importEnums: typeExistsInEntity(entity, "enum") !== -1,
     };
@@ -399,11 +645,11 @@ ${downStatements || "    pass"}
   async generateIndexModule(
     entities: Entity[],
     _apiType: string,
-    opts?: { auth?: AuthConfig }
+    _opts?: { auth?: AuthConfig }
   ): Promise<GeneratedFile[]> {
     const content = await this.renderTemplate("./index-module", {
       entities,
-      hasAuth: Boolean(opts?.auth),
+      permissions: hasPermissions(entities),
     });
 
     return [
@@ -411,7 +657,55 @@ ${downStatements || "    pass"}
         path: "__init__.py",
         content,
       },
+      {
+        path: "models/__init__.py",
+        content: await this.renderTemplate("./models/init", this.modelsInitData(entities)),
+      },
     ];
+  }
+
+  /**
+   * What create_all must run first: the extensions the tables use, and a
+   * guard that stops when the database still has a join table or enum type
+   * under the name older generated models gave it.
+   */
+  private modelsInitData(entities: Entity[]) {
+    const relationshipMap = this.config.relationshipMap ?? {};
+    const model = schemaModel({ entities, relationshipMap });
+    const legacy: LegacyName[] = [];
+    for (const entity of entities) {
+      const table = tableName(entity);
+      for (const f of entity.fields ?? [])
+        if (f.type === "enum") {
+          const old = `${entity.name}_${f.name}_enum`.toLowerCase();
+          const now = enumTypeName(table, f.name);
+          if (old !== now) legacy.push(legacyType(old, now));
+        }
+      for (const r of getRelationshipForTemplate(
+        entity.name,
+        relationshipMap[entity.name] || [],
+        entities
+      )) {
+        const target = entities.find((e) => e.name === r.name);
+        if (r.type !== "ManyToMany" || !r.joinTable || !target) continue;
+        const j = joinTableOf(entity, r, target);
+        const old = r.joinTableName || `${table}_${r.name.toLowerCase()}`;
+        if (old !== j.name)
+          legacy.push(
+            legacyTable(old, j.name, [
+              [r.joinColumnName || `${table}_id`, j.ownCol],
+              [r.inverseJoinColumnName || `${r.name.toLowerCase()}_id`, j.otherCol],
+            ])
+          );
+      }
+    }
+    const guard = legacyGuardSql(legacy);
+    return {
+      modules: entities.map((e) => [e.name.toLowerCase(), e.name]),
+      statements: [...model.extensions, ...(guard ? [guard] : [])].map((x) =>
+        pyString(x)
+      ),
+    };
   }
 
   /**
@@ -462,30 +756,43 @@ ${downStatements || "    pass"}
 
   async generateGuards(
     entities: Entity[],
-    auth?: AuthConfig
+    auth?: AuthConfig,
+    relationshipMap: RelationshipMap = this.config.relationshipMap ?? {}
   ): Promise<GeneratedFile[]> {
-    if (!auth) return [];
-    const nested = nestedScopeEntities(entities);
-    if (nested.length > 0)
-      console.warn(
-        `[apso] Nested scopeBy paths are enforced in TypeScript services only; ${nested.join(", ")} will not be filtered by those paths in this Python service`
-      );
-    let data: Record<string, unknown>;
-    if (isJwtAuth(auth)) {
-      data = { jwt: resolveJwtAuth(auth) };
-    } else if (isApiKeyAuth(auth)) {
-      const apiKey = apiKeyTemplateData(resolveApiKeyAuth(auth), entities);
-      data = {
-        apiKey: { ...apiKey, pyModule: apiKey.apiKeyEntity.toLowerCase() },
-      };
-    } else {
+    const mcp = entities.some((e) => mcpToolNames(e, auth).mcp.length > 0);
+    // Fails on a grants entity that would be an escalation path.
+    const permissions = getPermissionConfig(entities, relationshipMap, auth);
+    if (permissions && !auth)
       throw new Error(
-        `auth.provider "${auth.provider}" is generated for TypeScript services only. For Python, use "jwt" (Better Auth issues JWTs with its JWT plugin) or "api-key".`
+        "permissions in .apsorc need an auth block: roles come from the signed-in caller"
       );
-    }
-    return [
+    const nested = auth ? nestedScopeEntities(entities) : [];
+    if (nested.length > 0)
+      throw new Error(
+        `${nested.join(", ")}: a scopeBy path through a parent (for example "project.organizationId") is enforced in TypeScript services only for now. In Python, put the tenant field on the entity and scope by it, or generate with --language typescript.`
+      );
+    // The API key check is part of every service; auth adds user sign-in.
+    // One entry per trusted issuer; undefined when there is no sign-in.
+    const jwt = resolveJwtProviders(auth);
+    const data = {
+      jwt: jwt.length > 0 ? jwt : undefined,
+      mcp,
+      // Routes only a service caller reaches (sessions, accounts, ...).
+      authRoutes: authEntityRoutes(entities, auth),
+      relationScopes: relationScopes(entities, relationshipMap, Boolean(auth)) ?? {},
+    };
+    const files: GeneratedFile[] = [
       { path: "auth.py", content: await this.renderTemplate("./auth", data) },
     ];
+    if (permissions)
+      files.push({
+        path: "permissions.py",
+        content: await this.renderTemplate("./permissions", { permissions }),
+      });
+    // The /mcp endpoint; app/main.py mounts it (see ensurePythonMcpWiring).
+    if (mcp)
+      files.push({ path: "mcp.py", content: await this.renderTemplate("./mcp", {}) });
+    return files;
   }
 
   async generateQueryUtils(

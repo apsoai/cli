@@ -1,6 +1,8 @@
 import { expect, describe, test, beforeAll } from "@jest/globals";
 import { PythonGenerator } from "../../../src/lib/generators/python";
+import * as path from "path";
 import { GeneratorConfig, Entity, Relationship } from "../../../src/lib/types";
+import { generateAll } from "../../helpers/generate-all";
 
 // Helper to create generator config
 function createConfig(entities: Entity[], relationshipMap: { [key: string]: Relationship[] } = {}): GeneratorConfig {
@@ -17,6 +19,17 @@ function createConfig(entities: Entity[], relationshipMap: { [key: string]: Rela
 function findFileContent(files: { path: string; content: string }[], filename: string): string | undefined {
   const file = files.find(f => f.path.includes(filename));
   return file?.content;
+}
+
+// Model and schema files for one "Email" entity with these fields.
+async function renderEmail(fields: Entity["fields"]) {
+  const generator = new PythonGenerator(createConfig([]));
+  const entity: Entity = { name: "Email", fields };
+  const options = { entity, relationships: [], allEntities: [entity], apiType: "rest" };
+  return {
+    model: findFileContent(await generator.generateEntity(options), "email.py")!,
+    schema: findFileContent(await generator.generateDto(options), "email.py")!,
+  };
 }
 
 describe("PythonGenerator", () => {
@@ -132,7 +145,8 @@ describe("PythonGenerator", () => {
       const modelContent = findFileContent(files, "task.py");
       expect(modelContent).toBeDefined();
       // Should be "pending" not &quot;pending&quot;
-      expect(modelContent).toContain('default="pending"');
+      // A server default, as the DDL writer declares it.
+      expect(modelContent).toContain(`server_default=text("'pending'")`);
       expect(modelContent).not.toContain("&quot;");
     });
 
@@ -153,7 +167,7 @@ describe("PythonGenerator", () => {
 
       const modelContent = findFileContent(files, "counter.py");
       expect(modelContent).toBeDefined();
-      expect(modelContent).toContain("default=0");
+      expect(modelContent).toContain(`server_default=text("'0'")`);
     });
 
     test("boolean defaults render as True/False", async () => {
@@ -174,8 +188,8 @@ describe("PythonGenerator", () => {
 
       const modelContent = findFileContent(files, "setting.py");
       expect(modelContent).toBeDefined();
-      expect(modelContent).toContain("default=True");
-      expect(modelContent).toContain("default=False");
+      expect(modelContent).toContain('server_default=text("true")');
+      expect(modelContent).toContain('server_default=text("false")');
     });
 
     test("optional fields without defaults do not generate default=null", async () => {
@@ -335,8 +349,84 @@ describe("PythonGenerator", () => {
       });
 
       const modelContent = findFileContent(files, "lineitem.py");
-      expect(modelContent).toContain('ForeignKey("order_record.id")');
-      expect(modelContent).toContain('ForeignKey("user_profile.id")');
+      expect(modelContent).toContain('ForeignKey("order_record.id", name="FK_');
+      expect(modelContent).toContain('ForeignKey("user_profile.id", name="FK_');
+    });
+  });
+
+  describe("array fields match the DDL writer", () => {
+    test("text[] by default and the elementType's type otherwise", async () => {
+      const { model, schema } = await renderEmail([
+        { name: "to", type: "array" },
+        { name: "ids", type: "array", elementType: "integer", nullable: true },
+        { name: "flags", type: "array", elementType: "boolean" },
+      ]);
+      expect(model).toContain("ARRAY(Text)");
+      expect(model).not.toContain("ARRAY(String)");
+      expect(model).toContain("ids: Mapped[Optional[List[int]]]");
+      expect(model).toContain("ARRAY(Integer)");
+      expect(model).toContain("ARRAY(Boolean)");
+      expect(schema).toContain("List[int]");
+      expect(schema).toContain("List[bool]");
+    });
+
+    test("the old arrayType key still works", async () => {
+      const { model } = await renderEmail([
+        { name: "ids", type: "array", arrayType: "integer" } as any,
+      ]);
+      expect(model).toContain("ARRAY(Integer)");
+    });
+
+    test("an elementType with no SQLAlchemy mapping is refused", async () => {
+      await expect(
+        renderEmail([{ name: "x", type: "array", elementType: "text); DROP" }])
+      ).rejects.toThrow(/invalid elementType/);
+    });
+  });
+
+  describe("OneToOne", () => {
+    const workspace: Entity = { name: "Workspace", fields: [{ name: "name", type: "text" }] };
+    const setting: Entity = {
+      name: "Setting",
+      fields: [{ name: "tz", type: "text" }],
+      uniques: [{ fields: ["workspaceId", "tz"] }],
+    };
+
+    test("the owning side gets a UNIQUE workspaceId FK, like the DDL", async () => {
+      const files = await generator.generateEntity({
+        entity: setting,
+        relationships: [
+          { type: "OneToOne", name: "Workspace", join: true, referenceName: "Workspace", biDirectional: true, inverseReferenceName: "Setting" },
+        ],
+        allEntities: [workspace, setting],
+        apiType: "rest",
+      });
+      const model = findFileContent(files, "setting.py")!;
+      expect(model).toContain("workspaceId: Mapped[Optional[int]] = mapped_column(");
+      expect(model).toMatch(
+        /ForeignKey\("workspace.id", name="FK_\w+", ondelete="CASCADE", onupdate="NO ACTION"\)/
+      );
+      // UNIQUE as the DDL names it: REL_ for the one-to-one key.
+      expect(model).toMatch(/UniqueConstraint\("workspaceId", name="REL_\w+"\)/);
+      expect(model).toMatch(/UniqueConstraint\("workspaceId", "tz", name="UQ_\w+"\)/);
+      expect(model).toContain('back_populates="setting"');
+      // delete-orphan is not allowed on the many-to-one direction.
+      expect(model).not.toContain("delete-orphan");
+    });
+
+    test("the inverse side is a scalar relationship with no column", async () => {
+      const files = await generator.generateEntity({
+        entity: workspace,
+        relationships: [
+          { type: "OneToOne", name: "Setting", join: false, referenceName: "Setting", biDirectional: true, inverseReferenceName: "Workspace" },
+        ],
+        allEntities: [workspace, setting],
+        apiType: "rest",
+      });
+      const model = findFileContent(files, "workspace.py")!;
+      expect(model).toContain("uselist=False");
+      expect(model).toContain('back_populates="workspace"');
+      expect(model).not.toContain("settingId");
     });
   });
 
@@ -565,6 +655,78 @@ describe("PythonGenerator", () => {
 
       const files = await generator.generateDomainEvents([entity], "rest", {});
       expect(files).toEqual([]);
+    });
+  });
+
+  describe("the database matches apso migrate's", () => {
+    let files: Map<string, string>;
+    beforeAll(async () => {
+      files = await generateAll(
+        "python",
+        path.join(__dirname, "../../fixtures/ddl/pygo-parity.apsorc")
+      );
+    });
+
+    test("columns have the DDL's types, NULLs and server defaults", () => {
+      const account = files.get("models/account.py")!;
+      // created_at is timestamp without time zone; a timestamptz field keeps its zone.
+      expect(account).toContain(
+          'created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=text("now()"))'
+      );
+      expect(account).toContain(
+        "seenAt: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)"
+      );
+      expect(account).toContain(
+        'handle: Mapped[str] = mapped_column(Text, nullable=False)'
+      );
+      expect(account).toContain(
+        'planType: Mapped[Optional[enums.AccountPlanTypeEnum]] = mapped_column(SAEnum(enums.AccountPlanTypeEnum, name="account_planType_enum"'
+      );
+      expect(account).toContain('mapped_column(JSONB, nullable=True)');
+      expect(account).toContain('raw: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)');
+      expect(account).toContain('mapped_column(CHAR(3), nullable=True)');
+      expect(account).toContain('mapped_column(Numeric(), nullable=True)');
+      expect(account).toMatch(/UniqueConstraint\("code", "born", name="unique_account_code_born"\)/);
+      expect(account).toMatch(/Index\("IDX_\w+", "code", "tier"\)/);
+      expect(files.get("models/document.py")).toContain(
+        'id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))'
+      );
+    });
+
+    test("join tables and foreign keys are the DDL's", () => {
+      const post = files.get("models/post.py")!;
+      expect(post).toContain('post_tags_tag = Table(\n    "post_tags_tag",');
+      expect(post).toMatch(
+        /Column\("postId", Integer, ForeignKey\("post.id", name="FK_\w+", ondelete="CASCADE", onupdate="CASCADE"\), primary_key=True\)/
+      );
+      expect(post).toMatch(
+        /authorId: Mapped\[int] = mapped_column\(Integer, ForeignKey\("account.id", name="FK_\w+", ondelete="CASCADE", onupdate="NO ACTION"\), nullable=False\)/
+      );
+      expect(post).toContain('secondary="post_tags_tag"');
+      // Deleting a parent leaves its children to the foreign key's ON DELETE.
+      expect(files.get("models/account.py")).toContain('passive_deletes="all"');
+    });
+
+    test("create_all first makes the extensions and checks for older names", () => {
+      const init = files.get("models/__init__.py")!;
+      expect(init).toContain("from .account import Account  # noqa: F401");
+      expect(init).toContain('@event.listens_for(Base.metadata, "before_create")');
+      expect(init).toContain('"CREATE EXTENSION IF NOT EXISTS \\"uuid-ossp\\""');
+      expect(init).toContain(
+        'ALTER TABLE \\"post_tag\\" RENAME TO \\"post_tags_tag\\"'
+      );
+      expect(init).toContain(
+        'ALTER TYPE \\"public\\".\\"account_plantype_enum\\" RENAME TO \\"account_planType_enum\\"'
+      );
+    });
+
+    test("the create schema requires NOT NULL fields with no default", () => {
+      const schema = files.get("schemas/account.py")!;
+      const create = schema.slice(schema.indexOf("class AccountCreate"), schema.indexOf("class AccountUpdate"));
+      expect(create).toContain("handle: str");
+      expect(create).toContain("greeting: Optional[str] = None");
+      expect(create).toContain("profileId: Optional[int] = None");
+      expect(files.get("schemas/comment.py")).toContain("documentId: UUID");
     });
   });
 });

@@ -7,15 +7,16 @@ import (
 	"net/http"
 	"strings"
 
+	"app/autogen/middleware"
 	"app/autogen/services"
 	"github.com/gin-gonic/gin"
 )
 
 // scopeError answers a scoped entity's service error: 403 when the caller has
-// no tenant, 404 when the row is missing or belongs to another tenant.
+// no tenant or the body names a row it cannot read, 404 when the row is missing or belongs to another tenant.
 // It reports whether it wrote a response.
 func scopeError(c *gin.Context, err error) bool {
-	if errors.Is(err, services.ErrForbidden) {
+	if errors.Is(err, services.ErrForbidden) || errors.Is(err, middleware.ErrReference) {
 		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 		return true
 	}

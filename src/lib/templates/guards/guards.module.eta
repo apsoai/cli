@@ -7,8 +7,12 @@ import { APP_GUARD } from '@nestjs/core';
 <% if (it.scopedEntities && it.scopedEntities.length > 0) { %>
 import { ScopeGuard } from './scope.guard';
 <% } %>
+import { ApiKeyGuard<% if (it.mcpAuth) { %>, McpAuthProvider<% } %> } from './key.guard';
 <% if (it.hasAuth) { %>
 import { AuthGuard } from './auth.guard';
+<% } %>
+<% if (it.permissions) { %>
+import { PermissionGuard } from './permission.guard';
 <% } %>
 
 <% /* Import all entities for ScopeGuard (from sibling autogen folders) */ %>
@@ -19,33 +23,24 @@ import { <%= entity.name %> } from '../<%= entity.name %>/<%= entity.name %>.ent
 <% }) %>
 <% } %>
 
-<% /* Import entities for AuthGuard (from sibling autogen folders) */ %>
-<% if (it.authEntities.length > 0) { %>
-// Entities for AuthGuard
-<% it.authEntities.forEach((entity) => { %>
-import { <%= entity %> } from '../<%= entity %>/<%= entity %>.entity';
-<% }) %>
-<% } %>
-
 /**
- * GuardsModule provides authentication and scope-based data isolation guards.
+ * GuardsModule turns on the service's global guards. Every request is refused
+ * unless a guard lets it through; a route opts out with @Public().
  *
  * Auto-generated from .apsorc configuration.
  *
- * Usage:
- * 1. Import GuardsModule in your AppModule
- * 2. Guards are ENABLED GLOBALLY BY DEFAULT (secure by default) because this
- *    schema declares an auth model / scoped entities. Requests are authenticated
- *    and tenant-scoped unless a route opts out with @Public().
- * 3. Services with no auth model generate no guards and rely on the API Gateway
- *    API key at the edge.
- *
+ * ApiKeyGuard (in every service):
+ * - Checks the x-api-key header against the key source chosen at start-up
+ *   (APSO_API_KEY, else the platform gateway's service token, else off)
+ * - A caller with a valid key is a service caller: any route, no tenant scope
 <% if (it.hasAuth) { %>
- * AuthGuard:
- * - Authenticates every request (<%= it.authProvider %>)
- * - Attaches normalized AuthContext to request.auth
- *
+ * - A request with no key goes to AuthGuard (<%= it.authProvider %>), which
+ *   attaches the signed-in user's AuthContext to request.auth
+<% } else { %>
+ * - No sign-in is configured (.apsorc has no auth block), so a request with no
+ *   valid key is refused
 <% } %>
+ *
 <% if (it.scopedEntities && it.scopedEntities.length > 0) { %>
  * ScopeGuard:
  * - Enforces data isolation based on scopeBy config
@@ -67,7 +62,6 @@ import { <%= entity %> } from '../<%= entity %>/<%= entity %>.entity';
 <% /* Collect all unique entities */ %>
 <% const allEntities = new Set(); %>
 <% if (it.scopedEntities) { it.scopedEntities.forEach(e => allEntities.add(e.name)); } %>
-<% it.authEntities.forEach(e => allEntities.add(e)); %>
 <% const entityArray = Array.from(allEntities); %>
 <% entityArray.forEach((entity, index) => { %>
       <%= entity %><%= index < entityArray.length - 1 ? ',' : '' %>
@@ -75,21 +69,31 @@ import { <%= entity %> } from '../<%= entity %>/<%= entity %>.entity';
     ]),
   ],
   providers: [
+    ApiKeyGuard,
 <% if (it.hasAuth) { %>
     AuthGuard,
+<% } %>
+<% if (it.mcpAuth) { %>
+    McpAuthProvider,
+<% } %>
+<% if (it.permissions) { %>
+    PermissionGuard,
 <% } %>
 <% if (it.scopedEntities && it.scopedEntities.length > 0) { %>
     ScopeGuard,
 <% } %>
-    // Global guards are ENABLED BY DEFAULT (secure by default) whenever the
-    // schema declares an auth model / scoped entities. Services with NO auth
-    // config generate no guards at all and are protected at the edge by the
-    // API Gateway API key — so this does not conflict with that setup. Use the
-    // @Public() decorator to opt an individual route out of authentication.
-<% if (it.hasAuth) { %>
+    // Global guards, in the order they run. ApiKeyGuard checks an API key and
+    // hands a request without one to AuthGuard when sign-in is configured.
     {
       provide: APP_GUARD,
-      useClass: AuthGuard,
+      useExisting: ApiKeyGuard,
+    },
+<% if (it.permissions) { %>
+    // Global guards run in this order: roles are checked after the caller is
+    // known and before the scope guard loads any rows.
+    {
+      provide: APP_GUARD,
+      useClass: PermissionGuard,
     },
 <% } %>
 <% if (it.scopedEntities && it.scopedEntities.length > 0) { %>
@@ -100,8 +104,12 @@ import { <%= entity %> } from '../<%= entity %>/<%= entity %>.entity';
 <% } %>
   ],
   exports: [
+    ApiKeyGuard,
 <% if (it.hasAuth) { %>
     AuthGuard,
+<% } %>
+<% if (it.permissions) { %>
+    PermissionGuard,
 <% } %>
 <% if (it.scopedEntities && it.scopedEntities.length > 0) { %>
     ScopeGuard,

@@ -1,1 +1,1 @@
-    <%= it.field.name %>: <% if (!it.field.required || it.forUpdate) { %>Optional[List[<%= it.field.arrayType === 'integer' ? 'int' : 'str' %>]] = None<% } else { %>List[<%= it.field.arrayType === 'integer' ? 'int' : 'str' %>]<% } %>
+    <%= it.field.name %>: <% if (!it.field.required || it.forUpdate) { %>Optional[List[<%= it.field.arrayItemType %>]] = None<% } else { %>List[<%= it.field.arrayItemType %>]<% } %>

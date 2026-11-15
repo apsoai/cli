@@ -6,6 +6,7 @@
  */
 
 import { ChildProcess, spawn } from "child_process";
+import { randomBytes } from "crypto";
 import * as fs from "fs";
 import * as http from "http";
 import * as net from "net";
@@ -542,15 +543,20 @@ const freePort = () =>
 
 type Res = { status: number; body: string };
 
+// The smoke test's own API key: the service is started with it and every
+// request sends it, so the checks pass whatever the project's .env holds.
+export const SMOKE_KEY = randomBytes(16).toString("hex");
+
 const request = (method: string, url: string, body?: unknown) =>
   new Promise<Res>((resolve) => {
     const data = body === undefined ? undefined : JSON.stringify(body);
-    const headers: http.OutgoingHttpHeaders = data
-      ? {
-          "content-type": "application/json",
-          "content-length": Buffer.byteLength(data),
-        }
-      : {};
+    const headers: http.OutgoingHttpHeaders = {
+      "x-api-key": SMOKE_KEY,
+      ...(data && {
+        "content-type": "application/json",
+        "content-length": Buffer.byteLength(data),
+      }),
+    };
     http
       .request(url, { method, headers, timeout: 15_000 }, (res) => {
         let text = "";
@@ -609,7 +615,8 @@ async function checkEndpoints(
   for (const { name } of entities) {
     done({
       name: `GET ${route(name)}`,
-      ...expectStatus(await get(base + route(name)), 200),
+      // 206: a TypeScript service answers a full default page that way.
+      ...expectStatus(await get(base + route(name)), 200, 206),
     });
   }
 
@@ -714,6 +721,10 @@ export interface SmokeOptions {
   skipBuild?: boolean;
   timeoutMs?: number;
   language?: TargetLanguage;
+  /** Added to the service's environment. */
+  env?: NodeJS.ProcessEnv;
+  /** Runs against the started service in place of the endpoint checks. */
+  check?: (base: string, done: (s: Step) => boolean) => Promise<void>;
 }
 
 /**
@@ -730,15 +741,18 @@ export async function smokeTest(
     skipBuild = false,
     timeoutMs = 60_000,
     language = "typescript",
+    env: extraEnv = {},
+    check = (base, done) =>
+      checkEndpoints(base, language, entities, relationships, done),
   }: SmokeOptions = {}
 ): Promise<CheckResult> {
   if (language !== "typescript")
     return smokeTestOnDatabaseUrl(
       projectDir,
-      entities,
-      relationships,
       language,
-      timeoutMs
+      timeoutMs,
+      extraEnv,
+      check
     );
   if (!supportsPglite(projectDir)) return NO_PGLITE;
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "apso-pglite-"));
@@ -763,11 +777,15 @@ export async function smokeTest(
     const port = await freePort();
     const server = spawn(process.execPath, ["dist/main"], {
       cwd: projectDir,
-      env: { ...process.env, ...pgliteEnv(dataDir), APP_PORT: String(port) },
+      env: {
+        ...process.env,
+        ...pgliteEnv(dataDir),
+        APP_PORT: String(port),
+        APSO_API_KEY: SMOKE_KEY,
+        ...extraEnv,
+      },
     });
-    await serve(server, port, timeoutMs, done, (base) =>
-      checkEndpoints(base, language, entities, relationships, done)
-    );
+    await serve(server, port, timeoutMs, done, (base) => check(base, done));
     return { ok: steps.every((s) => s.ok), steps };
   } finally {
     fs.rmSync(dataDir, { recursive: true, force: true });
@@ -814,10 +832,10 @@ const skipped = (output: string): CheckResult => ({
  */
 async function smokeTestOnDatabaseUrl(
   projectDir: string,
-  entities: Entity[],
-  relationships: RelationshipMap,
   language: TargetLanguage,
-  timeoutMs: number
+  timeoutMs: number,
+  extraEnv: NodeJS.ProcessEnv,
+  check: NonNullable<SmokeOptions["check"]>
 ): Promise<CheckResult> {
   const env = { ...readDotEnv(projectDir), ...process.env };
   if (!env.DATABASE_URL)
@@ -847,7 +865,12 @@ async function smokeTestOnDatabaseUrl(
     return s.ok;
   };
   const port = await freePort();
-  const serverEnv = { ...env, PORT: String(port) };
+  const serverEnv = {
+    ...env,
+    PORT: String(port),
+    APSO_API_KEY: SMOKE_KEY,
+    ...extraEnv,
+  };
   const binDir = fs.mkdtempSync(path.join(os.tmpdir(), "apso-smoke-"));
   try {
     let server: ChildProcess;
@@ -881,9 +904,7 @@ async function smokeTestOnDatabaseUrl(
         { cwd: projectDir, env: serverEnv }
       );
     }
-    await serve(server, port, timeoutMs, done, (base) =>
-      checkEndpoints(base, language, entities, relationships, done)
-    );
+    await serve(server, port, timeoutMs, done, (base) => check(base, done));
     return { ok: steps.every((s) => s.ok), steps };
   } finally {
     fs.rmSync(binDir, { recursive: true, force: true });

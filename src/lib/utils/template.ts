@@ -1,7 +1,14 @@
+import { randomBytes } from "crypto";
 import * as fs from "fs";
 import * as path from "path";
 import shell from "shelljs";
 import { TargetLanguage } from "../types";
+import {
+  JOSE_DEP,
+  PYJWT_DEP,
+  addMissingDeps,
+  addMissingPythonDep,
+} from "./crud-deps";
 
 export const TEMPLATE_REPOS: Record<TargetLanguage, string> = {
   typescript: "https://github.com/apsoai/service-template-ts.git",
@@ -66,7 +73,40 @@ export function cloneTemplate(
   shell.rm("-rf", path.join(projectPath, ".git"));
 
   ensureEnvFile(projectPath, log);
+  ensureDevKey(projectPath);
+  // The generated API key check imports a JWT library; declare it now so the
+  // first install covers it.
+  if (language === "typescript") addMissingDeps(projectPath, JOSE_DEP);
+  if (language === "python") addMissingPythonDep(projectPath, PYJWT_DEP);
   stampApsorcLanguage(projectPath, language, log);
+}
+
+/**
+ * Give a project a development API key in its .env, which the templates keep
+ * out of git. Every generated service refuses requests without a key or a
+ * signed-in user, so a new or freshly cloned project needs one to run.
+ * APSO_LOCAL=1 turns on the detailed 401 messages.
+ *
+ * @param {string} projectPath - The project root.
+ * @returns {string | undefined} The key when one was created; undefined when
+ * .env already sets APSO_API_KEY.
+ */
+export function ensureDevKey(projectPath: string): string | undefined {
+  const envPath = path.join(projectPath, ".env");
+  const text = fs.existsSync(envPath) ? fs.readFileSync(envPath, "utf8") : "";
+  if (/^\s*APSO_API_KEY\s*=/m.test(text)) return undefined;
+  const key = `apso_dev_${randomBytes(24).toString("hex")}`;
+  fs.writeFileSync(
+    envPath,
+    `${text}${text === "" || text.endsWith("\n") ? "" : "\n"}
+# Development API key for this machine, created by the Apso CLI. Send it in the
+# x-api-key header. This is the key itself, not a hash; do not commit it.
+APSO_API_KEY=${key}
+# Local development: 401 responses say what is missing.
+APSO_LOCAL=1
+`
+  );
+  return key;
 }
 
 /**

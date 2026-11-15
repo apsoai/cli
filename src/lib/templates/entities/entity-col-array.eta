@@ -9,4 +9,4 @@
 @Index()
 <% } %>
 
-<%= field.name %>: <%= field.elementType === 'int' || field.elementType === 'smallint' || field.elementType === 'decimal' || field.elementType === 'numeric' || field.elementType === 'real' || field.elementType === 'float8' ? 'number' : 'string' %>[];
+<%= field.name %>: <%= field.dataType %>;

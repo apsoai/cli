@@ -1,4 +1,0 @@
-    <%= it.field.name %>: Mapped[<% if (it.field.nullable !== false) { %>Optional[date]<% } else { %>date<% } %>] = mapped_column(
-        Date,
-        nullable=<%= it.field.nullable === false ? 'False' : 'True' %>
-    )

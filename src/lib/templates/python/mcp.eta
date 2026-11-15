@@ -1,0 +1,284 @@
+<%~ includeFile('./header.eta', it) %>
+
+"""
+MCP tools at /mcp (Streamable HTTP, stateless), served with the official MCP
+SDK for Python.
+
+A tool is a route. A route is marked with openapi_extra=mcp_tool(...), and its
+input schema comes from its OpenAPI operation: path and query parameters are
+top-level arguments, the JSON body is the "body" argument. When an agent calls
+a tool, the request is sent through this app in memory with the caller's
+headers, so authentication, permissions and tenant scoping run exactly as they
+do for a REST caller. Tools never call a service or the database.
+
+Every request to /mcp passes the service's own auth check first. A request
+with no valid credential gets the 401 that starts OAuth sign-in in an MCP
+client, and /.well-known/oauth-protected-resource names the identity provider
+(RFC 9728).
+
+Mark your own routes the same way:
+
+    @router.post("/{id}/approve", openapi_extra=mcp_tool("approve_invoice", "Approve an invoice."))
+"""
+import json
+import re
+from contextlib import asynccontextmanager
+from typing import Any, Dict, List, Optional
+from urllib.parse import quote, urlsplit
+
+import httpx
+from fastapi import FastAPI, HTTPException
+from mcp import types
+from mcp.server.lowlevel import Server
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from starlette.requests import Request
+from starlette.responses import JSONResponse, Response
+from starlette.routing import Route
+
+from .auth import MCP_RESOURCE, _PROVIDERS, require_auth
+
+MCP_PATH = "/mcp"
+MCP_EXTENSION = "x-mcp-tool"
+PRM_PATH = "/.well-known/oauth-protected-resource"
+
+# Headers that describe the MCP request itself, not the caller. Everything
+# else (authorization, cookie, x-api-key, ...) is forwarded to the route.
+NOT_FORWARDED = {
+    "accept",
+    "connection",
+    "content-length",
+    "content-type",
+    "mcp-protocol-version",
+    "mcp-session-id",
+    "transfer-encoding",
+}
+
+_strings = {"type": "array", "items": {"type": "string"}}
+# The generated list routes read these from the query string.
+LIST_PARAMETERS = [
+    {"name": "filter", "in": "query", "schema": _strings, "description": "field||$operator||value, one per condition"},
+    {"name": "or", "in": "query", "schema": _strings, "description": "field||$operator||value, any of which may match"},
+    {"name": "sort", "in": "query", "schema": _strings, "description": "field,ASC or field,DESC"},
+    {"name": "join", "in": "query", "schema": _strings, "description": "relation to load with each row"},
+    {"name": "fields", "in": "query", "schema": {"type": "string"}, "description": "field1,field2"},
+    {"name": "limit", "in": "query", "schema": {"type": "integer"}, "description": "page size"},
+    {"name": "page", "in": "query", "schema": {"type": "integer"}, "description": "page number, from 1"},
+]
+
+
+def mcp_tool(name: str, description: str, parameters: Optional[List[dict]] = None) -> dict:
+    """The openapi_extra that marks a route as an MCP tool."""
+    extra: Dict[str, Any] = {MCP_EXTENSION: {"name": name, "description": description}}
+    if parameters:
+        extra["parameters"] = parameters
+    return extra
+
+
+def _inline(document: dict, node: Any, seen: tuple = ()) -> Any:
+    """Replace every $ref with the schema it points to; MCP clients get one self-contained schema."""
+    if isinstance(node, list):
+        return [_inline(document, item, seen) for item in node]
+    if not isinstance(node, dict):
+        return node
+    ref = node.get("$ref")
+    if isinstance(ref, str):
+        name = ref.split("/")[-1]
+        # ponytail: a self-referencing schema is cut to "any object" where it repeats.
+        if name in seen:
+            return {"type": "object"}
+        return _inline(document, document.get("components", {}).get("schemas", {}).get(name, {}), (*seen, name))
+    return {key: _inline(document, value, seen) for key, value in node.items()}
+
+
+def tools_from_document(document: dict) -> List[dict]:
+    """Build the tool list from the routes marked with mcp_tool in an OpenAPI document."""
+    tools: List[dict] = []
+    for path, item in (document.get("paths") or {}).items():
+        for method in ("get", "post", "put", "patch", "delete"):
+            operation = item.get(method) or {}
+            options = operation.get(MCP_EXTENSION)
+            if not options:
+                continue
+            route = f"{method.upper()} {path}"
+            name = options.get("name") or operation.get("operationId") or ""
+            if not re.fullmatch(r"[\w-]{1,64}", name):
+                raise RuntimeError(f'mcp_tool on {route}: name "{name}" must be 1-64 letters, digits, _ or -')
+            if any(tool["name"] == name for tool in tools):
+                raise RuntimeError(f'mcp_tool on {route}: another tool is already named "{name}"')
+
+            properties: Dict[str, Any] = {}
+            required: List[str] = []
+            query: List[str] = []
+            for parameter in [*(item.get("parameters") or []), *(operation.get("parameters") or [])]:
+                if parameter.get("in") not in ("path", "query"):
+                    continue
+                schema = _inline(document, parameter.get("schema") or {})
+                if parameter.get("description"):
+                    schema = {**schema, "description": parameter["description"]}
+                properties[parameter["name"]] = schema
+                if parameter["in"] == "query":
+                    query.append(parameter["name"])
+                if parameter["in"] == "path" or parameter.get("required"):
+                    required.append(parameter["name"])
+            body = (operation.get("requestBody") or {}).get("content", {}).get("application/json", {}).get("schema")
+            if body is not None:
+                properties["body"] = _inline(document, body)
+                if operation["requestBody"].get("required"):
+                    required.append("body")
+
+            tools.append(
+                {
+                    "name": name,
+                    "description": options.get("description") or operation.get("summary") or route,
+                    "method": method.upper(),
+                    "path": path,
+                    "query": query,
+                    "inputSchema": {"type": "object", "properties": properties, "required": required},
+                    "readOnly": method == "get",
+                    "destructive": options.get("destructive", method == "delete"),
+                }
+            )
+    return tools
+
+
+def _text(value: str, is_error: bool) -> types.CallToolResult:
+    return types.CallToolResult(content=[types.TextContent(type="text", text=value)], is_error=is_error)
+
+
+async def _call_tool(app: FastAPI, tool: dict, args: Dict[str, Any], caller_headers: Any) -> types.CallToolResult:
+    """Send the tool call through the app's own HTTP pipeline, in memory."""
+    missing: List[str] = []
+
+    def fill(match: "re.Match[str]") -> str:
+        value = args.get(match.group(1))
+        if value in (None, ""):
+            missing.append(match.group(1))
+        return quote(str(value), safe="")
+
+    path = re.sub(r"\{(\w+)\}", fill, tool["path"])
+    if missing:
+        return _text(f"Missing {', '.join(missing)}", True)
+
+    params = []
+    for key in tool["query"]:
+        value = args.get(key)
+        if value is None:
+            continue
+        for item in value if isinstance(value, list) else [value]:
+            params.append((key, str(item).lower() if isinstance(item, bool) else str(item)))
+
+    headers = {"accept": "application/json"}
+    for key, value in caller_headers.items():
+        if key.lower() not in NOT_FORWARDED:
+            headers[key] = value
+
+    transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+    async with httpx.AsyncClient(transport=transport, base_url="http://mcp.internal") as client:
+        response = await client.request(
+            tool["method"],
+            path,
+            params=params,
+            headers=headers,
+            **({"json": args["body"]} if args.get("body") is not None else {}),
+        )
+    return _text(response.text or f"HTTP {response.status_code}", response.status_code >= 400)
+
+
+def _resource_url(request: Request) -> str:
+    """The MCP endpoint's public URL: MCP_RESOURCE_URL, else what the request used."""
+    if MCP_RESOURCE:
+        return MCP_RESOURCE.rstrip("/")
+    proto = request.headers.get("x-forwarded-proto", request.url.scheme).split(",")[0].strip()
+    host = request.headers.get("x-forwarded-host", request.headers.get("host", "localhost")).split(",")[0].strip()
+    return f"{proto}://{host}{MCP_PATH}"
+
+
+def _metadata_url(request: Request) -> str:
+    resource = urlsplit(_resource_url(request))
+    return f"{resource.scheme}://{resource.netloc}{PRM_PATH}{resource.path}"
+
+
+def mount_mcp(app: FastAPI) -> None:
+    """Serve the routes marked with mcp_tool as MCP tools at POST /mcp. Call it after the routers are included."""
+    tools: Dict[str, dict] = {}
+
+    async def list_tools(ctx: Any, params: Any) -> types.ListToolsResult:
+        return types.ListToolsResult(
+            tools=[
+                types.Tool(
+                    name=tool["name"],
+                    description=tool["description"],
+                    input_schema=tool["inputSchema"],
+                    annotations=types.ToolAnnotations(
+                        read_only_hint=tool["readOnly"], destructive_hint=tool["destructive"]
+                    ),
+                )
+                for tool in tools.values()
+            ]
+        )
+
+    async def call_tool(ctx: Any, params: types.CallToolRequestParams) -> types.CallToolResult:
+        tool = tools.get(params.name)
+        if tool is None:
+            return _text(f"Unknown tool {params.name}", True)
+        # No caller headers means no credentials, and the route refuses the call.
+        return await _call_tool(app, tool, params.arguments or {}, getattr(ctx.request, "headers", {}))
+
+    server = Server(app.title or "api", version=app.version or "1.0", on_list_tools=list_tools, on_call_tool=call_tool)
+    manager = StreamableHTTPSessionManager(app=server, stateless=True, json_response=True)
+
+    class Endpoint:
+        async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+            request = Request(scope, receive)
+            if request.method != "POST":
+                await Response(status_code=405, headers={"allow": "POST"})(scope, receive, send)
+                return
+            try:
+                # The same check every /api route runs: API key, then the user's token.
+                await require_auth(request, Response())
+            except HTTPException as e:
+                headers = dict(e.headers or {})
+                presents_key = "x-api-key" in request.headers or "x-apso-service-token" in request.headers
+                if e.status_code == 401 and not presents_key:
+                    # The 401 is what starts sign-in: it points the client at the metadata.
+                    challenge = f'Bearer resource_metadata="{_metadata_url(request)}"'
+                    if "authorization" in request.headers:
+                        challenge += ', error="invalid_token"'
+                    headers["www-authenticate"] = challenge
+                await JSONResponse({"detail": e.detail}, status_code=e.status_code, headers=headers)(scope, receive, send)
+                return
+            await manager.handle_request(scope, receive, send)
+
+    async def metadata(request: Request) -> Response:
+        # Tells an MCP client where to sign in. Public by design, and readable
+        # from a browser-based client on another origin.
+        return JSONResponse(
+            {
+                "resource": _resource_url(request),
+                # Every provider's issuer, in .apsorc order. For Better Auth that
+                # is its base URL, the issuer of its OAuth access tokens.
+                "authorization_servers": [p["issuer"] for p in _PROVIDERS],
+                "bearer_methods_supported": ["header"],
+            },
+            headers={"access-control-allow-origin": "*", "cache-control": "max-age=300"},
+        )
+
+    app.router.routes.extend(
+        [
+            Route(MCP_PATH, endpoint=Endpoint()),
+            Route(PRM_PATH, metadata, methods=["GET"]),
+            Route(PRM_PATH + MCP_PATH, metadata, methods=["GET"]),
+        ]
+    )
+
+    inner = app.router.lifespan_context
+
+    @asynccontextmanager
+    async def lifespan(started: Any):
+        # Read the tools once every route is registered; a bad marker stops start-up.
+        tools.update({tool["name"]: tool for tool in tools_from_document(app.openapi())})
+        async with manager.run():
+            async with inner(started) as state:
+                yield state
+
+    app.router.lifespan_context = lifespan

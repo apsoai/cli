@@ -18,6 +18,7 @@ const cases: [string, string][] = [
   ["inventory-multi-fk", path.join(fixtures, "inventory-multi-fk.apsorc")],
   ["coverage", path.join(fixtures, "ddl", "coverage.apsorc")],
   ["duplicate-index", path.join(fixtures, "ddl", "duplicate-index.apsorc")],
+  ["one-to-one-unique", path.join(fixtures, "ddl", "one-to-one-unique.apsorc")],
 ];
 const ddl = (file: string) =>
   schemaDdl(parseApsorcV2(JSON.parse(fs.readFileSync(file).toString())));
