@@ -143,7 +143,7 @@ describe("server new command", () => {
 
   describe("TEMPLATE_REFS pinning", () => {
     test("pins the TypeScript template to a tag", () => {
-      expect(TEMPLATE_REFS.typescript).toBe("v2.1.0");
+      expect(TEMPLATE_REFS.typescript).toBe("v2.1.1");
     });
 
     test("has a ref for every supported language", () => {

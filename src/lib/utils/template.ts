@@ -19,14 +19,14 @@ export const TEMPLATE_REPOS: Record<TargetLanguage, string> = {
 /**
  * Git ref (tag or branch) to clone for each template. Pinning to a tag makes
  * the CLI-version-to-template pairing explicit instead of a date cutoff on
- * template main. v2.1.0 matches what this CLI generates: @apso/crud ^1.1.0
+ * template main. v2.1.1 matches what this CLI generates: @apso/crud ^1.1.0
  * (PostgREST-only), MCP at /mcp, request logging, and the AGENTS.md and
  * CLAUDE.md agent instructions. Move the tag when the template changes in a
  * way new projects need; the Python and Go
  * template repos are untagged and don't carry the dialect work.
  */
 export const TEMPLATE_REFS: Record<TargetLanguage, string> = {
-  typescript: "v2.1.0",
+  typescript: "v2.1.1",
   python: "main",
   go: "main",
 };
