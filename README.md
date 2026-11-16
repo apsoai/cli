@@ -138,7 +138,7 @@ The full list of what is supported and what is refused is in the `@apso/crud` pa
 
 Add `mcp` to an entity in `.apsorc` and its routes are served as MCP tools. `"mcp": true` exposes read, create, update and delete. A list such as `["read"]` exposes only those.
 
-A TypeScript service has two MCP addresses:
+A service has two MCP addresses, in TypeScript, Python and Go:
 
 | Address | Who it is for | Credential |
 |---------|---------------|------------|
@@ -152,7 +152,7 @@ A TypeScript service has two MCP addresses:
 claude mcp add --transport http my-api http://localhost:3000/mcp/internal --header "x-api-key: $APSO_API_KEY"
 ```
 
-Set `MCP_RESOURCE_URL` to the public URL of `/mcp` when the service runs behind a proxy. Details are in [docs/access-rules.md](docs/access-rules.md#mcp-addresses). Python and Go services serve `/mcp` alone for now.
+Set `MCP_RESOURCE_URL` to the public URL of `/mcp` when the service runs behind a proxy. Details are in [docs/access-rules.md](docs/access-rules.md#mcp-addresses).
 
 ## Commands
 
