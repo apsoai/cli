@@ -1,4 +1,6 @@
-import { expect } from "@jest/globals";
+import { expect, jest, afterEach } from "@jest/globals";
+import { signInIfNeeded } from "../../src/commands/deploy";
+import { credentials } from "../../src/lib/config";
 
 /**
  * Deploy command unit tests.
@@ -88,5 +90,59 @@ describe("deploy migration gating", () => {
     const flags = { yes: false, skipMigrate: true, noWait: false };
     expect(flags.skipMigrate).toBe(true);
     // When skipMigrate is true, the command skips runMigrationSandbox
+  });
+});
+
+/** A command stand-in that records which commands it ran. */
+const fakeCommand = () => {
+  const ran: string[] = [];
+  return {
+    ran,
+    log: jest.fn(),
+    error: jest.fn((msg: string) => {
+      throw new Error(msg);
+    }) as never,
+    config: {
+      runCommand: jest.fn(async (id: string) => {
+        ran.push(id);
+      }),
+    },
+  };
+};
+
+describe("deploy signs you in when you aren't", () => {
+  const ci = process.env.CI;
+  afterEach(() => {
+    jest.restoreAllMocks();
+    if (ci === undefined) delete process.env.CI;
+    else process.env.CI = ci;
+  });
+  test("signed in: deploy goes straight on", async () => {
+    jest.spyOn(credentials, "isValid").mockReturnValue(true);
+    const cmd = fakeCommand();
+    await signInIfNeeded(cmd);
+    expect(cmd.ran).toEqual([]);
+  });
+
+  test("signed out: runs login, then carries on", async () => {
+    delete process.env.CI;
+    jest.spyOn(credentials, "isValid").mockReturnValueOnce(false).mockReturnValue(true);
+    const cmd = fakeCommand();
+    await signInIfNeeded(cmd);
+    expect(cmd.ran).toEqual(["login"]);
+  });
+
+  test("signed out and login didn't finish: stops with the next step", async () => {
+    delete process.env.CI;
+    jest.spyOn(credentials, "isValid").mockReturnValue(false);
+    await expect(signInIfNeeded(fakeCommand())).rejects.toThrow("Sign-in didn't finish");
+  });
+
+  test("signed out in CI: no browser, points at the token", async () => {
+    process.env.CI = "true";
+    jest.spyOn(credentials, "isValid").mockReturnValue(false);
+    const cmd = fakeCommand();
+    await expect(signInIfNeeded(cmd)).rejects.toThrow("APSO_API_TOKEN");
+    expect(cmd.ran).toEqual([]);
   });
 });

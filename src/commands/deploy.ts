@@ -60,10 +60,7 @@ export default class Deploy extends BaseCommand {
     const { flags } = await this.parse(Deploy);
     const env = asEnv(flags.env);
 
-    // Auth guard
-    if (!credentials.isValid()) {
-      this.error("Not logged in. Run 'apso login' first.");
-    }
+    await signInIfNeeded(this);
 
     // Link guard
     const link = projectLink.read();
@@ -368,4 +365,28 @@ export default class Deploy extends BaseCommand {
     }
     return repo;
   }
+}
+
+type SignInCommand = Pick<BaseCommand, "log" | "error"> & {
+  config: { runCommand: (id: string, argv?: string[]) => Promise<unknown> };
+};
+
+/**
+ * Deploy signs you in instead of stopping. The browser flow needs no TTY, so
+ * an agent can run deploy and the person finishes sign-in in the browser. CI
+ * has nobody to do that, so it still fails with the token instructions.
+ *
+ * @param {SignInCommand} cmd - The running command.
+ * @returns {Promise<void>} Resolves once valid credentials are stored.
+ */
+export async function signInIfNeeded(cmd: SignInCommand): Promise<void> {
+  if (credentials.isValid()) return;
+  if (process.env.CI === "true" || process.env.CI === "1")
+    cmd.error(
+      'Not logged in. In CI, run `apso login --token "$APSO_API_TOKEN"` before `apso deploy`.'
+    );
+  cmd.log("You're not signed in to Apso, so signing in first.");
+  await cmd.config.runCommand("login");
+  if (!credentials.isValid())
+    cmd.error("Sign-in didn't finish. Run 'apso login', then re-run deploy.");
 }

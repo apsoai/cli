@@ -25,8 +25,9 @@ import {
 } from "../../lib/doctor/runner";
 import { writeAccessManifest } from "../../lib/utils/crud-deps";
 import { createFile } from "../../lib/utils/file-system";
-import { apsorcToServiceSchema } from "../../lib/utils/schema-convert";
 import { registerSchemaTools } from "../../lib/mcp-schema-tools";
+import { formatLintReport, lintSchema } from "@apso/schema-tools";
+import { localSchemaCheck } from "../schema/validate";
 import { performance } from "perf_hooks";
 
 export default class McpServe extends BaseCommand {
@@ -240,12 +241,18 @@ export default class McpServe extends BaseCommand {
             // Validate the provided JSON
             const schema = JSON.parse(schema_json);
             const errors = validateSchemaObject(schema);
+            let lintReport = "";
+            if (errors.length === 0) {
+              const lint = lintSchema(schema);
+              if (lint.issues.length > 0) lintReport = `${formatLintReport(lint)}\n\n`;
+              if (lint.errorCount > 0) errors.push(`${lint.errorCount} lint error(s), listed above.`);
+            }
             if (errors.length > 0) {
               return {
                 content: [
                   {
                     type: "text" as const,
-                    text: `Validation failed with ${errors.length} error(s):\n${errors.map((e) => `  - ${e}`).join("\n")}`,
+                    text: `${lintReport}Validation failed with ${errors.length} error(s):\n${errors.map((e) => `  - ${e}`).join("\n")}`,
                   },
                 ],
                 isError: true,
@@ -281,54 +288,25 @@ export default class McpServe extends BaseCommand {
             };
           }
 
-          const parsed = parseApsorc();
-          const schema = apsorcToServiceSchema(parsed);
-
-          const entityCount = schema.entities.length;
-          let fieldCount = 0;
-          let relationshipCount = 0;
-          const errors: string[] = [];
-
-          for (const entity of schema.entities) {
-            fieldCount += entity.fields.length;
-            relationshipCount += entity.relationships?.length || 0;
-            if (!entity.name || entity.name.trim() === "") {
-              errors.push("Entity found with empty name");
-            }
-            if (entity.relationships) {
-              for (const rel of entity.relationships) {
-                const targetExists = schema.entities.some(
-                  (e) => e.name === rel.target
-                );
-                if (!targetExists) {
-                  errors.push(
-                    `Entity "${entity.name}": relationship target "${rel.target}" does not reference an existing entity`
-                  );
-                }
-              }
-            }
+          // The same checks as `apso schema validate --local`
+          const check = await localSchemaCheck();
+          const lines: string[] = [];
+          if (check.lintReport) lines.push(check.lintReport, "");
+          if (check.stats)
+            lines.push(
+              `Schema: ${check.stats.entities} entities, ${check.stats.fields} fields, ${check.stats.relationships} relationships`
+            );
+          for (const warning of check.warnings) lines.push(`Warning: ${warning}`);
+          if (check.errors.length > 0) {
+            lines.push(
+              "",
+              `Validation failed with ${check.errors.length} error(s):`,
+              ...check.errors.map((e) => `  - ${e}`)
+            );
+            return { content: [{ type: "text" as const, text: lines.join("\n") }], isError: true };
           }
-
-          if (errors.length > 0) {
-            return {
-              content: [
-                {
-                  type: "text" as const,
-                  text: `Schema: ${entityCount} entities, ${fieldCount} fields, ${relationshipCount} relationships\n\nValidation failed with ${errors.length} error(s):\n${errors.map((e) => `  - ${e}`).join("\n")}`,
-                },
-              ],
-              isError: true,
-            };
-          }
-
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `Schema: ${entityCount} entities, ${fieldCount} fields, ${relationshipCount} relationships\nValidation passed.`,
-              },
-            ],
-          };
+          lines.push("Validation passed.");
+          return { content: [{ type: "text" as const, text: lines.join("\n") }] };
         } catch (error: unknown) {
           const msg = error instanceof Error ? error.message : String(error);
           return {

@@ -1,5 +1,8 @@
-import { expect, describe, test } from "@jest/globals";
-import { accessRuleErrors } from "../../../src/commands/schema/validate";
+import { expect, describe, test, afterEach } from "@jest/globals";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
+import { accessRuleErrors, localSchemaCheck } from "../../../src/commands/schema/validate";
 import { parseApsorcV2, ApsorcType } from "../../../src/lib/apsorc-parser";
 import { TargetLanguage } from "../../../src/lib/types";
 
@@ -139,5 +142,37 @@ describe("apso schema validate: the rules apso generate enforces", () => {
       const errors = await accessRuleErrors({ ...parsed, rootFolder: "src", apiType: "Graphql", language: "typescript" });
       expect(errors.join(" ")).toMatch(/graphql/i);
     });
+  });
+});
+
+describe("localSchemaCheck: what the CLI and the MCP validate_schema tool both run", () => {
+  const cwd = process.cwd();
+  afterEach(() => process.chdir(cwd));
+  const inProject = (apsorc: object) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "apso-validate-"));
+    fs.writeFileSync(path.join(dir, ".apsorc"), JSON.stringify(apsorc));
+    process.chdir(dir);
+  };
+  const task = { name: "Task", created_at: true, updated_at: true, fields: [{ name: "title", type: "text" }] };
+
+  test("a clean schema passes", async () => {
+    inProject({ version: 2, rootFolder: "src", apiType: "Rest", entities: [task], relationships: [] });
+    const check = await localSchemaCheck();
+    expect(check.errors).toEqual([]);
+    expect(check.stats).toEqual({ entities: 1, fields: 1, relationships: 0 });
+  });
+
+  test("a lint error fails before parsing, with the lint report", async () => {
+    inProject({
+      version: 2,
+      rootFolder: "src",
+      apiType: "Rest",
+      entities: [task],
+      relationships: [{ from: "Task", to: "Project", type: "ManyToOne" }],
+    });
+    const check = await localSchemaCheck();
+    expect(check.parsed).toBeUndefined();
+    expect(check.errors).toEqual([expect.stringContaining("1 lint error(s)")]);
+    expect(check.lintReport).toContain("RELATIONSHIP_MISSING_ENTITY");
   });
 });

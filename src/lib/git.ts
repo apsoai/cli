@@ -72,8 +72,47 @@ export function hasUncommittedChanges(cwd: string): boolean {
   return run("git status --porcelain", cwd).length > 0;
 }
 
-/** Stage everything and commit, unless there is nothing to commit. */
+/**
+ * Never push local secrets to the repo. `.env` and `.env.*` (e.g. `.env.local`)
+ * routinely hold DB passwords and session secrets; `.env.example` and
+ * `.env.sample` are the env files meant to be committed. The backend injects
+ * real production env at runtime, so these are never needed in the pushed code.
+ */
+export function isSecretEnvFile(basename: string): boolean {
+  if (basename === ".env.example" || basename === ".env.sample") return false;
+  return basename === ".env" || basename.startsWith(".env.");
+}
+
+const SECRET_ENV_IGNORES = [".env", ".env.*", "!.env.example", "!.env.sample"];
+
+/**
+ * Keep secret env files out of commits: add them to .gitignore (the TS template
+ * only ignores `.env`, so `.env.local` got committed) and untrack any that an
+ * earlier commit already picked up.
+ */
+export function ignoreSecretEnvFiles(cwd: string): void {
+  const file = path.join(cwd, ".gitignore");
+  const current = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+  const have = new Set(current.split(/\r?\n/).map((l) => l.trim()));
+  const missing = SECRET_ENV_IGNORES.filter((l) => !have.has(l));
+  if (missing.length > 0) {
+    const sep = current && !current.endsWith("\n") ? "\n" : "";
+    fs.writeFileSync(
+      file,
+      `${current}${sep}# Local secrets, never committed (added by apso)\n${missing.join("\n")}\n`
+    );
+  }
+  const tracked = run("git ls-files", cwd)
+    .split("\n")
+    .filter((f) => f && isSecretEnvFile(path.basename(f)));
+  if (tracked.length > 0) {
+    run(`git rm --cached -q -- ${tracked.map((f) => JSON.stringify(f)).join(" ")}`, cwd);
+  }
+}
+
+/** Stage everything (minus secret env files) and commit, unless there is nothing to commit. */
 export function commitAll(cwd: string, message: string): boolean {
+  ignoreSecretEnvFiles(cwd);
   run("git add -A", cwd);
   if (!hasUncommittedChanges(cwd)) {
     // Something may still be staged with no worktree diff; check the index.
