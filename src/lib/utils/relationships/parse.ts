@@ -694,6 +694,12 @@ export function* generateNestedRelationships(
   const relationships = relationshipMap[entityName];
   if (!relationships) return;
 
+  // Two relationships can expose the same property name on this entity (for
+  // example two FKs to one table whose inverse sides share a default name).
+  // A join path names a property, so emit each name once per level; duplicate
+  // keys make the generated controller's join map fail to compile (TS1117).
+  const emittedAtLevel = new Set<string>();
+
   for (const relationship of relationships) {
     const referenceName = getRelationshipName(relationship);
     const type = relationship.type;
@@ -742,6 +748,9 @@ export function* generateNestedRelationships(
         continue;
       }
     }
+
+    if (emittedAtLevel.has(formattedName)) continue;
+    emittedAtLevel.add(formattedName);
 
     // Build the new path
     const newPath = [...path, formattedName];

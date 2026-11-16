@@ -142,8 +142,8 @@ describe("server new command", () => {
   });
 
   describe("TEMPLATE_REFS pinning", () => {
-    test("pins the TypeScript template to the dual-dialect tag", () => {
-      expect(TEMPLATE_REFS.typescript).toBe("v2.0.0");
+    test("pins the TypeScript template to a tag", () => {
+      expect(TEMPLATE_REFS.typescript).toBe("v2.1.1");
     });
 
     test("has a ref for every supported language", () => {
