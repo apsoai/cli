@@ -19,12 +19,14 @@ export const TEMPLATE_REPOS: Record<TargetLanguage, string> = {
 /**
  * Git ref (tag or branch) to clone for each template. Pinning to a tag makes
  * the CLI-version-to-template pairing explicit instead of a date cutoff on
- * template main. v2.0.0 is the first TS template revision on published
- * @apso/crud ^1.0.1 (dual-dialect: nestjsx + PostgREST); the Python and Go
+ * template main. v2.1.1 matches what this CLI generates: @apso/crud ^1.1.0
+ * (PostgREST-only), MCP at /mcp, request logging, and the AGENTS.md and
+ * CLAUDE.md agent instructions. Move the tag when the template changes in a
+ * way new projects need; the Python and Go
  * template repos are untagged and don't carry the dialect work.
  */
 export const TEMPLATE_REFS: Record<TargetLanguage, string> = {
-  typescript: "v2.0.0",
+  typescript: "v2.1.1",
   python: "main",
   go: "main",
 };
@@ -113,7 +115,7 @@ APSO_LOCAL=1
  * Stamp the chosen language into the scaffolded `.apsorc`.
  *
  * `apso generate` resolves its target language as flag > .apsorc > prompt.
- * The TypeScript template (pinned at v2.0.0) ships an `.apsorc` without a
+ * The TypeScript template ships an `.apsorc` without a
  * `language` field, so a bare `apso generate` right after `apso init` fell
  * through to the interactive prompt — which errors in non-TTY contexts
  * (this is what kept the weekly scaffold-smoke workflow red). Recording the
