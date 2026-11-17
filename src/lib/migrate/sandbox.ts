@@ -113,11 +113,13 @@ function buildEntityClasses(
       }
     }
 
+    const stamp =
+      entityDef.timestampType === "timestamptz" ? { type: "timestamptz" } : {};
     if (entityDef.created_at) {
-      typeorm.CreateDateColumn()(EntityClass.prototype, "created_at");
+      typeorm.CreateDateColumn(stamp)(EntityClass.prototype, "created_at");
     }
     if (entityDef.updated_at) {
-      typeorm.UpdateDateColumn()(EntityClass.prototype, "updated_at");
+      typeorm.UpdateDateColumn(stamp)(EntityClass.prototype, "updated_at");
     }
 
     const fields = entityDef.fields || [];
@@ -377,6 +379,7 @@ export async function runMigrationSandbox(
       primaryKeyType: e.primaryKeyType,
       created_at: e.created_at,
       updated_at: e.updated_at,
+      timestampType: e.timestampType,
       scopeBy: e.scopeBy,
     })),
     relationships: snapshotRelationships(current.relationshipMap),
@@ -411,6 +414,7 @@ export async function runMigrationSandbox(
           primaryKeyType: se.primaryKeyType as "serial" | "uuid" | undefined,
           created_at: se.created_at,
           updated_at: se.updated_at,
+          timestampType: se.timestampType,
           scopeBy: se.scopeBy,
         }))
       : [];
@@ -524,6 +528,7 @@ export function applyMigration(
       primaryKeyType: e.primaryKeyType,
       created_at: e.created_at,
       updated_at: e.updated_at,
+      timestampType: e.timestampType,
       scopeBy: e.scopeBy,
     })),
     relationships: snapshotRelationships(current.relationshipMap),

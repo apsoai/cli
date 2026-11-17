@@ -35,6 +35,11 @@ export interface Entity {
   created_at?: boolean;
   /* eslint-disable-next-line  camelcase */
   updated_at?: boolean;
+  /**
+   * Column type of created_at and updated_at. Defaults to "timestamp" (no time
+   * zone). `apso import` sets "timestamptz" when the source columns have one.
+   */
+  timestampType?: "timestamp" | "timestamptz";
   primaryKeyType?: "serial" | "uuid";
   fields?: Field[];
   indexes?: Index[];

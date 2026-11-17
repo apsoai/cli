@@ -370,6 +370,7 @@ export class GoGenerator extends BaseGenerator {
       tableName: tableName(entity),
       createdAt: entity.created_at,
       updatedAt: entity.updated_at,
+      timestampType: entity.timestampType || "timestamp",
       columns,
       associations,
       importTime:

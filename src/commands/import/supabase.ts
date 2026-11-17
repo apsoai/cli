@@ -89,6 +89,8 @@ export function formatReport(report: ImportReport): string {
     review.push(`  - Join tables (could be modeled as ManyToMany): ${w.joinTablesDetected.join(", ")}`);
   if (w.arraysLossy.length > 0)
     review.push(`  - Array columns reduced to text: ${w.arraysLossy.join(", ")}`);
+  if (w.timestampTypesMixed.length > 0)
+    review.push(`  - created_at and updated_at differ in type (both generated as created_at's type): ${w.timestampTypesMixed.join(", ")}`);
   if (w.typesDefaulted.length > 0)
     review.push(
       `  - Unknown types defaulted to text: ${w.typesDefaulted

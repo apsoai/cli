@@ -107,6 +107,8 @@ export interface ImportReport {
   warnings: {
     /** "table.column" whose Postgres array type was reduced to text. */
     arraysLossy: string[];
+    /** Tables whose created_at and updated_at differ in type (the entity follows created_at). */
+    timestampTypesMixed: string[];
     /** Tables with composite primary keys (emitted as primary:true fields). */
     compositePks: string[];
     /** Tables with composite foreign keys (kept as scalar columns, no relationship). */

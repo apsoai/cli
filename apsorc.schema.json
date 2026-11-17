@@ -109,6 +109,12 @@
           "description": "Indicates if the entity should have an 'updated_at' timestamp field.",
           "type": "boolean"
         },
+        "timestampType": {
+          "description": "Column type of created_at and updated_at. Defaults to 'timestamp' (no time zone). 'apso import' sets 'timestamptz' when the source columns have one.",
+          "type": "string",
+          "enum": ["timestamp", "timestamptz"],
+          "default": "timestamp"
+        },
         "primaryKeyType": {
           "description": "The type of primary key to use for this entity. Defaults to 'serial' (auto-increment integer). Use 'uuid' for UUID-based primary keys.",
           "type": "string",

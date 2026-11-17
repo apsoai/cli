@@ -364,10 +364,10 @@ export function schemaModel(input: SchemaInput): Model {
           )
         );
     }
-    if (e.created_at)
-      t.columns.push(column("created_at", "TIMESTAMP", true, "now()"));
-    if (e.updated_at)
-      t.columns.push(column("updated_at", "TIMESTAMP", true, "now()"));
+    const stamp =
+      e.timestampType === "timestamptz" ? "TIMESTAMP WITH TIME ZONE" : "TIMESTAMP";
+    if (e.created_at) t.columns.push(column("created_at", stamp, true, "now()"));
+    if (e.updated_at) t.columns.push(column("updated_at", stamp, true, "now()"));
 
     for (const f of getFieldForTemplate(e.fields ?? [], e.name)) {
       if (!customPk && f.name === "id") continue;

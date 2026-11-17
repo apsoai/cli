@@ -27,6 +27,7 @@ export interface ApsorcSnapshot {
     primaryKeyType?: string;
     created_at?: boolean;
     updated_at?: boolean;
+    timestampType?: "timestamp" | "timestamptz";
     scopeBy?: string | string[];
   }>;
   relationships?: Array<{
@@ -61,6 +62,7 @@ export interface ComparableSchema {
     primaryKeyType?: string;
     created_at?: boolean;
     updated_at?: boolean;
+    timestampType?: "timestamp" | "timestamptz";
     scopeBy?: string | string[];
   }>;
   relationships?: ApsorcSnapshot["relationships"];

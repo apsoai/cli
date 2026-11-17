@@ -89,36 +89,7 @@ export class PgIntrospector implements Introspector {
     try {
       client = await this.connect();
 
-      const [
-        tableRows,
-        columnRows,
-        pkRows,
-        fkRows,
-        uniqueRows,
-        indexRows,
-        enumRows,
-        schemaRows,
-      ] = [
-        await client.query(TABLES_SQL, [schema]),
-        await client.query(COLUMNS_SQL, [schema]),
-        await client.query(PRIMARY_KEYS_SQL, [schema]),
-        await client.query(FOREIGN_KEYS_SQL, [schema]),
-        await client.query(UNIQUE_SQL, [schema]),
-        await client.query(INDEXES_SQL, [schema]),
-        await client.query(ENUMS_SQL, [schema]),
-        await client.query(SCHEMAS_SQL),
-      ];
-
-      return buildSchema(schema, {
-        tableRows: tableRows.rows,
-        columnRows: columnRows.rows,
-        pkRows: pkRows.rows,
-        fkRows: fkRows.rows,
-        uniqueRows: uniqueRows.rows,
-        indexRows: indexRows.rows,
-        enumRows: enumRows.rows,
-        schemaRows: schemaRows.rows,
-      });
+      return await introspectClient(client, schema);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(
@@ -128,6 +99,50 @@ export class PgIntrospector implements Introspector {
       if (client) await client.end();
     }
   }
+}
+
+/**
+ * Read a schema through an open client. Separate from the connection so the
+ * round-trip test can read an in-process database.
+ *
+ * @param {object} client - Anything with pg's query(sql, params).
+ * @param {string} schema - The database schema to read.
+ * @returns {Promise<IntrospectedSchema>} The schema's tables, keys, indexes and enums.
+ */
+export async function introspectClient(
+  client: Pick<QueryClient, "query">,
+  schema: string
+): Promise<IntrospectedSchema> {
+  const [
+    tableRows,
+    columnRows,
+    pkRows,
+    fkRows,
+    uniqueRows,
+    indexRows,
+    enumRows,
+    schemaRows,
+  ] = [
+    await client.query(TABLES_SQL, [schema]),
+    await client.query(COLUMNS_SQL, [schema]),
+    await client.query(PRIMARY_KEYS_SQL, [schema]),
+    await client.query(FOREIGN_KEYS_SQL, [schema]),
+    await client.query(UNIQUE_SQL, [schema]),
+    await client.query(INDEXES_SQL, [schema]),
+    await client.query(ENUMS_SQL, [schema]),
+    await client.query(SCHEMAS_SQL),
+  ];
+
+  return buildSchema(schema, {
+    tableRows: tableRows.rows,
+    columnRows: columnRows.rows,
+    pkRows: pkRows.rows,
+    fkRows: fkRows.rows,
+    uniqueRows: uniqueRows.rows,
+    indexRows: indexRows.rows,
+    enumRows: enumRows.rows,
+    schemaRows: schemaRows.rows,
+  });
 }
 
 const TABLES_SQL = `

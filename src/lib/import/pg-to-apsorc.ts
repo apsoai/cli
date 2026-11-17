@@ -41,6 +41,7 @@ export interface ApsorcImportEntityOutput {
   primaryKeyType?: "serial" | "uuid" | "text";
   created_at?: boolean;
   updated_at?: boolean;
+  timestampType?: "timestamptz";
   fields?: ApsorcImportFieldOutput[];
   uniques?: Array<{ fields: string[]; name?: string }>;
   indexes?: Array<{ fields: string[]; unique?: boolean }>;
@@ -229,6 +230,7 @@ function emptyReport(schema: IntrospectedSchema): ImportReport {
     systemSchemasSkipped: schema.skipped.systemSchemas,
     warnings: {
       arraysLossy: [],
+      timestampTypesMixed: [],
       compositePks: [],
       compositeFks: [],
       nonStandardPks: [],
@@ -310,13 +312,20 @@ export function pgToApsorc(schema: IntrospectedSchema): {
 
     // --- created_at / updated_at detection ---
     const autoTimestamps = new Set<string>();
+    const stampTypes = new Set<string>();
     for (const name of ["created_at", "updated_at"] as const) {
       const col = table.columns.find((c) => c.name === name);
       if (col && TIMESTAMP_UDTS.has(col.udtName)) {
         entity[name] = true;
         autoTimestamps.add(name);
+        stampTypes.add(col.udtName);
+        // Keep the source type; .apsorc has one type for both columns, so a
+        // table that mixes them follows the first and is reported.
+        if (stampTypes.size === 1 && col.udtName === "timestamptz")
+          entity.timestampType = "timestamptz";
       }
     }
+    if (stampTypes.size > 1) report.warnings.timestampTypesMixed.push(table.name);
 
     // --- Fields ---
     const uniqueSingle = new Set<string>();

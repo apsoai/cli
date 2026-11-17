@@ -169,6 +169,8 @@ export class TypeScriptGenerator extends BaseGenerator {
       tableName: entity.table || snakeCase(name),
       createdAt,
       updatedAt,
+      timestampArgs:
+        entity.timestampType === "timestamptz" ? "{ type: 'timestamptz' }" : "",
       pluralizedName: camelCase(pluralize(name)),
       columns,
       associations: [...new Set(relationshipsForTemplate)],

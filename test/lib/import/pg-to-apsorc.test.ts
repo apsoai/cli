@@ -267,6 +267,44 @@ describe("timestamp metadata columns", () => {
     expect(findField(e, "updated_at")).toBeUndefined();
   });
 
+  // apsoai/cli#243: the default stays timestamp; an import keeps what the
+  // source database uses.
+  test("timestamptz source columns set timestampType, timestamp ones do not", () => {
+    const out = pgToApsorc(
+      schema([
+        table("Zoned", {
+          primaryKey: ["id"],
+          columns: [col("id", "uuid"), col("created_at", "timestamptz"), col("updated_at", "timestamptz")],
+        }),
+        table("Plain", {
+          primaryKey: ["id"],
+          columns: [col("id", "uuid"), col("created_at", "timestamp"), col("updated_at", "timestamp")],
+        }),
+        table("OnlyCreated", {
+          primaryKey: ["id"],
+          columns: [col("id", "uuid"), col("created_at", "timestamptz")],
+        }),
+      ])
+    );
+    expect(findEntity(out, "Zoned").timestampType).toBe("timestamptz");
+    expect(findEntity(out, "Plain").timestampType).toBeUndefined();
+    expect(findEntity(out, "OnlyCreated").timestampType).toBe("timestamptz");
+    expect(out.report.warnings.timestampTypesMixed).toEqual([]);
+  });
+
+  test("a table that mixes timestamp and timestamptz is reported", () => {
+    const out = pgToApsorc(
+      schema([
+        table("Mixed", {
+          primaryKey: ["id"],
+          columns: [col("id", "uuid"), col("created_at", "timestamptz"), col("updated_at", "timestamp")],
+        }),
+      ])
+    );
+    expect(findEntity(out, "Mixed").timestampType).toBe("timestamptz");
+    expect(out.report.warnings.timestampTypesMixed).toEqual(["Mixed"]);
+  });
+
   test("created_at that is not a timestamp stays a field", () => {
     const out = pgToApsorc(
       schema([

@@ -86,6 +86,15 @@ describe("PythonGenerator", () => {
     });
   });
 
+  // apsoai/cli#243
+  test("timestampType timestamptz gives created_at and updated_at a time zone", async () => {
+    const entity: Entity = { name: "Zoned", created_at: true, updated_at: true, timestampType: "timestamptz" };
+    const files = await generator.generateEntity({ entity, relationships: [], allEntities: [entity], apiType: "rest" });
+    const content = files.find((f) => f.path.includes("models"))!.content;
+    expect(content).toContain("created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False");
+    expect(content).toContain("updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False");
+  });
+
   describe("table name override (cli#107)", () => {
     test("honors an explicit per-entity table override", async () => {
       const entity: Entity = {

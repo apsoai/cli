@@ -585,6 +585,27 @@ describe("guard regeneration (cli#129)", () => {
   });
 });
 
+const renderEntity = async (entity: Entity) => {
+  const generator = new TypeScriptGenerator(createConfig([entity]));
+  const files = await generator.generateEntity({ entity, relationships: [], allEntities: [entity], apiType: "rest" });
+  return findFileContent(files, `${entity.name}.entity`)!;
+};
+
+// apsoai/cli#243
+describe("created_at and updated_at column type", () => {
+  test("timestampType timestamptz keeps the time zone", async () => {
+    const content = await renderEntity({ name: "Zoned", created_at: true, updated_at: true, timestampType: "timestamptz" });
+    expect(content).toContain("@CreateDateColumn({ type: 'timestamptz' })");
+    expect(content).toContain("@UpdateDateColumn({ type: 'timestamptz' })");
+  });
+
+  test("timestamp stays the default", async () => {
+    const content = await renderEntity({ name: "Plain", created_at: true, updated_at: true });
+    expect(content).toContain("@CreateDateColumn()");
+    expect(content).toContain("@UpdateDateColumn()");
+  });
+});
+
 describe("array element types", () => {
   test("an integer or boolean elementType gives number[] or boolean[]", async () => {
     const entity: Entity = {
