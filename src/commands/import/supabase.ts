@@ -86,7 +86,9 @@ export function formatReport(report: ImportReport): string {
   if (w.joinTablesDetected.length > 0)
     review.push(`  - Join tables (could be modeled as ManyToMany): ${w.joinTablesDetected.join(", ")}`);
   if (w.arraysLossy.length > 0)
-    review.push(`  - Array columns reduced to text: ${w.arraysLossy.join(", ")}`);
+    review.push(`  - Array columns with an unknown element type (imported as text[]): ${w.arraysLossy.join(", ")}`);
+  if (w.generatedColumns.length > 0)
+    review.push(`  - Generated columns imported as plain columns (the database will no longer compute them): ${w.generatedColumns.join("; ")}`);
   if (w.relationshipsRenamed.length > 0)
     review.push(`  - Relationships renamed because a column has the natural name (columns unchanged): ${w.relationshipsRenamed.join(", ")}`);
   if (w.indexesNotCarried.length > 0)
@@ -253,8 +255,14 @@ export default class ImportSupabase extends BaseCommand {
       this.log("");
       this.log("Next steps:");
       this.log("  - Review the .apsorc, especially any items flagged above");
-      this.log("  - Run 'apso migrate' to validate the schema locally");
-      this.log("  - Run 'apso generate' to scaffold code");
+      if (fs.existsSync(path.join(path.dirname(outPath), "package.json"))) {
+        this.log("  - Run 'apso migrate' to validate the schema locally");
+        this.log("  - Run 'apso generate' to scaffold code");
+      } else {
+        this.log(
+          `  - No project here yet: run 'apso init --schema ${path.relative(process.cwd(), outPath) || outPath}' to create one from this schema`
+        );
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       // Defense-in-depth: never surface the connection string in an error.

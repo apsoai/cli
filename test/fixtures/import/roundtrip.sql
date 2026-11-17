@@ -44,6 +44,8 @@ CREATE TABLE enrollments (
   end_date date,
   expires_at timestamptz,
   g_codes text[],
+  source_note_ids uuid[],
+  minutes_doubled integer GENERATED ALWAYS AS (minutes * 2) STORED,
   tags jsonb NOT NULL DEFAULT '[]',
   retention_until timestamptz NOT NULL DEFAULT now() + interval '6 years',
   created_at timestamptz NOT NULL DEFAULT now(),

@@ -30,6 +30,8 @@ export interface IntrospectedColumn {
   numericPrecision: number | null;
   numericScale: number | null;
   ordinal: number;
+  /** The expression of a GENERATED ALWAYS AS (...) STORED column. */
+  generated?: string;
   /** True when the column's type is a user-defined enum. */
   isEnum: boolean;
   /** Links to IntrospectedEnum.name when isEnum is true. */
@@ -116,8 +118,14 @@ export interface ImportReport {
   viewsSkipped: string[];
   systemSchemasSkipped: string[];
   warnings: {
-    /** "table.column" whose Postgres array type was reduced to text. */
+    /** "table.column" arrays whose element type is unknown, imported as text[]. */
     arraysLossy: string[];
+    /**
+     * "table.column = expression" for generated columns. .apsorc cannot
+     * express one, so it is imported as a plain column the database no
+     * longer computes.
+     */
+    generatedColumns: string[];
     /**
      * Foreign keys whose relationship could not take its natural name because
      * the table has a column of that name. The column itself is unchanged.

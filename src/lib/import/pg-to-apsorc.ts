@@ -39,6 +39,7 @@ export interface ApsorcImportFieldOutput {
   precision?: number;
   scale?: number;
   primary?: boolean;
+  elementType?: string;
 }
 
 export interface ApsorcImportEntityOutput {
@@ -122,6 +123,8 @@ const AUTO_TIMESTAMP_DEFAULTS = new Set([
 
 interface TypeResolution {
   type: string;
+  /** Element type of an array column, when it is not text. */
+  elementType?: string;
   /** True when the mapping loses information (arrays, unknown types). */
   lossy?: "array" | "defaulted";
 }
@@ -136,7 +139,12 @@ export function pgTypeToApsorcType(col: IntrospectedColumn): TypeResolution {
     return { type: "enum" };
   }
   if (col.dataType === "ARRAY" || col.udtName.startsWith("_")) {
-    return { type: "array", lossy: "array" };
+    // uuid[] must stay uuid[]: the element type is the udt without its "_".
+    const element = udtToApsorcType[col.udtName.replace(/^_/, "")];
+    if (!element) return { type: "array", lossy: "array" };
+    return element === "text"
+      ? { type: "array" }
+      : { type: "array", elementType: element };
   }
   const mapped = udtToApsorcType[col.udtName];
   if (mapped) {
@@ -295,6 +303,7 @@ function emptyReport(schema: IntrospectedSchema): ImportReport {
     systemSchemasSkipped: schema.skipped.systemSchemas,
     warnings: {
       arraysLossy: [],
+      generatedColumns: [],
       indexesNotCarried: [],
       relationshipsRenamed: [],
       compositePks: [],
@@ -471,6 +480,10 @@ export function pgToApsorc(schema: IntrospectedSchema): {
       if (pk.length === 1 && col.name === pk[0] && !pkAsField) continue;
 
       const resolved = pgTypeToApsorcType(col);
+      if (col.generated)
+        report.warnings.generatedColumns.push(
+          `${table.name}.${col.name} = ${col.generated}`
+        );
       if (resolved.lossy === "array") {
         report.warnings.arraysLossy.push(`${table.name}.${col.name}`);
       } else if (resolved.lossy === "defaulted") {
@@ -484,6 +497,7 @@ export function pgToApsorc(schema: IntrospectedSchema): {
         name: col.name,
         type: resolved.type,
       };
+      if (resolved.elementType) field.elementType = resolved.elementType;
       if (col.nullable) field.nullable = true;
       if (uniqueSingle.has(col.name)) field.unique = true;
       if (indexSingle.has(col.name)) field.index = true;

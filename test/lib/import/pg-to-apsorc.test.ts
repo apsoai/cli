@@ -100,10 +100,10 @@ describe("pgTypeToApsorcType", () => {
     expect(pgTypeToApsorcType(col("c", udt)).type).toBe(expected);
   });
 
-  test("array udt is lossy and maps to array", () => {
-    const r = pgTypeToApsorcType(col("tags", "_text", { dataType: "ARRAY" }));
-    expect(r.type).toBe("array");
-    expect(r.lossy).toBe("array");
+  test("an array keeps its element type, and is lossy only when that type is unknown", () => {
+    expect(pgTypeToApsorcType(col("tags", "_text", { dataType: "ARRAY" }))).toEqual({ type: "array" });
+    expect(pgTypeToApsorcType(col("ids", "_uuid", { dataType: "ARRAY" }))).toEqual({ type: "array", elementType: "uuid" });
+    expect(pgTypeToApsorcType(col("shapes", "_polygon_thing", { dataType: "ARRAY" }))).toEqual({ type: "array", lossy: "array" });
   });
 
   test("enum column maps to enum", () => {

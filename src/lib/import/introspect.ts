@@ -155,7 +155,7 @@ const TABLES_SQL = `
 const COLUMNS_SQL = `
   SELECT table_name, column_name, udt_name, data_type, is_nullable,
          column_default, character_maximum_length, numeric_precision,
-         numeric_scale, ordinal_position
+         numeric_scale, ordinal_position, is_generated, generation_expression
   FROM information_schema.columns
   WHERE table_schema = $1
   ORDER BY table_name, ordinal_position`;
@@ -268,6 +268,9 @@ export function buildSchema(schema: string, raw: RawRows): IntrospectedSchema {
       numericPrecision: row.numeric_precision ?? null,
       numericScale: row.numeric_scale ?? null,
       ordinal: row.ordinal_position,
+      ...(row.is_generated === "ALWAYS" && {
+        generated: row.generation_expression ?? "",
+      }),
       isEnum,
       enumTypeName: isEnum ? row.udt_name : undefined,
     };

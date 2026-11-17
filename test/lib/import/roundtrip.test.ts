@@ -29,6 +29,8 @@ describe("import round trip", () => {
   test("the rebuilt schema differs from the source only in the known ways", async () => {
     const original = await database(source);
     const { apsorc, report } = pgToApsorc(await introspectClient(original, "public"));
+    expect(report.warnings.generatedColumns).toEqual(["enrollments.minutes_doubled = (minutes * 2)"]);
+    expect(report.warnings.arraysLossy).toEqual([]);
     // What .apsorc cannot express is reported, never imported as something stricter.
     expect(report.warnings.indexesNotCarried).toEqual([
       expect.stringMatching(/enrollments_one_live_per_patient_uq .* \(not imported\)$/),
