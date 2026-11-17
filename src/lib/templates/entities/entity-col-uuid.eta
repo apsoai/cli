@@ -1,7 +1,7 @@
 <% const {field} = it; %>
 
 <% if (field.primary ) {%>
-@PrimaryGeneratedColumn('uuid')
+@PrimaryGeneratedColumn('uuid'<% if (field.primaryKeyName) { %>, { primaryKeyConstraintName: '<%= field.primaryKeyName %>' }<% } %>)
 <% } else { %>
 @Column({ "type": "uuid", nullable: <%= Boolean(field.nullable) %><% if (field.default !== null) {%>, default:  <%= field.default %><% } %> })
 <% if (field.index ) {%>

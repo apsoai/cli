@@ -161,7 +161,7 @@ const COLUMNS_SQL = `
   ORDER BY table_name, ordinal_position`;
 
 const PRIMARY_KEYS_SQL = `
-  SELECT cl.relname AS table_name, att.attname AS column_name, ord.n AS key_index
+  SELECT con.conname, cl.relname AS table_name, att.attname AS column_name, ord.n AS key_index
   FROM pg_constraint con
   JOIN pg_class cl ON cl.oid = con.conrelid
   JOIN pg_namespace ns ON ns.oid = cl.relnamespace
@@ -278,10 +278,12 @@ export function buildSchema(schema: string, raw: RawRows): IntrospectedSchema {
 
   // Primary keys
   const pkByTable = new Map<string, string[]>();
+  const pkNameByTable = new Map<string, string>();
   for (const row of raw.pkRows) {
     const list = pkByTable.get(row.table_name) ?? [];
     list.push(row.column_name);
     pkByTable.set(row.table_name, list);
+    if (row.conname) pkNameByTable.set(row.table_name, row.conname);
   }
 
   // Foreign keys (grouped by constraint name to handle composite keys)
@@ -305,9 +307,10 @@ export function buildSchema(schema: string, raw: RawRows): IntrospectedSchema {
     }
   }
   const fksByTable = new Map<string, IntrospectedFk[]>();
-  for (const fk of fkByConstraint.values()) {
+  for (const [name, fk] of fkByConstraint.entries()) {
     const list = fksByTable.get(fk.table) ?? [];
     list.push({
+      name,
       columns: fk.columns,
       referencedTable: fk.refTable,
       referencedColumns: fk.refColumns,
@@ -367,6 +370,7 @@ export function buildSchema(schema: string, raw: RawRows): IntrospectedSchema {
     name,
     columns: columnsByTable.get(name) ?? [],
     primaryKey: pkByTable.get(name) ?? [],
+    primaryKeyName: pkNameByTable.get(name),
     foreignKeys: fksByTable.get(name) ?? [],
     uniqueConstraints: uniquesByTable.get(name) ?? [],
     indexes: indexesByTable.get(name) ?? [],

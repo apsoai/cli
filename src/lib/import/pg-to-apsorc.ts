@@ -44,9 +44,11 @@ export interface ApsorcImportFieldOutput {
 export interface ApsorcImportEntityOutput {
   name: string;
   primaryKeyType?: "serial" | "uuid" | "text";
+  primaryKeyName?: string;
   created_at?: boolean;
   updated_at?: boolean;
   timestampType?: Entity["timestampType"];
+  timestampNullable?: Entity["timestampNullable"];
   fields?: ApsorcImportFieldOutput[];
   uniques?: Array<{ fields: string[]; name?: string }>;
   indexes?: Array<{ fields: string[]; unique?: boolean }>;
@@ -61,6 +63,7 @@ export interface ApsorcImportRelationshipOutput {
   bi_directional?: boolean;
   cascadeDelete?: boolean;
   onDelete?: "SET NULL" | "RESTRICT";
+  foreignKeyName?: string;
   index?: boolean;
   joinColumnName?: string;
 }
@@ -337,6 +340,9 @@ export function pgToApsorc(schema: IntrospectedSchema): {
     }
 
     const entity: ApsorcImportEntityOutput = { name: table.name };
+    // Keep the source's constraint names, so a first migration against the
+    // existing database does not drop and recreate every key.
+    if (table.primaryKeyName) entity.primaryKeyName = table.primaryKeyName;
 
     // Columns covered by a single-column FK are materialized by the
     // relationship, so they must not also be emitted as scalar fields.
@@ -357,9 +363,11 @@ export function pgToApsorc(schema: IntrospectedSchema): {
       const pkCol = table.columns.find((c) => c.name === pk[0]);
       if (pk[0] === "id" && pkCol) {
         const t = pgTypeToApsorcType(pkCol).type;
-        if (t === "uuid") entity.primaryKeyType = "uuid";
-        else if (t === "text" || t === "varchar") entity.primaryKeyType = "text";
+        // A varchar(n) or char(n) id is kept as a primary field, so its
+        // length and the columns that reference it keep theirs.
         // integer/bigint/smallint id => default serial, omit primaryKeyType.
+        if (t === "uuid" || t === "text") entity.primaryKeyType = t;
+        else pkAsField = t === "varchar" || t === "char";
       } else {
         // Single, non-"id" PK: emit it as a primary field.
         pkAsField = true;
@@ -375,14 +383,19 @@ export function pgToApsorc(schema: IntrospectedSchema): {
     // --- created_at / updated_at detection ---
     const autoTimestamps = new Set<string>();
     const stampTypes: Partial<Record<TimestampColumn, TimestampType>> = {};
+    const stampNullable: Partial<Record<TimestampColumn, boolean>> = {};
     for (const name of ["created_at", "updated_at"] as const) {
       const col = table.columns.find((c) => c.name === name);
       if (col && TIMESTAMP_UDTS.has(col.udtName)) {
         entity[name] = true;
         autoTimestamps.add(name);
         stampTypes[name] = col.udtName as TimestampType;
+        stampNullable[name] = col.nullable;
       }
     }
+    const nullable = [...new Set(Object.values(stampNullable))];
+    if (nullable.length > 1) entity.timestampNullable = stampNullable;
+    else if (nullable[0]) entity.timestampNullable = true;
     // Keep the source types: one value when the columns agree (nothing when
     // that is the default "timestamp"), one per column when they differ.
     const stamps = [...new Set(Object.values(stampTypes))];
@@ -539,6 +552,7 @@ export function pgToApsorc(schema: IntrospectedSchema): {
         );
       if (toName) rel.to_name = toName;
       if (joinColumnName) rel.joinColumnName = joinColumnName;
+      if (fk.name) rel.foreignKeyName = fk.name;
       if (col?.nullable) rel.nullable = true;
       if (fk.onDelete === "CASCADE") rel.cascadeDelete = true;
       else if (fk.onDelete === "SET NULL" || fk.onDelete === "RESTRICT")

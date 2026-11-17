@@ -16,8 +16,25 @@ import {
   Field,
   RelationshipMap,
 } from "../types";
-import { timestampTypeOf } from "../types/entity";
+import {
+  TimestampColumn,
+  timestampNullableOf,
+  timestampTypeOf,
+} from "../types/entity";
+
+// The options of @CreateDateColumn / @UpdateDateColumn: empty for the default
+// (timestamp, NOT NULL), so entities generated before these settings are unchanged.
+const timestampArgs = (entity: Entity, column: TimestampColumn): string => {
+  const args = [
+    ...(timestampTypeOf(entity, column) === "timestamptz"
+      ? ["type: 'timestamptz'"]
+      : []),
+    ...(timestampNullableOf(entity, column) ? ["nullable: true"] : []),
+  ];
+  return args.length > 0 ? `{ ${args.join(", ")} }` : "";
+};
 import { onDeleteOf } from "../types/relationship";
+import { keyColumn } from "../ddl";
 // Utilities available for future use: createFile from "../utils/file-system"
 import { getFieldForTemplate, typeExistsInEntity, fieldToEnumType } from "../utils/field";
 import {
@@ -179,26 +196,32 @@ export class TypeScriptGenerator extends BaseGenerator {
       uniques: toProperties(uniques),
       createPrimaryKey,
       primaryKeyType,
+      primaryKeyName: entity.primaryKeyName,
       snakeCasedName: snakeCase(name),
       // Honor an explicit per-entity `table` override; otherwise derive from
       // the entity name. See apsoai/cli#98.
       tableName: entity.table || snakeCase(name),
       createdAt,
       updatedAt,
-      createdAtArgs:
-        timestampTypeOf(entity, "created_at") === "timestamptz"
-          ? "{ type: 'timestamptz' }"
-          : "",
-      updatedAtArgs:
-        timestampTypeOf(entity, "updated_at") === "timestamptz"
-          ? "{ type: 'timestamptz' }"
-          : "",
+      createdAtArgs: timestampArgs(entity, "created_at"),
+      updatedAtArgs: timestampArgs(entity, "updated_at"),
       pluralizedName: camelCase(pluralize(name)),
-      columns,
-      associations: [...new Set(relationshipsForTemplate)].map((r) => ({
-        ...r,
-        onDeleteRule: onDeleteOf(r),
-      })),
+      // Every column of a named primary key carries the name (TypeORM requires it).
+      columns: columns.map((c: Field) =>
+        c.primary && entity.primaryKeyName
+          ? { ...c, primaryKeyName: entity.primaryKeyName }
+          : c
+      ),
+      associations: [...new Set(relationshipsForTemplate)].map((r) => {
+        // A foreign key column copies the type of the key it references.
+        const key = keyColumn(allEntities.find((e) => e.name === r.name));
+        return {
+          ...r,
+          onDeleteRule: onDeleteOf(r),
+          fkColumnOptions: key.options,
+          fkTsType: key.ts,
+        };
+      }),
       entitiesToImport,
       importEnums: typeExistsInEntity(entity, "enum") !== -1,
       apiType,
@@ -399,11 +422,8 @@ export class TypeScriptGenerator extends BaseGenerator {
       if (rel.type === "ManyToOne") {
         const fkName = camelCase(rel.referenceName || rel.name) + "Id";
         const referencedEntity = allEntities?.find((e) => e.name === rel.name);
-        const referencedPrimaryKeyType =
-          referencedEntity?.primaryKeyType || "serial";
-        const fkDataType =
-          referencedPrimaryKeyType === "uuid" ? "string" : "number";
-        const fkType = referencedPrimaryKeyType === "uuid" ? "text" : "integer";
+        const fkDataType = keyColumn(referencedEntity).ts;
+        const fkType = fkDataType === "string" ? "text" : "integer";
 
         if (!columns.some((col) => col.name === fkName)) {
           columns.push({

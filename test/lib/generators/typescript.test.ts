@@ -646,6 +646,48 @@ describe("joinColumnName on a foreign key", () => {
   });
 });
 
+describe("a key declared as a field keeps its type and length", () => {
+  const org: Entity = { name: "Org", fields: [{ name: "id", type: "varchar" as any, length: 100, primary: true }] };
+  const member: Entity = { name: "Member", fields: [{ name: "label", type: "text" }] };
+  const relationshipMap = parseRelationships([{ from: "Member", to: "Org", type: "ManyToOne" }]);
+  const render = async (entity: Entity) => {
+    const generator = new TypeScriptGenerator(createConfig([org, member], relationshipMap));
+    const files = await generator.generateEntity({
+      entity,
+      relationships: relationshipMap[entity.name] || [],
+      allEntities: [org, member],
+      apiType: "rest",
+    });
+    return findFileContent(files, `${entity.name}.entity`)!.replace(/\s+/g, " ");
+  };
+
+  test("on the key itself", async () => {
+    const content = await render(org);
+    expect(content).toContain('@PrimaryColumn({ type: "varchar", length: 100 }) id: string;');
+    expect(content).not.toContain("@PrimaryColumn()");
+  });
+
+  test("primaryKeyName and foreignKeyName keep an existing database's constraint names", async () => {
+    const named = parseRelationships([{ from: "Member", to: "Org", type: "ManyToOne", foreignKeyName: "members_org_fkey" }]);
+    const generator = new TypeScriptGenerator(createConfig([org, member], named));
+    const entity = async (e: Entity) =>
+      findFileContent(
+        await generator.generateEntity({ entity: e, relationships: named[e.name] || [], allEntities: [org, member], apiType: "rest" }),
+        `${e.name}.entity`
+      )!.replace(/\s+/g, " ");
+    expect(await entity({ ...org, primaryKeyName: "orgs_pkey" })).toContain(
+      `@PrimaryColumn({ type: "varchar", length: 100, primaryKeyConstraintName: 'orgs_pkey' }) id: string;`
+    );
+    const m = await entity({ ...member, primaryKeyName: "members_pkey" });
+    expect(m).toContain("@PrimaryGeneratedColumn({ primaryKeyConstraintName: 'members_pkey' }) id!: number;");
+    expect(m).toContain("@JoinColumn({ name: 'orgId', foreignKeyConstraintName: 'members_org_fkey' })");
+  });
+
+  test("on a foreign key that references it", async () => {
+    expect(await render(member)).toContain('@Column({ type: "varchar", length: 100, }) orgId: string;');
+  });
+});
+
 // apsoai/cli#243
 describe("created_at and updated_at column type", () => {
   test("timestampType timestamptz keeps the time zone", async () => {
@@ -663,6 +705,21 @@ describe("created_at and updated_at column type", () => {
     });
     expect(content).toContain("@CreateDateColumn()");
     expect(content).toContain("@UpdateDateColumn({ type: 'timestamptz' })");
+  });
+
+  test("timestampNullable drops NOT NULL, for both or per column", async () => {
+    const both = await renderEntity({ name: "Loose", created_at: true, updated_at: true, timestampNullable: true });
+    expect(both).toContain("@CreateDateColumn({ nullable: true })");
+    expect(both).toContain("@UpdateDateColumn({ nullable: true })");
+    const one = await renderEntity({
+      name: "Half",
+      created_at: true,
+      updated_at: true,
+      timestampType: "timestamptz",
+      timestampNullable: { created_at: true },
+    });
+    expect(one).toContain("@CreateDateColumn({ type: 'timestamptz', nullable: true })");
+    expect(one).toContain("@UpdateDateColumn({ type: 'timestamptz' })");
   });
 
   test("timestamp stays the default", async () => {

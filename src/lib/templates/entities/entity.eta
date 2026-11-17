@@ -58,14 +58,13 @@ export class <%= it.name %> {
 <% if (it.createPrimaryKey) { %>
     // Fields
     <% if (it.primaryKeyType === 'uuid') { %>
-    @PrimaryGeneratedColumn('uuid')
+    @PrimaryGeneratedColumn('uuid'<% if (it.primaryKeyName) { %>, { primaryKeyConstraintName: '<%= it.primaryKeyName %>' }<% } %>)
     id: string;
     <% } else if (it.primaryKeyType === 'text') { %>
-    @Column({ type: 'text' })
-    @PrimaryColumn()
+    @PrimaryColumn({ type: 'text'<% if (it.primaryKeyName) { %>, primaryKeyConstraintName: '<%= it.primaryKeyName %>'<% } %> })
     id: string;
     <% } else { %>
-    @PrimaryGeneratedColumn()
+    @PrimaryGeneratedColumn(<% if (it.primaryKeyName) { %>{ primaryKeyConstraintName: '<%= it.primaryKeyName %>' }<% } %>)
     id!: number;
     <% } %>
 <% } %>
@@ -114,16 +113,11 @@ columnsToProcess.forEach((field) => { %>
         @Index()
         <% } %>
         @ManyToOne(() => <%= assoc.name %><% if (assoc.biDirectional) { %>, <%= assoc.camelCasedName %> => <%= assoc.camelCasedName %>.<%= assoc.inverseSidePropertyName %><% } %><% if (assoc.onDeleteRule) { %>, { onDelete: "<%= assoc.onDeleteRule %>" }<% } %>)
-        @JoinColumn({ name: '<%= assoc.joinColumnName || assoc.camelCasedId %>' })
+        @JoinColumn({ name: '<%= assoc.joinColumnName || assoc.camelCasedId %>'<% if (assoc.foreignKeyName) { %>, foreignKeyConstraintName: '<%= assoc.foreignKeyName %>'<% } %> })
         <%= assoc.relationshipName %>: <%= assoc.name %>;
 
-        <% if (assoc.referencedEntityPrimaryKeyType === 'uuid') { %>
-        @Column({ <% if (assoc.joinColumnName) { %>name: '<%= assoc.joinColumnName %>', <% } %>type: "uuid", <% if (assoc.nullable) { %> nullable: true <% } %>})
-        <%= assoc.camelCasedId %>: string;
-        <% } else { %>
-        @Column({ <% if (assoc.joinColumnName) { %>name: '<%= assoc.joinColumnName %>', <% } %>type: "integer", <% if (assoc.nullable) { %> nullable: true <% } %>})
-        <%= assoc.camelCasedId %>: number;
-        <% } %>
+        @Column({ <% if (assoc.joinColumnName) { %>name: '<%= assoc.joinColumnName %>', <% } %><%~ assoc.fkColumnOptions %>, <% if (assoc.nullable) { %> nullable: true <% } %>})
+        <%= assoc.camelCasedId %>: <%= assoc.fkTsType %>;
 
     <% } else if (assoc.type === 'ManyToMany') { %>
 

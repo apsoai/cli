@@ -250,6 +250,18 @@ const fk = (column: string, referencedTable: string) => ({
   onDelete: "NO ACTION" as const,
 });
 
+const importedRule = (onDelete: string) =>
+  pgToApsorc(
+    schema([
+      table("User", { primaryKey: ["id"], columns: [col("id", "uuid")] }),
+      table("Post", {
+        primaryKey: ["id"],
+        columns: [col("id", "uuid"), col("userId", "uuid", { nullable: true })],
+        foreignKeys: [{ columns: ["userId"], referencedTable: "User", referencedColumns: ["id"], onDelete: onDelete as any }],
+      }),
+    ])
+  ).apsorc.relationships[0];
+
 // ---- created_at / updated_at ----
 
 describe("timestamp metadata columns", () => {
@@ -414,25 +426,23 @@ describe("foreign keys", () => {
   });
 
   test("ON DELETE SET NULL and RESTRICT are kept, CASCADE stays cascadeDelete", () => {
-    const rule = (onDelete: string) =>
-      pgToApsorc(
-        schema([
-          table("User", { primaryKey: ["id"], columns: [col("id", "uuid")] }),
-          table("Post", {
-            primaryKey: ["id"],
-            columns: [col("id", "uuid"), col("userId", "uuid", { nullable: true })],
-            foreignKeys: [{ columns: ["userId"], referencedTable: "User", referencedColumns: ["id"], onDelete: onDelete as any }],
-          }),
-        ])
-      ).apsorc.relationships[0];
-    expect(rule("SET NULL")).toMatchObject({ onDelete: "SET NULL", nullable: true });
-    expect(rule("RESTRICT").onDelete).toBe("RESTRICT");
-    expect(rule("CASCADE")).toMatchObject({ cascadeDelete: true });
-    expect(rule("CASCADE").onDelete).toBeUndefined();
-    expect(rule("NO ACTION").onDelete).toBeUndefined();
+    expect(importedRule("SET NULL")).toMatchObject({ onDelete: "SET NULL", nullable: true });
+    expect(importedRule("RESTRICT").onDelete).toBe("RESTRICT");
+    expect(importedRule("CASCADE")).toMatchObject({ cascadeDelete: true });
+    expect(importedRule("CASCADE").onDelete).toBeUndefined();
+    expect(importedRule("NO ACTION").onDelete).toBeUndefined();
   });
 
-  // apsoai/cli#250: never rename a column to make room for a relationship.
+  test("a varchar(n) id is kept as a primary field with its length", () => {
+    const out = pgToApsorc(
+      schema([table("orgs", { primaryKey: ["id"], columns: [col("id", "varchar", { charMaxLength: 100 })] })])
+    );
+    const orgs = findEntity(out, "orgs");
+    expect(orgs.primaryKeyType).toBeUndefined();
+    expect(findField(orgs, "id")).toMatchObject({ type: "varchar", length: 100, primary: true });
+  });
+
+
   test("a relationship that would take a column's name is renamed, and the column kept", () => {
     const out = pgToApsorc(
       schema([

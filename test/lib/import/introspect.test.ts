@@ -126,6 +126,7 @@ describe("buildSchema", () => {
     const posts = result.tables.find((t) => t.name === "posts")!;
     expect(posts.foreignKeys).toEqual([
       {
+        name: "posts_author_fkey",
         columns: ["author_id"],
         referencedTable: "users",
         referencedColumns: ["id"],
@@ -170,6 +171,7 @@ describe("buildSchema", () => {
     });
     expect(result.tables[0].foreignKeys).toEqual([
       {
+        name: "fk_pair",
         columns: ["org_id", "user_id"],
         referencedTable: "pairs",
         referencedColumns: ["a", "b"],

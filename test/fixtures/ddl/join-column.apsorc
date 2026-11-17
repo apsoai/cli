@@ -3,7 +3,7 @@
   "rootFolder": "src",
   "apiType": "rest",
   "entities": [
-    { "name": "Organization", "created_at": true, "updated_at": true, "timestampType": "timestamptz", "fields": [{ "name": "name", "type": "text" }] },
+    { "name": "Organization", "primaryKeyName": "organizations_pkey", "created_at": true, "updated_at": true, "timestampType": "timestamptz", "fields": [{ "name": "name", "type": "text" }] },
     { "name": "Patient", "created_at": true, "updated_at": true, "timestampType": "timestamptz", "fields": [{ "name": "mrn", "type": "text", "nullable": true }] },
     {
       "name": "Enrollment",
@@ -13,12 +13,15 @@
       "uniques": [{ "fields": ["patient", "performance_year"], "name": "enrollments_patient_year_uq" }],
       "indexes": [{ "fields": ["organization", "patient"] }, { "fields": ["organizationId", "status"] }]
     },
-    { "name": "Profile", "created_at": true, "updated_at": true, "timestampType": { "created_at": "timestamptz" }, "fields": [{ "name": "bio", "type": "text", "nullable": true }] }
+    { "name": "Tenant", "primaryKeyName": "tenants_pkey", "fields": [{ "name": "id", "type": "varchar", "length": 100, "primary": true }, { "name": "name", "type": "text" }] },
+    { "name": "TenantNote", "fields": [{ "name": "code", "type": "text", "primary": true }, { "name": "body", "type": "text", "nullable": true }] },
+    { "name": "Profile", "created_at": true, "updated_at": true, "timestampType": { "created_at": "timestamptz" }, "timestampNullable": { "updated_at": true }, "fields": [{ "name": "bio", "type": "text", "nullable": true }] }
   ],
   "relationships": [
-    { "from": "Patient", "to": "Organization", "type": "ManyToOne", "joinColumnName": "organization_id", "onDelete": "RESTRICT" },
+    { "from": "Patient", "to": "Organization", "type": "ManyToOne", "joinColumnName": "organization_id", "onDelete": "RESTRICT", "foreignKeyName": "patients_organization_id_fkey" },
     { "from": "Enrollment", "to": "Organization", "type": "ManyToOne", "joinColumnName": "organization_id" },
     { "from": "Enrollment", "to": "Patient", "type": "ManyToOne", "joinColumnName": "patient_id", "index": true, "nullable": true, "onDelete": "SET NULL" },
-    { "from": "Profile", "to": "Patient", "type": "OneToOne", "joinColumnName": "patient_id" }
+    { "from": "Profile", "to": "Patient", "type": "OneToOne", "joinColumnName": "patient_id" },
+    { "from": "TenantNote", "to": "Tenant", "type": "ManyToOne", "joinColumnName": "tenant_id" }
   ]
 }

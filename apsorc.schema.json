@@ -56,6 +56,10 @@
             "description": "Indicates if deleting the 'from' entity should cascade delete related 'to' entities.",
             "type": "boolean"
           },
+          "foreignKeyName": {
+            "description": "(Optional) Name of the foreign key constraint on a ManyToOne or OneToMany. Defaults to the name TypeORM derives. 'apso import' sets it. TypeScript services only.",
+            "type": "string"
+          },
           "onDelete": {
             "description": "(Optional) The foreign key's ON DELETE rule on a ManyToOne or OneToMany. 'cascadeDelete': true is the same as 'CASCADE'. 'SET NULL' needs 'nullable': true. Defaults to 'NO ACTION'.",
             "type": "string",
@@ -128,6 +132,25 @@
               }
             }
           ]
+        },
+        "timestampNullable": {
+          "description": "Whether created_at and updated_at accept NULL: one boolean for both, or one per column as { \"created_at\": ..., \"updated_at\": ... }. Defaults to false (NOT NULL). 'apso import' writes what the source columns use.",
+          "default": false,
+          "oneOf": [
+            { "type": "boolean" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "created_at": { "type": "boolean" },
+                "updated_at": { "type": "boolean" }
+              }
+            }
+          ]
+        },
+        "primaryKeyName": {
+          "description": "Name of the primary key constraint. Defaults to the name TypeORM derives. 'apso import' sets it so an existing database keeps its constraint names. TypeScript services only.",
+          "type": "string"
         },
         "primaryKeyType": {
           "description": "The type of primary key to use for this entity. Defaults to 'serial' (auto-increment integer). Use 'uuid' for UUID-based primary keys.",

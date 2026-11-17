@@ -9,7 +9,11 @@
  * real scaffolded service.
  */
 import { createHash } from "crypto";
-import { Entity, timestampTypeOf } from "../types/entity";
+import {
+  Entity,
+  timestampNullableOf,
+  timestampTypeOf,
+} from "../types/entity";
 import { ComputedField } from "../types/field";
 import {
   RelationshipForTemplate,
@@ -237,8 +241,40 @@ const column = (
 
 export const pkColumn = (e: Entity): string =>
   (e.fields ?? []).find((f) => f.primary)?.name ?? "id";
-export const fkType = (target?: Entity): string =>
-  target?.primaryKeyType === "uuid" ? "uuid" : "integer";
+/**
+ * The primary key column of an entity, as a foreign key onto it must copy it:
+ * its SQL type, the matching TypeORM column options and the TypeScript type.
+ * A key declared as a field (varchar(100), text, bigint) keeps that type
+ * instead of falling back to integer.
+ *
+ * @param {Entity} [target] - The referenced entity.
+ * @returns {object} sql, options and ts for the key column.
+ */
+export const keyColumn = (
+  target?: Entity
+): { sql: string; options: string; ts: "string" | "number" } => {
+  const keys = (target?.fields ?? []).filter((f) => f.primary);
+  if (target && keys.length === 1) {
+    const [f] = getFieldForTemplate(keys, target.name);
+    const type = f.type as string;
+    const length = ["varchar", "char"].includes(type)
+      ? `, length: ${f.length ?? (type === "char" ? 1 : 255)}`
+      : "";
+    return {
+      sql: columnSpec(tableName(target), f).type,
+      options: `type: "${type}"${length}`,
+      ts: ["integer", "smallint", "serial"].includes(type)
+        ? "number"
+        : "string",
+    };
+  }
+  if (target?.primaryKeyType === "uuid")
+    return { sql: "uuid", options: 'type: "uuid"', ts: "string" };
+  if ((target?.primaryKeyType as string) === "text")
+    return { sql: "text", options: 'type: "text"', ts: "string" };
+  return { sql: "integer", options: 'type: "integer"', ts: "number" };
+};
+export const fkType = (target?: Entity): string => keyColumn(target).sql;
 
 /**
  * The foreign key column of a ManyToOne or an owning OneToOne:
@@ -343,10 +379,15 @@ export function schemaModel(input: SchemaInput): Model {
       columns,
       body: `UNIQUE (${cols(columns)})`,
     });
-  const primaryKey = (table: string, columns: string[], list = inline) =>
+  const primaryKey = (
+    table: string,
+    columns: string[],
+    list = inline,
+    name = constraintName.primaryKey(table, columns)
+  ) =>
     list.push({
       key: `pk:${table}`,
-      name: constraintName.primaryKey(table, columns),
+      name,
       table,
       kind: "pk",
       columns,
@@ -357,11 +398,12 @@ export function schemaModel(input: SchemaInput): Model {
     col: string,
     target: string,
     targetCol: string,
-    actions: string
+    actions: string,
+    name = constraintName.foreignKey(table, [col])
   ) =>
     foreignKeys.push({
       key: `fk:${table}(${col})->${target}`,
-      name: constraintName.foreignKey(table, [col]),
+      name,
       table,
       kind: "fk",
       columns: [col],
@@ -401,7 +443,7 @@ export function schemaModel(input: SchemaInput): Model {
             timestampTypeOf(e, stamp) === "timestamptz"
               ? "TIMESTAMP WITH TIME ZONE"
               : "TIMESTAMP",
-            true,
+            !timestampNullableOf(e, stamp),
             "now()"
           )
         );
@@ -461,7 +503,8 @@ export function schemaModel(input: SchemaInput): Model {
           col,
           targetTable,
           pkColumn(target),
-          `ON DELETE ${onDelete} ON UPDATE NO ACTION`
+          `ON DELETE ${onDelete} ON UPDATE NO ACTION`,
+          r.foreignKeyName || undefined
         );
       }
 
@@ -496,12 +539,10 @@ export function schemaModel(input: SchemaInput): Model {
       }
     }
 
-    primaryKey(
-      table,
-      customPk
-        ? (e.fields ?? []).filter((f) => f.primary).map((f) => f.name)
-        : ["id"]
-    );
+    const keyColumns = customPk
+      ? (e.fields ?? []).filter((f) => f.primary).map((f) => f.name)
+      : ["id"];
+    primaryKey(table, keyColumns, inline, e.primaryKeyName || undefined);
     entityTables.unshift(t);
   }
 

@@ -29,6 +29,7 @@ export interface ApsorcSnapshot {
     created_at?: boolean;
     updated_at?: boolean;
     timestampType?: Entity["timestampType"];
+    timestampNullable?: Entity["timestampNullable"];
     scopeBy?: string | string[];
   }>;
   relationships?: Array<{
@@ -64,6 +65,7 @@ export interface ComparableSchema {
     created_at?: boolean;
     updated_at?: boolean;
     timestampType?: Entity["timestampType"];
+    timestampNullable?: Entity["timestampNullable"];
     scopeBy?: string | string[];
   }>;
   relationships?: ApsorcSnapshot["relationships"];

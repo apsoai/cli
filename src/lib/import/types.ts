@@ -38,6 +38,8 @@ export interface IntrospectedColumn {
 
 /** A foreign key constraint (may be composite). */
 export interface IntrospectedFk {
+  /** The constraint's name in the source database. */
+  name?: string;
   /** Local column(s) participating in the FK. */
   columns: string[];
   referencedTable: string;
@@ -77,6 +79,8 @@ export interface IntrospectedTable {
   columns: IntrospectedColumn[];
   /** Ordered primary-key column names ([] if the table has no primary key). */
   primaryKey: string[];
+  /** The primary key constraint's name in the source database. */
+  primaryKeyName?: string;
   foreignKeys: IntrospectedFk[];
   uniqueConstraints: IntrospectedUnique[];
   indexes: IntrospectedIndex[];

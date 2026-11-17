@@ -17,10 +17,19 @@ CREATE TABLE patients (
 );
 CREATE INDEX patients_created_at_idx ON patients (created_at);
 CREATE UNIQUE INDEX patients_mrn_uq ON patients (organization_id, lower(btrim(mrn))) WHERE mrn IS NOT NULL;
+CREATE TABLE tenants (
+  id varchar(100) PRIMARY KEY,
+  name text NOT NULL
+);
+CREATE TABLE tenant_notes (
+  code text PRIMARY KEY,
+  tenant_id varchar(100) NOT NULL REFERENCES tenants(id),
+  body text
+);
 CREATE TABLE facilities (
   id serial PRIMARY KEY,
   name text NOT NULL,
-  created_at timestamp NOT NULL DEFAULT now(),
+  created_at timestamp DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE TABLE enrollments (

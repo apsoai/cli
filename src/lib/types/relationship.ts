@@ -33,6 +33,8 @@ export interface ApsorcRelationship {
   bi_directional?: boolean;
   cascadeDelete?: boolean;
   onDelete?: OnDelete;
+  /** Name of the foreign key constraint; defaults to the name TypeORM derives. */
+  foreignKeyName?: string;
   index?: boolean;
   joinTableName?: string;
   joinColumnName?: string;
@@ -48,6 +50,8 @@ export interface Relationship {
   biDirectional?: boolean;
   cascadeDelete?: boolean;
   onDelete?: OnDelete;
+  /** Name of the foreign key constraint; defaults to the name TypeORM derives. */
+  foreignKeyName?: string;
   index?: boolean;
   joinTableName?: string;
   joinColumnName?: string;

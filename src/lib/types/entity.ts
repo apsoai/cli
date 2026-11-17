@@ -43,6 +43,21 @@ export const timestampTypeOf = (
     : "timestamp";
 };
 
+/**
+ * Whether an entity's created_at or updated_at column accepts NULL.
+ *
+ * @param {object} entity - Anything carrying an entity's "timestampNullable".
+ * @param {TimestampColumn} column - Which of the two columns.
+ * @returns {boolean} True only when the entity asks for a nullable column.
+ */
+export const timestampNullableOf = (
+  entity: { timestampNullable?: Entity["timestampNullable"] },
+  column: TimestampColumn
+): boolean => {
+  const n = entity.timestampNullable;
+  return (typeof n === "object" ? n?.[column] : n) === true;
+};
+
 export interface Entity {
   name: string;
   /**
@@ -61,7 +76,18 @@ export interface Entity {
    * or one type per column when the two differ.
    */
   timestampType?: TimestampType | Partial<Record<TimestampColumn, TimestampType>>;
+  /**
+   * Whether created_at and updated_at accept NULL: one value for both, or one
+   * per column. Defaults to false (NOT NULL). `apso import` sets it when the
+   * source columns are nullable.
+   */
+  timestampNullable?: boolean | Partial<Record<TimestampColumn, boolean>>;
   primaryKeyType?: "serial" | "uuid";
+  /**
+   * Name of the primary key constraint. Defaults to the name TypeORM derives.
+   * `apso import` sets it so an existing database keeps its constraint names.
+   */
+  primaryKeyName?: string;
   fields?: Field[];
   indexes?: Index[];
   uniques?: Unique[];

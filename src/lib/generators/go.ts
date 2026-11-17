@@ -16,7 +16,7 @@ import {
   Field,
   resolveJwtProviders,
 } from "../types";
-import { timestampTypeOf } from "../types/entity";
+import { timestampNullableOf, timestampTypeOf } from "../types/entity";
 import { onDeleteOf } from "../types/relationship";
 import {
   authEntityNames,
@@ -154,6 +154,11 @@ export class GoGenerator extends BaseGenerator {
     }
     errors.push(...removedScopeOptionErrors(config.entities ?? []));
     errors.push(...joinColumnErrors(config.relationshipMap, "Go"));
+    for (const e of config.entities ?? [])
+      if (e.primaryKeyName)
+        errors.push(
+          `${e.name} sets "primaryKeyName": "${e.primaryKeyName}". The Go generator cannot keep a custom primary key constraint name yet; remove it or generate a TypeScript service.`
+        );
 
     // Validate each entity
     for (const entity of config.entities) {
@@ -378,6 +383,8 @@ export class GoGenerator extends BaseGenerator {
       updatedAt: entity.updated_at,
       createdAtType: timestampTypeOf(entity, "created_at"),
       updatedAtType: timestampTypeOf(entity, "updated_at"),
+      createdAtNotNull: timestampNullableOf(entity, "created_at") ? "" : "not null;",
+      updatedAtNotNull: timestampNullableOf(entity, "updated_at") ? "" : "not null;",
       columns,
       associations,
       importTime:

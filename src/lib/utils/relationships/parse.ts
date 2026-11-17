@@ -356,6 +356,7 @@ export const parseRelationship = (
             inverseReferenceName: fromSideRefName,
             joinColumnName: relationship.joinColumnName,
             onDelete: relationship.onDelete,
+            foreignKeyName: relationship.foreignKeyName,
           },
         ],
       };
@@ -382,6 +383,7 @@ export const parseRelationship = (
               index: relationship.index || false,
               joinColumnName: relationship.joinColumnName,
             onDelete: relationship.onDelete,
+            foreignKeyName: relationship.foreignKeyName,
             },
           ],
         };
@@ -399,6 +401,7 @@ export const parseRelationship = (
             inverseReferenceName: relationship.from,
             joinColumnName: relationship.joinColumnName,
             onDelete: relationship.onDelete,
+            foreignKeyName: relationship.foreignKeyName,
           },
         ],
         [relationship.to]: [
@@ -847,12 +850,15 @@ export const joinColumnErrors = (
 ): string[] =>
   Object.entries(relationshipMap ?? {}).flatMap(([entity, relationships]) =>
     relationships
-      .filter(
-        (r) =>
-          r.joinColumnName && (r.type === "ManyToOne" || r.type === "OneToOne")
-      )
-      .map(
-        (r) =>
-          `${entity} ${r.type} ${r.name} sets "joinColumnName": "${r.joinColumnName}". The ${language} generator cannot keep a custom foreign key column name yet; remove it or generate a TypeScript service.`
+      .filter((r) => r.type === "ManyToOne" || r.type === "OneToOne")
+      .flatMap((r) =>
+        (["joinColumnName", "foreignKeyName"] as const)
+          .filter((key) => r[key])
+          .map(
+            (key) =>
+              `${entity} ${r.type} ${r.name} sets "${key}": "${r[key]}". The ${language} generator cannot keep a custom foreign key ${
+                key === "joinColumnName" ? "column" : "constraint"
+              } name yet; remove it or generate a TypeScript service.`
+          )
       )
   );
