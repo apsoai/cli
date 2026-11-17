@@ -65,6 +65,7 @@ export interface ApsorcImportRelationshipOutput {
   cascadeDelete?: boolean;
   onDelete?: "SET NULL" | "RESTRICT";
   foreignKeyName?: string;
+  primary?: boolean;
   index?: boolean;
   joinColumnName?: string;
 }
@@ -378,9 +379,14 @@ export function pgToApsorc(schema: IntrospectedSchema): {
         if (t === "uuid" || t === "text") entity.primaryKeyType = t;
         else pkAsField = t === "varchar" || t === "char";
       } else {
-        // Single, non-"id" PK: emit it as a primary field.
+        // Single, non-"id" PK: a primary field, or the relationship's own
+        // key when the column is a foreign key (a table keyed by the row it
+        // extends).
         pkAsField = true;
-        report.warnings.nonStandardPks.push(table.name);
+        const keyIsForeignKey = table.foreignKeys.some(
+          (fk) => fk.columns.length === 1 && fk.columns[0] === pk[0]
+        );
+        if (!keyIsForeignKey) report.warnings.nonStandardPks.push(table.name);
       }
     } else if (pk.length > 1) {
       pkAsField = true;
@@ -567,6 +573,7 @@ export function pgToApsorc(schema: IntrospectedSchema): {
       if (toName) rel.to_name = toName;
       if (joinColumnName) rel.joinColumnName = joinColumnName;
       if (fk.name) rel.foreignKeyName = fk.name;
+      if (pkSet.has(sourceColumn)) rel.primary = true;
       if (col?.nullable) rel.nullable = true;
       if (fk.onDelete === "CASCADE") rel.cascadeDelete = true;
       else if (fk.onDelete === "SET NULL" || fk.onDelete === "RESTRICT")

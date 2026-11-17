@@ -683,6 +683,18 @@ describe("a key declared as a field keeps its type and length", () => {
     expect(m).toContain("@JoinColumn({ name: 'orgId', foreignKeyConstraintName: 'members_org_fkey' })");
   });
 
+  test("a foreign key can be the primary key: no id is generated", async () => {
+    const setting: Entity = { name: "Setting", primaryKeyName: "settings_pkey", fields: [{ name: "theme", type: "text" }] };
+    const keyed = parseRelationships([{ from: "Setting", to: "Org", type: "ManyToOne", joinColumnName: "org_id", primary: true }]);
+    const generator = new TypeScriptGenerator(createConfig([org, setting], keyed));
+    const files = await generator.generateEntity({ entity: setting, relationships: keyed.Setting, allEntities: [org, setting], apiType: "rest" });
+    const content = findFileContent(files, "Setting.entity")!.replace(/\s+/g, " ");
+    expect(content).toContain(
+      `@PrimaryColumn({ name: 'org_id', type: "varchar", length: 100, primaryKeyConstraintName: 'settings_pkey', }) orgId: string;`
+    );
+    expect(content).not.toContain("@PrimaryGeneratedColumn()");
+  });
+
   test("on a foreign key that references it", async () => {
     expect(await render(member)).toContain('@Column({ type: "varchar", length: 100, }) orgId: string;');
   });

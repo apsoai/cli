@@ -26,6 +26,10 @@ CREATE TABLE tenant_notes (
   tenant_id varchar(100) NOT NULL REFERENCES tenants(id),
   body text
 );
+CREATE TABLE tenant_settings (
+  tenant_id varchar(100) PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
+  theme text
+);
 CREATE TABLE facilities (
   id serial PRIMARY KEY,
   name text NOT NULL,

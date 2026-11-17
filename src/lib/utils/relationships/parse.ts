@@ -357,6 +357,7 @@ export const parseRelationship = (
             joinColumnName: relationship.joinColumnName,
             onDelete: relationship.onDelete,
             foreignKeyName: relationship.foreignKeyName,
+            primary: relationship.primary,
           },
         ],
       };
@@ -384,6 +385,7 @@ export const parseRelationship = (
               joinColumnName: relationship.joinColumnName,
             onDelete: relationship.onDelete,
             foreignKeyName: relationship.foreignKeyName,
+            primary: relationship.primary,
             },
           ],
         };
@@ -402,6 +404,7 @@ export const parseRelationship = (
             joinColumnName: relationship.joinColumnName,
             onDelete: relationship.onDelete,
             foreignKeyName: relationship.foreignKeyName,
+            primary: relationship.primary,
           },
         ],
         [relationship.to]: [
@@ -852,13 +855,19 @@ export const joinColumnErrors = (
     relationships
       .filter((r) => r.type === "ManyToOne" || r.type === "OneToOne")
       .flatMap((r) =>
-        (["joinColumnName", "foreignKeyName"] as const)
+        (["joinColumnName", "foreignKeyName", "primary"] as const)
           .filter((key) => r[key])
           .map(
             (key) =>
-              `${entity} ${r.type} ${r.name} sets "${key}": "${r[key]}". The ${language} generator cannot keep a custom foreign key ${
-                key === "joinColumnName" ? "column" : "constraint"
-              } name yet; remove it or generate a TypeScript service.`
+              `${entity} ${r.type} ${r.name} sets "${key}": ${JSON.stringify(
+                r[key]
+              )}. The ${language} generator cannot keep ${
+                key === "primary"
+                  ? "a primary key that is a foreign key"
+                  : `a custom foreign key ${
+                      key === "joinColumnName" ? "column" : "constraint"
+                    } name`
+              } yet; remove it or generate a TypeScript service.`
           )
       )
   );

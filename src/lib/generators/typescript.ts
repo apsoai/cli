@@ -145,9 +145,6 @@ export class TypeScriptGenerator extends BaseGenerator {
     const { name, fields = [], indexes, uniques } = entity;
 
     const columns = getFieldForTemplate(fields, name);
-    const createPrimaryKey =
-      columns.filter((column: Field) => column.primary === true).length === 0;
-
     const createdAt = entity.created_at;
     const updatedAt = entity.updated_at;
     const primaryKeyType = entity.primaryKeyType || "serial";
@@ -161,6 +158,10 @@ export class TypeScriptGenerator extends BaseGenerator {
       name,
       relationshipsForTemplate
     );
+    // No generated id when a field, or a foreign key, is the primary key.
+    const createPrimaryKey =
+      !columns.some((column: Field) => column.primary === true) &&
+      !relationshipsForTemplate.some((r) => r.primary);
 
     // A OneToOne's FK column has no property of its own on the entity, so
     // @Index/@Unique name the relation property; TypeORM resolves it to the
@@ -430,6 +431,7 @@ export class TypeScriptGenerator extends BaseGenerator {
             name: fkName,
             dataType: fkDataType,
             type: fkType,
+            ...(rel.primary && { primary: true }),
           });
         }
       }

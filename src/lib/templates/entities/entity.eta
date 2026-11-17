@@ -116,7 +116,7 @@ columnsToProcess.forEach((field) => { %>
         @JoinColumn({ name: '<%= assoc.joinColumnName || assoc.camelCasedId %>'<% if (assoc.foreignKeyName) { %>, foreignKeyConstraintName: '<%= assoc.foreignKeyName %>'<% } %> })
         <%= assoc.relationshipName %>: <%= assoc.name %>;
 
-        @Column({ <% if (assoc.joinColumnName) { %>name: '<%= assoc.joinColumnName %>', <% } %><%~ assoc.fkColumnOptions %>, <% if (assoc.nullable) { %> nullable: true <% } %>})
+        @<%= assoc.primary ? 'PrimaryColumn' : 'Column' %>({ <% if (assoc.joinColumnName) { %>name: '<%= assoc.joinColumnName %>', <% } %><%~ assoc.fkColumnOptions %>, <% if (assoc.primary && it.primaryKeyName) { %>primaryKeyConstraintName: '<%= it.primaryKeyName %>', <% } %><% if (assoc.nullable) { %> nullable: true <% } %>})
         <%= assoc.camelCasedId %>: <%= assoc.fkTsType %>;
 
     <% } else if (assoc.type === 'ManyToMany') { %>

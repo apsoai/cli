@@ -35,6 +35,8 @@ export interface ApsorcRelationship {
   onDelete?: OnDelete;
   /** Name of the foreign key constraint; defaults to the name TypeORM derives. */
   foreignKeyName?: string;
+  /** The foreign key column is (part of) the entity's primary key. */
+  primary?: boolean;
   index?: boolean;
   joinTableName?: string;
   joinColumnName?: string;
@@ -52,6 +54,8 @@ export interface Relationship {
   onDelete?: OnDelete;
   /** Name of the foreign key constraint; defaults to the name TypeORM derives. */
   foreignKeyName?: string;
+  /** The foreign key column is (part of) the entity's primary key. */
+  primary?: boolean;
   index?: boolean;
   joinTableName?: string;
   joinColumnName?: string;

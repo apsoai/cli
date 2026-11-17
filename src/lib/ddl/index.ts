@@ -416,7 +416,18 @@ export function schemaModel(input: SchemaInput): Model {
   for (const e of entities) {
     const table = tableName(e);
     const t: ModelTable = { name: table, columns: [] };
-    const customPk = (e.fields ?? []).some((f) => f.primary);
+    const relationships = getRelationshipForTemplate(
+      e.name,
+      relationshipMap[e.name] || [],
+      entities
+    );
+    // A foreign key can be the primary key ("primary": true on the
+    // relationship): a table keyed by the row it extends.
+    const relationKeys = relationships
+      .filter((r) => r.primary && ownsColumn(r))
+      .map((r) => relationColumn(r));
+    const customPk =
+      (e.fields ?? []).some((f) => f.primary) || relationKeys.length > 0;
 
     if (!customPk) {
       const pkType: string = e.primaryKeyType || "serial";
@@ -464,11 +475,6 @@ export function schemaModel(input: SchemaInput): Model {
       if (spec.index) index(table, [f.name]);
     }
 
-    const relationships = getRelationshipForTemplate(
-      e.name,
-      relationshipMap[e.name] || [],
-      entities
-    );
     // "indexes" and "uniques" may name a foreign key by its relationship.
     // A field wins over a relationship of the same name.
     const columnByName = relationColumns(relationships);
@@ -540,7 +546,10 @@ export function schemaModel(input: SchemaInput): Model {
     }
 
     const keyColumns = customPk
-      ? (e.fields ?? []).filter((f) => f.primary).map((f) => f.name)
+      ? [
+          ...(e.fields ?? []).filter((f) => f.primary).map((f) => f.name),
+          ...relationKeys,
+        ]
       : ["id"];
     primaryKey(table, keyColumns, inline, e.primaryKeyName || undefined);
     entityTables.unshift(t);

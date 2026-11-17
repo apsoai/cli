@@ -44,6 +44,7 @@ function table(
     name,
     columns: overrides.columns ?? [],
     primaryKey: overrides.primaryKey ?? [],
+    primaryKeyName: overrides.primaryKeyName,
     foreignKeys: overrides.foreignKeys ?? [],
     uniqueConstraints: overrides.uniqueConstraints ?? [],
     indexes: overrides.indexes ?? [],
@@ -443,6 +444,26 @@ describe("foreign keys", () => {
   });
 
 
+  test("a primary key that is also a foreign key stays the key, on the relationship", () => {
+    const out = pgToApsorc(
+      schema([
+        table("patients", { primaryKey: ["id"], columns: [col("id", "uuid")] }),
+        table("patient_flags", {
+          primaryKey: ["patient_id"],
+          primaryKeyName: "patient_flags_pkey",
+          columns: [col("patient_id", "uuid"), col("flag", "text")],
+          foreignKeys: [fk("patient_id", "patients")],
+        }),
+      ])
+    );
+    expect(out.apsorc.relationships).toEqual([
+      { from: "patient_flags", to: "patients", type: "ManyToOne", to_name: "patient", joinColumnName: "patient_id", primary: true },
+    ]);
+    expect(findEntity(out, "patient_flags").primaryKeyName).toBe("patient_flags_pkey");
+    expect(out.report.warnings.nonStandardPks).toEqual([]);
+  });
+
+  // apsoai/cli#250: never rename a column to make room for a relationship.
   test("a relationship that would take a column's name is renamed, and the column kept", () => {
     const out = pgToApsorc(
       schema([

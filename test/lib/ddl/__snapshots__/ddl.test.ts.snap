@@ -129,6 +129,7 @@ exports[`schemaDdl inventory-multi-fk runs on Postgres and matches its snapshot 
 exports[`schemaDdl join-column runs on Postgres and matches its snapshot 1`] = `
 [
   "CREATE TABLE "profile" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP DEFAULT now(), "bio" text, "patient_id" integer, CONSTRAINT "REL_13cc2705ab03e74e079128f139" UNIQUE ("patient_id"), CONSTRAINT "PK_3dd8bfc97e4a77c70971591bdcb" PRIMARY KEY ("id"))",
+  "CREATE TABLE "tenant_setting" ("theme" text, "tenant_id" character varying(100) NOT NULL, CONSTRAINT "tenant_settings_pkey" PRIMARY KEY ("tenant_id"))",
   "CREATE TABLE "tenant_note" ("code" text NOT NULL, "body" text, "tenant_id" character varying(100) NOT NULL, CONSTRAINT "PK_19eda73e4a942881c4f6210e44c" PRIMARY KEY ("code"))",
   "CREATE TABLE "tenant" ("id" character varying(100) NOT NULL, "name" text NOT NULL, CONSTRAINT "tenants_pkey" PRIMARY KEY ("id"))",
   "CREATE TABLE "enrollment" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), "performance_year" integer NOT NULL, "status" text NOT NULL, "organization_id" integer NOT NULL, "patient_id" integer, CONSTRAINT "enrollments_patient_year_uq" UNIQUE ("patient_id", "performance_year"), CONSTRAINT "PK_7e200c699fa93865cdcdd025885" PRIMARY KEY ("id"))",
@@ -141,6 +142,7 @@ exports[`schemaDdl join-column runs on Postgres and matches its snapshot 1`] = `
   "ALTER TABLE "enrollment" ADD CONSTRAINT "FK_ed12dfd62dc1ae2855fb944c704" FOREIGN KEY ("organization_id") REFERENCES "organization"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
   "ALTER TABLE "enrollment" ADD CONSTRAINT "FK_08783fb6134e3a93868b6857ead" FOREIGN KEY ("patient_id") REFERENCES "patient"("id") ON DELETE SET NULL ON UPDATE NO ACTION",
   "ALTER TABLE "tenant_note" ADD CONSTRAINT "FK_1eb2737fdb6f1467e1e85ddbac7" FOREIGN KEY ("tenant_id") REFERENCES "tenant"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
+  "ALTER TABLE "tenant_setting" ADD CONSTRAINT "FK_1ee2e3a0b2c804cf326765597f7" FOREIGN KEY ("tenant_id") REFERENCES "tenant"("id") ON DELETE CASCADE ON UPDATE NO ACTION",
   "ALTER TABLE "profile" ADD CONSTRAINT "FK_13cc2705ab03e74e079128f139e" FOREIGN KEY ("patient_id") REFERENCES "patient"("id") ON DELETE CASCADE ON UPDATE NO ACTION",
 ]
 `;

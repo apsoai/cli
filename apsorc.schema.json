@@ -56,6 +56,10 @@
             "description": "Indicates if deleting the 'from' entity should cascade delete related 'to' entities.",
             "type": "boolean"
           },
+          "primary": {
+            "description": "(Optional) The foreign key column of this ManyToOne is the entity's primary key, or part of it: a table keyed by the row it extends. No 'id' column is generated. TypeScript services only.",
+            "type": "boolean"
+          },
           "foreignKeyName": {
             "description": "(Optional) Name of the foreign key constraint on a ManyToOne or OneToMany. Defaults to the name TypeORM derives. 'apso import' sets it. TypeScript services only.",
             "type": "string"
