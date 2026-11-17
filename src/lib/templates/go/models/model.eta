@@ -38,7 +38,7 @@ type <%= it.name %> struct {
 <% it.associations.forEach((assoc) => { %>
 <% if (assoc.owns) { %>
 	<%= assoc.fkField %> <%= assoc.fkGoType %> `gorm:"<%~ assoc.fkTag %>" json:"<%= assoc.camelReferenceName %>Id"`
-	<%= assoc.fieldName %> *<%= assoc.name %> `gorm:"foreignKey:<%= assoc.fkField %><% if (assoc.onDeleteCascade) { %>;constraint:OnDelete:CASCADE<% } %>" json:"<%= assoc.jsonName %>,omitempty"`
+	<%= assoc.fieldName %> *<%= assoc.name %> `gorm:"foreignKey:<%= assoc.fkField %><% if (assoc.onDelete) { %>;constraint:OnDelete:<%= assoc.onDelete %><% } %>" json:"<%= assoc.jsonName %>,omitempty"`
 <% } else if (assoc.type === 'OneToMany') { %>
 	<%= assoc.fieldName %> []<%= assoc.name %> `gorm:"foreignKey:<%= assoc.foreignKey %>" json:"<%= assoc.jsonName %>,omitempty"`
 <% } else if (assoc.type === 'OneToOne') { %>

@@ -17,6 +17,7 @@ import {
   resolveJwtProviders,
 } from "../types";
 import { timestampTypeOf } from "../types/entity";
+import { onDeleteOf } from "../types/relationship";
 import {
   authEntityNames,
   hidesRelation,
@@ -347,7 +348,7 @@ export class GoGenerator extends BaseGenerator {
             : undefined,
           // The child's foreign key field, for OneToMany and the inverse OneToOne.
           foreignKey: `${pascalCase(rel.inverseReferenceName || entity.name)}ID`,
-          onDeleteCascade: rel.type === "OneToOne" || Boolean(rel.cascadeDelete),
+          onDelete: rel.type === "OneToOne" ? "CASCADE" : onDeleteOf(rel),
           join,
           camelReferenceName: camelCase(rel.referenceName || rel.name),
           snakeReferenceName: snakeCase(rel.referenceName || rel.name),

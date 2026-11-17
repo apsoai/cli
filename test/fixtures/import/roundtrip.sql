@@ -17,10 +17,17 @@ CREATE TABLE patients (
 );
 CREATE INDEX patients_created_at_idx ON patients (created_at);
 CREATE UNIQUE INDEX patients_mrn_uq ON patients (organization_id, lower(btrim(mrn))) WHERE mrn IS NOT NULL;
+CREATE TABLE facilities (
+  id serial PRIMARY KEY,
+  name text NOT NULL,
+  created_at timestamp NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
 CREATE TABLE enrollments (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   organization_id uuid NOT NULL REFERENCES organizations(id),
-  patient_id uuid NOT NULL REFERENCES patients(id),
+  patient_id uuid NOT NULL REFERENCES patients(id) ON DELETE RESTRICT,
+  facility_id integer REFERENCES facilities(id) ON DELETE SET NULL,
   status varchar(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'revoked')),
   minutes integer NOT NULL DEFAULT 0,
   performance_year integer NOT NULL,
@@ -40,12 +47,6 @@ CREATE UNIQUE INDEX enrollments_one_live_per_patient_uq ON enrollments (organiza
 CREATE INDEX enrollments_expires_at_idx ON enrollments (expires_at);
 -- Not every table carries a time zone: this one must stay plain timestamp,
 -- and facilities has one column of each type.
-CREATE TABLE facilities (
-  id serial PRIMARY KEY,
-  name text NOT NULL,
-  created_at timestamp NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
 CREATE TABLE legacy_events (
   id serial PRIMARY KEY,
   label text NOT NULL,

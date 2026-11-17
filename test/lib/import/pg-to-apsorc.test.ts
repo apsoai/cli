@@ -413,6 +413,25 @@ describe("foreign keys", () => {
     expect(e.indexes).toEqual([{ fields: ["organization", "patient"], unique: false }]);
   });
 
+  test("ON DELETE SET NULL and RESTRICT are kept, CASCADE stays cascadeDelete", () => {
+    const rule = (onDelete: string) =>
+      pgToApsorc(
+        schema([
+          table("User", { primaryKey: ["id"], columns: [col("id", "uuid")] }),
+          table("Post", {
+            primaryKey: ["id"],
+            columns: [col("id", "uuid"), col("userId", "uuid", { nullable: true })],
+            foreignKeys: [{ columns: ["userId"], referencedTable: "User", referencedColumns: ["id"], onDelete: onDelete as any }],
+          }),
+        ])
+      ).apsorc.relationships[0];
+    expect(rule("SET NULL")).toMatchObject({ onDelete: "SET NULL", nullable: true });
+    expect(rule("RESTRICT").onDelete).toBe("RESTRICT");
+    expect(rule("CASCADE")).toMatchObject({ cascadeDelete: true });
+    expect(rule("CASCADE").onDelete).toBeUndefined();
+    expect(rule("NO ACTION").onDelete).toBeUndefined();
+  });
+
   // apsoai/cli#250: never rename a column to make room for a relationship.
   test("a relationship that would take a column's name is renamed, and the column kept", () => {
     const out = pgToApsorc(

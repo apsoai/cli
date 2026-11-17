@@ -4,6 +4,24 @@ export type RelationshipType =
   | "ManyToMany"
   | "OneToOne";
 
+/** A foreign key's ON DELETE rule. "cascadeDelete": true is "CASCADE". */
+export type OnDelete = "CASCADE" | "SET NULL" | "RESTRICT" | "NO ACTION";
+
+/**
+ * The ON DELETE rule of a ManyToOne's foreign key, undefined for the
+ * database default (NO ACTION).
+ *
+ * @param {object} r - A relationship's "onDelete" and "cascadeDelete".
+ * @returns {OnDelete | undefined} The rule to write, if any.
+ */
+export const onDeleteOf = (r: {
+  onDelete?: OnDelete;
+  cascadeDelete?: boolean;
+}): OnDelete | undefined => {
+  const rule = r.onDelete || (r.cascadeDelete ? "CASCADE" : undefined);
+  return rule === "NO ACTION" ? undefined : rule;
+};
+
 export interface ApsorcRelationship {
   from: string;
   to: string;
@@ -14,6 +32,7 @@ export interface ApsorcRelationship {
   /* eslint-disable-next-line  camelcase */
   bi_directional?: boolean;
   cascadeDelete?: boolean;
+  onDelete?: OnDelete;
   index?: boolean;
   joinTableName?: string;
   joinColumnName?: string;
@@ -28,6 +47,7 @@ export interface Relationship {
   join?: boolean;
   biDirectional?: boolean;
   cascadeDelete?: boolean;
+  onDelete?: OnDelete;
   index?: boolean;
   joinTableName?: string;
   joinColumnName?: string;

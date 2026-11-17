@@ -17,7 +17,7 @@ import { getProjectConfigDir } from "../config/paths";
 import { readSnapshot, writeSnapshot, resetSnapshot, ApsorcSnapshot } from "./snapshot";
 import { EntityGeneratorInput } from "./entity-generator";
 import { Entity as EntityDef, timestampTypeOf } from "../types/entity";
-import { RelationshipMap } from "../types/relationship";
+import { RelationshipMap, onDeleteOf } from "../types/relationship";
 import { normalizeFieldType, fieldTypeToColumnType } from "../utils/field";
 import { snakeCase } from "../utils/casing";
 import { getRelationshipForTemplate } from "../utils/relationships";
@@ -180,8 +180,8 @@ function buildEntityClasses(
       if (relationship.nullable !== undefined) {
         relationOptions.nullable = relationship.nullable;
       }
-      if (relationship.cascadeDelete) {
-        relationOptions.onDelete = "CASCADE";
+      if (onDeleteOf(relationship)) {
+        relationOptions.onDelete = onDeleteOf(relationship);
       }
 
       if (relationship.type === "ManyToOne") {

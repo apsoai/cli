@@ -16,9 +16,9 @@
     { "name": "Profile", "created_at": true, "updated_at": true, "timestampType": { "created_at": "timestamptz" }, "fields": [{ "name": "bio", "type": "text", "nullable": true }] }
   ],
   "relationships": [
-    { "from": "Patient", "to": "Organization", "type": "ManyToOne", "joinColumnName": "organization_id" },
+    { "from": "Patient", "to": "Organization", "type": "ManyToOne", "joinColumnName": "organization_id", "onDelete": "RESTRICT" },
     { "from": "Enrollment", "to": "Organization", "type": "ManyToOne", "joinColumnName": "organization_id" },
-    { "from": "Enrollment", "to": "Patient", "type": "ManyToOne", "joinColumnName": "patient_id", "index": true, "nullable": true },
+    { "from": "Enrollment", "to": "Patient", "type": "ManyToOne", "joinColumnName": "patient_id", "index": true, "nullable": true, "onDelete": "SET NULL" },
     { "from": "Profile", "to": "Patient", "type": "OneToOne", "joinColumnName": "patient_id" }
   ]
 }

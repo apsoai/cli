@@ -14,6 +14,7 @@ import { ComputedField } from "../types/field";
 import {
   RelationshipForTemplate,
   RelationshipMap,
+  onDeleteOf,
 } from "../types/relationship";
 import { arrayElementType, getFieldForTemplate } from "../utils/field";
 import { snakeCase } from "../utils/casing";
@@ -447,7 +448,7 @@ export function schemaModel(input: SchemaInput): Model {
       const targetTable = tableName(target);
       // The template gives OneToOne onDelete CASCADE and a nullable join column.
       const oneToOne = r.type === "OneToOne";
-      const onDelete = r.cascadeDelete || oneToOne ? "CASCADE" : "NO ACTION";
+      const onDelete = oneToOne ? "CASCADE" : onDeleteOf(r) ?? "NO ACTION";
 
       if (r.type === "ManyToOne" || (oneToOne && r.joinTable)) {
         const col = relationColumn(r);

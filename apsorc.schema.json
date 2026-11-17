@@ -56,6 +56,11 @@
             "description": "Indicates if deleting the 'from' entity should cascade delete related 'to' entities.",
             "type": "boolean"
           },
+          "onDelete": {
+            "description": "(Optional) The foreign key's ON DELETE rule on a ManyToOne or OneToMany. 'cascadeDelete': true is the same as 'CASCADE'. 'SET NULL' needs 'nullable': true. Defaults to 'NO ACTION'.",
+            "type": "string",
+            "enum": ["CASCADE", "SET NULL", "RESTRICT", "NO ACTION"]
+          },
           "joinTableName": {
             "description": "(Optional) Custom name for the join table created for a ManyToMany relationship.",
             "type": "string"

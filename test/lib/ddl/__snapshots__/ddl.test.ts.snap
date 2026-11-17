@@ -135,9 +135,9 @@ exports[`schemaDdl join-column runs on Postgres and matches its snapshot 1`] = `
   "CREATE INDEX "IDX_76ca4b02387131301df9718669" ON "enrollment" ("organization_id", "patient_id")",
   "CREATE INDEX "IDX_b4dc6e7771ada3565dd3127968" ON "enrollment" ("organization_id", "status")",
   "CREATE INDEX "IDX_08783fb6134e3a93868b6857ea" ON "enrollment" ("patient_id")",
-  "ALTER TABLE "patient" ADD CONSTRAINT "FK_f8ecc7ec626447558ac9582b29d" FOREIGN KEY ("organization_id") REFERENCES "organization"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
+  "ALTER TABLE "patient" ADD CONSTRAINT "FK_f8ecc7ec626447558ac9582b29d" FOREIGN KEY ("organization_id") REFERENCES "organization"("id") ON DELETE RESTRICT ON UPDATE NO ACTION",
   "ALTER TABLE "enrollment" ADD CONSTRAINT "FK_ed12dfd62dc1ae2855fb944c704" FOREIGN KEY ("organization_id") REFERENCES "organization"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
-  "ALTER TABLE "enrollment" ADD CONSTRAINT "FK_08783fb6134e3a93868b6857ead" FOREIGN KEY ("patient_id") REFERENCES "patient"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
+  "ALTER TABLE "enrollment" ADD CONSTRAINT "FK_08783fb6134e3a93868b6857ead" FOREIGN KEY ("patient_id") REFERENCES "patient"("id") ON DELETE SET NULL ON UPDATE NO ACTION",
   "ALTER TABLE "profile" ADD CONSTRAINT "FK_13cc2705ab03e74e079128f139e" FOREIGN KEY ("patient_id") REFERENCES "patient"("id") ON DELETE CASCADE ON UPDATE NO ACTION",
 ]
 `;

@@ -113,7 +113,7 @@ columnsToProcess.forEach((field) => { %>
         <% if (assoc.index) { %>
         @Index()
         <% } %>
-        @ManyToOne(() => <%= assoc.name %><% if (assoc.biDirectional) { %>, <%= assoc.camelCasedName %> => <%= assoc.camelCasedName %>.<%= assoc.inverseSidePropertyName %><% } %><% if (assoc.cascadeDelete) { %>, { onDelete: "CASCADE" }<% } %>)
+        @ManyToOne(() => <%= assoc.name %><% if (assoc.biDirectional) { %>, <%= assoc.camelCasedName %> => <%= assoc.camelCasedName %>.<%= assoc.inverseSidePropertyName %><% } %><% if (assoc.onDeleteRule) { %>, { onDelete: "<%= assoc.onDeleteRule %>" }<% } %>)
         @JoinColumn({ name: '<%= assoc.joinColumnName || assoc.camelCasedId %>' })
         <%= assoc.relationshipName %>: <%= assoc.name %>;
 

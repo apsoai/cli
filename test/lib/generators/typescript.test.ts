@@ -625,6 +625,20 @@ describe("joinColumnName on a foreign key", () => {
     expect(content).toContain(`@Unique(["patientId", "year"])`);
   });
 
+  test("onDelete writes the foreign key's delete rule", async () => {
+    const relationshipMap = parseRelationships([
+      { from: "Enrollment", to: "Patient", type: "ManyToOne", nullable: true, onDelete: "SET NULL" },
+    ]);
+    const generator = new TypeScriptGenerator(createConfig([patient, enrollment], relationshipMap));
+    const files = await generator.generateEntity({
+      entity: { name: "Enrollment" },
+      relationships: relationshipMap.Enrollment,
+      allEntities: [patient, enrollment],
+      apiType: "rest",
+    });
+    expect(findFileContent(files, "Enrollment.entity")).toContain('{ onDelete: "SET NULL" }');
+  });
+
   test("without it the generated column is unchanged", async () => {
     const content = await render();
     expect(content).toContain("@JoinColumn({ name: 'patientId' }) patient: Patient;");

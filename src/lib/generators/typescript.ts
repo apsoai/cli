@@ -17,6 +17,7 @@ import {
   RelationshipMap,
 } from "../types";
 import { timestampTypeOf } from "../types/entity";
+import { onDeleteOf } from "../types/relationship";
 // Utilities available for future use: createFile from "../utils/file-system"
 import { getFieldForTemplate, typeExistsInEntity, fieldToEnumType } from "../utils/field";
 import {
@@ -194,7 +195,10 @@ export class TypeScriptGenerator extends BaseGenerator {
           : "",
       pluralizedName: camelCase(pluralize(name)),
       columns,
-      associations: [...new Set(relationshipsForTemplate)],
+      associations: [...new Set(relationshipsForTemplate)].map((r) => ({
+        ...r,
+        onDeleteRule: onDeleteOf(r),
+      })),
       entitiesToImport,
       importEnums: typeExistsInEntity(entity, "enum") !== -1,
       apiType,

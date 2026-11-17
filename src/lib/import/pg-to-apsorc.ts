@@ -60,6 +60,7 @@ export interface ApsorcImportRelationshipOutput {
   nullable?: boolean;
   bi_directional?: boolean;
   cascadeDelete?: boolean;
+  onDelete?: "SET NULL" | "RESTRICT";
   index?: boolean;
   joinColumnName?: string;
 }
@@ -540,6 +541,8 @@ export function pgToApsorc(schema: IntrospectedSchema): {
       if (joinColumnName) rel.joinColumnName = joinColumnName;
       if (col?.nullable) rel.nullable = true;
       if (fk.onDelete === "CASCADE") rel.cascadeDelete = true;
+      else if (fk.onDelete === "SET NULL" || fk.onDelete === "RESTRICT")
+        rel.onDelete = fk.onDelete;
       if (indexSingle.has(sourceColumn)) rel.index = true;
       relationships.push(rel);
     }

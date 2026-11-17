@@ -355,6 +355,7 @@ export const parseRelationship = (
             referenceName: toSideRefName,
             inverseReferenceName: fromSideRefName,
             joinColumnName: relationship.joinColumnName,
+            onDelete: relationship.onDelete,
           },
         ],
       };
@@ -380,6 +381,7 @@ export const parseRelationship = (
               nullable: relationship.nullable || false,
               index: relationship.index || false,
               joinColumnName: relationship.joinColumnName,
+            onDelete: relationship.onDelete,
             },
           ],
         };
@@ -396,6 +398,7 @@ export const parseRelationship = (
             referenceName: manySideRefName,
             inverseReferenceName: relationship.from,
             joinColumnName: relationship.joinColumnName,
+            onDelete: relationship.onDelete,
           },
         ],
         [relationship.to]: [
