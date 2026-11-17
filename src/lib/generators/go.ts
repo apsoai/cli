@@ -34,7 +34,10 @@ import {
   typeExistsInEntity,
   fieldToEnumType,
 } from "../utils/field";
-import { getRelationshipForTemplate } from "../utils/relationships";
+import {
+  getRelationshipForTemplate,
+  joinColumnErrors,
+} from "../utils/relationships";
 import { snakeCase, camelCase, pascalCase, kebabCase } from "../utils/casing";
 import { getEventEmittingEntities } from "../events";
 import { gooseStatements } from "../ddl/migration-file";
@@ -148,6 +151,7 @@ export class GoGenerator extends BaseGenerator {
       errors.push("No entities defined in configuration");
     }
     errors.push(...removedScopeOptionErrors(config.entities ?? []));
+    errors.push(...joinColumnErrors(config.relationshipMap, "Go"));
 
     // Validate each entity
     for (const entity of config.entities) {

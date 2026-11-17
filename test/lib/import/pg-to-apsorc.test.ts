@@ -243,6 +243,13 @@ describe("primary key handling", () => {
   });
 });
 
+const fk = (column: string, referencedTable: string) => ({
+  columns: [column],
+  referencedTable,
+  referencedColumns: ["id"],
+  onDelete: "NO ACTION" as const,
+});
+
 // ---- created_at / updated_at ----
 
 describe("timestamp metadata columns", () => {
@@ -373,6 +380,53 @@ describe("foreign keys", () => {
       ])
     );
     expect(out.apsorc.relationships[0].to_name).toBe("author");
+  });
+
+  // apsoai/cli#241: an import never renames a foreign key column.
+  test("a snake_case FK column keeps its name, and indexes on it name the relationship", () => {
+    const out = pgToApsorc(
+      schema([
+        table("organizations", { primaryKey: ["id"], columns: [col("id", "uuid")] }),
+        table("patients", { primaryKey: ["id"], columns: [col("id", "uuid")] }),
+        table("enrollments", {
+          primaryKey: ["id"],
+          columns: [
+            col("id", "uuid"),
+            col("organization_id", "uuid"),
+            col("patient_id", "uuid"),
+            col("year", "int4"),
+          ],
+          foreignKeys: [fk("organization_id", "organizations"), fk("patient_id", "patients")],
+          uniqueConstraints: [{ name: "enrollments_patient_year_uq", columns: ["patient_id", "year"] }],
+          indexes: [
+            { name: "enrollments_org_patient_idx", columns: ["organization_id", "patient_id"], unique: false },
+            { name: "enrollments_patient_idx", columns: ["patient_id"], unique: false },
+          ],
+        }),
+      ])
+    );
+    const rels = out.apsorc.relationships.filter((r) => r.from === "enrollments");
+    expect(rels).toEqual([
+      { from: "enrollments", to: "organizations", type: "ManyToOne", to_name: "organization", joinColumnName: "organization_id" },
+      { from: "enrollments", to: "patients", type: "ManyToOne", to_name: "patient", joinColumnName: "patient_id", index: true },
+    ]);
+    const e = findEntity(out, "enrollments");
+    expect(e.uniques).toEqual([{ fields: ["patient", "year"], name: "enrollments_patient_year_uq" }]);
+    expect(e.indexes).toEqual([{ fields: ["organization", "patient"], unique: false }]);
+  });
+
+  test("a FK column the default name already generates gets no joinColumnName", () => {
+    const out = pgToApsorc(
+      schema([
+        table("User", { primaryKey: ["id"], columns: [col("id", "uuid")] }),
+        table("Post", {
+          primaryKey: ["id"],
+          columns: [col("id", "uuid"), col("userId", "uuid")],
+          foreignKeys: [{ columns: ["userId"], referencedTable: "User", referencedColumns: ["id"], onDelete: "NO ACTION" }],
+        }),
+      ])
+    );
+    expect(out.apsorc.relationships).toEqual([{ from: "Post", to: "User", type: "ManyToOne" }]);
   });
 
   test("composite FK -> columns kept, no relationship, warning", () => {

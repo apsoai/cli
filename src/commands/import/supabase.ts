@@ -83,12 +83,16 @@ export function formatReport(report: ImportReport): string {
     review.push(`  - Tables with no primary key: ${w.noPrimaryKey.join(", ")}`);
   if (w.compositeFks.length > 0)
     review.push(`  - Composite foreign keys (kept as columns, no relationship): ${w.compositeFks.join(", ")}`);
-  if (w.fkColumnNameUnmapped.length > 0)
-    review.push(`  - Foreign keys whose generated column may differ: ${w.fkColumnNameUnmapped.join(", ")}`);
   if (w.joinTablesDetected.length > 0)
     review.push(`  - Join tables (could be modeled as ManyToMany): ${w.joinTablesDetected.join(", ")}`);
   if (w.arraysLossy.length > 0)
     review.push(`  - Array columns reduced to text: ${w.arraysLossy.join(", ")}`);
+  if (w.indexesNotCarried.length > 0)
+    review.push(
+      `  - Partial and expression indexes (.apsorc cannot express these yet):\n${w.indexesNotCarried
+        .map((i) => `      ${i}`)
+        .join("\n")}`
+    );
   if (w.timestampTypesMixed.length > 0)
     review.push(`  - created_at and updated_at differ in type (both generated as created_at's type): ${w.timestampTypesMixed.join(", ")}`);
   if (w.typesDefaulted.length > 0)

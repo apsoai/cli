@@ -209,6 +209,7 @@ The CLI only processes these relationship properties:
 - `cascadeDelete` - for cascade delete (optional)
 - `index` - for indexing (optional)
 - `joinTableName`, `joinColumnName`, `inverseJoinColumnName` - for ManyToMany customizations (optional)
+- `joinColumnName` on ManyToOne, OneToMany or OneToOne - the foreign key column's own name, e.g. `patient_id` (optional, TypeScript services only). `apso import` sets it so an existing database keeps its column names
 
 ### What the CLI Automatically Generates
 

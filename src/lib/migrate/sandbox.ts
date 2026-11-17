@@ -196,7 +196,9 @@ function buildEntityClasses(
           inverseSide,
           relationOptions
         )(EntityClass.prototype, relationship.relationshipName);
-        typeorm.JoinColumn({ name: relationship.camelCasedId })(
+        typeorm.JoinColumn({
+          name: relationship.joinColumnName || relationship.camelCasedId,
+        })(
           EntityClass.prototype,
           relationship.relationshipName
         );

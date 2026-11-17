@@ -239,11 +239,39 @@ export const pkColumn = (e: Entity): string =>
 export const fkType = (target?: Entity): string =>
   target?.primaryKeyType === "uuid" ? "uuid" : "integer";
 
-/** The foreign key column of a ManyToOne or an owning OneToOne. */
+/**
+ * The foreign key column of a ManyToOne or an owning OneToOne:
+ * "joinColumnName" when the .apsorc sets one (an imported database keeps its
+ * own column names), else the name TypeORM derives.
+ */
 export const relationColumn = (r: RelationshipForTemplate): string =>
-  r.type === "ManyToOne"
+  r.joinColumnName ||
+  (r.type === "ManyToOne"
     ? r.camelCasedId
-    : typeormCase.camelCase(`${r.relationshipName}_id`);
+    : typeormCase.camelCase(`${r.relationshipName}_id`));
+
+const ownsColumn = (r: RelationshipForTemplate): boolean =>
+  r.type === "ManyToOne" || (r.type === "OneToOne" && r.joinTable);
+
+/**
+ * Every name an "indexes" or "uniques" entry may use for a foreign key, mapped
+ * to its column: the relationship ("patient"), the id property ("patientId")
+ * and the column itself ("patient_id").
+ *
+ * @param {RelationshipForTemplate[]} relationships - One entity's relationships.
+ * @returns {Map<string, string>} Name to database column.
+ */
+export const relationColumns = (
+  relationships: RelationshipForTemplate[]
+): Map<string, string> => {
+  const columns = new Map<string, string>();
+  for (const r of relationships.filter((r) => ownsColumn(r))) {
+    const column = relationColumn(r);
+    for (const name of [r.relationshipName, r.camelCasedId, column])
+      columns.set(name, column);
+  }
+  return columns;
+};
 
 /** The join table of an owning ManyToMany and its two key columns. */
 export const joinTableOf = (
@@ -385,15 +413,27 @@ export function schemaModel(input: SchemaInput): Model {
       if (spec.index) index(table, [f.name]);
     }
 
-    for (const i of e.indexes ?? []) index(table, i.fields, i.unique);
-    for (const u of e.uniques ?? [])
-      unique(table, u.fields, u.name || constraintName.unique(table, u.fields));
-
-    for (const r of getRelationshipForTemplate(
+    const relationships = getRelationshipForTemplate(
       e.name,
       relationshipMap[e.name] || [],
       entities
-    )) {
+    );
+    // "indexes" and "uniques" may name a foreign key by its relationship.
+    // A field wins over a relationship of the same name.
+    const columnByName = relationColumns(relationships);
+    for (const c of t.columns) columnByName.set(c.name, c.name);
+    for (const i of e.indexes ?? [])
+      index(
+        table,
+        i.fields.map((f) => columnByName.get(f) ?? f),
+        i.unique
+      );
+    for (const u of e.uniques ?? []) {
+      const columns = u.fields.map((f) => columnByName.get(f) ?? f);
+      unique(table, columns, u.name || constraintName.unique(table, columns));
+    }
+
+    for (const r of relationships) {
       const target = byName.get(r.name);
       if (!target) continue;
       const targetTable = tableName(target);

@@ -3,6 +3,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { parseApsorcV2 } from "../../../src/lib/apsorc-parser";
 import { constraintName, schemaDdl } from "../../../src/lib/ddl";
+import { parseRelationships } from "../../../src/lib/utils/relationships";
 import { catalogDiff, readCatalog } from "../../../src/lib/ddl/catalog";
 
 // Correctness against real generated services is checked by
@@ -18,6 +19,8 @@ const cases: [string, string][] = [
     ]),
   ["inventory-multi-fk", path.join(fixtures, "inventory-multi-fk.apsorc")],
   ["coverage", path.join(fixtures, "ddl", "coverage.apsorc")],
+  // apsoai/cli#241, #243: kept foreign key column names and timestamptz.
+  ["join-column", path.join(fixtures, "ddl", "join-column.apsorc")],
   ["duplicate-index", path.join(fixtures, "ddl", "duplicate-index.apsorc")],
   ["one-to-one-unique", path.join(fixtures, "ddl", "one-to-one-unique.apsorc")],
 ];
@@ -79,6 +82,32 @@ describe("schemaDdl", () => {
     ]);
     expect(catalogDiff(existing, await build(note({ timestampType: "timestamptz" })))).toEqual([]);
     expect(catalogDiff(existing, await build(plain))).not.toEqual([]);
+  });
+
+  // apsoai/cli#241
+  test("joinColumnName names the foreign key column, and indexes may name it three ways", () => {
+    // Parsed without the linter: @apso/schema-tools accepts the column name
+    // in "indexes" only after its own release (apsoai/cli#244).
+    const statements = schemaDdl({
+        entities: [
+          { name: "Patient", primaryKeyType: "uuid" },
+          {
+            name: "Enrollment",
+            fields: [{ name: "year", type: "integer" }, { name: "kind", type: "text" }, { name: "seat", type: "integer" }],
+            uniques: [{ fields: ["patient", "year"], name: "enrollment_patient_year_uq" }],
+            indexes: [{ fields: ["patientId", "kind"] }, { fields: ["patient_id", "seat"] }],
+          },
+        ],
+        relationshipMap: parseRelationships([
+          { from: "Enrollment", to: "Patient", type: "ManyToOne", joinColumnName: "patient_id" },
+        ]),
+      } as any).join("\n");
+    expect(statements).toContain('"patient_id" uuid NOT NULL');
+    expect(statements).not.toContain('"patientId"');
+    expect(statements).toContain('CONSTRAINT "enrollment_patient_year_uq" UNIQUE ("patient_id", "year")');
+    expect(statements).toContain('("patient_id", "kind")');
+    expect(statements).toContain('("patient_id", "seat")');
+    expect(statements).toContain('FOREIGN KEY ("patient_id") REFERENCES "patient"("id")');
   });
 
   test("an index declared twice is created once (it would fail on deploy)", () => {

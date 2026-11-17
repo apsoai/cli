@@ -27,6 +27,7 @@ import {
 import {
   getRelationshipForTemplate,
   getRelationshipsForImport,
+  joinColumnErrors,
 } from "../utils/relationships";
 import { camelCase } from "../utils/casing";
 import { getEventEmittingEntities } from "../events";
@@ -212,6 +213,7 @@ export class PythonGenerator extends BaseGenerator {
       errors.push("No entities defined in configuration");
     }
     errors.push(...removedScopeOptionErrors(config.entities ?? []));
+    errors.push(...joinColumnErrors(config.relationshipMap, "Python"));
 
     // Validate each entity
     for (const entity of config.entities) {

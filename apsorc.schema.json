@@ -61,7 +61,7 @@
             "type": "string"
           },
           "joinColumnName": {
-            "description": "(Optional) Custom name for the foreign key column in the join table referencing the 'from' entity (owning side) in a ManyToMany relationship.",
+            "description": "(Optional) ManyToMany: custom name for the join table column that references the 'from' entity (owning side). ManyToOne, OneToMany and OneToOne: the name of the foreign key column itself, e.g. 'patient_id'; the generated property stays camelCase ('patientId'). 'apso import' sets it so an existing database keeps its column names. TypeScript services only for foreign keys.",
             "type": "string"
           },
           "inverseJoinColumnName": {

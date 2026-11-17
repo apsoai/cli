@@ -14,7 +14,11 @@
 
 import { camelCase } from "../utils/casing";
 import { fieldTypeToColumnType } from "../utils/field";
-import { getRelationshipIdField } from "../utils/relationships";
+import {
+  getRelationshipIdField,
+  getRelationshipName,
+} from "../utils/relationships/parse";
+import { Relationship } from "../types/relationship";
 import {
   ImportReport,
   IntrospectedColumn,
@@ -55,6 +59,8 @@ export interface ApsorcImportRelationshipOutput {
   nullable?: boolean;
   bi_directional?: boolean;
   cascadeDelete?: boolean;
+  index?: boolean;
+  joinColumnName?: string;
 }
 
 export interface ApsorcImportOutput {
@@ -182,6 +188,36 @@ export function parseDefault(
 }
 
 /**
+ * How a single-column foreign key is written to .apsorc: the relationship
+ * name ("to_name" when the default would not do) and "joinColumnName" when
+ * the generated column would differ from the source column, so an import
+ * never renames a foreign key (apsoai/cli#241).
+ *
+ * @param {string} sourceColumn - The foreign key column in the source table.
+ * @param {string} targetTable - The table it references.
+ * @returns {object} toName and joinColumnName when needed, and the relationship's property name.
+ */
+export function foreignKeyNames(
+  sourceColumn: string,
+  targetTable: string
+): { toName?: string; joinColumnName?: string; property: string } {
+  const { toName } = deriveToName(sourceColumn, targetTable);
+  const relationship: Relationship = {
+    name: targetTable,
+    type: "ManyToOne",
+    referenceName: toName,
+  };
+  return {
+    toName,
+    joinColumnName:
+      getRelationshipIdField(relationship) === sourceColumn
+        ? undefined
+        : sourceColumn,
+    property: getRelationshipName(relationship),
+  };
+}
+
+/**
  * Derive the relationship `to_name` so the platform regenerates a FK column
  * matching the source column. Returns `undefined` when the default naming
  * (`${camelCase(target)}Id`) already produces the source column. Sets
@@ -217,8 +253,7 @@ export function deriveToName(
     }
   }
 
-  // Best-effort: emit a reference name but flag that the generated FK column
-  // may not match the source column exactly.
+  // No relationship name generates this column; "joinColumnName" keeps it.
   return { toName: camelCase(base || sourceColumn), unmapped: true };
 }
 
@@ -231,12 +266,12 @@ function emptyReport(schema: IntrospectedSchema): ImportReport {
     warnings: {
       arraysLossy: [],
       timestampTypesMixed: [],
+      indexesNotCarried: [],
       compositePks: [],
       compositeFks: [],
       nonStandardPks: [],
       noPrimaryKey: [],
       typesDefaulted: [],
-      fkColumnNameUnmapped: [],
       defaultsDropped: [],
       joinTablesDetected: [],
     },
@@ -330,9 +365,22 @@ export function pgToApsorc(schema: IntrospectedSchema): {
     // --- Fields ---
     const uniqueSingle = new Set<string>();
     const uniqueComposite: Array<{ fields: string[]; name?: string }> = [];
+    // A foreign key column is not a field: indexes and uniques name the
+    // relationship that owns it, which the generators resolve to the column.
+    const fkProperty = new Map<string, string>();
+    for (const [column, fk] of fkColumns)
+      fkProperty.set(
+        column,
+        foreignKeyNames(column, fk.referencedTable).property
+      );
     for (const uc of table.uniqueConstraints) {
-      if (uc.columns.length === 1) uniqueSingle.add(uc.columns[0]);
-      else uniqueComposite.push({ fields: uc.columns, name: uc.name });
+      if (uc.columns.length === 1 && !fkColumns.has(uc.columns[0]))
+        uniqueSingle.add(uc.columns[0]);
+      else
+        uniqueComposite.push({
+          fields: uc.columns.map((c) => fkProperty.get(c) ?? c),
+          name: uc.name,
+        });
     }
 
     const indexSingle = new Set<string>();
@@ -348,8 +396,27 @@ export function pgToApsorc(schema: IntrospectedSchema): {
           uc.columns.every((c) => cols.includes(c))
       );
       if (backsPk || backsUnique) continue;
-      if (cols.length === 1) indexSingle.add(cols[0]);
-      else indexComposite.push({ fields: cols, unique: idx.unique });
+      // .apsorc has no WHERE or expression yet (apsoai/cli#245, #249). Without
+      // them a unique index would reject rows the source accepts, and an
+      // expression index would cover the wrong columns, so those are left
+      // out. A plain partial index is kept as a full index. All are reported.
+      if (idx.partial || idx.expression) {
+        const dropped = idx.expression || idx.unique;
+        report.warnings.indexesNotCarried.push(
+          `${idx.definition ?? idx.name} (${
+            dropped ? "not imported" : "imported without its WHERE"
+          })`
+        );
+        if (dropped) continue;
+      }
+      // A plain index on one foreign key becomes the relationship's "index".
+      if (cols.length === 1 && !(idx.unique && fkColumns.has(cols[0])))
+        indexSingle.add(cols[0]);
+      else
+        indexComposite.push({
+          fields: cols.map((c) => fkProperty.get(c) ?? c),
+          unique: idx.unique,
+        });
     }
 
     const fields: ApsorcImportFieldOutput[] = [];
@@ -433,15 +500,15 @@ export function pgToApsorc(schema: IntrospectedSchema): {
         to: fk.referencedTable,
         type: "ManyToOne",
       };
-      const { toName, unmapped } = deriveToName(sourceColumn, fk.referencedTable);
+      const { toName, joinColumnName } = foreignKeyNames(
+        sourceColumn,
+        fk.referencedTable
+      );
       if (toName) rel.to_name = toName;
-      if (unmapped) {
-        report.warnings.fkColumnNameUnmapped.push(
-          `${table.name}.${sourceColumn}`
-        );
-      }
+      if (joinColumnName) rel.joinColumnName = joinColumnName;
       if (col?.nullable) rel.nullable = true;
       if (fk.onDelete === "CASCADE") rel.cascadeDelete = true;
+      if (indexSingle.has(sourceColumn)) rel.index = true;
       relationships.push(rel);
     }
   }

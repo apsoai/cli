@@ -126,6 +126,22 @@ exports[`schemaDdl inventory-multi-fk runs on Postgres and matches its snapshot 
 ]
 `;
 
+exports[`schemaDdl join-column runs on Postgres and matches its snapshot 1`] = `
+[
+  "CREATE TABLE "profile" ("id" SERIAL NOT NULL, "bio" text, "patient_id" integer, CONSTRAINT "REL_13cc2705ab03e74e079128f139" UNIQUE ("patient_id"), CONSTRAINT "PK_3dd8bfc97e4a77c70971591bdcb" PRIMARY KEY ("id"))",
+  "CREATE TABLE "enrollment" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), "performance_year" integer NOT NULL, "status" text NOT NULL, "organization_id" integer NOT NULL, "patient_id" integer, CONSTRAINT "enrollments_patient_year_uq" UNIQUE ("patient_id", "performance_year"), CONSTRAINT "PK_7e200c699fa93865cdcdd025885" PRIMARY KEY ("id"))",
+  "CREATE TABLE "patient" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "mrn" text, "organization_id" integer NOT NULL, CONSTRAINT "PK_8dfa510bb29ad31ab2139fbfb99" PRIMARY KEY ("id"))",
+  "CREATE TABLE "organization" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "name" text NOT NULL, CONSTRAINT "PK_472c1f99a32def1b0abb219cd67" PRIMARY KEY ("id"))",
+  "CREATE INDEX "IDX_76ca4b02387131301df9718669" ON "enrollment" ("organization_id", "patient_id")",
+  "CREATE INDEX "IDX_b4dc6e7771ada3565dd3127968" ON "enrollment" ("organization_id", "status")",
+  "CREATE INDEX "IDX_08783fb6134e3a93868b6857ea" ON "enrollment" ("patient_id")",
+  "ALTER TABLE "patient" ADD CONSTRAINT "FK_f8ecc7ec626447558ac9582b29d" FOREIGN KEY ("organization_id") REFERENCES "organization"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
+  "ALTER TABLE "enrollment" ADD CONSTRAINT "FK_ed12dfd62dc1ae2855fb944c704" FOREIGN KEY ("organization_id") REFERENCES "organization"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
+  "ALTER TABLE "enrollment" ADD CONSTRAINT "FK_08783fb6134e3a93868b6857ead" FOREIGN KEY ("patient_id") REFERENCES "patient"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
+  "ALTER TABLE "profile" ADD CONSTRAINT "FK_13cc2705ab03e74e079128f139e" FOREIGN KEY ("patient_id") REFERENCES "patient"("id") ON DELETE CASCADE ON UPDATE NO ACTION",
+]
+`;
+
 exports[`schemaDdl many-to-many runs on Postgres and matches its snapshot 1`] = `
 [
   "CREATE TYPE "public"."contact_status_enum" AS ENUM('lead', 'active', 'archived')",

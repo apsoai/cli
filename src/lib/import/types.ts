@@ -54,8 +54,15 @@ export interface IntrospectedUnique {
 /** A secondary index (may be composite). */
 export interface IntrospectedIndex {
   name: string;
+  /** Plain columns only; an expression is flagged, not listed. */
   columns: string[];
   unique: boolean;
+  /** The index has a WHERE clause. */
+  partial?: boolean;
+  /** The index covers an expression, e.g. lower(email). */
+  expression?: boolean;
+  /** pg_get_indexdef, for the import report. */
+  definition?: string;
 }
 
 /** A user-defined enum type and its labels (in sort order). */
@@ -107,6 +114,12 @@ export interface ImportReport {
   warnings: {
     /** "table.column" whose Postgres array type was reduced to text. */
     arraysLossy: string[];
+    /**
+     * Partial and expression indexes, as Postgres defines them. .apsorc cannot
+     * express either yet, so each is left out, or kept without its WHERE when
+     * that cannot reject a row the source accepts.
+     */
+    indexesNotCarried: string[];
     /** Tables whose created_at and updated_at differ in type (the entity follows created_at). */
     timestampTypesMixed: string[];
     /** Tables with composite primary keys (emitted as primary:true fields). */
@@ -119,8 +132,6 @@ export interface ImportReport {
     noPrimaryKey: string[];
     /** Columns whose type was unknown and defaulted to text. */
     typesDefaulted: Array<{ column: string; udt: string }>;
-    /** FK columns whose name could not be round-tripped to a relationship name. */
-    fkColumnNameUnmapped: string[];
     /** "table.column" defaults that were dropped (unsupported expressions). */
     defaultsDropped: string[];
     /** Tables that look like pure join tables (candidates for manual ManyToMany). */

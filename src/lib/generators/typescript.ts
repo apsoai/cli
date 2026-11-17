@@ -149,12 +149,26 @@ export class TypeScriptGenerator extends BaseGenerator {
     const oneToOneColumns = new Map(
       relationshipsForTemplate
         .filter((r) => r.type === "OneToOne" && r.joinTable)
-        .map((r) => [r.camelCasedId, r.relationshipName])
+        .flatMap((r) =>
+          [r.camelCasedId, r.joinColumnName]
+            .filter(Boolean)
+            .map((column) => [column as string, r.relationshipName])
+        )
     );
+    // A ManyToOne's "joinColumnName" is a database name; @Index and @Unique
+    // take the property that maps to it (patient_id -> patientId).
+    const joinColumns = new Map(
+      relationshipsForTemplate
+        .filter((r) => r.type === "ManyToOne" && r.joinColumnName)
+        .map((r) => [r.joinColumnName as string, r.camelCasedId])
+    );
+    const fieldNames = new Set(columns.map((c: Field) => c.name));
     const toProperties = <T extends { fields: string[] }>(list: T[] = []) =>
       list.map((c) => ({
         ...c,
-        fields: c.fields.map((f) => oneToOneColumns.get(f) ?? f),
+        fields: c.fields.map((f) =>
+          fieldNames.has(f) ? f : oneToOneColumns.get(f) ?? joinColumns.get(f) ?? f
+        ),
       }));
 
     const data = {

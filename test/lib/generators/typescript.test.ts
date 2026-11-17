@@ -1,4 +1,5 @@
 import { expect, describe, test, beforeAll } from "@jest/globals";
+import { parseRelationships } from "../../../src/lib/utils/relationships";
 import { TypeScriptGenerator } from "../../../src/lib/generators/typescript";
 import { GeneratorConfig, Entity, Relationship, Field } from "../../../src/lib/types";
 
@@ -590,6 +591,46 @@ const renderEntity = async (entity: Entity) => {
   const files = await generator.generateEntity({ entity, relationships: [], allEntities: [entity], apiType: "rest" });
   return findFileContent(files, `${entity.name}.entity`)!;
 };
+
+// apsoai/cli#241
+describe("joinColumnName on a foreign key", () => {
+  const patient: Entity = { name: "Patient", primaryKeyType: "uuid" };
+  const enrollment: Entity = {
+    name: "Enrollment",
+    fields: [{ name: "year", type: "integer" }],
+    uniques: [{ fields: ["patient_id", "year"] }],
+    indexes: [{ fields: ["patient", "year"] }],
+  };
+  const render = async (joinColumnName?: string) => {
+    // Parsed without the linter: @apso/schema-tools accepts the column name
+    // in "uniques" only after its own release (apsoai/cli#244).
+    const relationshipMap = parseRelationships([
+      { from: "Enrollment", to: "Patient", type: "ManyToOne", joinColumnName },
+    ]);
+    const generator = new TypeScriptGenerator(createConfig([patient, enrollment], relationshipMap));
+    const files = await generator.generateEntity({
+      entity: enrollment,
+      relationships: relationshipMap.Enrollment,
+      allEntities: [patient, enrollment],
+      apiType: "rest",
+    });
+    return findFileContent(files, "Enrollment.entity")!.replace(/\s+/g, " ");
+  };
+
+  test("names the column and keeps the camelCase property", async () => {
+    const content = await render("patient_id");
+    expect(content).toContain("@JoinColumn({ name: 'patient_id' }) patient: Patient;");
+    expect(content).toContain(`@Column({ name: 'patient_id', type: "uuid", }) patientId: string;`);
+    // @Unique takes the property, not the database column.
+    expect(content).toContain(`@Unique(["patientId", "year"])`);
+  });
+
+  test("without it the generated column is unchanged", async () => {
+    const content = await render();
+    expect(content).toContain("@JoinColumn({ name: 'patientId' }) patient: Patient;");
+    expect(content).toContain(`@Column({ type: "uuid", }) patientId: string;`);
+  });
+});
 
 // apsoai/cli#243
 describe("created_at and updated_at column type", () => {

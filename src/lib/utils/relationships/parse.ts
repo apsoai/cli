@@ -70,7 +70,7 @@ export const parseManytoOne = (
           referenceName: relationship.to_name || null,
           nullable: relationship.nullable || false,
           index: relationship.index || false,
-        },
+          },
       ],
     };
   }
@@ -287,6 +287,7 @@ const createFromOneToOneRelationship = (
     referenceName: relationship.to_name || relationship.to,
     biDirectional: relationship.bi_directional || false,
     inverseReferenceName: inverseDefinition?.to_name || relationship.from,
+    joinColumnName: isOwner ? relationship.joinColumnName : undefined,
   };
 };
 
@@ -309,6 +310,7 @@ const createToOneToOneRelationship = (
     join: !isOwner,
     referenceName: inverseDefinition.to_name || relationship.from,
     inverseReferenceName: relationship.to_name || relationship.to,
+    joinColumnName: isOwner ? undefined : relationship.joinColumnName,
   };
 };
 
@@ -352,6 +354,7 @@ export const parseRelationship = (
             cascadeDelete: relationship.cascadeDelete || false,
             referenceName: toSideRefName,
             inverseReferenceName: fromSideRefName,
+            joinColumnName: relationship.joinColumnName,
           },
         ],
       };
@@ -376,6 +379,7 @@ export const parseRelationship = (
               referenceName: manySideRefName,
               nullable: relationship.nullable || false,
               index: relationship.index || false,
+              joinColumnName: relationship.joinColumnName,
             },
           ],
         };
@@ -391,6 +395,7 @@ export const parseRelationship = (
             cascadeDelete: relationship.cascadeDelete || false,
             referenceName: manySideRefName,
             inverseReferenceName: relationship.from,
+            joinColumnName: relationship.joinColumnName,
           },
         ],
         [relationship.to]: [
@@ -822,3 +827,29 @@ export const getRelationshipsForImport = (
     ),
   ];
 };
+
+/**
+ * One error per foreign key that names its own column. The Python and Go
+ * generators use one name for the column, the model attribute and the API
+ * field, so they refuse "joinColumnName" on a foreign key instead of
+ * building a different column (apsoai/cli#241).
+ *
+ * @param {RelationshipMap} relationshipMap - The parsed relationships.
+ * @param {string} language - The generator's name, for the message.
+ * @returns {string[]} The errors, empty when no foreign key sets a column name.
+ */
+export const joinColumnErrors = (
+  relationshipMap: RelationshipMap | undefined,
+  language: string
+): string[] =>
+  Object.entries(relationshipMap ?? {}).flatMap(([entity, relationships]) =>
+    relationships
+      .filter(
+        (r) =>
+          r.joinColumnName && (r.type === "ManyToOne" || r.type === "OneToOne")
+      )
+      .map(
+        (r) =>
+          `${entity} ${r.type} ${r.name} sets "joinColumnName": "${r.joinColumnName}". The ${language} generator cannot keep a custom foreign key column name yet; remove it or generate a TypeScript service.`
+      )
+  );

@@ -86,6 +86,17 @@ describe("PythonGenerator", () => {
     });
   });
 
+  // apsoai/cli#241
+  test("refuses joinColumnName on a foreign key instead of building another column", () => {
+    const config = createConfig(
+      [{ name: "Patient" }, { name: "Enrollment" }],
+      { Enrollment: [{ name: "Patient", type: "ManyToOne", joinColumnName: "patient_id" }] }
+    );
+    expect(generator.validateConfig(config).errors).toEqual([
+      expect.stringContaining('Enrollment ManyToOne Patient sets "joinColumnName": "patient_id". The Python generator'),
+    ]);
+  });
+
   // apsoai/cli#243
   test("timestampType timestamptz gives created_at and updated_at a time zone", async () => {
     const entity: Entity = { name: "Zoned", created_at: true, updated_at: true, timestampType: "timestamptz" };

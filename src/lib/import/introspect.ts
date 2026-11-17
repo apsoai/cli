@@ -18,6 +18,7 @@ import {
   IntrospectedTable,
   Introspector,
   OnDeleteAction,
+  IntrospectedIndex,
 } from "./types";
 
 /** Supabase- and Postgres-managed schemas we never import from. */
@@ -195,13 +196,15 @@ const UNIQUE_SQL = `
 
 const INDEXES_SQL = `
   SELECT tc.relname AS table_name, ic.relname AS index_name,
-         a.attname AS column_name, ix.indisunique, k.n AS ord
+         a.attname AS column_name, ix.indisunique, k.n AS ord,
+         ix.indpred IS NOT NULL AS partial,
+         pg_get_indexdef(ix.indexrelid) AS definition
   FROM pg_index ix
   JOIN pg_class ic ON ic.oid = ix.indexrelid
   JOIN pg_class tc ON tc.oid = ix.indrelid
   JOIN pg_namespace ns ON ns.oid = tc.relnamespace
   JOIN LATERAL unnest(ix.indkey) WITH ORDINALITY AS k(attnum, n) ON true
-  JOIN pg_attribute a ON a.attrelid = tc.oid AND a.attnum = k.attnum
+  LEFT JOIN pg_attribute a ON a.attrelid = tc.oid AND a.attnum = k.attnum
   WHERE ns.nspname = $1 AND ix.indisprimary = false
   ORDER BY tc.relname, ic.relname, k.n`;
 
@@ -338,28 +341,26 @@ export function buildSchema(schema: string, raw: RawRows): IntrospectedSchema {
   }
 
   // Indexes (grouped by index name)
-  const indexByName = new Map<
-    string,
-    { table: string; columns: string[]; unique: boolean }
-  >();
+  const indexByName = new Map<string, IntrospectedIndex & { table: string }>();
   for (const row of raw.indexRows) {
-    const existing = indexByName.get(row.index_name);
-    if (existing) existing.columns.push(row.column_name);
-    else
-      indexByName.set(row.index_name, {
-        table: row.table_name,
-        columns: [row.column_name],
-        unique: row.indisunique,
-      });
+    const idx: IntrospectedIndex & { table: string } = indexByName.get(
+      row.index_name
+    ) ?? {
+      table: row.table_name,
+      name: row.index_name,
+      columns: [],
+      unique: row.indisunique,
+    };
+    // A null column is an expression such as lower(email).
+    if (row.column_name === null) idx.expression = true;
+    else idx.columns.push(row.column_name);
+    if (row.partial) idx.partial = true;
+    if (row.definition) idx.definition = row.definition;
+    indexByName.set(row.index_name, idx);
   }
-  const indexesByTable = new Map<
-    string,
-    Array<{ name: string; columns: string[]; unique: boolean }>
-  >();
-  for (const [name, idx] of indexByName.entries()) {
-    const list = indexesByTable.get(idx.table) ?? [];
-    list.push({ name, columns: idx.columns, unique: idx.unique });
-    indexesByTable.set(idx.table, list);
+  const indexesByTable = new Map<string, IntrospectedIndex[]>();
+  for (const { table, ...idx } of indexByName.values()) {
+    indexesByTable.set(table, [...(indexesByTable.get(table) ?? []), idx]);
   }
 
   const tables: IntrospectedTable[] = baseTables.map((name) => ({
