@@ -54,7 +54,7 @@ const skipScope = (req: any) => {
     dialects: ['postgrest'],
     params: {
         id: {
-            field: 'id',
+            field: '<%= it.keyField %>',
             type: 'string',
             primary: true,
         },

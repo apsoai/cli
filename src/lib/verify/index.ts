@@ -583,9 +583,9 @@ const expectStatus = (res: Res, ...ok: number[]) => ({
     : `${res.status} ${tail(res.body, 500)}`,
 });
 
-const idOf = (body: string): unknown => {
+const idOf = (body: string, key = "id"): unknown => {
   try {
-    return JSON.parse(body).id ?? undefined;
+    return JSON.parse(body)[key] ?? undefined;
   } catch {
     return undefined;
   }
@@ -640,7 +640,7 @@ async function checkEndpoints(
       body[parent.property] = ids.get(parent.entity);
     const created = await request("POST", base + r, body);
     const id = [200, 201].includes(created.status)
-      ? idOf(created.body)
+      ? idOf(created.body, p.key)
       : undefined;
     if (
       !done({

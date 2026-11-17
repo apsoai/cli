@@ -710,6 +710,26 @@ describe("a key declared as a field keeps its type and length", () => {
     expect(content).toContain("@PrimaryColumn({ type: 'timestamptz', primaryKeyConstraintName: 'counters_pkey' }) window_start: Date;");
   });
 
+  test("the controller's id parameter maps to the entity's own key", async () => {
+    const keyed = parseRelationships([{ from: "Setting", to: "Org", type: "ManyToOne", joinColumnName: "org_id", primary: true }]);
+    const setting: Entity = { name: "Setting", fields: [{ name: "theme", type: "text" }] };
+    const code: Entity = { name: "Code", fields: [{ name: "icd10_code", type: "text", primary: true }] };
+    const generator = new TypeScriptGenerator(createConfig([org, member, setting, code], keyed));
+    const controller = async (entity: Entity) => {
+      const files = await generator.generateController({
+        entity,
+        relationships: keyed[entity.name] || [],
+        relationshipMap: keyed,
+        allEntities: [org, member, setting, code],
+        apiType: "rest",
+      });
+      return files.find((f) => f.path.endsWith(".controller.ts"))!.content;
+    };
+    expect(await controller(member)).toContain("field: 'id',");
+    expect(await controller(code)).toContain("field: 'icd10_code',");
+    expect(await controller(setting)).toContain("field: 'orgId',");
+  });
+
   test("on a foreign key that references it", async () => {
     expect(await render(member)).toContain('@Column({ type: "varchar", length: 100, }) orgId: string;');
   });

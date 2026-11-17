@@ -40,6 +40,8 @@ export interface IntrospectedColumn {
 
 /** A foreign key constraint (may be composite). */
 export interface IntrospectedFk {
+  /** The key is NOT VALID: existing rows were never checked against it. */
+  notValid?: boolean;
   /** The constraint's name in the source database. */
   name?: string;
   /** Local column(s) participating in the FK. */
@@ -120,6 +122,17 @@ export interface ImportReport {
   warnings: {
     /** "table.column" arrays whose element type is unknown, imported as text[]. */
     arraysLossy: string[];
+    /**
+     * "table.column -> table" for foreign keys marked NOT VALID in the source
+     * (rows that predate the key were never checked). TypeORM cannot create
+     * one, so the generated key is validated.
+     */
+    foreignKeysNotValid: string[];
+    /**
+     * "table.column" for a created_at or updated_at with no default in the
+     * source. TypeORM always gives these columns DEFAULT now().
+     */
+    timestampDefaultsAdded: string[];
     /**
      * "table.column = expression" for generated columns. .apsorc cannot
      * express one, so it is imported as a plain column the database no

@@ -444,6 +444,21 @@ describe("foreign keys", () => {
   });
 
 
+  test("a NOT VALID foreign key and a timestamp with no default are reported", () => {
+    const out = pgToApsorc(
+      schema([
+        table("patients", { primaryKey: ["id"], columns: [col("id", "uuid")] }),
+        table("screenings", {
+          primaryKey: ["id"],
+          columns: [col("id", "uuid"), col("patient_id", "uuid"), col("updated_at", "timestamptz")],
+          foreignKeys: [{ ...fk("patient_id", "patients"), notValid: true }],
+        }),
+      ])
+    );
+    expect(out.report.warnings.foreignKeysNotValid).toEqual(["screenings.patient_id -> patients"]);
+    expect(out.report.warnings.timestampDefaultsAdded).toEqual(["screenings.updated_at"]);
+  });
+
   test("a primary key that is also a foreign key stays the key, on the relationship", () => {
     const out = pgToApsorc(
       schema([

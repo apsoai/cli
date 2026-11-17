@@ -173,7 +173,7 @@ const PRIMARY_KEYS_SQL = `
 const FOREIGN_KEYS_SQL = `
   SELECT con.conname, cl.relname AS table_name, att.attname AS column_name,
          clf.relname AS referenced_table, attf.attname AS referenced_column,
-         con.confdeltype, ord.n AS key_index
+         con.confdeltype, con.convalidated, ord.n AS key_index
   FROM pg_constraint con
   JOIN pg_class cl ON cl.oid = con.conrelid
   JOIN pg_namespace ns ON ns.oid = cl.relnamespace
@@ -292,7 +292,7 @@ export function buildSchema(schema: string, raw: RawRows): IntrospectedSchema {
   // Foreign keys (grouped by constraint name to handle composite keys)
   const fkByConstraint = new Map<
     string,
-    { table: string; columns: string[]; refTable: string; refColumns: string[]; confdeltype: string }
+    { table: string; columns: string[]; refTable: string; refColumns: string[]; confdeltype: string; notValid: boolean }
   >();
   for (const row of raw.fkRows) {
     const existing = fkByConstraint.get(row.conname);
@@ -306,6 +306,7 @@ export function buildSchema(schema: string, raw: RawRows): IntrospectedSchema {
         refTable: row.referenced_table,
         refColumns: [row.referenced_column],
         confdeltype: row.confdeltype,
+        notValid: row.convalidated === false,
       });
     }
   }
@@ -314,6 +315,7 @@ export function buildSchema(schema: string, raw: RawRows): IntrospectedSchema {
     const list = fksByTable.get(fk.table) ?? [];
     list.push({
       name,
+      ...(fk.notValid && { notValid: true }),
       columns: fk.columns,
       referencedTable: fk.refTable,
       referencedColumns: fk.refColumns,

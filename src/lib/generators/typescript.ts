@@ -300,12 +300,22 @@ export class TypeScriptGenerator extends BaseGenerator {
         `${entityName}.mcp needs an auth block in .apsorc: MCP tools act as the signed-in caller`
       );
 
+    // The :id route parameter maps to the entity's own key: a primary field,
+    // or the id property of a foreign key that is the primary key. A
+    // composite key has no single field, so it keeps the default.
+    const keyFields = [
+      ...(entity.fields ?? []).filter((f) => f.primary).map((f) => f.name),
+      ...relationshipsForTemplate
+        .filter((r) => r.primary)
+        .map((r) => r.camelCasedId),
+    ];
     const data = {
       svcName,
       ctrlName,
       entityName,
       pluralEntityName,
       primaryKeyType,
+      keyField: keyFields.length === 1 ? keyFields[0] : "id",
       associations: [...new Set(relationshipsForTemplate)],
       nestedJoinsFile,
       // scopeBy fields @CrudAuth adds to every query once a caller is

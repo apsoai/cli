@@ -305,6 +305,8 @@ function emptyReport(schema: IntrospectedSchema): ImportReport {
     warnings: {
       arraysLossy: [],
       generatedColumns: [],
+      foreignKeysNotValid: [],
+      timestampDefaultsAdded: [],
       indexesNotCarried: [],
       relationshipsRenamed: [],
       compositePks: [],
@@ -405,6 +407,8 @@ export function pgToApsorc(schema: IntrospectedSchema): {
         entity[name] = true;
         autoTimestamps.add(name);
         stampTypes[name] = col.udtName as TimestampType;
+        if (col.default === null)
+          report.warnings.timestampDefaultsAdded.push(`${table.name}.${name}`);
         stampNullable[name] = col.nullable;
       }
     }
@@ -467,9 +471,10 @@ export function pgToApsorc(schema: IntrospectedSchema): {
         );
         if (dropped) continue;
       }
-      // A plain index on one foreign key becomes the relationship's "index".
-      if (cols.length === 1 && !(idx.unique && fkColumns.has(cols[0])))
-        indexSingle.add(cols[0]);
+      // A plain index on one column is the field's or the relationship's
+      // "index". A unique one stays an entry, because "index": true is not
+      // unique.
+      if (cols.length === 1 && !idx.unique) indexSingle.add(cols[0]);
       else
         indexComposite.push({
           fields: cols.map((c) => fkProperty.get(c) ?? c),
@@ -576,6 +581,10 @@ export function pgToApsorc(schema: IntrospectedSchema): {
       if (joinColumnName) rel.joinColumnName = joinColumnName;
       if (fk.name) rel.foreignKeyName = fk.name;
       if (pkSet.has(sourceColumn)) rel.primary = true;
+      if (fk.notValid)
+        report.warnings.foreignKeysNotValid.push(
+          `${table.name}.${sourceColumn} -> ${fk.referencedTable}`
+        );
       if (col?.nullable) rel.nullable = true;
       if (fk.onDelete === "CASCADE") rel.cascadeDelete = true;
       else if (fk.onDelete === "SET NULL" || fk.onDelete === "RESTRICT")

@@ -16,6 +16,7 @@ CREATE TABLE patients (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX patients_created_at_idx ON patients (created_at);
+CREATE UNIQUE INDEX patients_mrn_plain_uq ON patients (mrn);
 CREATE UNIQUE INDEX patients_mrn_uq ON patients (organization_id, lower(btrim(mrn))) WHERE mrn IS NOT NULL;
 CREATE TABLE tenants (
   id varchar(100) PRIMARY KEY,
