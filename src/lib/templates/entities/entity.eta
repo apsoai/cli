@@ -71,12 +71,12 @@ export class <%= it.name %> {
 <% } %>
 
 <% if (it.createdAt) { %>
-    @CreateDateColumn(<%~ it.timestampArgs %>)
+    @CreateDateColumn(<%~ it.createdAtArgs %>)
     created_at: Date;
 <% } %>
 
 <% if (it.updatedAt) { %>
-    @UpdateDateColumn(<%~ it.timestampArgs %>)
+    @UpdateDateColumn(<%~ it.updatedAtArgs %>)
     updated_at: Date;
 <% } %>
 

@@ -9,7 +9,7 @@
  * real scaffolded service.
  */
 import { createHash } from "crypto";
-import { Entity } from "../types/entity";
+import { Entity, timestampTypeOf } from "../types/entity";
 import { ComputedField } from "../types/field";
 import {
   RelationshipForTemplate,
@@ -392,10 +392,18 @@ export function schemaModel(input: SchemaInput): Model {
           )
         );
     }
-    const stamp =
-      e.timestampType === "timestamptz" ? "TIMESTAMP WITH TIME ZONE" : "TIMESTAMP";
-    if (e.created_at) t.columns.push(column("created_at", stamp, true, "now()"));
-    if (e.updated_at) t.columns.push(column("updated_at", stamp, true, "now()"));
+    for (const stamp of ["created_at", "updated_at"] as const)
+      if (e[stamp])
+        t.columns.push(
+          column(
+            stamp,
+            timestampTypeOf(e, stamp) === "timestamptz"
+              ? "TIMESTAMP WITH TIME ZONE"
+              : "TIMESTAMP",
+            true,
+            "now()"
+          )
+        );
 
     for (const f of getFieldForTemplate(e.fields ?? [], e.name)) {
       if (!customPk && f.name === "id") continue;

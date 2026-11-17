@@ -9,6 +9,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { getProjectConfigDir, ensureDir } from "../config/paths";
+import { Entity } from "../types/entity";
 
 /**
  * Shape of the stored snapshot (mirrors the parsed .apsorc structure)
@@ -27,7 +28,7 @@ export interface ApsorcSnapshot {
     primaryKeyType?: string;
     created_at?: boolean;
     updated_at?: boolean;
-    timestampType?: "timestamp" | "timestamptz";
+    timestampType?: Entity["timestampType"];
     scopeBy?: string | string[];
   }>;
   relationships?: Array<{
@@ -62,7 +63,7 @@ export interface ComparableSchema {
     primaryKeyType?: string;
     created_at?: boolean;
     updated_at?: boolean;
-    timestampType?: "timestamp" | "timestamptz";
+    timestampType?: Entity["timestampType"];
     scopeBy?: string | string[];
   }>;
   relationships?: ApsorcSnapshot["relationships"];

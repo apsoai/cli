@@ -16,6 +16,7 @@ import {
   Field,
   resolveJwtProviders,
 } from "../types";
+import { timestampTypeOf } from "../types/entity";
 import {
   authEntityNames,
   hidesRelation,
@@ -374,7 +375,8 @@ export class GoGenerator extends BaseGenerator {
       tableName: tableName(entity),
       createdAt: entity.created_at,
       updatedAt: entity.updated_at,
-      timestampType: entity.timestampType || "timestamp",
+      createdAtType: timestampTypeOf(entity, "created_at"),
+      updatedAtType: timestampTypeOf(entity, "updated_at"),
       columns,
       associations,
       importTime:

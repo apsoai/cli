@@ -23,6 +23,26 @@ export const PERMISSION_OPERATIONS = ["read", "create", "update", "delete"] as c
 export type PermissionOperation = typeof PERMISSION_OPERATIONS[number];
 export type EntityPermissions = Partial<Record<PermissionOperation, string[]>>;
 
+export type TimestampType = "timestamp" | "timestamptz";
+export type TimestampColumn = "created_at" | "updated_at";
+
+/**
+ * The type of an entity's created_at or updated_at column.
+ *
+ * @param {object} entity - Anything carrying an entity's "timestampType".
+ * @param {TimestampColumn} column - Which of the two columns.
+ * @returns {TimestampType} "timestamptz" when the entity asks for it, else "timestamp".
+ */
+export const timestampTypeOf = (
+  entity: { timestampType?: Entity["timestampType"] },
+  column: TimestampColumn
+): TimestampType => {
+  const t = entity.timestampType;
+  return (typeof t === "string" ? t : t?.[column]) === "timestamptz"
+    ? "timestamptz"
+    : "timestamp";
+};
+
 export interface Entity {
   name: string;
   /**
@@ -37,9 +57,10 @@ export interface Entity {
   updated_at?: boolean;
   /**
    * Column type of created_at and updated_at. Defaults to "timestamp" (no time
-   * zone). `apso import` sets "timestamptz" when the source columns have one.
+   * zone). `apso import` sets "timestamptz" when the source columns have one,
+   * or one type per column when the two differ.
    */
-  timestampType?: "timestamp" | "timestamptz";
+  timestampType?: TimestampType | Partial<Record<TimestampColumn, TimestampType>>;
   primaryKeyType?: "serial" | "uuid";
   fields?: Field[];
   indexes?: Index[];

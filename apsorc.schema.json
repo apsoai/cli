@@ -110,10 +110,19 @@
           "type": "boolean"
         },
         "timestampType": {
-          "description": "Column type of created_at and updated_at. Defaults to 'timestamp' (no time zone). 'apso import' sets 'timestamptz' when the source columns have one.",
-          "type": "string",
-          "enum": ["timestamp", "timestamptz"],
-          "default": "timestamp"
+          "description": "Column type of created_at and updated_at: one value for both, or one per column as { \"created_at\": ..., \"updated_at\": ... }. Defaults to 'timestamp' (no time zone). 'apso import' writes what the source columns use.",
+          "default": "timestamp",
+          "oneOf": [
+            { "type": "string", "enum": ["timestamp", "timestamptz"] },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "created_at": { "type": "string", "enum": ["timestamp", "timestamptz"] },
+                "updated_at": { "type": "string", "enum": ["timestamp", "timestamptz"] }
+              }
+            }
+          ]
         },
         "primaryKeyType": {
           "description": "The type of primary key to use for this entity. Defaults to 'serial' (auto-increment integer). Use 'uuid' for UUID-based primary keys.",

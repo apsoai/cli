@@ -13,7 +13,7 @@
       "uniques": [{ "fields": ["patient", "performance_year"], "name": "enrollments_patient_year_uq" }],
       "indexes": [{ "fields": ["organization", "patient"] }, { "fields": ["organizationId", "status"] }]
     },
-    { "name": "Profile", "fields": [{ "name": "bio", "type": "text", "nullable": true }] }
+    { "name": "Profile", "created_at": true, "updated_at": true, "timestampType": { "created_at": "timestamptz" }, "fields": [{ "name": "bio", "type": "text", "nullable": true }] }
   ],
   "relationships": [
     { "from": "Patient", "to": "Organization", "type": "ManyToOne", "joinColumnName": "organization_id" },

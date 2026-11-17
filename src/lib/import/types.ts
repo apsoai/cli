@@ -115,13 +115,16 @@ export interface ImportReport {
     /** "table.column" whose Postgres array type was reduced to text. */
     arraysLossy: string[];
     /**
+     * Foreign keys whose relationship could not take its natural name because
+     * the table has a column of that name. The column itself is unchanged.
+     */
+    relationshipsRenamed: string[];
+    /**
      * Partial and expression indexes, as Postgres defines them. .apsorc cannot
      * express either yet, so each is left out, or kept without its WHERE when
      * that cannot reject a row the source accepts.
      */
     indexesNotCarried: string[];
-    /** Tables whose created_at and updated_at differ in type (the entity follows created_at). */
-    timestampTypesMixed: string[];
     /** Tables with composite primary keys (emitted as primary:true fields). */
     compositePks: string[];
     /** Tables with composite foreign keys (kept as scalar columns, no relationship). */

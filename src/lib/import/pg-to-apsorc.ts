@@ -19,6 +19,7 @@ import {
   getRelationshipName,
 } from "../utils/relationships/parse";
 import { Relationship } from "../types/relationship";
+import { Entity, TimestampColumn, TimestampType } from "../types/entity";
 import {
   ImportReport,
   IntrospectedColumn,
@@ -45,7 +46,7 @@ export interface ApsorcImportEntityOutput {
   primaryKeyType?: "serial" | "uuid" | "text";
   created_at?: boolean;
   updated_at?: boolean;
-  timestampType?: "timestamptz";
+  timestampType?: Entity["timestampType"];
   fields?: ApsorcImportFieldOutput[];
   uniques?: Array<{ fields: string[]; name?: string }>;
   indexes?: Array<{ fields: string[]; unique?: boolean }>;
@@ -65,6 +66,8 @@ export interface ApsorcImportRelationshipOutput {
 
 export interface ApsorcImportOutput {
   version: number;
+  /** Set when the file is written: the existing file's, else typescript. */
+  language?: string;
   rootFolder: string;
   apiType: string;
   entities: ApsorcImportEntityOutput[];
@@ -193,15 +196,37 @@ export function parseDefault(
  * the generated column would differ from the source column, so an import
  * never renames a foreign key (apsoai/cli#241).
  *
+ * A relationship named like one of the table's own columns would collide
+ * with that field ("facility" text beside "facility_id"), so it gets another
+ * name; the column is kept either way (apsoai/cli#250).
+ *
  * @param {string} sourceColumn - The foreign key column in the source table.
  * @param {string} targetTable - The table it references.
+ * @param {string[]} columns - The source table's column names.
  * @returns {object} toName and joinColumnName when needed, and the relationship's property name.
  */
 export function foreignKeyNames(
   sourceColumn: string,
-  targetTable: string
-): { toName?: string; joinColumnName?: string; property: string } {
-  const { toName } = deriveToName(sourceColumn, targetTable);
+  targetTable: string,
+  columns: string[] = []
+): {
+  toName?: string;
+  joinColumnName?: string;
+  property: string;
+  renamed: boolean;
+} {
+  let { toName } = deriveToName(sourceColumn, targetTable);
+  const natural = getRelationshipName({
+    name: targetTable,
+    type: "ManyToOne",
+    referenceName: toName,
+  });
+  const renamed = columns.includes(natural);
+  if (renamed) {
+    toName = `${natural}Record`;
+    for (let n = 2; columns.includes(toName); n++)
+      toName = `${natural}Record${n}`;
+  }
   const relationship: Relationship = {
     name: targetTable,
     type: "ManyToOne",
@@ -214,6 +239,7 @@ export function foreignKeyNames(
         ? undefined
         : sourceColumn,
     property: getRelationshipName(relationship),
+    renamed,
   };
 }
 
@@ -265,8 +291,8 @@ function emptyReport(schema: IntrospectedSchema): ImportReport {
     systemSchemasSkipped: schema.skipped.systemSchemas,
     warnings: {
       arraysLossy: [],
-      timestampTypesMixed: [],
       indexesNotCarried: [],
+      relationshipsRenamed: [],
       compositePks: [],
       compositeFks: [],
       nonStandardPks: [],
@@ -347,31 +373,32 @@ export function pgToApsorc(schema: IntrospectedSchema): {
 
     // --- created_at / updated_at detection ---
     const autoTimestamps = new Set<string>();
-    const stampTypes = new Set<string>();
+    const stampTypes: Partial<Record<TimestampColumn, TimestampType>> = {};
     for (const name of ["created_at", "updated_at"] as const) {
       const col = table.columns.find((c) => c.name === name);
       if (col && TIMESTAMP_UDTS.has(col.udtName)) {
         entity[name] = true;
         autoTimestamps.add(name);
-        stampTypes.add(col.udtName);
-        // Keep the source type; .apsorc has one type for both columns, so a
-        // table that mixes them follows the first and is reported.
-        if (stampTypes.size === 1 && col.udtName === "timestamptz")
-          entity.timestampType = "timestamptz";
+        stampTypes[name] = col.udtName as TimestampType;
       }
     }
-    if (stampTypes.size > 1) report.warnings.timestampTypesMixed.push(table.name);
+    // Keep the source types: one value when the columns agree (nothing when
+    // that is the default "timestamp"), one per column when they differ.
+    const stamps = [...new Set(Object.values(stampTypes))];
+    if (stamps.length > 1) entity.timestampType = stampTypes;
+    else if (stamps[0] === "timestamptz") entity.timestampType = "timestamptz";
 
     // --- Fields ---
     const uniqueSingle = new Set<string>();
     const uniqueComposite: Array<{ fields: string[]; name?: string }> = [];
     // A foreign key column is not a field: indexes and uniques name the
     // relationship that owns it, which the generators resolve to the column.
+    const columnNames = table.columns.map((c) => c.name);
     const fkProperty = new Map<string, string>();
     for (const [column, fk] of fkColumns)
       fkProperty.set(
         column,
-        foreignKeyNames(column, fk.referencedTable).property
+        foreignKeyNames(column, fk.referencedTable, columnNames).property
       );
     for (const uc of table.uniqueConstraints) {
       if (uc.columns.length === 1 && !fkColumns.has(uc.columns[0]))
@@ -500,10 +527,15 @@ export function pgToApsorc(schema: IntrospectedSchema): {
         to: fk.referencedTable,
         type: "ManyToOne",
       };
-      const { toName, joinColumnName } = foreignKeyNames(
+      const { toName, joinColumnName, property, renamed } = foreignKeyNames(
         sourceColumn,
-        fk.referencedTable
+        fk.referencedTable,
+        columnNames
       );
+      if (renamed)
+        report.warnings.relationshipsRenamed.push(
+          `${table.name}.${sourceColumn} is relationship "${property}"`
+        );
       if (toName) rel.to_name = toName;
       if (joinColumnName) rel.joinColumnName = joinColumnName;
       if (col?.nullable) rel.nullable = true;

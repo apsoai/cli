@@ -16,7 +16,7 @@ import * as path from "path";
 import { getProjectConfigDir } from "../config/paths";
 import { readSnapshot, writeSnapshot, resetSnapshot, ApsorcSnapshot } from "./snapshot";
 import { EntityGeneratorInput } from "./entity-generator";
-import { Entity as EntityDef } from "../types/entity";
+import { Entity as EntityDef, timestampTypeOf } from "../types/entity";
 import { RelationshipMap } from "../types/relationship";
 import { normalizeFieldType, fieldTypeToColumnType } from "../utils/field";
 import { snakeCase } from "../utils/casing";
@@ -113,13 +113,15 @@ function buildEntityClasses(
       }
     }
 
-    const stamp =
-      entityDef.timestampType === "timestamptz" ? { type: "timestamptz" } : {};
     if (entityDef.created_at) {
-      typeorm.CreateDateColumn(stamp)(EntityClass.prototype, "created_at");
+      typeorm.CreateDateColumn({
+        type: timestampTypeOf(entityDef, "created_at"),
+      })(EntityClass.prototype, "created_at");
     }
     if (entityDef.updated_at) {
-      typeorm.UpdateDateColumn(stamp)(EntityClass.prototype, "updated_at");
+      typeorm.UpdateDateColumn({
+        type: timestampTypeOf(entityDef, "updated_at"),
+      })(EntityClass.prototype, "updated_at");
     }
 
     const fields = entityDef.fields || [];

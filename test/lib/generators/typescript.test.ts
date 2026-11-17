@@ -640,6 +640,17 @@ describe("created_at and updated_at column type", () => {
     expect(content).toContain("@UpdateDateColumn({ type: 'timestamptz' })");
   });
 
+  test("one type per column", async () => {
+    const content = await renderEntity({
+      name: "Mixed",
+      created_at: true,
+      updated_at: true,
+      timestampType: { updated_at: "timestamptz" },
+    });
+    expect(content).toContain("@CreateDateColumn()");
+    expect(content).toContain("@UpdateDateColumn({ type: 'timestamptz' })");
+  });
+
   test("timestamp stays the default", async () => {
     const content = await renderEntity({ name: "Plain", created_at: true, updated_at: true });
     expect(content).toContain("@CreateDateColumn()");

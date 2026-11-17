@@ -38,7 +38,14 @@ CREATE TABLE enrollments (
 );
 CREATE UNIQUE INDEX enrollments_one_live_per_patient_uq ON enrollments (organization_id, patient_id) WHERE status <> 'revoked';
 CREATE INDEX enrollments_expires_at_idx ON enrollments (expires_at);
--- Not every table carries a time zone: this one must stay plain timestamp.
+-- Not every table carries a time zone: this one must stay plain timestamp,
+-- and facilities has one column of each type.
+CREATE TABLE facilities (
+  id serial PRIMARY KEY,
+  name text NOT NULL,
+  created_at timestamp NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
 CREATE TABLE legacy_events (
   id serial PRIMARY KEY,
   label text NOT NULL,

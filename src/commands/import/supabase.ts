@@ -87,14 +87,14 @@ export function formatReport(report: ImportReport): string {
     review.push(`  - Join tables (could be modeled as ManyToMany): ${w.joinTablesDetected.join(", ")}`);
   if (w.arraysLossy.length > 0)
     review.push(`  - Array columns reduced to text: ${w.arraysLossy.join(", ")}`);
+  if (w.relationshipsRenamed.length > 0)
+    review.push(`  - Relationships renamed because a column has the natural name (columns unchanged): ${w.relationshipsRenamed.join(", ")}`);
   if (w.indexesNotCarried.length > 0)
     review.push(
       `  - Partial and expression indexes (.apsorc cannot express these yet):\n${w.indexesNotCarried
         .map((i) => `      ${i}`)
         .join("\n")}`
     );
-  if (w.timestampTypesMixed.length > 0)
-    review.push(`  - created_at and updated_at differ in type (both generated as created_at's type): ${w.timestampTypesMixed.join(", ")}`);
   if (w.typesDefaulted.length > 0)
     review.push(
       `  - Unknown types defaulted to text: ${w.typesDefaulted
@@ -119,10 +119,23 @@ export function writeApsorcFile(
   outPath: string
 ): { backupPath?: string } {
   let backupPath: string | undefined;
+  // `apso generate` needs a language to run without prompting. Keep the
+  // project's own when the file exists; foreign key column names need
+  // TypeScript, so that is the default.
+  let language = "typescript";
   if (fs.existsSync(outPath)) {
     backupPath = createBackup(outPath);
+    try {
+      language = JSON.parse(fs.readFileSync(outPath).toString()).language || language;
+    } catch {
+      // An unreadable file is replaced; the backup keeps it.
+    }
   }
-  fs.writeFileSync(outPath, JSON.stringify(apsorc, null, 2), "utf-8");
+  fs.writeFileSync(
+    outPath,
+    JSON.stringify({ language, ...apsorc }, null, 2),
+    "utf-8"
+  );
   return { backupPath };
 }
 

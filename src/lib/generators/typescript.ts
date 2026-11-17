@@ -16,6 +16,7 @@ import {
   Field,
   RelationshipMap,
 } from "../types";
+import { timestampTypeOf } from "../types/entity";
 // Utilities available for future use: createFile from "../utils/file-system"
 import { getFieldForTemplate, typeExistsInEntity, fieldToEnumType } from "../utils/field";
 import {
@@ -183,8 +184,14 @@ export class TypeScriptGenerator extends BaseGenerator {
       tableName: entity.table || snakeCase(name),
       createdAt,
       updatedAt,
-      timestampArgs:
-        entity.timestampType === "timestamptz" ? "{ type: 'timestamptz' }" : "",
+      createdAtArgs:
+        timestampTypeOf(entity, "created_at") === "timestamptz"
+          ? "{ type: 'timestamptz' }"
+          : "",
+      updatedAtArgs:
+        timestampTypeOf(entity, "updated_at") === "timestamptz"
+          ? "{ type: 'timestamptz' }"
+          : "",
       pluralizedName: camelCase(pluralize(name)),
       columns,
       associations: [...new Set(relationshipsForTemplate)],

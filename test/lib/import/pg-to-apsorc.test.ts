@@ -296,10 +296,9 @@ describe("timestamp metadata columns", () => {
     expect(findEntity(out, "Zoned").timestampType).toBe("timestamptz");
     expect(findEntity(out, "Plain").timestampType).toBeUndefined();
     expect(findEntity(out, "OnlyCreated").timestampType).toBe("timestamptz");
-    expect(out.report.warnings.timestampTypesMixed).toEqual([]);
   });
 
-  test("a table that mixes timestamp and timestamptz is reported", () => {
+  test("a table that mixes timestamp and timestamptz keeps one type per column", () => {
     const out = pgToApsorc(
       schema([
         table("Mixed", {
@@ -308,8 +307,7 @@ describe("timestamp metadata columns", () => {
         }),
       ])
     );
-    expect(findEntity(out, "Mixed").timestampType).toBe("timestamptz");
-    expect(out.report.warnings.timestampTypesMixed).toEqual(["Mixed"]);
+    expect(findEntity(out, "Mixed").timestampType).toEqual({ created_at: "timestamptz", updated_at: "timestamp" });
   });
 
   test("created_at that is not a timestamp stays a field", () => {
@@ -413,6 +411,28 @@ describe("foreign keys", () => {
     const e = findEntity(out, "enrollments");
     expect(e.uniques).toEqual([{ fields: ["patient", "year"], name: "enrollments_patient_year_uq" }]);
     expect(e.indexes).toEqual([{ fields: ["organization", "patient"], unique: false }]);
+  });
+
+  // apsoai/cli#250: never rename a column to make room for a relationship.
+  test("a relationship that would take a column's name is renamed, and the column kept", () => {
+    const out = pgToApsorc(
+      schema([
+        table("facilities", { primaryKey: ["id"], columns: [col("id", "uuid")] }),
+        table("notes", {
+          primaryKey: ["id"],
+          columns: [col("id", "uuid"), col("facility", "text"), col("facility_id", "uuid")],
+          foreignKeys: [fk("facility_id", "facilities")],
+          indexes: [{ name: "notes_facility_idx", columns: ["facility_id", "facility"], unique: false }],
+        }),
+      ])
+    );
+    expect(out.apsorc.relationships).toEqual([
+      { from: "notes", to: "facilities", type: "ManyToOne", to_name: "facilityRecord", joinColumnName: "facility_id" },
+    ]);
+    const notes = findEntity(out, "notes");
+    expect(findField(notes, "facility")).toBeDefined();
+    expect(notes.indexes).toEqual([{ fields: ["facilityRecord", "facility"], unique: false }]);
+    expect(out.report.warnings.relationshipsRenamed).toEqual(['notes.facility_id is relationship "facilityRecord"']);
   });
 
   test("a FK column the default name already generates gets no joinColumnName", () => {
