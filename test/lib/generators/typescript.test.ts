@@ -695,6 +695,21 @@ describe("a key declared as a field keeps its type and length", () => {
     expect(content).not.toContain("@PrimaryGeneratedColumn()");
   });
 
+  test("a timestamptz field can be part of the primary key", async () => {
+    const counter: Entity = {
+      name: "Counter",
+      primaryKeyName: "counters_pkey",
+      fields: [
+        { name: "bucket", type: "text", primary: true },
+        { name: "window_start", type: "timestamptz", primary: true },
+      ],
+    };
+    const rendered = await renderEntity(counter);
+    const content = rendered.replace(/\s+/g, " ");
+    expect(content).toContain(`@PrimaryColumn({ type: "text", primaryKeyConstraintName: 'counters_pkey' }) bucket: string;`);
+    expect(content).toContain("@PrimaryColumn({ type: 'timestamptz', primaryKeyConstraintName: 'counters_pkey' }) window_start: Date;");
+  });
+
   test("on a foreign key that references it", async () => {
     expect(await render(member)).toContain('@Column({ type: "varchar", length: 100, }) orgId: string;');
   });

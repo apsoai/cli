@@ -129,6 +129,7 @@ exports[`schemaDdl inventory-multi-fk runs on Postgres and matches its snapshot 
 exports[`schemaDdl join-column runs on Postgres and matches its snapshot 1`] = `
 [
   "CREATE TABLE "profile" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP DEFAULT now(), "bio" text, "patient_id" integer, CONSTRAINT "REL_13cc2705ab03e74e079128f139" UNIQUE ("patient_id"), CONSTRAINT "PK_3dd8bfc97e4a77c70971591bdcb" PRIMARY KEY ("id"))",
+  "CREATE TABLE "rate_counter" ("bucket" text NOT NULL, "window_start" TIMESTAMP WITH TIME ZONE NOT NULL, "hits" integer NOT NULL DEFAULT '0', CONSTRAINT "rate_counters_hits_key" UNIQUE ("hits"), CONSTRAINT "rate_counters_pkey" PRIMARY KEY ("bucket", "window_start"))",
   "CREATE TABLE "tenant_setting" ("theme" text, "tenant_id" character varying(100) NOT NULL, CONSTRAINT "tenant_settings_pkey" PRIMARY KEY ("tenant_id"))",
   "CREATE TABLE "tenant_note" ("code" text NOT NULL, "body" text, "tenant_id" character varying(100) NOT NULL, CONSTRAINT "PK_19eda73e4a942881c4f6210e44c" PRIMARY KEY ("code"))",
   "CREATE TABLE "tenant" ("id" character varying(100) NOT NULL, "name" text NOT NULL, CONSTRAINT "tenants_pkey" PRIMARY KEY ("id"))",

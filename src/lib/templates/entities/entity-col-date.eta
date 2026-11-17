@@ -1,6 +1,10 @@
 <% const {field} = it; %>
 
+<% if (field.primary) { %>
+@PrimaryColumn({ type: 'date'<% if (field.primaryKeyName) { %>, primaryKeyConstraintName: '<%= field.primaryKeyName %>'<% } %> })
+<% } else { %>
 @Column({ type: 'date', nullable: <%= Boolean(field.nullable) %> })
+<% } %>
 <% if (field.index ) {%>
 @Index()
 <% } %>

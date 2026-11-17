@@ -1,4 +1,8 @@
 <% const {field} = it; %>
 
+<% if (field.primary) { %>
+@PrimaryColumn({ type: 'timestamp'<% if (field.primaryKeyName) { %>, primaryKeyConstraintName: '<%= field.primaryKeyName %>'<% } %> })
+<% } else { %>
 @Column({ type: 'timestamp', nullable: <%= Boolean(field.nullable) %> })
+<% } %>
 <%= field.name %>: Date; 

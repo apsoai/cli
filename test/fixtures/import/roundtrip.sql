@@ -30,6 +30,12 @@ CREATE TABLE tenant_settings (
   tenant_id varchar(100) PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
   theme text
 );
+CREATE TABLE rate_counters (
+  bucket text NOT NULL,
+  window_start timestamptz NOT NULL,
+  hits integer NOT NULL DEFAULT 0,
+  PRIMARY KEY (bucket, window_start)
+);
 CREATE TABLE facilities (
   id serial PRIMARY KEY,
   name text NOT NULL,

@@ -17,7 +17,6 @@ exports[`import round trip the rebuilt schema differs from the source only in th
   "- constraints: enrollments enrollments_end_after_start CHECK (((end_date IS NULL) OR (end_date >= start_date)))",
   "- constraints: enrollments enrollments_minutes_positive CHECK ((minutes >= 0))",
   "- constraints: enrollments enrollments_status_check CHECK (((status)::text = ANY ((ARRAY['pending'::character varying, 'active'::character varying, 'revoked'::character varying])::text[])))",
-  "- constraints: patients patients_correlation_id_key UNIQUE (correlation_id)",
   "- indexes: CREATE INDEX enrollments_expires_at_idx ON public.enrollments USING btree (expires_at)",
   "- indexes: CREATE INDEX patients_created_at_idx ON public.patients USING btree (created_at)",
   "- indexes: CREATE UNIQUE INDEX enrollments_one_live_per_patient_uq ON public.enrollments USING btree (organization_id, patient_id) WHERE ((status)::text <> 'revoked'::text)",

@@ -430,7 +430,9 @@ export function pgToApsorc(schema: IntrospectedSchema): {
         foreignKeyNames(column, fk.referencedTable, columnNames).property
       );
     for (const uc of table.uniqueConstraints) {
-      if (uc.columns.length === 1 && !fkColumns.has(uc.columns[0]))
+      // A field's "unique": true gets a generated name, so a constraint the
+      // source names goes in "uniques", which carries the name.
+      if (uc.columns.length === 1 && !fkColumns.has(uc.columns[0]) && !uc.name)
         uniqueSingle.add(uc.columns[0]);
       else
         uniqueComposite.push({

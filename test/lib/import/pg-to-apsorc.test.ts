@@ -591,7 +591,7 @@ describe("enums", () => {
 // ---- unique / index ----
 
 describe("unique and index", () => {
-  test("single-col unique/index set on field; multi-col go to entity", () => {
+  test("single-col index set on field; uniques go to the entity with their names", () => {
     const out = pgToApsorc(
       schema([
         table("User", {
@@ -614,10 +614,15 @@ describe("unique and index", () => {
       ])
     );
     const e = findEntity(out, "User");
-    expect(findField(e, "email").unique).toBe(true);
+    // A field's "unique": true would rename the constraint, so a named
+    // single-column unique is an entity-level entry too.
+    expect(findField(e, "email").unique).toBeUndefined();
     expect(findField(e, "email").length).toBe(255);
     expect(findField(e, "a").index).toBe(true);
-    expect(e.uniques).toEqual([{ fields: ["a", "b"], name: "uq_ab" }]);
+    expect(e.uniques).toEqual([
+      { fields: ["email"], name: "uq_email" },
+      { fields: ["a", "b"], name: "uq_ab" },
+    ]);
     expect(e.indexes).toEqual([{ fields: ["email", "b"], unique: false }]);
   });
 
@@ -633,7 +638,8 @@ describe("unique and index", () => {
       ])
     );
     const e = findEntity(out, "User");
-    expect(findField(e, "email").unique).toBe(true);
+    expect(e.uniques).toEqual([{ fields: ["email"], name: "uq_email" }]);
+    expect(e.indexes).toBeUndefined();
     expect(findField(e, "email").index).toBeUndefined();
   });
 });
