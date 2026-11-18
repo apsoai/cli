@@ -194,9 +194,24 @@ export const servicesApi = {
     const headers = workspaceId
       ? { "X-Workspace-Id": String(workspaceId) }
       : undefined;
+    // Send the body the web app sends. workspaceUserId is the caller's own
+    // membership in the workspace: the id of their row in GET /api/workspaces.
+    // Without it the platform does not record the creator as the service's
+    // Owner. A failed lookup must not stop the create.
+    const rows = workspaceId
+      ? await api.get<Raw>("/api/workspaces").catch(() => null)
+      : null;
+    const memberships: Raw[] = Array.isArray(rows) ? rows : rows?.data ?? [];
+    const membership = memberships.find(
+      (m) => String(m?.workspace?.id ?? m?.workspaceId) === String(workspaceId)
+    );
     const raw = await api.post<Raw>(
       "/api/services",
-      { name: data.name },
+      {
+        name: data.name,
+        workspaceId: Number(workspaceId) || undefined,
+        workspaceUserId: membership?.id,
+      },
       { headers }
     );
     return adaptService(raw);
