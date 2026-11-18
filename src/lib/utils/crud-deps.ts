@@ -8,8 +8,9 @@ import * as path from "path";
  * option, Content-Range counts and PostgREST OpenAPI parameters, which the
  * generated controllers rely on. The service template declares the same
  * ranges (see TEMPLATE_REFS in ./template.ts); bump both together.
- * @apso/crud-typeorm starts at 1.1.1, where a concurrent DELETE and a PATCH
- * with a condition have one winner.
+ * @apso/crud-typeorm starts at 1.1.2, where a query that names something
+ * other than a column of the entity answers 400, and a request for one row
+ * always acts on the row in its URL.
  *
  * @apso/postgrest-request is not imported by generated code. It is listed so
  * a project whose lockfile holds an older copy moves to the one @apso/crud
@@ -19,7 +20,7 @@ export const APSO_CRUD_DEPS: Record<string, string> = {
   "@apso/crud": "^1.1.0",
   "@apso/crud-core": "^1.1.0",
   "@apso/crud-request": "^1.0.1",
-  "@apso/crud-typeorm": "^1.1.1",
+  "@apso/crud-typeorm": "^1.1.2",
   "@apso/postgrest-request": "^1.1.0",
 };
 
