@@ -58,6 +58,21 @@ export const timestampNullableOf = (
   return (typeof n === "object" ? n?.[column] : n) === true;
 };
 
+/**
+ * Whether an entity's created_at or updated_at column has DEFAULT now().
+ *
+ * @param {object} entity - Anything carrying an entity's "timestampDefault".
+ * @param {TimestampColumn} column - Which of the two columns.
+ * @returns {boolean} False only when the entity turns the default off.
+ */
+export const timestampDefaultOf = (
+  entity: { timestampDefault?: Entity["timestampDefault"] },
+  column: TimestampColumn
+): boolean => {
+  const d = entity.timestampDefault;
+  return (typeof d === "object" ? d?.[column] : d) !== false;
+};
+
 export interface Entity {
   name: string;
   /**
@@ -82,6 +97,13 @@ export interface Entity {
    * source columns are nullable.
    */
   timestampNullable?: boolean | Partial<Record<TimestampColumn, boolean>>;
+  /**
+   * Whether created_at and updated_at have DEFAULT now(): one boolean, or one
+   * per column. Defaults to true. Migrations honor false; TypeORM's own schema
+   * sync always writes the default. `apso import` sets it when a source
+   * column has none.
+   */
+  timestampDefault?: boolean | Partial<Record<TimestampColumn, boolean>>;
   primaryKeyType?: "serial" | "uuid";
   /**
    * Name of the primary key constraint. Defaults to the name TypeORM derives.

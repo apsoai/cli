@@ -228,6 +228,27 @@
             }
           ]
         },
+        "timestampDefault": {
+          "description": "Whether created_at and updated_at have DEFAULT now(): one boolean for both, or one per column as { \"created_at\": ..., \"updated_at\": ... }. Defaults to true. Migrations honor false; TypeORM's own schema sync always writes the default. 'apso import' sets false when a source column has none.",
+          "default": true,
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "created_at": {
+                  "type": "boolean"
+                },
+                "updated_at": {
+                  "type": "boolean"
+                }
+              }
+            }
+          ]
+        },
         "primaryKeyName": {
           "description": "Name of the primary key constraint. Defaults to the name TypeORM derives. 'apso import' sets it so an existing database keeps its constraint names. TypeScript services only.",
           "type": "string"
@@ -417,6 +438,11 @@
               "expression": {
                 "description": "The SQL condition, written against column names, for example 'end_date IS NULL OR end_date >= start_date'.",
                 "type": "string"
+              },
+              "validate": {
+                "description": "False keeps the constraint NOT VALID in migrations: new and changed rows are checked, rows already there are not. 'apso import' sets it for a constraint that is NOT VALID in the source.",
+                "type": "boolean",
+                "default": true
               }
             }
           }

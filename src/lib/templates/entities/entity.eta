@@ -67,6 +67,9 @@ export class <%= it.name %> {
     <% if (it.primaryKeyType === 'uuid') { %>
     <% if (it.primaryKeyDefault) { %>
     @PrimaryColumn({ type: 'uuid', default: () => <%~ JSON.stringify(it.primaryKeyDefault) %><% if (it.primaryKeyName) { %>, primaryKeyConstraintName: '<%= it.primaryKeyName %>'<% } %> })
+    <% if (it.primaryKeyGenerated) { %>
+    @Generated('uuid')
+    <% } %>
     <% } else { %>
     @PrimaryGeneratedColumn('uuid'<% if (it.primaryKeyName) { %>, { primaryKeyConstraintName: '<%= it.primaryKeyName %>' }<% } %>)
     <% } %>

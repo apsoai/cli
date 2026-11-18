@@ -461,6 +461,27 @@ describe("foreign keys", () => {
     );
     expect(out.apsorc.relationships[0].validate).toBe(false);
     expect(out.report.warnings.timestampDefaultsAdded).toEqual(["screenings.updated_at"]);
+    expect(out.apsorc.entities[1].timestampDefault).toBe(false);
+  });
+
+  test("a second foreign key on one column is left out and reported", () => {
+    const out = pgToApsorc(
+      schema([
+        table("patients", { primaryKey: ["id"], columns: [col("id", "uuid")] }),
+        table("vitals", {
+          primaryKey: ["id"],
+          columns: [col("id", "uuid"), col("patient_id", "uuid")],
+          foreignKeys: [
+            { ...fk("patient_id", "patients"), name: "vitals_patient_id_fk" },
+            { ...fk("patient_id", "patients"), name: "vitals_patient_id_fkey" },
+          ],
+        }),
+      ])
+    );
+    expect(out.apsorc.relationships.map((r) => r.foreignKeyName)).toEqual(["vitals_patient_id_fk"]);
+    expect(out.report.warnings.foreignKeysNotCarried).toEqual([
+      "vitals.vitals_patient_id_fkey (patient_id -> patients)",
+    ]);
   });
 
   test("a primary key that is also a foreign key stays the key, on the relationship", () => {

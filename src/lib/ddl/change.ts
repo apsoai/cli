@@ -201,7 +201,8 @@ export function changeDdl(
     if (!rTables.has(t.name)) {
       up.push(createTableSql(t, A.constraints));
       for (const c of A.constraints)
-        if (c.table === t.name && c.kind !== "fk") createdInline.add(c.key);
+        if (c.table === t.name && c.kind !== "fk" && !c.late)
+          createdInline.add(c.key);
     }
 
   // Columns on tables that stay.

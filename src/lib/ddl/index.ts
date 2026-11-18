@@ -10,6 +10,7 @@
  */
 import {
   Entity,
+  timestampDefaultOf,
   timestampNullableOf,
   timestampTypeOf,
 } from "../types/entity";
@@ -76,6 +77,22 @@ const hasDefault = (f: ComputedField) =>
 // TypeORM quotes every default it is given except booleans.
 const quoted = (f: ComputedField) =>
   hasDefault(f) ? literal(String(f.default)) : undefined;
+
+/** Types whose template is a bare @Column({ type }) with no size or options. */
+const PLAIN_TYPES: Record<string, string> = {
+  bytea: "bytea",
+  real: "real",
+  money: "money",
+  time: "TIME",
+  timetz: "TIME WITH TIME ZONE",
+  interval: "interval",
+  inet: "inet",
+  xml: "xml",
+  tsvector: "tsvector",
+  int4range: "int4range",
+};
+/** Their templates take no literal default (a SQL default still applies). */
+const NO_LITERAL_DEFAULT = new Set(["xml", "tsvector", "int4range"]);
 
 /** One column as its entity template declares it. */
 export function columnSpec(table: string, f: ComputedField): ColumnSpec {
@@ -161,7 +178,13 @@ export function columnSpec(table: string, f: ComputedField): ColumnSpec {
       break;
     }
     default:
-      // ponytail: spatial, range and other special templates; add each with a parity case.
+      if (PLAIN_TYPES[f.type as string]) {
+        type = PLAIN_TYPES[f.type as string];
+        if (!NO_LITERAL_DEFAULT.has(f.type as string)) def = quoted(f);
+        break;
+      }
+      // ponytail: spatial and serial templates; add each with a parity case
+      // (spatial needs PostGIS, which the parity test's PGlite does not load).
       throw new Error(
         `The DDL writer does not support field type "${f.type}" yet (${table}.${f.name}).`
       );
@@ -216,6 +239,8 @@ export interface ModelConstraint {
   /** Everything after CONSTRAINT "name". */
   body: string;
   references?: string;
+  /** Added by ALTER TABLE after the table exists, as a foreign key is. */
+  late?: boolean;
 }
 
 export interface ModelIndex {
@@ -492,7 +517,7 @@ export function schemaModel(input: SchemaInput): Model {
               ? "TIMESTAMP WITH TIME ZONE"
               : "TIMESTAMP",
             !timestampNullableOf(e, stamp),
-            "now()"
+            timestampDefaultOf(e, stamp) ? "now()" : undefined
           )
         );
 
@@ -538,14 +563,17 @@ export function schemaModel(input: SchemaInput): Model {
       });
     for (const c of e.checks ?? []) {
       const name = c.name || constraintName.check(table, c.expression);
-      inline.push({
+      // NOT VALID is allowed only on a constraint added by ALTER TABLE.
+      const late = c.validate === false;
+      (late ? foreignKeys : inline).push({
         key: `check:${table}:${name}`,
         name,
         table,
         kind: "check",
         columns: [],
         expression: c.expression,
-        body: `CHECK (${c.expression})`,
+        body: `CHECK (${c.expression})${late ? " NOT VALID" : ""}`,
+        ...(late && { late }),
       });
     }
     for (const u of e.uniques ?? []) {
@@ -659,7 +687,7 @@ export const createTableSql = (t: ModelTable, constraints: ModelConstraint[]) =>
   `CREATE TABLE ${q(t.name)} (${[
     ...t.columns.map((c) => c.sql),
     ...constraints
-      .filter((c) => c.table === t.name && c.kind !== "fk")
+      .filter((c) => c.table === t.name && c.kind !== "fk" && !c.late)
       .map((c) => `CONSTRAINT ${q(c.name)} ${c.body}`),
   ].join(", ")})`;
 
@@ -672,7 +700,7 @@ export function schemaDdl(input: SchemaInput): string[] {
     ...m.tables.map((t) => createTableSql(t, m.constraints)),
     ...m.indexes.map((i) => createIndexSql(i)),
     ...m.constraints
-      .filter((c) => c.kind === "fk")
+      .filter((c) => c.kind === "fk" || c.late)
       .map((c) => addConstraintSql(c)),
   ];
 }

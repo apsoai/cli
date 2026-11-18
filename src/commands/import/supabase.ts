@@ -88,11 +88,13 @@ export function formatReport(report: ImportReport): string {
   if (w.arraysLossy.length > 0)
     review.push(`  - Array columns with an unknown element type (imported as text[]): ${w.arraysLossy.join(", ")}`);
   if (w.checksNotValid.length > 0)
-    review.push(`  - Check constraints that are NOT VALID in the source (the generated one is validated, so rows that break it must be fixed first): ${w.checksNotValid.join(", ")}`);
+    review.push(`  - Check constraints that are NOT VALID in the source (kept NOT VALID in migrations; TypeORM's schema sync creates them validated): ${w.checksNotValid.join(", ")}`);
   if (w.timestampDefaultsAdded.length > 0)
-    review.push(`  - created_at / updated_at with no default in the source (the generated column has DEFAULT now()): ${w.timestampDefaultsAdded.join(", ")}`);
+    review.push(`  - created_at / updated_at with no default in the source (kept without one in migrations; TypeORM's schema sync adds DEFAULT now()): ${w.timestampDefaultsAdded.join(", ")}`);
   if (w.generatedColumns.length > 0)
     review.push(`  - Generated columns imported as plain columns (the database will no longer compute them): ${w.generatedColumns.join("; ")}`);
+  if (w.foreignKeysNotCarried.length > 0)
+    review.push(`  - Foreign keys left out because the column already has one (the database keeps them; apso migrate does not know about them): ${w.foreignKeysNotCarried.join(", ")}`);
   if (w.relationshipsRenamed.length > 0)
     review.push(`  - Relationships renamed because a column has the natural name (columns unchanged): ${w.relationshipsRenamed.join(", ")}`);
   if (w.indexesNotCarried.length > 0)

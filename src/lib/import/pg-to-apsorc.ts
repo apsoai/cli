@@ -54,7 +54,8 @@ export interface ApsorcImportEntityOutput {
   timestampNullable?: Entity["timestampNullable"];
   fields?: ApsorcImportFieldOutput[];
   uniques?: Array<{ fields: string[]; name?: string }>;
-  checks?: Array<{ name?: string; expression: string }>;
+  checks?: Array<{ name?: string; expression: string; validate?: boolean }>;
+  timestampDefault?: Entity["timestampDefault"];
   sqlIndexes?: Array<{
     name: string;
     columns: string;
@@ -360,6 +361,7 @@ function emptyReport(schema: IntrospectedSchema): ImportReport {
       timestampDefaultsAdded: [],
       indexesNotCarried: [],
       relationshipsRenamed: [],
+      foreignKeysNotCarried: [],
       compositePks: [],
       compositeFks: [],
       nonStandardPks: [],
@@ -456,17 +458,25 @@ export function pgToApsorc(schema: IntrospectedSchema): {
     const autoTimestamps = new Set<string>();
     const stampTypes: Partial<Record<TimestampColumn, TimestampType>> = {};
     const stampNullable: Partial<Record<TimestampColumn, boolean>> = {};
+    const stampDefault: Partial<Record<TimestampColumn, boolean>> = {};
     for (const name of ["created_at", "updated_at"] as const) {
       const col = table.columns.find((c) => c.name === name);
       if (col && TIMESTAMP_UDTS.has(col.udtName)) {
         entity[name] = true;
         autoTimestamps.add(name);
         stampTypes[name] = col.udtName as TimestampType;
-        if (col.default === null)
+        if (col.default === null) {
+          stampDefault[name] = false;
           report.warnings.timestampDefaultsAdded.push(`${table.name}.${name}`);
+        }
         stampNullable[name] = col.nullable;
       }
     }
+    if (Object.keys(stampDefault).length > 0)
+      entity.timestampDefault =
+        autoTimestamps.size === Object.keys(stampDefault).length
+          ? false
+          : stampDefault;
     const nullable = [...new Set(Object.values(stampNullable))];
     if (nullable.length > 1) entity.timestampNullable = stampNullable;
     else if (nullable[0]) entity.timestampNullable = true;
@@ -629,6 +639,7 @@ export function pgToApsorc(schema: IntrospectedSchema): {
       entity.checks = checks.map((c) => ({
         name: c.name,
         expression: c.expression,
+        ...(c.notValid && { validate: false }),
       }));
     for (const c of checks)
       if (c.notValid)
@@ -636,9 +647,19 @@ export function pgToApsorc(schema: IntrospectedSchema): {
     entities.push(entity);
 
     // --- Foreign keys -> ManyToOne relationships ---
+    const keyed = new Set<string>();
     for (const fk of table.foreignKeys) {
       if (fk.columns.length !== 1) continue; // composite FK handled above
       const sourceColumn = fk.columns[0];
+      // A relationship holds one key per column. A second key on the same
+      // column (usually an exact duplicate) is left out and reported.
+      if (keyed.has(sourceColumn)) {
+        report.warnings.foreignKeysNotCarried.push(
+          `${table.name}.${fk.name} (${sourceColumn} -> ${fk.referencedTable})`
+        );
+        continue;
+      }
+      keyed.add(sourceColumn);
       const col = table.columns.find((c) => c.name === sourceColumn);
       const rel: ApsorcImportRelationshipOutput = {
         from: table.name,

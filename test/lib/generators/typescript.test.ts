@@ -826,6 +826,26 @@ describe("defaults", () => {
     const content = await renderEntity({ name: "Doc", primaryKeyType: "uuid", primaryKeyDefault: "gen_random_uuid()" });
     expect(content).toContain(`@PrimaryColumn({ type: 'uuid', default: () => "gen_random_uuid()" })`);
     expect(content).not.toContain("@PrimaryGeneratedColumn('uuid')");
+    // TypeORM reads a uuid column with this default back as generated; an
+    // entity that does not say so is "changed" on every schema sync.
+    expect(content).toContain("@Generated('uuid')");
+  });
+
+  test("a SQL default is written the way TypeORM reads it back", async () => {
+    const content = await renderEntity({
+      name: "Doc",
+      fields: [
+        { name: "tags", type: "jsonb" as Field["type"], default: { sql: "'[]'::jsonb" } },
+        { name: "keep_until", type: "timestamptz", default: { sql: "(now() + '6 years'::interval)" } },
+        { name: "last_year", type: "integer", default: { sql: "(date_part('year', now()))::integer - 1" } },
+        { name: "token", type: "uuid" as Field["type"], default: { sql: "gen_random_uuid()" } },
+      ],
+    });
+    expect(content).toContain(`default: () => "'[]'" })`);
+    expect(content).toContain(`default: () => "(now() + '6 years')" })`);
+    // More than a cast would be removed here, so the text is kept.
+    expect(content).toContain(`default: () => "(date_part('year', now()))::integer - 1" })`);
+    expect(content).toMatch(/default: \(\) => "gen_random_uuid\(\)" }\)\s+@Generated\('uuid'\)/);
   });
 });
 

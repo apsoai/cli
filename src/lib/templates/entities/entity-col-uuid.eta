@@ -4,6 +4,9 @@
 @PrimaryGeneratedColumn('uuid'<% if (field.primaryKeyName) { %>, { primaryKeyConstraintName: '<%= field.primaryKeyName %>' }<% } %>)
 <% } else { %>
 @Column({ "type": "uuid", nullable: <%= Boolean(field.nullable) %><% if (field.unique) { %>, unique: true<% } %><% if (field.default !== null) {%>, default:  <%= field.default %><% } %><% if (field.defaultSql) { %>, default: () => <%~ JSON.stringify(field.defaultSql) %><% } %> })
+<% if (/^(gen_random_uuid|uuid_generate_v\d)\(\)$/.test(field.defaultSql || field.default || '')) { %>
+@Generated('uuid')
+<% } %>
 <% if (field.index ) {%>
 @Index()
 <% } %>

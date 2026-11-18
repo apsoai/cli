@@ -36,7 +36,13 @@ const timestampArgs = (entity: Entity, column: TimestampColumn): string => {
 import { onDeleteOf } from "../types/relationship";
 import { keyColumn, sqlIndexStatements } from "../ddl";
 // Utilities available for future use: createFile from "../utils/file-system"
-import { getFieldForTemplate, typeExistsInEntity, fieldToEnumType } from "../utils/field";
+import {
+  getFieldForTemplate,
+  typeExistsInEntity,
+  fieldToEnumType,
+  isUuidGenerator,
+  typeormDefault,
+} from "../utils/field";
 import {
   getRelationshipForTemplate,
   getRelationshipsForImport,
@@ -144,7 +150,11 @@ export class TypeScriptGenerator extends BaseGenerator {
     const { entity, relationships, allEntities, apiType } = options;
     const { name, fields = [], indexes, uniques } = entity;
 
-    const columns = getFieldForTemplate(fields, name);
+    const columns = getFieldForTemplate(fields, name).map((c) =>
+      c.defaultSql === undefined
+        ? c
+        : { ...c, defaultSql: typeormDefault(c.defaultSql) }
+    );
     const createdAt = entity.created_at;
     const updatedAt = entity.updated_at;
     const primaryKeyType = entity.primaryKeyType || "serial";
@@ -201,6 +211,7 @@ export class TypeScriptGenerator extends BaseGenerator {
       primaryKeyType,
       primaryKeyName: entity.primaryKeyName,
       primaryKeyDefault: entity.primaryKeyDefault,
+      primaryKeyGenerated: isUuidGenerator(entity.primaryKeyDefault),
       snakeCasedName: snakeCase(name),
       // Honor an explicit per-entity `table` override; otherwise derive from
       // the entity name. See apsoai/cli#98.

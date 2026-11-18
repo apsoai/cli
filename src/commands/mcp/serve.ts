@@ -1198,6 +1198,8 @@ is tracked separately.
 | primaryKeyName | entity | The primary key constraint's name. TypeScript only |
 | timestampType | entity | \`timestamp\` (default) or \`timestamptz\` for created_at and updated_at: one value, or \`{ "created_at": ..., "updated_at": ... }\` |
 | timestampNullable | entity | Whether created_at and updated_at accept NULL: one boolean, or one per column |
+| timestampDefault | entity | \`false\` when created_at or updated_at has no \`DEFAULT now()\`: one boolean, or one per column. Migrations honor it |
+| validate | check | \`false\` keeps a check constraint NOT VALID in migrations |
 | primary | field | The field is the primary key, or part of it |
 | elementType | field | Element type of an \`array\` field, e.g. \`uuid\` |
 

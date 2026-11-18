@@ -162,6 +162,36 @@ export const defaultSqlOf = (field: Field): string | undefined => {
   return `'${JSON.stringify(d).replace(/'/g, "''")}'`;
 };
 
+/** A default Postgres itself fills with a new uuid. */
+export const isUuidGenerator = (sql?: string | null): boolean =>
+  /^(gen_random_uuid|uuid_generate_v\d)\(\)$/.test(sql ?? "");
+
+// TypeORM reads a column default back through the first pattern before it
+// compares it with the entity's. The second is the same thing limited to real
+// type casts: TypeORM's also swallows what follows a cast, as in "::integer - 1".
+const TYPEORM_CAST = /::[\s\w".[\]-]+/g;
+const TYPE_CAST =
+  /::"?[_a-z]\w*"?(?: varying| precision| with(?:out)? time zone)?(?:\(\d+(?:,\d+)?\))?(?:\[])?/gi;
+
+const squash = (s: string) => s.replace(/\s+/g, "");
+
+/**
+ * A SQL default as a TypeORM entity has to spell it. TypeORM strips type
+ * casts from the default it reads out of Postgres, so an entity that keeps
+ * `'[]'::jsonb` never compares equal and the default is set again on every
+ * schema sync and reported as drift. Postgres puts the cast back when the
+ * column is created, so the database is the same either way.
+ *
+ * @param {string} sql - The default as the source database prints it.
+ * @returns {string} The cast-free text, or the original when removing the
+ * casts would remove more than casts or leave an untyped empty array.
+ */
+export const typeormDefault = (sql: string): string => {
+  const stripped = sql.replace(TYPEORM_CAST, "");
+  const onlyCasts = squash(stripped) === squash(sql.replace(TYPE_CAST, ""));
+  return onlyCasts && !/array\[\s*]/i.test(stripped) ? stripped : sql;
+};
+
 export const getDefaultValueForField = (field: Field): string | null => {
   if (defaultSqlOf(field) !== undefined) return null;
   const literal = { ...field, default: field.default as string | null | undefined };

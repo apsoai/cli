@@ -82,3 +82,12 @@ CREATE TABLE legacy_events (
   created_at timestamp NOT NULL DEFAULT now(),
   updated_at timestamp NOT NULL DEFAULT now()
 );
+-- A check added NOT VALID, and an updated_at that has no default: migrations
+-- must keep both as they are.
+ALTER TABLE enrollments ADD CONSTRAINT enrollments_minutes_cap CHECK (minutes < 100000) NOT VALID;
+CREATE TABLE review_marks (
+  id serial PRIMARY KEY,
+  label text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz
+);
