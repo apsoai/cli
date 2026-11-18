@@ -67,7 +67,12 @@
           "onDelete": {
             "description": "(Optional) The foreign key's ON DELETE rule on a ManyToOne or OneToMany. 'cascadeDelete': true is the same as 'CASCADE'. 'SET NULL' needs 'nullable': true. Defaults to 'NO ACTION'.",
             "type": "string",
-            "enum": ["CASCADE", "SET NULL", "RESTRICT", "NO ACTION"]
+            "enum": [
+              "CASCADE",
+              "SET NULL",
+              "RESTRICT",
+              "NO ACTION"
+            ]
           },
           "joinTableName": {
             "description": "(Optional) Custom name for the join table created for a ManyToMany relationship.",
@@ -80,6 +85,10 @@
           "inverseJoinColumnName": {
             "description": "(Optional) Custom name for the foreign key column in the join table referencing the 'to' entity (inverse side) in a ManyToMany relationship.",
             "type": "string"
+          },
+          "index": {
+            "description": "(Optional) Index the foreign key column of a ManyToOne or OneToMany.",
+            "type": "boolean"
           }
         },
         "required": [
@@ -96,12 +105,51 @@
       "items": {
         "$ref": "#/definitions/entity"
       }
+    },
+    "apiType": {
+      "description": "The API style to generate. Case is ignored; defaults to 'rest'.",
+      "type": "string",
+      "enum": [
+        "rest",
+        "Rest",
+        "REST",
+        "graphql",
+        "Graphql",
+        "GraphQL",
+        "GRAPHQL"
+      ]
+    },
+    "language": {
+      "description": "The language of the generated service. 'apso generate' needs it to run without a prompt.",
+      "type": "string",
+      "enum": [
+        "typescript",
+        "python",
+        "go"
+      ]
+    },
+    "auth": {
+      "description": "Sign-in and tenant configuration: a provider block, or a list of them. See the CLI's access rules for the fields of each provider.",
+      "type": [
+        "object",
+        "array"
+      ]
+    },
+    "emitEvents": {
+      "description": "Default for domain events: when true, every entity emits them unless it sets 'emitEvents': false.",
+      "type": "boolean"
+    },
+    "http": {
+      "description": "Default for HTTP controllers: when false, no entity gets one unless it sets 'http': true.",
+      "type": "boolean"
+    },
+    "coAuthor": {
+      "description": "Set false to skip the commit hook that adds the Apso co-author trailer.",
+      "type": "boolean"
     }
   },
   "required": [
     "version",
-    "rootFolder",
-    "relationships",
     "entities"
   ],
   "additionalProperties": false,
@@ -126,13 +174,31 @@
           "description": "Column type of created_at and updated_at: one value for both, or one per column as { \"created_at\": ..., \"updated_at\": ... }. Defaults to 'timestamp' (no time zone). 'apso import' writes what the source columns use.",
           "default": "timestamp",
           "oneOf": [
-            { "type": "string", "enum": ["timestamp", "timestamptz"] },
+            {
+              "type": "string",
+              "enum": [
+                "timestamp",
+                "timestamptz"
+              ]
+            },
             {
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "created_at": { "type": "string", "enum": ["timestamp", "timestamptz"] },
-                "updated_at": { "type": "string", "enum": ["timestamp", "timestamptz"] }
+                "created_at": {
+                  "type": "string",
+                  "enum": [
+                    "timestamp",
+                    "timestamptz"
+                  ]
+                },
+                "updated_at": {
+                  "type": "string",
+                  "enum": [
+                    "timestamp",
+                    "timestamptz"
+                  ]
+                }
               }
             }
           ]
@@ -141,13 +207,19 @@
           "description": "Whether created_at and updated_at accept NULL: one boolean for both, or one per column as { \"created_at\": ..., \"updated_at\": ... }. Defaults to false (NOT NULL). 'apso import' writes what the source columns use.",
           "default": false,
           "oneOf": [
-            { "type": "boolean" },
+            {
+              "type": "boolean"
+            },
             {
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "created_at": { "type": "boolean" },
-                "updated_at": { "type": "boolean" }
+                "created_at": {
+                  "type": "boolean"
+                },
+                "updated_at": {
+                  "type": "boolean"
+                }
               }
             }
           ]
@@ -157,9 +229,13 @@
           "type": "string"
         },
         "primaryKeyType": {
-          "description": "The type of primary key to use for this entity. Defaults to 'serial' (auto-increment integer). Use 'uuid' for UUID-based primary keys.",
+          "description": "The type of the generated 'id' primary key: 'serial' (auto-increment integer, the default), 'uuid' or 'text'. Ignored when a field or a relationship is the primary key.",
           "type": "string",
-          "enum": ["serial", "uuid"],
+          "enum": [
+            "serial",
+            "uuid",
+            "text"
+          ],
           "default": "serial"
         },
         "uniques": {
@@ -184,7 +260,6 @@
               }
             },
             "required": [
-              "name",
               "fields"
             ],
             "additionalProperties": false
@@ -199,13 +274,16 @@
           "minItems": 1
         },
         "scopeBy": {
-          "description": "Fields or paths that define the authorization scope for this entity. These typically correspond to generated foreign key columns (e.g., workspaceId, serviceId) or relationship-based paths (e.g., task.workspaceId). Used to auto-generate guards that enforce data isolation.",
-          "oneOf": [
-            { "type": "string", "minLength": 1 },
+          "description": "Field or path that holds the tenant of a row, or a list of them, for example 'workspaceId' or 'task.workspaceId'.",
+          "anyOf": [
+            {
+              "type": "string"
+            },
             {
               "type": "array",
-              "items": { "type": "string", "minLength": 1 },
-              "minItems": 1
+              "items": {
+                "type": "string"
+              }
             }
           ]
         },
@@ -216,15 +294,103 @@
             "bypassRoles": {
               "description": "Roles allowed to bypass scope enforcement (e.g., system_admin).",
               "type": "array",
-              "items": { "type": "string", "minLength": 1 }
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
             }
           },
           "additionalProperties": false
+        },
+        "table": {
+          "description": "Explicit database table name. Defaults to the snake_cased entity name.",
+          "type": "string"
+        },
+        "indexes": {
+          "description": "Indexes over one or more fields. A foreign key may be named by its relationship, its id property or its column.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "fields"
+            ],
+            "properties": {
+              "fields": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              },
+              "unique": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "permissions": {
+          "description": "Roles allowed to perform each operation. A missing operation lets any signed-in caller do it; an empty list lets nobody.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "read": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "create": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "update": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "delete": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "mcp": {
+          "description": "Expose the entity's operations as MCP tools: true for all, or a list of operations.",
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "read",
+                  "create",
+                  "update",
+                  "delete"
+                ]
+              }
+            }
+          ]
+        },
+        "emitEvents": {
+          "description": "Emit domain events for this entity, overriding the top-level default.",
+          "type": "boolean"
+        },
+        "http": {
+          "description": "Generate an HTTP controller for this entity, overriding the top-level default.",
+          "type": "boolean"
         }
       },
       "required": [
-        "name",
-        "fields"
+        "name"
       ],
       "additionalProperties": false
     },
@@ -241,24 +407,50 @@
           "type": "string",
           "enum": [
             "text",
-            "enum",
-            "integer",
+            "string",
+            "varchar",
+            "char",
             "boolean",
+            "integer",
+            "int",
+            "smallint",
+            "bigint",
             "float",
+            "real",
+            "double",
             "decimal",
             "numeric",
-            "timestamptz",
-            "json",
+            "serial",
+            "bigserial",
+            "smallserial",
             "date",
+            "timestamp",
+            "timestamptz",
+            "datetime",
+            "time",
+            "timetz",
+            "json",
+            "jsonb",
+            "json-plain",
+            "uuid",
+            "money",
+            "bytea",
+            "xml",
+            "inet",
+            "interval",
+            "tsvector",
+            "enum",
+            "array",
+            "point",
             "geometry",
             "geography",
-            "point",
             "linestring",
             "polygon",
             "multipoint",
             "multilinestring",
             "multipolygon",
-            "geometrycollection"
+            "geometrycollection",
+            "int4range"
           ]
         },
         "unique": {
@@ -267,16 +459,29 @@
         },
         "nullable": {
           "description": "Indicates if the field can be null.",
-           "oneOf": [ 
-             { "type": "boolean" },
-             { "type": "string", "enum": ["true", "false"]} 
-           ]
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          ]
         },
         "length": {
           "description": "Specifies the maximum length for string types.",
           "oneOf": [
-            { "type": "string", "pattern": "^[0-9]+$" },
-            { "type": "integer" }
+            {
+              "type": "string",
+              "pattern": "^[0-9]+$"
+            },
+            {
+              "type": "integer"
+            }
           ]
         },
         "is_email": {
@@ -285,12 +490,14 @@
         },
         "default": {
           "description": "The default value for the field.",
-           "anyOf": [ 
-             { "type": "string" },
-             { "type": "number" },
-             { "type": "boolean" },
-             { "type": "integer" }
-           ]
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null",
+            "object",
+            "array"
+          ]
         },
         "values": {
           "description": "The allowed values for an enum field.",
@@ -311,6 +518,34 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 16383
+        },
+        "index": {
+          "description": "Index this field.",
+          "type": "boolean"
+        },
+        "primary": {
+          "description": "The field is the primary key, or part of it. No 'id' column is generated.",
+          "type": "boolean"
+        },
+        "elementType": {
+          "description": "Element type of an 'array' field, for example 'uuid' or 'integer'. Defaults to 'text'.",
+          "type": "string"
+        },
+        "isIndex": {
+          "description": "The platform's spelling of 'index'.",
+          "type": "boolean"
+        },
+        "isUnique": {
+          "description": "The platform's spelling of 'unique'.",
+          "type": "boolean"
+        },
+        "arrayType": {
+          "description": "An older spelling of 'elementType'.",
+          "type": "string"
+        },
+        "arrayItemType": {
+          "description": "An older spelling of 'elementType'.",
+          "type": "string"
         }
       },
       "required": [
@@ -318,12 +553,18 @@
         "type"
       ],
       "if": {
-        "properties": { "type": { "const": "enum" } }
+        "properties": {
+          "type": {
+            "const": "enum"
+          }
+        }
       },
       "then": {
-        "required": ["values"]
+        "required": [
+          "values"
+        ]
       },
       "additionalProperties": false
     }
   }
-} 
+}
