@@ -213,7 +213,21 @@ export function checkExpression(definition: string): string {
   const expression = definition
     .replace(/\s+NOT VALID$/, "")
     .replace(/^CHECK \((.*)\)$/s, "$1");
-  return expression.replace(
+  return valueLists(expression);
+}
+
+/**
+ * Postgres prints a value list on a varchar column as
+ * (col)::text = ANY ((ARRAY['a'::character varying, ...])::text[]), and
+ * prints that text differently when it is parsed again. Written back as
+ * col IN ('a', ...), it parses to the form the source has. Used for check
+ * expressions and for the WHERE condition of a partial index.
+ *
+ * @param {string} sql - An expression as Postgres prints it.
+ * @returns {string} The same expression with value lists written as IN.
+ */
+export function valueLists(sql: string): string {
+  return sql.replace(
     /\((\w+)\)::text (=|<>) (ANY|ALL) \(\(ARRAY\[((?:'(?:[^']|'')*'::character varying(?:, )?)+)]\)::text\[]\)/g,
     (_all, column, op, quantifier, list) =>
       (op === "=" && quantifier === "ANY") || (op === "<>" && quantifier === "ALL")
@@ -406,7 +420,7 @@ export function buildSchema(schema: string, raw: RawRows): IntrospectedSchema {
     if (row.column_name === null) idx.expression = true;
     else idx.columns.push(row.column_name);
     if (row.partial) idx.partial = true;
-    if (row.predicate) idx.predicate = row.predicate;
+    if (row.predicate) idx.predicate = valueLists(row.predicate);
     if (row.descending) idx.descending = true;
     if (row.definition) idx.definition = row.definition;
     indexByName.set(row.index_name, idx);

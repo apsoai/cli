@@ -479,15 +479,13 @@ export function pgToApsorc(schema: IntrospectedSchema): {
     const indexes: NonNullable<ApsorcImportEntityOutput["indexes"]> = [];
     for (const idx of table.indexes) {
       const cols = idx.columns;
-      // Skip indexes that merely back the PK or a unique constraint.
-      const backsPk =
-        cols.length === pk.length && cols.every((c) => pkSet.has(c));
-      const backsUnique = table.uniqueConstraints.some(
-        (uc) =>
-          uc.columns.length === cols.length &&
-          uc.columns.every((c) => cols.includes(c))
-      );
-      if ((backsPk || backsUnique) && !idx.partial && !idx.expression) continue;
+      // Skip the index Postgres itself creates for the primary key or a
+      // unique constraint: it has the constraint's name. A separate index on
+      // the same columns is the source's own and is kept.
+      const backsConstraint =
+        idx.name === table.primaryKeyName ||
+        table.uniqueConstraints.some((uc) => uc.name === idx.name);
+      if (backsConstraint) continue;
       // An index on an expression would cover the wrong columns, so it is
       // left out (apsoai/cli#249). A DESC column is imported ascending.
       if (idx.expression || idx.descending)

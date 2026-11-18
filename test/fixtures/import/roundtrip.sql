@@ -67,6 +67,10 @@ CREATE TABLE enrollments (
 );
 CREATE UNIQUE INDEX enrollments_one_live_per_patient_uq ON enrollments (organization_id, patient_id) WHERE status <> 'revoked';
 CREATE INDEX enrollments_expires_at_idx ON enrollments (expires_at);
+-- A WHERE with a value list on a varchar column, and a plain index beside a
+-- unique constraint on the same columns: both must come back as they are.
+CREATE INDEX enrollments_claim_idx ON enrollments (created_at) WHERE status IN ('pending', 'active');
+CREATE INDEX enrollments_patient_year_idx ON enrollments (patient_id, performance_year);
 -- Not every table carries a time zone: this one must stay plain timestamp,
 -- and facilities has one column of each type.
 CREATE TABLE legacy_events (
