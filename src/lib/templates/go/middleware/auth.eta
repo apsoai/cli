@@ -595,6 +595,25 @@ type relationScope struct {
 	Table       string
 	Tenant      map[string]string
 	Relations   map[string]relationHop
+	Nested      []nestedScope
+}
+
+// nestedScope is one scopeBy path through a parent (task.workspaceId): the
+// entity's foreign key column, each parent on the way to the tenant (nearest
+// first), and the tenant column on the last parent with the caller value it
+// must equal.
+type nestedScope struct {
+	Column  string
+	Parents []nestedParent
+	Tenant  string
+	Key     string
+}
+
+// nestedParent is a parent's table and its foreign key column to the next
+// parent (empty on the last).
+type nestedParent struct {
+	Table  string
+	Column string
 }
 
 type relationHop struct {
@@ -619,6 +638,20 @@ var relationScopes = map[string]relationScope{
 			<%~ JSON.stringify(relation) %>: {Entity: <%~ JSON.stringify(hop[0]) %>, SameTenant: <%= hop[1] %>},
 <% }) %>
 		},
+		Nested: []nestedScope{
+<% for (const n of it.nestedScopes[name] ?? []) { %>
+			{
+				Column: <%~ JSON.stringify(n.column) %>,
+				Tenant: <%~ JSON.stringify(n.tenantColumn) %>,
+				Key:    <%~ JSON.stringify(n.source) %>,
+				Parents: []nestedParent{
+<% n.parents.forEach((p) => { %>
+					{Table: <%~ JSON.stringify(p.table) %>, Column: <%~ JSON.stringify(p.column) %>},
+<% }) %>
+				},
+			},
+<% } %>
+		},
 	},
 <% }) %>
 }
@@ -641,20 +674,75 @@ func skipsScope(a *AuthContext, e relationScope) bool {
 func tenantWhere(a *AuthContext, e relationScope) (where string, args []interface{}, ok bool) {
 	var parts []string
 	for column, key := range e.Tenant {
-		v := a.WorkspaceID
-		switch key {
-		case "userId":
-			v = a.UserID
-		case "email":
-			v = a.Email
-		}
+		v := callerValue(a, key)
 		if v == "" {
 			return "", nil, false
 		}
 		parts = append(parts, `CAST("`+column+`" AS TEXT) = ?`)
 		args = append(args, v)
 	}
+	nested, nestedArgs, ok := nestedWhere(a, e, "")
+	if !ok {
+		return "", nil, false
+	}
+	if nested != "" {
+		parts = append(parts, nested)
+		args = append(args, nestedArgs...)
+	}
 	return strings.Join(parts, " AND "), args, true
+}
+
+// callerValue is the caller's value for a scopeBy key: its user id, its email,
+// or (any other name) its tenant.
+func callerValue(a *AuthContext, key string) string {
+	switch key {
+	case "userId":
+		return a.UserID
+	case "email":
+		return a.Email
+	}
+	return a.WorkspaceID
+}
+
+// parentCond is the condition that keeps the rows of n.Parents[i] to the
+// caller's tenant: the tenant column on the last parent, reached through each
+// parent's foreign key to the next. It takes one argument, the caller's value.
+func parentCond(n nestedScope, i int) string {
+	last := n.Parents[len(n.Parents)-1].Table
+	cond := `CAST("` + last + `"."` + n.Tenant + `" AS TEXT) = ?`
+	for j := len(n.Parents) - 1; j > i; j-- {
+		child, parent := n.Parents[j-1], n.Parents[j].Table
+		cond = `"` + child.Table + `"."` + child.Column + `" IN (SELECT "` + parent + `"."id" FROM "` + parent + `" WHERE ` + cond + `)`
+	}
+	return cond
+}
+
+// nestedWhere is the SQL condition, with its arguments, that keeps rows of e
+// to the caller's tenant through each scopeBy path that runs through a parent
+// (task.workspaceId): the foreign key must name a parent in that tenant.
+// table, when set, qualifies the foreign key column. ok is false when the
+// caller has no value for one of the paths.
+func nestedWhere(a *AuthContext, e relationScope, table string) (where string, args []interface{}, ok bool) {
+	var parts []string
+	for _, n := range e.Nested {
+		v := callerValue(a, n.Key)
+		if v == "" {
+			return "", nil, false
+		}
+		column := `"` + n.Column + `"`
+		if table != "" {
+			column = `"` + table + `".` + column
+		}
+		parent := n.Parents[0].Table
+		parts = append(parts, column+` IN (SELECT "`+parent+`"."id" FROM "`+parent+`" WHERE `+parentCond(n, 0)+`)`)
+		args = append(args, v)
+	}
+	return strings.Join(parts, " AND "), args, true
+}
+
+// NestedWhere is nestedWhere for a service's own queries on entity.
+func NestedWhere(a *AuthContext, entity, table string) (string, []interface{}, bool) {
+	return nestedWhere(a, relationScopes[entity], table)
 }
 
 // RelationLoad is one relation to preload: its path as the request names it
@@ -719,6 +807,47 @@ func RelationLoads(ctx context.Context, root, path string) (loads []RelationLoad
 // ErrReference means a write names, in a foreign key, a row of a tenant-scoped
 // entity that the caller cannot read. Handlers answer it with 403.
 var ErrReference = errors.New("you do not have access to a row this request references")
+
+// CheckParents checks, on a write to entity, each foreign key its scopeBy runs
+// through (task.workspaceId): the parent it names must be in the caller's
+// tenant, or the result is ErrReference. sent maps the foreign key column to
+// the value in the body; a pointer may be given, and nil or zero means not
+// sent. A service caller or a role that skips the entity's scope is not limited.
+func CheckParents(ctx context.Context, db *gorm.DB, entity string, sent map[string]interface{}) error {
+	a, _ := FromContext(ctx)
+	if a == nil {
+		a = &AuthContext{}
+	}
+	e := relationScopes[entity]
+	if a.ServiceID != "" || skipsScope(a, e) {
+		return nil
+	}
+	for _, n := range e.Nested {
+		rv := reflect.ValueOf(sent[n.Column])
+		for rv.Kind() == reflect.Ptr && !rv.IsNil() {
+			rv = rv.Elem()
+		}
+		if !rv.IsValid() || rv.Kind() == reflect.Ptr || rv.IsZero() {
+			continue
+		}
+		v := callerValue(a, n.Key)
+		if v == "" {
+			return ErrReference
+		}
+		parent := n.Parents[0].Table
+		var found int64
+		if err := db.WithContext(ctx).Table(parent).
+			Where(`"`+parent+`"."id" = ?`, rv.Interface()).
+			Where(parentCond(n, 0), v).
+			Count(&found).Error; err != nil {
+			return err
+		}
+		if found == 0 {
+			return ErrReference
+		}
+	}
+	return nil
+}
 
 // CheckReferences is the one place that checks the foreign keys of a write
 // (R8). references maps a tenant-scoped entity to the ids a body names in
