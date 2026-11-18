@@ -448,7 +448,7 @@ describe("foreign keys", () => {
   });
 
 
-  test("a NOT VALID foreign key and a timestamp with no default are reported", () => {
+  test("a NOT VALID foreign key keeps validate: false; a timestamp with no default is reported", () => {
     const out = pgToApsorc(
       schema([
         table("patients", { primaryKey: ["id"], columns: [col("id", "uuid")] }),
@@ -459,7 +459,7 @@ describe("foreign keys", () => {
         }),
       ])
     );
-    expect(out.report.warnings.foreignKeysNotValid).toEqual(["screenings.patient_id -> patients"]);
+    expect(out.apsorc.relationships[0].validate).toBe(false);
     expect(out.report.warnings.timestampDefaultsAdded).toEqual(["screenings.updated_at"]);
   });
 
@@ -649,7 +649,7 @@ describe("unique and index", () => {
   });
 
   // apsoai/cli#245
-  test("a partial index keeps its WHERE; expression and DESC indexes are reported", () => {
+  test("a partial index keeps its WHERE; expression and DESC indexes become sqlIndexes", () => {
     const out = pgToApsorc(
       schema([
         table("jobs", {
@@ -657,19 +657,24 @@ describe("unique and index", () => {
           columns: [col("id", "uuid"), col("status", "text"), col("email", "text"), col("at", "timestamptz")],
           indexes: [
             { name: "jobs_one_live_uq", columns: ["status"], unique: true, partial: true, predicate: "(status <> 'done'::text)" },
-            { name: "jobs_lower_email_idx", columns: [], unique: false, expression: true, definition: "CREATE INDEX jobs_lower_email_idx ON jobs (lower(email))" },
-            { name: "jobs_recent_idx", columns: ["at"], unique: false, descending: true, definition: "CREATE INDEX jobs_recent_idx ON jobs (at DESC)" },
+            { name: "jobs_lower_email_uq", columns: [], unique: true, expression: true, definition: "CREATE UNIQUE INDEX jobs_lower_email_uq ON public.jobs USING btree (lower(email))" },
+            { name: "jobs_recent_idx", columns: ["at"], unique: false, descending: true, definition: "CREATE INDEX jobs_recent_idx ON public.jobs USING btree (status, at DESC) WHERE (status <> 'done'::text)", predicate: "(status <> 'done'::text)" },
+            { name: "jobs_gin_idx", columns: [], unique: false, expression: true, definition: "CREATE INDEX jobs_gin_idx ON public.jobs USING gin (to_tsvector('english'::regconfig, email))" },
           ],
         }),
       ])
     );
-    expect(findEntity(out, "jobs").indexes).toEqual([
+    const jobs = findEntity(out, "jobs");
+    expect(jobs.indexes).toEqual([
       { fields: ["status"], unique: true, name: "jobs_one_live_uq", where: "(status <> 'done'::text)" },
-      { fields: ["at"], name: "jobs_recent_idx" },
     ]);
+    expect(jobs.sqlIndexes).toEqual([
+      { name: "jobs_lower_email_uq", columns: "lower(email)", unique: true },
+      { name: "jobs_recent_idx", columns: "status, at DESC", where: "(status <> 'done'::text)" },
+    ]);
+    // Another index method cannot be expressed, so it is reported.
     expect(out.report.warnings.indexesNotCarried).toEqual([
-      "CREATE INDEX jobs_lower_email_idx ON jobs (lower(email)) (not imported)",
-      "CREATE INDEX jobs_recent_idx ON jobs (at DESC) (imported ascending)",
+      "CREATE INDEX jobs_gin_idx ON public.jobs USING gin (to_tsvector('english'::regconfig, email)) (not imported)",
     ]);
   });
 

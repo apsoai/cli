@@ -752,6 +752,25 @@ describe("indexes", () => {
     expect(content).toContain(`@Index(["status"])`);
   });
 
+  test("sqlIndexes are marked for TypeORM to leave alone and created by a generated module", async () => {
+    const doc: Entity = {
+      name: "Doc",
+      fields: [{ name: "title", type: "text" }],
+      sqlIndexes: [{ name: "docs_title_lower_uq", columns: "lower(title)", unique: true, where: "title <> ''" }],
+    };
+    expect(await renderEntity(doc)).toContain(`@Index("docs_title_lower_uq", { synchronize: false })`);
+    const generator = new TypeScriptGenerator(createConfig([doc]));
+    const files = await generator.generateIndexModule([doc], "rest");
+    expect(files.find((f) => f.path === "index.ts")!.content).toContain("SchemaExtrasModule");
+    expect(files.find((f) => f.path === "schema-extras.module.ts")!.content).toContain(
+      `CREATE UNIQUE INDEX IF NOT EXISTS \\"docs_title_lower_uq\\" ON \\"doc\\" (lower(title)) WHERE title <> ''`
+    );
+    // A schema without them gets no extra module.
+    const plain = await generator.generateIndexModule([{ name: "Doc" }], "rest");
+    expect(plain.map((f) => f.path)).toEqual(["index.ts"]);
+    expect(plain[0].content).not.toContain("SchemaExtrasModule");
+  });
+
   test("timestamp, date and uuid fields honor index and unique", async () => {
     const rendered = await renderEntity({
       name: "Event",

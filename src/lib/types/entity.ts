@@ -1,6 +1,6 @@
 import { Unique, Check } from "./constraints";
 import { Field } from "./field";
-import { Index } from "./indices";
+import { Index, SqlIndex } from "./indices";
 import { Association } from "./relationship";
 
 /**
@@ -95,6 +95,8 @@ export interface Entity {
   primaryKeyDefault?: string;
   fields?: Field[];
   indexes?: Index[];
+  /** Indexes on an expression or a descending column. */
+  sqlIndexes?: SqlIndex[];
   uniques?: Unique[];
   /** CHECK constraints, for example "end_date >= start_date". */
   checks?: Check[];

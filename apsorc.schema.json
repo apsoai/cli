@@ -89,6 +89,10 @@
           "index": {
             "description": "(Optional) Index the foreign key column of a ManyToOne or OneToMany.",
             "type": "boolean"
+          },
+          "validate": {
+            "description": "(Optional) false keeps the foreign key NOT VALID: enforced for new rows, never checked against the rows already there. Migrations create it that way; a database built by TypeORM's schema sync has it validated. TypeScript services only.",
+            "type": "boolean"
           }
         },
         "required": [
@@ -420,6 +424,35 @@
         "primaryKeyDefault": {
           "description": "SQL expression that fills a uuid 'id', for example 'gen_random_uuid()'. Defaults to uuid_generate_v4() from the uuid-ossp extension.",
           "type": "string"
+        },
+        "sqlIndexes": {
+          "description": "Indexes whose column list is SQL: an expression such as lower(email), or a column sorted DESC. Apso creates them in migrations and after a schema sync; TypeORM is told to leave them alone. TypeScript and Go services.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "columns"
+            ],
+            "properties": {
+              "name": {
+                "description": "The index's name.",
+                "type": "string"
+              },
+              "columns": {
+                "description": "The column list as SQL, for example 'user_id, created_at DESC' or 'lower(btrim(mrn))'.",
+                "type": "string"
+              },
+              "unique": {
+                "type": "boolean"
+              },
+              "where": {
+                "description": "The condition of a partial index.",
+                "type": "string"
+              }
+            }
+          }
         }
       },
       "required": [

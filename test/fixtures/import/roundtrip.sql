@@ -25,6 +25,7 @@ CREATE TABLE tenants (
 CREATE TABLE tenant_notes (
   code text PRIMARY KEY,
   tenant_id varchar(100) NOT NULL REFERENCES tenants(id),
+  reviewer_tenant_id varchar(100),
   body text
 );
 CREATE TABLE tenant_settings (
@@ -66,7 +67,9 @@ CREATE TABLE enrollments (
   CONSTRAINT enrollments_end_after_start CHECK (end_date IS NULL OR end_date >= start_date)
 );
 CREATE UNIQUE INDEX enrollments_one_live_per_patient_uq ON enrollments (organization_id, patient_id) WHERE status <> 'revoked';
+ALTER TABLE tenant_notes ADD CONSTRAINT tenant_notes_reviewer_fk FOREIGN KEY (reviewer_tenant_id) REFERENCES tenants(id) NOT VALID;
 CREATE INDEX enrollments_expires_at_idx ON enrollments (expires_at);
+CREATE INDEX enrollments_recent_idx ON enrollments (patient_id, created_at DESC);
 -- A WHERE with a value list on a varchar column, and a plain index beside a
 -- unique constraint on the same columns: both must come back as they are.
 CREATE INDEX enrollments_claim_idx ON enrollments (created_at) WHERE status IN ('pending', 'active');

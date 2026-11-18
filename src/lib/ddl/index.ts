@@ -226,6 +226,8 @@ export interface ModelIndex {
   unique: boolean;
   /** The condition of a partial index. */
   where?: string;
+  /** The column list as SQL, for an index TypeORM cannot declare. */
+  columnsSql?: string;
 }
 
 export interface ModelEnum {
@@ -522,6 +524,18 @@ export function schemaModel(input: SchemaInput): Model {
         i.name,
         i.where
       );
+    for (const i of e.sqlIndexes ?? [])
+      model.indexes.push({
+        key: `sqlindex:${table}:${i.name}(${i.columns})${
+          i.where ? ` where ${i.where}` : ""
+        }`,
+        name: i.name,
+        table,
+        columns: [],
+        columnsSql: i.columns,
+        unique: Boolean(i.unique),
+        ...(i.where && { where: i.where }),
+      });
     for (const c of e.checks ?? []) {
       const name = c.name || constraintName.check(table, c.expression);
       inline.push({
@@ -558,7 +572,10 @@ export function schemaModel(input: SchemaInput): Model {
           col,
           targetTable,
           pkColumn(target),
-          `ON DELETE ${onDelete} ON UPDATE NO ACTION`,
+          // NOT VALID exists only on a key added by ALTER TABLE, as these are.
+          `ON DELETE ${onDelete} ON UPDATE NO ACTION${
+            r.validate === false ? " NOT VALID" : ""
+          }`,
           r.foreignKeyName || undefined
         );
       }
@@ -617,7 +634,25 @@ export const createTypeSql = (e: ModelEnum) =>
 export const createIndexSql = (i: ModelIndex) =>
   `CREATE ${i.unique ? "UNIQUE " : ""}INDEX ${q(i.name)} ON ${q(
     i.table
-  )} (${cols(i.columns)})${i.where ? ` WHERE ${i.where}` : ""}`;
+  )} (${i.columnsSql ?? cols(i.columns)})${
+    i.where ? ` WHERE ${i.where}` : ""
+  }`;
+
+/**
+ * The statements that create an entity's "sqlIndexes", safe to run again:
+ * a generated service runs them after TypeORM's schema sync, which cannot
+ * create these indexes itself.
+ *
+ * @param {Entity} e - An entity from .apsorc.
+ * @returns {string[]} One CREATE INDEX IF NOT EXISTS per entry.
+ */
+export const sqlIndexStatements = (e: Entity): string[] =>
+  (e.sqlIndexes ?? []).map(
+    (i) =>
+      `CREATE ${i.unique ? "UNIQUE " : ""}INDEX IF NOT EXISTS ${q(i.name)} ON ${q(
+        tableName(e)
+      )} (${i.columns})${i.where ? ` WHERE ${i.where}` : ""}`
+  );
 export const addConstraintSql = (c: ModelConstraint) =>
   `ALTER TABLE ${q(c.table)} ADD CONSTRAINT ${q(c.name)} ${c.body}`;
 export const createTableSql = (t: ModelTable, constraints: ModelConstraint[]) =>

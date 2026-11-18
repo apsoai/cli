@@ -358,6 +358,7 @@ export const parseRelationship = (
             onDelete: relationship.onDelete,
             foreignKeyName: relationship.foreignKeyName,
             primary: relationship.primary,
+            validate: relationship.validate,
           },
         ],
       };
@@ -386,6 +387,7 @@ export const parseRelationship = (
             onDelete: relationship.onDelete,
             foreignKeyName: relationship.foreignKeyName,
             primary: relationship.primary,
+            validate: relationship.validate,
             },
           ],
         };
@@ -405,6 +407,7 @@ export const parseRelationship = (
             onDelete: relationship.onDelete,
             foreignKeyName: relationship.foreignKeyName,
             primary: relationship.primary,
+            validate: relationship.validate,
           },
         ],
         [relationship.to]: [
@@ -854,20 +857,32 @@ export const joinColumnErrors = (
   Object.entries(relationshipMap ?? {}).flatMap(([entity, relationships]) =>
     relationships
       .filter((r) => r.type === "ManyToOne" || r.type === "OneToOne")
-      .flatMap((r) =>
-        (["joinColumnName", "foreignKeyName", "primary"] as const)
-          .filter((key) => r[key])
-          .map(
-            (key) =>
-              `${entity} ${r.type} ${r.name} sets "${key}": ${JSON.stringify(
-                r[key]
-              )}. The ${language} generator cannot keep ${
-                key === "primary"
-                  ? "a primary key that is a foreign key"
-                  : `a custom foreign key ${
-                      key === "joinColumnName" ? "column" : "constraint"
-                    } name`
-              } yet; remove it or generate a TypeScript service.`
-          )
-      )
+      .flatMap((r) => [
+        ...(r.validate === false
+          ? [
+              `${entity} ${r.type} ${r.name} sets "validate": false. The ${language} generator cannot keep a NOT VALID foreign key yet; remove it or generate a TypeScript service.`,
+            ]
+          : []),
+        ...keyAndNameErrors(entity, r, language),
+      ])
   );
+
+const keyAndNameErrors = (
+  entity: string,
+  r: Relationship,
+  language: string
+): string[] =>
+  (["joinColumnName", "foreignKeyName", "primary"] as const)
+    .filter((key) => r[key])
+    .map(
+      (key) =>
+        `${entity} ${r.type} ${r.name} sets "${key}": ${JSON.stringify(
+          r[key]
+        )}. The ${language} generator cannot keep ${
+          key === "primary"
+            ? "a primary key that is a foreign key"
+            : `a custom foreign key ${
+                key === "joinColumnName" ? "column" : "constraint"
+              } name`
+        } yet; remove it or generate a TypeScript service.`
+    );

@@ -37,6 +37,11 @@ export interface ApsorcRelationship {
   foreignKeyName?: string;
   /** The foreign key column is (part of) the entity's primary key. */
   primary?: boolean;
+  /**
+   * false keeps a foreign key NOT VALID: enforced for new rows, never checked
+   * against the rows already there. Only migrations can create it that way.
+   */
+  validate?: boolean;
   index?: boolean;
   joinTableName?: string;
   joinColumnName?: string;
@@ -56,6 +61,11 @@ export interface Relationship {
   foreignKeyName?: string;
   /** The foreign key column is (part of) the entity's primary key. */
   primary?: boolean;
+  /**
+   * false keeps a foreign key NOT VALID: enforced for new rows, never checked
+   * against the rows already there. Only migrations can create it that way.
+   */
+  validate?: boolean;
   index?: boolean;
   joinTableName?: string;
   joinColumnName?: string;

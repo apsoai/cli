@@ -33,8 +33,14 @@ describe("import round trip", () => {
     expect(report.warnings.arraysLossy).toEqual([]);
     expect(apsorc.entities.find((e) => e.name === "patients")?.indexes).toContainEqual({ fields: ["mrn"], unique: true, name: "patients_mrn_plain_uq" });
     // What .apsorc cannot express is reported, never imported as something stricter.
-    expect(report.warnings.indexesNotCarried).toEqual([
-      expect.stringMatching(/patients_mrn_uq .* \(not imported\)$/),
+    expect(report.warnings.indexesNotCarried).toEqual([]);
+    expect(apsorc.entities.find((e) => e.name === "patients")?.sqlIndexes).toEqual([
+      {
+        name: "patients_mrn_uq",
+        columns: "organization_id, lower(btrim(mrn))",
+        unique: true,
+        where: "(mrn IS NOT NULL)",
+      },
     ]);
     const rebuilt = await database(
       schemaDdl(parseApsorcV2(apsorc as any)).join(";\n")

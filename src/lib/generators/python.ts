@@ -215,6 +215,11 @@ export class PythonGenerator extends BaseGenerator {
     errors.push(...removedScopeOptionErrors(config.entities ?? []));
     errors.push(...joinColumnErrors(config.relationshipMap, "Python"));
     for (const e of config.entities ?? [])
+      if (e.sqlIndexes?.length)
+        errors.push(
+          `${e.name} sets "sqlIndexes". The Python generator cannot create an index on an expression or a descending column yet; remove it or generate a TypeScript service.`
+        );
+    for (const e of config.entities ?? [])
       if (e.primaryKeyName)
         errors.push(
           `${e.name} sets "primaryKeyName": "${e.primaryKeyName}". The Python generator cannot keep a custom primary key constraint name yet; remove it or generate a TypeScript service.`

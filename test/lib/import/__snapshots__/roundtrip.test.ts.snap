@@ -1,7 +1,3 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
-exports[`import round trip the rebuilt schema differs from the source only in the known ways 1`] = `
-[
-  "- indexes: CREATE UNIQUE INDEX patients_mrn_uq ON public.patients USING btree (organization_id, lower(btrim(mrn))) WHERE (mrn IS NOT NULL)",
-]
-`;
+exports[`import round trip the rebuilt schema differs from the source only in the known ways 1`] = `[]`;

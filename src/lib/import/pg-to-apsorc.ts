@@ -55,6 +55,12 @@ export interface ApsorcImportEntityOutput {
   fields?: ApsorcImportFieldOutput[];
   uniques?: Array<{ fields: string[]; name?: string }>;
   checks?: Array<{ name?: string; expression: string }>;
+  sqlIndexes?: Array<{
+    name: string;
+    columns: string;
+    unique?: boolean;
+    where?: string;
+  }>;
   indexes?: Array<{
     fields: string[];
     unique?: boolean;
@@ -74,6 +80,7 @@ export interface ApsorcImportRelationshipOutput {
   onDelete?: "SET NULL" | "RESTRICT";
   foreignKeyName?: string;
   primary?: boolean;
+  validate?: boolean;
   index?: boolean;
   joinColumnName?: string;
 }
@@ -227,6 +234,27 @@ export function parseDefault(
 }
 
 /**
+ * The column list of a btree index from pg_get_indexdef's
+ * "CREATE INDEX name ON t USING btree (<columns>) [WHERE ...]". Undefined for
+ * another index method, which .apsorc cannot express.
+ *
+ * @param {string} [definition] - pg_get_indexdef's output.
+ * @returns {string | undefined} The text between the outer parentheses.
+ */
+export function indexColumnsSql(definition?: string): string | undefined {
+  const start = definition?.indexOf(" USING btree (") ?? -1;
+  if (!definition || start < 0) return undefined;
+  const open = start + " USING btree ".length;
+  let depth = 0;
+  for (let i = open; i < definition.length; i++) {
+    if (definition[i] === "(") depth++;
+    if (definition[i] === ")" && --depth === 0)
+      return definition.slice(open + 1, i);
+  }
+  return undefined;
+}
+
+/**
  * How a single-column foreign key is written to .apsorc: the relationship
  * name ("to_name" when the default would not do) and "joinColumnName" when
  * the generated column would differ from the source column, so an import
@@ -328,7 +356,6 @@ function emptyReport(schema: IntrospectedSchema): ImportReport {
     warnings: {
       arraysLossy: [],
       generatedColumns: [],
-      foreignKeysNotValid: [],
       checksNotValid: [],
       timestampDefaultsAdded: [],
       indexesNotCarried: [],
@@ -477,6 +504,7 @@ export function pgToApsorc(schema: IntrospectedSchema): {
     // condition, so it is rebuilt as it was. A field's or a relationship's
     // "index": true would get a generated name.
     const indexes: NonNullable<ApsorcImportEntityOutput["indexes"]> = [];
+    const sqlIndexes: NonNullable<ApsorcImportEntityOutput["sqlIndexes"]> = [];
     for (const idx of table.indexes) {
       const cols = idx.columns;
       // Skip the index Postgres itself creates for the primary key or a
@@ -486,15 +514,24 @@ export function pgToApsorc(schema: IntrospectedSchema): {
         idx.name === table.primaryKeyName ||
         table.uniqueConstraints.some((uc) => uc.name === idx.name);
       if (backsConstraint) continue;
-      // An index on an expression would cover the wrong columns, so it is
-      // left out (apsoai/cli#249). A DESC column is imported ascending.
-      if (idx.expression || idx.descending)
-        report.warnings.indexesNotCarried.push(
-          `${idx.definition ?? idx.name} (${
-            idx.expression ? "not imported" : "imported ascending"
-          })`
-        );
-      if (idx.expression) continue;
+      // An index on an expression or with a DESC column goes in "sqlIndexes"
+      // with its column list as Postgres prints it (apsoai/cli#249).
+      if (idx.expression || idx.descending) {
+        const columns = indexColumnsSql(idx.definition);
+        if (columns === undefined) {
+          report.warnings.indexesNotCarried.push(
+            `${idx.definition ?? idx.name} (not imported)`
+          );
+        } else {
+          sqlIndexes.push({
+            name: idx.name,
+            columns,
+            ...(idx.unique && { unique: true }),
+            ...(idx.predicate && { where: idx.predicate }),
+          });
+        }
+        continue;
+      }
       indexes.push({
         fields: cols.map((c) => fkProperty.get(c) ?? c),
         ...(idx.unique && { unique: true }),
@@ -586,6 +623,7 @@ export function pgToApsorc(schema: IntrospectedSchema): {
     if (fields.length > 0) entity.fields = fields;
     if (uniqueComposite.length > 0) entity.uniques = uniqueComposite;
     if (indexes.length > 0) entity.indexes = indexes;
+    if (sqlIndexes.length > 0) entity.sqlIndexes = sqlIndexes;
     const checks = table.checks ?? [];
     if (checks.length > 0)
       entity.checks = checks.map((c) => ({
@@ -620,10 +658,9 @@ export function pgToApsorc(schema: IntrospectedSchema): {
       if (joinColumnName) rel.joinColumnName = joinColumnName;
       if (fk.name) rel.foreignKeyName = fk.name;
       if (pkSet.has(sourceColumn)) rel.primary = true;
-      if (fk.notValid)
-        report.warnings.foreignKeysNotValid.push(
-          `${table.name}.${sourceColumn} -> ${fk.referencedTable}`
-        );
+      // Migrations keep the key NOT VALID. A database built by TypeORM's own
+      // schema sync has it validated, which only matters on an empty one.
+      if (fk.notValid) rel.validate = false;
       if (col?.nullable) rel.nullable = true;
       if (fk.onDelete === "CASCADE") rel.cascadeDelete = true;
       else if (fk.onDelete === "SET NULL" || fk.onDelete === "RESTRICT")

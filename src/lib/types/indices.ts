@@ -9,3 +9,18 @@ export interface Index {
    */
   where?: string;
 }
+
+/**
+ * An index whose column list TypeORM cannot declare: an expression such as
+ * lower(email), or a column sorted DESC. Apso's own DDL creates it, in
+ * migrations and after a schema sync, and TypeORM is told to leave it alone.
+ */
+export interface SqlIndex {
+  /** Required: TypeORM is told about the index by name. */
+  name: string;
+  /** The column list as SQL, for example "user_id, created_at DESC". */
+  columns: string;
+  unique?: boolean;
+  /** The condition of a partial index. */
+  where?: string;
+}

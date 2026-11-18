@@ -131,12 +131,6 @@ export interface ImportReport {
     /** "table.constraint" for CHECK constraints marked NOT VALID in the source. */
     checksNotValid: string[];
     /**
-     * "table.column -> table" for foreign keys marked NOT VALID in the source
-     * (rows that predate the key were never checked). TypeORM cannot create
-     * one, so the generated key is validated.
-     */
-    foreignKeysNotValid: string[];
-    /**
      * "table.column" for a created_at or updated_at with no default in the
      * source. TypeORM always gives these columns DEFAULT now().
      */
@@ -153,9 +147,8 @@ export interface ImportReport {
      */
     relationshipsRenamed: string[];
     /**
-     * Indexes .apsorc cannot fully express, as Postgres defines them: one on
-     * an expression is left out, and one with a DESC column is imported
-     * ascending.
+     * Indexes .apsorc cannot express, as Postgres defines them: an expression
+     * or DESC index that is not a btree. They are left out.
      */
     indexesNotCarried: string[];
     /** Tables with composite primary keys (emitted as primary:true fields). */

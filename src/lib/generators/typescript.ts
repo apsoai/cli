@@ -34,7 +34,7 @@ const timestampArgs = (entity: Entity, column: TimestampColumn): string => {
   return args.length > 0 ? `{ ${args.join(", ")} }` : "";
 };
 import { onDeleteOf } from "../types/relationship";
-import { keyColumn } from "../ddl";
+import { keyColumn, sqlIndexStatements } from "../ddl";
 // Utilities available for future use: createFile from "../utils/file-system"
 import { getFieldForTemplate, typeExistsInEntity, fieldToEnumType } from "../utils/field";
 import {
@@ -196,6 +196,7 @@ export class TypeScriptGenerator extends BaseGenerator {
       indexes: toProperties(indexes),
       uniques: toProperties(uniques),
       checks: entity.checks ?? [],
+      sqlIndexes: entity.sqlIndexes ?? [],
       createPrimaryKey,
       primaryKeyType,
       primaryKeyName: entity.primaryKeyName,
@@ -574,9 +575,12 @@ export class TypeScriptGenerator extends BaseGenerator {
   ): Promise<GeneratedFile[]> {
     // Listing GuardsModule is what turns the global guards on; every service
     // has at least the API key check.
+    // "sqlIndexes" are created by a generated module, after TypeORM's sync.
+    const statements = entities.flatMap((e) => sqlIndexStatements(e));
+    const schemaExtras = apiType === "rest" && statements.length > 0;
     const content = await this.renderTemplate(
       `./${apiType}/index-module-${apiType}`,
-      { entities }
+      { entities, schemaExtras }
     );
 
     return [
@@ -584,6 +588,17 @@ export class TypeScriptGenerator extends BaseGenerator {
         path: "index.ts",
         content,
       },
+      ...(schemaExtras
+        ? [
+            {
+              path: "schema-extras.module.ts",
+              content: await this.renderTemplate(
+                "./rest/schema-extras-module",
+                { statements }
+              ),
+            },
+          ]
+        : []),
     ];
   }
 

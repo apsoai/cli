@@ -52,6 +52,9 @@ const { CREATE, UPDATE } = CrudValidationGroups;
 <% it.indexes.forEach((index) => { %>
 @Index(<% if (index.name) { %><%~ JSON.stringify(index.name) %>, <% } %>[<%~ index.fields.map((field) => `"${field}"`).join(', ') %>]<% if (index.unique || index.where) { %>, { <%~ [index.unique ? 'unique: true' : '', index.where ? 'where: ' + JSON.stringify(index.where) : ''].filter(Boolean).join(', ') %> } <% } %>)
 <% }) %>
+<% it.sqlIndexes.forEach((index) => { %>
+@Index(<%~ JSON.stringify(index.name) %>, { synchronize: false })
+<% }) %>
 <% it.checks.forEach((check) => { %>
 @Check(<% if (check.name) { %><%~ JSON.stringify(check.name) %>, <% } %><%~ JSON.stringify(check.expression) %>)
 <% }) %>
