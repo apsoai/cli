@@ -1,6 +1,6 @@
 <% const {field} = it; %>
 
-@Column({ "type": "smallint" })
+@Column({ "type": "smallint"<% if (field.defaultSql) { %>, default: () => <%~ JSON.stringify(field.defaultSql) %><% } %> })
 @Generated("increment")
 <% if (field.index ) {%>
 @Index()

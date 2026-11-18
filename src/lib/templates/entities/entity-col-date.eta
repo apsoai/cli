@@ -6,7 +6,7 @@
 <% if (field.index) { %>
 @Index()
 <% } %>
-@Column({ type: 'date', nullable: <%= Boolean(field.nullable) %><% if (field.unique) { %>, unique: true<% } %> })
+@Column({ type: 'date', nullable: <%= Boolean(field.nullable) %><% if (field.unique) { %>, unique: true<% } %><% if (field.defaultSql) { %>, default: () => <%~ JSON.stringify(field.defaultSql) %><% } %> })
 <% } %>
 
 <%= field.name %>: string;

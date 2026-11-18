@@ -166,6 +166,10 @@ export function columnSpec(table: string, f: ComputedField): ColumnSpec {
         `The DDL writer does not support field type "${f.type}" yet (${table}.${f.name}).`
       );
   }
+  // A SQL expression or JSON literal default applies to any type, and
+  // "noDefault" removes the default a boolean would otherwise get.
+  if (f.defaultSql !== undefined) def = f.defaultSql;
+  else if (f.noDefault) def = undefined;
   let sql = `${q(f.name)} ${type}`;
   if (!f.nullable) sql += " NOT NULL";
   if (def !== undefined) sql += ` DEFAULT ${def}`;
@@ -460,8 +464,11 @@ export function schemaModel(input: SchemaInput): Model {
     if (!customPk) {
       const pkType: string = e.primaryKeyType || "serial";
       if (pkType === "uuid") {
-        model.extensions.push(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
-        t.columns.push(column("id", "uuid", true, "uuid_generate_v4()"));
+        if (!e.primaryKeyDefault)
+          model.extensions.push(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
+        t.columns.push(
+          column("id", "uuid", true, e.primaryKeyDefault || "uuid_generate_v4()")
+        );
       } else if (pkType === "text") t.columns.push(column("id", "text", true));
       else
         t.columns.push(

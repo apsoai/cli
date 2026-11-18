@@ -88,6 +88,11 @@ export interface Entity {
    * `apso import` sets it so an existing database keeps its constraint names.
    */
   primaryKeyName?: string;
+  /**
+   * SQL expression that fills a uuid "id", for example "gen_random_uuid()".
+   * Defaults to uuid_generate_v4() from the uuid-ossp extension.
+   */
+  primaryKeyDefault?: string;
   fields?: Field[];
   indexes?: Index[];
   uniques?: Unique[];

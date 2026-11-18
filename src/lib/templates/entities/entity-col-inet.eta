@@ -1,6 +1,6 @@
 <% const {field} = it; %>
 
-@Column({ "type": "inet"<% if (field.default !== null) {%>, default:  <%= field.default %><% } %><% if (field.nullable) {%>, nullable: true<% } %> })
+@Column({ "type": "inet"<% if (field.default !== null) {%>, default:  <%= field.default %><% } %><% if (field.nullable) {%>, nullable: true<% } %><% if (field.defaultSql) { %>, default: () => <%~ JSON.stringify(field.defaultSql) %><% } %> })
 <% if (field.index ) {%>
 @Index()
 <% } %>

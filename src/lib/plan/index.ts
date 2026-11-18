@@ -16,7 +16,8 @@ interface PlanField {
   type: string;
   values?: string[];
   nullable?: boolean;
-  default?: string | null;
+  /** A literal, or { sql } for an expression; the plan only asks whether one is set. */
+  default?: unknown;
   elementType?: string;
 }
 

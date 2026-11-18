@@ -199,6 +199,7 @@ export class TypeScriptGenerator extends BaseGenerator {
       createPrimaryKey,
       primaryKeyType,
       primaryKeyName: entity.primaryKeyName,
+      primaryKeyDefault: entity.primaryKeyDefault,
       snakeCasedName: snakeCase(name),
       // Honor an explicit per-entity `table` override; otherwise derive from
       // the entity name. See apsoai/cli#98.

@@ -416,6 +416,10 @@
               }
             }
           }
+        },
+        "primaryKeyDefault": {
+          "description": "SQL expression that fills a uuid 'id', for example 'gen_random_uuid()'. Defaults to uuid_generate_v4() from the uuid-ossp extension.",
+          "type": "string"
         }
       },
       "required": [
@@ -518,7 +522,7 @@
           "type": "boolean"
         },
         "default": {
-          "description": "The default value for the field.",
+          "description": "The default value for the field: a literal, or { \"sql\": \"<expression>\" } for a SQL expression such as now() or gen_random_uuid(). A json, jsonb or array field also takes an object or array literal.",
           "type": [
             "string",
             "number",
@@ -575,6 +579,10 @@
         "arrayItemType": {
           "description": "An older spelling of 'elementType'.",
           "type": "string"
+        },
+        "noDefault": {
+          "description": "The column has no database default. A boolean field otherwise defaults to false.",
+          "type": "boolean"
         }
       },
       "required": [

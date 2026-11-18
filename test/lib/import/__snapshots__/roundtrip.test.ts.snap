@@ -2,18 +2,6 @@
 
 exports[`import round trip the rebuilt schema differs from the source only in the known ways 1`] = `
 [
-  "- columns: enrollments.id uuid NOT NULL DEFAULT gen_random_uuid()",
-  "- columns: enrollments.retention_until timestamp with time zone NOT NULL DEFAULT (now() + '6 years'::interval)",
-  "- columns: enrollments.tags jsonb NOT NULL DEFAULT '[]'::jsonb",
-  "- columns: organizations.id uuid NOT NULL DEFAULT gen_random_uuid()",
-  "- columns: patients.id uuid NOT NULL DEFAULT gen_random_uuid()",
-  "- columns: patients.living_will boolean",
-  "+ columns: enrollments.id uuid NOT NULL DEFAULT uuid_generate_v4()",
-  "+ columns: enrollments.retention_until timestamp with time zone NOT NULL",
-  "+ columns: enrollments.tags jsonb NOT NULL",
-  "+ columns: organizations.id uuid NOT NULL DEFAULT uuid_generate_v4()",
-  "+ columns: patients.id uuid NOT NULL DEFAULT uuid_generate_v4()",
-  "+ columns: patients.living_will boolean DEFAULT false",
   "- indexes: CREATE UNIQUE INDEX patients_mrn_uq ON public.patients USING btree (organization_id, lower(btrim(mrn))) WHERE (mrn IS NOT NULL)",
 ]
 `;

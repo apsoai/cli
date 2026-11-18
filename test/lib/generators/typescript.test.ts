@@ -782,6 +782,34 @@ test("checks become @Check decorators, named or not", async () => {
   expect(content).toContain(`@Check("start_date > '2000-01-01'")`);
 });
 
+// apsoai/cli#247
+describe("defaults", () => {
+  test("a SQL expression, a JSON literal, and a boolean with no default", async () => {
+    const rendered = await renderEntity({
+      name: "Audit",
+      fields: [
+        { name: "retention_until", type: "timestamptz", default: { sql: "now() + interval '6 years'" } },
+        { name: "tags", type: "jsonb" as any, default: [] },
+        { name: "living_will", type: "boolean", nullable: true, noDefault: true },
+        { name: "active", type: "boolean" },
+        { name: "trace_id", type: "uuid" as any, default: { sql: "gen_random_uuid()" } },
+      ],
+    });
+    const content = rendered.replace(/\s+/g, " ");
+    expect(content).toContain(`@Column({ type: 'timestamptz', nullable: false, default: () => "now() + interval '6 years'" })`);
+    expect(content).toContain(`default: () => "'[]'" })`);
+    expect(content).toContain("@Column({ type: 'boolean', nullable: true })");
+    expect(content).toContain("@Column({ type: 'boolean', nullable: false, default: false })");
+    expect(content).toContain(`default: () => "gen_random_uuid()" })`);
+  });
+
+  test("primaryKeyDefault fills a uuid id with another function", async () => {
+    const content = await renderEntity({ name: "Doc", primaryKeyType: "uuid", primaryKeyDefault: "gen_random_uuid()" });
+    expect(content).toContain(`@PrimaryColumn({ type: 'uuid', default: () => "gen_random_uuid()" })`);
+    expect(content).not.toContain("@PrimaryGeneratedColumn('uuid')");
+  });
+});
+
 // apsoai/cli#243
 describe("created_at and updated_at column type", () => {
   test("timestampType timestamptz keeps the time zone", async () => {

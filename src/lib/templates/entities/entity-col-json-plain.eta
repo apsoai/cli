@@ -1,6 +1,6 @@
 <% const {field} = it; %>
 
-@Column('json',{ nullable: <%= Boolean(field.nullable) %>  })
+@Column('json',{ nullable: <%= Boolean(field.nullable) %><% if (field.defaultSql) { %>, default: () => <%~ JSON.stringify(field.defaultSql) %><% } %> })
 <% if (field.index ) {%>
 @Index()
 <% } %>

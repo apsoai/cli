@@ -22,7 +22,9 @@ import {
   timestampTypeOf,
 } from "../types/entity";
 import { RelationshipMap, onDeleteOf } from "../types/relationship";
-import { normalizeFieldType, fieldTypeToColumnType } from "../utils/field";
+import { normalizeFieldType, fieldTypeToColumnType,
+  defaultSqlOf,
+} from "../utils/field";
 import { snakeCase } from "../utils/casing";
 import { getRelationshipForTemplate } from "../utils/relationships";
 
@@ -144,7 +146,8 @@ function buildEntityClasses(
       if (field.nullable) colOpts.nullable = true;
       if (field.unique) colOpts.unique = true;
       if (field.default !== undefined && field.default !== null) {
-        colOpts.default = field.default;
+        const sql = defaultSqlOf(field);
+        colOpts.default = sql === undefined ? field.default : () => sql;
       }
       if (field.type === "enum" && field.values) {
         colOpts.enum = field.values;

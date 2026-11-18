@@ -33,6 +33,7 @@ export interface ApsorcImportFieldOutput {
   nullable?: boolean;
   unique?: boolean;
   default?: unknown;
+  noDefault?: boolean;
   index?: boolean;
   values?: string[];
   length?: number;
@@ -46,6 +47,7 @@ export interface ApsorcImportEntityOutput {
   name: string;
   primaryKeyType?: "serial" | "uuid" | "text";
   primaryKeyName?: string;
+  primaryKeyDefault?: string;
   created_at?: boolean;
   updated_at?: boolean;
   timestampType?: Entity["timestampType"];
@@ -121,6 +123,21 @@ const udtToApsorcType: Record<string, string> = {
 };
 
 const TIMESTAMP_UDTS = new Set(["timestamp", "timestamptz"]);
+/** Field types whose templates write a literal default; others take SQL. */
+const LITERAL_DEFAULT_TYPES = new Set([
+  "text",
+  "varchar",
+  "char",
+  "integer",
+  "smallint",
+  "bigint",
+  "numeric",
+  "decimal",
+  "float",
+  "double",
+  "boolean",
+  "enum",
+]);
 const AUTO_TIMESTAMP_DEFAULTS = new Set([
   "now()",
   "current_timestamp",
@@ -386,6 +403,10 @@ export function pgToApsorc(schema: IntrospectedSchema): {
         // length and the columns that reference it keep theirs.
         // integer/bigint/smallint id => default serial, omit primaryKeyType.
         if (t === "uuid" || t === "text") entity.primaryKeyType = t;
+        // The generated uuid id uses uuid_generate_v4(); keep another function.
+        const idDefault = pkCol.default?.trim();
+        if (t === "uuid" && idDefault && idDefault !== "uuid_generate_v4()")
+          entity.primaryKeyDefault = idDefault;
         else pkAsField = t === "varchar" || t === "char";
       } else {
         // Single, non-"id" PK: a primary field, or the relationship's own
@@ -533,8 +554,18 @@ export function pgToApsorc(schema: IntrospectedSchema): {
       // Defaults (skip for PK columns — those are implicit/sequence-driven).
       if (!(pkSet.has(col.name) && !pkAsField)) {
         const parsed = parseDefault(col.default, resolved.type);
-        if (parsed.drop && col.default !== null) {
+        const literal =
+          "value" in parsed && LITERAL_DEFAULT_TYPES.has(resolved.type);
+        if (col.default === null) {
+          // A boolean field gets DEFAULT false unless it says otherwise.
+          if (resolved.type === "boolean") field.noDefault = true;
+        } else if (col.default.trim().toLowerCase().startsWith("nextval(")) {
+          // A sequence .apsorc does not create.
           report.warnings.defaultsDropped.push(`${table.name}.${col.name}`);
+        } else if (!literal) {
+          // A function call, an expression or a literal the field's template
+          // cannot write (json, array, date, uuid): kept as Postgres prints it.
+          field.default = { sql: col.default };
         } else if ("value" in parsed) {
           if (resolved.type === "enum") {
             // Only keep an enum default that is one of the allowed labels.

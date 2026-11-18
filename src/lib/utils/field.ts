@@ -148,7 +148,29 @@ export const arrayElementType = (
 ): string =>
   field.elementType || field.arrayType || field.arrayItemType || "text";
 
+/**
+ * A default that has to be written as SQL: { "sql": ... }, or an object or
+ * array literal on a json or array field.
+ *
+ * @param {Field} field - A field from .apsorc.
+ * @returns {string | undefined} The SQL text, or undefined for a plain literal.
+ */
+export const defaultSqlOf = (field: Field): string | undefined => {
+  const d = field.default;
+  if (d === null || typeof d !== "object") return undefined;
+  if (!Array.isArray(d) && typeof d.sql === "string") return d.sql;
+  return `'${JSON.stringify(d).replace(/'/g, "''")}'`;
+};
+
 export const getDefaultValueForField = (field: Field): string | null => {
+  if (defaultSqlOf(field) !== undefined) return null;
+  const literal = { ...field, default: field.default as string | null | undefined };
+  return literalDefault(literal);
+};
+
+const literalDefault = (
+  field: Omit<Field, "default"> & { default?: string | null }
+): string | null => {
   switch (field.type) {
     case "enum":
       if (field.default === null) {
@@ -200,6 +222,9 @@ export const getFieldForTemplate = (
       // Resolved here so every template and the DDL writer read one key.
       ...(field.type === "array" && { elementType: arrayElementType(field) }),
       default: getDefaultValueForField(field),
+      ...(defaultSqlOf(field) !== undefined && {
+        defaultSql: defaultSqlOf(field),
+      }),
       dataType:
         field.type === "enum"
           ? fieldToEnumType(field.name, entityName)

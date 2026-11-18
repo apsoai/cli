@@ -691,6 +691,34 @@ describe("unique and index", () => {
   });
 });
 
+// apsoai/cli#247
+test("defaults are kept: SQL expressions as { sql }, booleans without one as noDefault", () => {
+  const out = pgToApsorc(
+    schema([
+      table("audits", {
+        primaryKey: ["id"],
+        columns: [
+          col("id", "uuid", { default: "gen_random_uuid()" }),
+          col("retention_until", "timestamptz", { default: "(now() + '6 years'::interval)" }),
+          col("tags", "jsonb", { default: "'[]'::jsonb" }),
+          col("living_will", "bool", { nullable: true }),
+          col("active", "bool", { default: "true" }),
+          col("status", "varchar", { default: "'open'::character varying" }),
+          col("seq", "int4", { default: "nextval('audits_seq'::regclass)" }),
+        ],
+      }),
+    ])
+  );
+  const e = findEntity(out, "audits");
+  expect(e.primaryKeyDefault).toBe("gen_random_uuid()");
+  expect(findField(e, "retention_until").default).toEqual({ sql: "(now() + '6 years'::interval)" });
+  expect(findField(e, "tags").default).toEqual({ sql: "'[]'::jsonb" });
+  expect(findField(e, "living_will").noDefault).toBe(true);
+  expect(findField(e, "active").default).toBe(true);
+  expect(findField(e, "status").default).toBe("open");
+  expect(out.report.warnings.defaultsDropped).toEqual(["audits.seq"]);
+});
+
 // ---- numeric precision/scale ----
 
 test("numeric carries precision and scale", () => {

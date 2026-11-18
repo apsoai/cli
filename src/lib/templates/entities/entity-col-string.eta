@@ -15,7 +15,7 @@
 <% if (field.index ) {%>
 @Index()
 <% } %>
-@Column({ type: "text", nullable: <%= Boolean(field.nullable) %><% if (field.unique) {%>, unique: true <% } %><% if (field.default !== null) {%>, default:  '<%= field.default %>'<% } %>  })
+@Column({ type: "text", nullable: <%= Boolean(field.nullable) %><% if (field.unique) {%>, unique: true <% } %><% if (field.default !== null) {%>, default:  '<%= field.default %>'<% } %><% if (field.defaultSql) { %>, default: () => <%~ JSON.stringify(field.defaultSql) %><% } %> })
 <% if (field.primary ) {%>
 @PrimaryColumn(<% if (field.primaryKeyName) { %>{ primaryKeyConstraintName: '<%= field.primaryKeyName %>' }<% } %>)
 <% } %>
