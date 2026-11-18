@@ -20,6 +20,13 @@ export function isUserError(err: unknown): boolean {
 
 export default abstract class BaseCommand extends Command {
   /**
+   * Whether a failure's message is sent with the cli_command_failed event.
+   * Commands that connect to the user's own database set this to false: their
+   * error text can name the database host.
+   */
+  protected reportErrorText = true;
+
+  /**
    * Report failures to Sentry + PostHog before oclif exits. The postrun hook
    * does not fire on error, so the flush has to happen here.
    */
@@ -38,7 +45,7 @@ export default abstract class BaseCommand extends Command {
       track("cli_command_failed", {
         command: this.id,
         duration_ms: elapsedMs(),
-        error: err?.message,
+        error: this.reportErrorText ? err?.message : undefined,
         error_code: err?.code,
         user_error: userError,
       });

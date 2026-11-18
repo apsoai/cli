@@ -120,15 +120,20 @@ export function writeApsorcFile(
   return { backupPath };
 }
 
-export default class ImportSupabase extends BaseCommand {
+export default class Import extends BaseCommand {
   static description =
-    "Introspect an existing Supabase (Postgres) database and generate a local .apsorc schema. Read-only: it never writes to the source database.";
+    "Introspect an existing Postgres database (Supabase, Neon, RDS, or any Postgres you can reach with a connection string) and generate a local .apsorc schema. Runs on your machine and is read-only: it never writes to the source database.";
 
   static examples = [
-    `$ apso import supabase`,
-    `$ apso import supabase -c "postgresql://postgres:[pw]@db.[ref].supabase.co:5432/postgres"`,
-    `$ SUPABASE_DB_URL="postgresql://..." apso import supabase --dry-run`,
+    `$ apso import`,
+    `$ apso import -c "postgresql://user:[pw]@host:5432/dbname"`,
+    `$ apso import -c "postgresql://postgres:[pw]@db.[ref].supabase.co:5432/postgres"`,
+    `$ DATABASE_URL="postgresql://..." apso import --dry-run`,
   ];
+
+  // "apso import supabase" was the first name of this command. It still works.
+  static aliases = ["import:supabase"];
+  static deprecateAliases = true;
 
   static flags = {
     "connection-string": Flags.string({
@@ -155,13 +160,16 @@ export default class ImportSupabase extends BaseCommand {
     }),
   };
 
+  // Errors here can name the database host, so the text stays on this machine.
+  protected reportErrorText = false;
+
   /** Overridable for testing. */
   protected makeIntrospector(connectionString: string): Introspector {
     return new PgIntrospector(connectionString);
   }
 
   async run(): Promise<void> {
-    const { flags } = await this.parse(ImportSupabase);
+    const { flags } = await this.parse(Import);
 
     let connectionString = resolveConnectionString(flags["connection-string"]);
     if (!connectionString) {
@@ -170,7 +178,7 @@ export default class ImportSupabase extends BaseCommand {
           type: "password",
           name: "connectionString",
           mask: "*",
-          message: "Supabase Postgres connection string:",
+          message: "Postgres connection string:",
           validate: (input: string) =>
             input.trim().length > 0 || "A connection string is required",
         },

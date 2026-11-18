@@ -2,12 +2,12 @@ import { expect, describe, test, afterEach } from "@jest/globals";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import {
+import Import, {
   resolveConnectionString,
   importFromIntrospector,
   formatReport,
   writeApsorcFile,
-} from "../../../src/commands/import/supabase";
+} from "../../../src/commands/import";
 import {
   IntrospectedSchema,
   Introspector,
@@ -127,5 +127,26 @@ describe("writeApsorcFile", () => {
     const parsed = JSON.parse(fs.readFileSync(out, "utf-8"));
     expect(parsed.version).toBe(2);
     expect(parsed.entities[0].name).toBe("User");
+  });
+});
+
+describe("apso import command name", () => {
+  test("the old name still reaches the command, with a deprecation notice", () => {
+    expect(Import.aliases).toEqual(["import:supabase"]);
+    expect(Import.deprecateAliases).toBe(true);
+  });
+
+  test("help text names Postgres, with Supabase as one source", () => {
+    expect(Import.description).toMatch(/any Postgres/);
+    expect(Import.examples.join("\n")).not.toMatch(/apso import supabase/);
+  });
+});
+
+describe("apso import telemetry", () => {
+  test("a failed import reports no error text", () => {
+    const command = new Import([], {} as never) as unknown as {
+      reportErrorText: boolean;
+    };
+    expect(command.reportErrorText).toBe(false);
   });
 });
