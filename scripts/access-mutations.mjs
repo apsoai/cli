@@ -146,7 +146,7 @@ export const MUTATIONS = [
     rules: ["R7"],
     legs: ["jwt"],
     typescript: [[TS.relations, /join\.on = \[\s*\.\.\.\(join\.on \?\? \[\]\),\s*\{ field, operator: "\$eq", value \},?\s*\];/, ""]],
-    python: [[PY.auth, /return _tenant_conditions\(target, values\) if values else \[\]/, "return []"]],
+    python: [[PY.auth, /return _tenant_conditions\(target, values\) \+ nested_conditions\(auth, hop\[0\], target\)/, "return []"]],
     go: [[GO.auth, /load\.Conds = append\(\[\]interface\{\}\{where\}, args\.\.\.\)/, "_ = args"]],
   },
   {
