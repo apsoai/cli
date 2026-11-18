@@ -284,7 +284,11 @@ def _refuse(request: Request, reason: str) -> NoReturn:
 
 
 def _service_token_key_id(token: str) -> Optional[str]:
-    """The key id from the gateway's token (sub "apikey:<id>"), when the token is valid for this service."""
+    """
+    The caller from the gateway's token, when the token is valid for this
+    service: the key id of sub "apikey:<id>", or sub "user:<id>" as it is, an
+    Apso sign-in the gateway checked (it sends one for /mcp/internal only).
+    """
     if not (_SERVICE_JWKS and _SERVICE_ISSUER and _SERVICE_ID):
         return None
     try:
@@ -300,7 +304,11 @@ def _service_token_key_id(token: str) -> Optional[str]:
     except jwt.PyJWTError:
         return None
     sub = payload["sub"]
-    return sub[len("apikey:"):] or None if isinstance(sub, str) and sub.startswith("apikey:") else None
+    if not isinstance(sub, str):
+        return None
+    if sub.startswith("user:"):
+        return sub if sub != "user:" else None
+    return sub[len("apikey:"):] or None if sub.startswith("apikey:") else None
 
 
 async def _service_caller(request: Request) -> Optional[AuthContext]:

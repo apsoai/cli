@@ -63,9 +63,10 @@ export interface Entity {
   permissions?: EntityPermissions;
 
   /**
-   * Expose this entity's CRUD routes as MCP tools (TypeScript, needs `auth`
-   * and @apso/mcp). `true` exposes read, create, update and delete; a list
-   * exposes only those operations. Off by default.
+   * Expose this entity's CRUD routes as MCP tools. `true` exposes read,
+   * create, update and delete; a list exposes only those operations. Off by
+   * default. The tools are served to service callers (API key) at
+   * /mcp/internal, and to signed-in users at /mcp when `auth` is set.
    * Example: ["read", "create"]
    */
   mcp?: boolean | PermissionOperation[];

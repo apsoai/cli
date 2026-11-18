@@ -7,7 +7,7 @@ import { APP_GUARD } from '@nestjs/core';
 <% if (it.scopedEntities && it.scopedEntities.length > 0) { %>
 import { ScopeGuard } from './scope.guard';
 <% } %>
-import { ApiKeyGuard<% if (it.mcpAuth) { %>, McpAuthProvider<% } %> } from './key.guard';
+import { ApiKeyGuard<% if (it.mcp) { %>, McpInternalAuthProvider<% } %><% if (it.mcpAuth) { %>, McpAuthProvider<% } %> } from './key.guard';
 <% if (it.hasAuth) { %>
 import { AuthGuard } from './auth.guard';
 <% } %>
@@ -72,6 +72,9 @@ import { <%= entity.name %> } from '../<%= entity.name %>/<%= entity.name %>.ent
     ApiKeyGuard,
 <% if (it.hasAuth) { %>
     AuthGuard,
+<% } %>
+<% if (it.mcp) { %>
+    McpInternalAuthProvider,
 <% } %>
 <% if (it.mcpAuth) { %>
     McpAuthProvider,

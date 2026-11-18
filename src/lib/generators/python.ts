@@ -789,9 +789,13 @@ ${downStatements || "    pass"}
         path: "permissions.py",
         content: await this.renderTemplate("./permissions", { permissions }),
       });
-    // The /mcp endpoint; app/main.py mounts it (see ensurePythonMcpWiring).
+    // The MCP addresses; app/main.py mounts them (see ensurePythonMcpWiring).
+    // The external one, /mcp, needs sign-in; /mcp/internal takes the API key.
     if (mcp)
-      files.push({ path: "mcp.py", content: await this.renderTemplate("./mcp", {}) });
+      files.push({
+        path: "mcp.py",
+        content: await this.renderTemplate("./mcp", { external: Boolean(data.jwt) }),
+      });
     return files;
   }
 

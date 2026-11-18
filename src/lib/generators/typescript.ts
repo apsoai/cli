@@ -244,10 +244,6 @@ export class TypeScriptGenerator extends BaseGenerator {
     };
 
     const mcp = mcpOperations(entity);
-    if (mcp.length > 0 && !auth)
-      throw new Error(
-        `${entityName}.mcp needs an auth block in .apsorc: MCP tools act as the signed-in caller`
-      );
 
     const data = {
       svcName,
@@ -548,6 +544,7 @@ export class TypeScriptGenerator extends BaseGenerator {
 
     const scopedEntities = getScopedEntities(entities, relationshipMap);
     const files: GeneratedFile[] = [];
+    const mcp = entities.some((e) => mcpOperations(e).length > 0);
 
     const templateData = {
       scopedEntities,
@@ -562,8 +559,10 @@ export class TypeScriptGenerator extends BaseGenerator {
       authRoutes: authEntityRoutes(entities, auth),
       jwt,
       permissions,
-      // OAuth sign-in for MCP clients: tokens come from the listed issuers.
-      mcpAuth: hasAuth && entities.some((e) => mcpOperations(e).length > 0),
+      // MCP tools are served at /mcp/internal for service callers, and at /mcp
+      // for signed-in users when there is sign-in: tokens come from the listed issuers.
+      mcp,
+      mcpAuth: hasAuth && mcp,
     };
 
     // The API key check is part of every service.
