@@ -97,7 +97,7 @@ export function formatReport(report: ImportReport): string {
     review.push(`  - Relationships renamed because a column has the natural name (columns unchanged): ${w.relationshipsRenamed.join(", ")}`);
   if (w.indexesNotCarried.length > 0)
     review.push(
-      `  - Partial and expression indexes (.apsorc cannot express these yet):\n${w.indexesNotCarried
+      `  - Indexes .apsorc cannot fully express yet:\n${w.indexesNotCarried
         .map((i) => `      ${i}`)
         .join("\n")}`
     );

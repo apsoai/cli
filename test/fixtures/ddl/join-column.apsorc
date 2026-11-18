@@ -11,12 +11,12 @@
       "updated_at": true,
       "fields": [{ "name": "performance_year", "type": "integer" }, { "name": "status", "type": "text" }],
       "uniques": [{ "fields": ["patient", "performance_year"], "name": "enrollments_patient_year_uq" }],
-      "indexes": [{ "fields": ["organization", "patient"] }, { "fields": ["organizationId", "status"] }]
+      "indexes": [{ "fields": ["organization", "patient"] }, { "fields": ["organizationId", "status"] }, { "name": "enrollments_one_live_uq", "fields": ["organization", "patient"], "unique": true, "where": "status <> 'revoked'" }, { "name": "enrollments_year_idx", "fields": ["performance_year"] }]
     },
     { "name": "Tenant", "primaryKeyName": "tenants_pkey", "fields": [{ "name": "id", "type": "varchar", "length": 100, "primary": true }, { "name": "name", "type": "text" }] },
     { "name": "TenantNote", "fields": [{ "name": "code", "type": "text", "primary": true }, { "name": "body", "type": "text", "nullable": true }] },
     { "name": "TenantSetting", "primaryKeyName": "tenant_settings_pkey", "fields": [{ "name": "theme", "type": "text", "nullable": true }] },
-    { "name": "RateCounter", "primaryKeyName": "rate_counters_pkey", "fields": [{ "name": "bucket", "type": "text", "primary": true }, { "name": "window_start", "type": "timestamptz", "primary": true }, { "name": "hits", "type": "integer", "default": 0 }], "uniques": [{ "fields": ["hits"], "name": "rate_counters_hits_key" }] },
+    { "name": "RateCounter", "primaryKeyName": "rate_counters_pkey", "fields": [{ "name": "bucket", "type": "text", "primary": true }, { "name": "window_start", "type": "timestamptz", "primary": true }, { "name": "hits", "type": "integer", "default": 0 }, { "name": "expires_at", "type": "timestamptz", "nullable": true, "index": true }, { "name": "seen_on", "type": "date", "nullable": true, "unique": true }, { "name": "correlation_id", "type": "uuid", "nullable": true, "unique": true }], "uniques": [{ "fields": ["hits"], "name": "rate_counters_hits_key" }] },
     { "name": "Profile", "created_at": true, "updated_at": true, "timestampType": { "created_at": "timestamptz" }, "timestampNullable": { "updated_at": true }, "fields": [{ "name": "bio", "type": "text", "nullable": true }] }
   ],
   "relationships": [

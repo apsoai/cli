@@ -65,6 +65,10 @@ export interface IntrospectedIndex {
   unique: boolean;
   /** The index has a WHERE clause. */
   partial?: boolean;
+  /** The WHERE condition, as Postgres prints it. */
+  predicate?: string;
+  /** A column is sorted DESC, which .apsorc cannot express yet. */
+  descending?: boolean;
   /** The index covers an expression, e.g. lower(email). */
   expression?: boolean;
   /** pg_get_indexdef, for the import report. */
@@ -145,9 +149,9 @@ export interface ImportReport {
      */
     relationshipsRenamed: string[];
     /**
-     * Partial and expression indexes, as Postgres defines them. .apsorc cannot
-     * express either yet, so each is left out, or kept without its WHERE when
-     * that cannot reject a row the source accepts.
+     * Indexes .apsorc cannot fully express, as Postgres defines them: one on
+     * an expression is left out, and one with a DESC column is imported
+     * ascending.
      */
     indexesNotCarried: string[];
     /** Tables with composite primary keys (emitted as primary:true fields). */

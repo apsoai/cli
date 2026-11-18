@@ -52,7 +52,12 @@ export interface ApsorcImportEntityOutput {
   timestampNullable?: Entity["timestampNullable"];
   fields?: ApsorcImportFieldOutput[];
   uniques?: Array<{ fields: string[]; name?: string }>;
-  indexes?: Array<{ fields: string[]; unique?: boolean }>;
+  indexes?: Array<{
+    fields: string[];
+    unique?: boolean;
+    name?: string;
+    where?: string;
+  }>;
 }
 
 export interface ApsorcImportRelationshipOutput {
@@ -445,8 +450,10 @@ export function pgToApsorc(schema: IntrospectedSchema): {
         });
     }
 
-    const indexSingle = new Set<string>();
-    const indexComposite: Array<{ fields: string[]; unique?: boolean }> = [];
+    // Every index is an "indexes" entry with the source's name and WHERE
+    // condition, so it is rebuilt as it was. A field's or a relationship's
+    // "index": true would get a generated name.
+    const indexes: NonNullable<ApsorcImportEntityOutput["indexes"]> = [];
     for (const idx of table.indexes) {
       const cols = idx.columns;
       // Skip indexes that merely back the PK or a unique constraint.
@@ -457,29 +464,22 @@ export function pgToApsorc(schema: IntrospectedSchema): {
           uc.columns.length === cols.length &&
           uc.columns.every((c) => cols.includes(c))
       );
-      if (backsPk || backsUnique) continue;
-      // .apsorc has no WHERE or expression yet (apsoai/cli#245, #249). Without
-      // them a unique index would reject rows the source accepts, and an
-      // expression index would cover the wrong columns, so those are left
-      // out. A plain partial index is kept as a full index. All are reported.
-      if (idx.partial || idx.expression) {
-        const dropped = idx.expression || idx.unique;
+      if ((backsPk || backsUnique) && !idx.partial && !idx.expression) continue;
+      // An index on an expression would cover the wrong columns, so it is
+      // left out (apsoai/cli#249). A DESC column is imported ascending.
+      if (idx.expression || idx.descending)
         report.warnings.indexesNotCarried.push(
           `${idx.definition ?? idx.name} (${
-            dropped ? "not imported" : "imported without its WHERE"
+            idx.expression ? "not imported" : "imported ascending"
           })`
         );
-        if (dropped) continue;
-      }
-      // A plain index on one column is the field's or the relationship's
-      // "index". A unique one stays an entry, because "index": true is not
-      // unique.
-      if (cols.length === 1 && !idx.unique) indexSingle.add(cols[0]);
-      else
-        indexComposite.push({
-          fields: cols.map((c) => fkProperty.get(c) ?? c),
-          unique: idx.unique,
-        });
+      if (idx.expression) continue;
+      indexes.push({
+        fields: cols.map((c) => fkProperty.get(c) ?? c),
+        ...(idx.unique && { unique: true }),
+        name: idx.name,
+        ...(idx.predicate && { where: idx.predicate }),
+      });
     }
 
     const fields: ApsorcImportFieldOutput[] = [];
@@ -513,7 +513,6 @@ export function pgToApsorc(schema: IntrospectedSchema): {
       if (resolved.elementType) field.elementType = resolved.elementType;
       if (col.nullable) field.nullable = true;
       if (uniqueSingle.has(col.name)) field.unique = true;
-      if (indexSingle.has(col.name)) field.index = true;
       if (pkSet.has(col.name) && pkAsField) field.primary = true;
 
       if ((resolved.type === "varchar" || resolved.type === "char") && col.charMaxLength) field.length = col.charMaxLength;
@@ -555,7 +554,7 @@ export function pgToApsorc(schema: IntrospectedSchema): {
 
     if (fields.length > 0) entity.fields = fields;
     if (uniqueComposite.length > 0) entity.uniques = uniqueComposite;
-    if (indexComposite.length > 0) entity.indexes = indexComposite;
+    if (indexes.length > 0) entity.indexes = indexes;
     entities.push(entity);
 
     // --- Foreign keys -> ManyToOne relationships ---
@@ -589,7 +588,6 @@ export function pgToApsorc(schema: IntrospectedSchema): {
       if (fk.onDelete === "CASCADE") rel.cascadeDelete = true;
       else if (fk.onDelete === "SET NULL" || fk.onDelete === "RESTRICT")
         rel.onDelete = fk.onDelete;
-      if (indexSingle.has(sourceColumn)) rel.index = true;
       relationships.push(rel);
     }
   }

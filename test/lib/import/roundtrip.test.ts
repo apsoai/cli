@@ -31,10 +31,9 @@ describe("import round trip", () => {
     const { apsorc, report } = pgToApsorc(await introspectClient(original, "public"));
     expect(report.warnings.generatedColumns).toEqual(["enrollments.minutes_doubled = (minutes * 2)"]);
     expect(report.warnings.arraysLossy).toEqual([]);
-    expect(apsorc.entities.find((e) => e.name === "patients")?.indexes).toContainEqual({ fields: ["mrn"], unique: true });
+    expect(apsorc.entities.find((e) => e.name === "patients")?.indexes).toContainEqual({ fields: ["mrn"], unique: true, name: "patients_mrn_plain_uq" });
     // What .apsorc cannot express is reported, never imported as something stricter.
     expect(report.warnings.indexesNotCarried).toEqual([
-      expect.stringMatching(/enrollments_one_live_per_patient_uq .* \(not imported\)$/),
       expect.stringMatching(/patients_mrn_uq .* \(not imported\)$/),
     ]);
     const rebuilt = await database(

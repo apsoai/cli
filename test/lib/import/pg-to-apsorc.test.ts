@@ -419,11 +419,15 @@ describe("foreign keys", () => {
     const rels = out.apsorc.relationships.filter((r) => r.from === "enrollments");
     expect(rels).toEqual([
       { from: "enrollments", to: "organizations", type: "ManyToOne", to_name: "organization", joinColumnName: "organization_id" },
-      { from: "enrollments", to: "patients", type: "ManyToOne", to_name: "patient", joinColumnName: "patient_id", index: true },
+      { from: "enrollments", to: "patients", type: "ManyToOne", to_name: "patient", joinColumnName: "patient_id" },
     ]);
     const e = findEntity(out, "enrollments");
     expect(e.uniques).toEqual([{ fields: ["patient", "year"], name: "enrollments_patient_year_uq" }]);
-    expect(e.indexes).toEqual([{ fields: ["organization", "patient"], unique: false }]);
+    // Every index is an entry with the source's name, a single-column one too.
+    expect(e.indexes).toEqual([
+      { fields: ["organization", "patient"], name: "enrollments_org_patient_idx" },
+      { fields: ["patient"], name: "enrollments_patient_idx" },
+    ]);
   });
 
   test("ON DELETE SET NULL and RESTRICT are kept, CASCADE stays cascadeDelete", () => {
@@ -496,7 +500,7 @@ describe("foreign keys", () => {
     ]);
     const notes = findEntity(out, "notes");
     expect(findField(notes, "facility")).toBeDefined();
-    expect(notes.indexes).toEqual([{ fields: ["facilityRecord", "facility"], unique: false }]);
+    expect(notes.indexes).toEqual([{ fields: ["facilityRecord", "facility"], name: "notes_facility_idx" }]);
     expect(out.report.warnings.relationshipsRenamed).toEqual(['notes.facility_id is relationship "facilityRecord"']);
   });
 
@@ -606,7 +610,7 @@ describe("enums", () => {
 // ---- unique / index ----
 
 describe("unique and index", () => {
-  test("single-col index set on field; uniques go to the entity with their names", () => {
+  test("indexes and uniques go to the entity with their names", () => {
     const out = pgToApsorc(
       schema([
         table("User", {
@@ -633,12 +637,40 @@ describe("unique and index", () => {
     // single-column unique is an entity-level entry too.
     expect(findField(e, "email").unique).toBeUndefined();
     expect(findField(e, "email").length).toBe(255);
-    expect(findField(e, "a").index).toBe(true);
+    expect(findField(e, "a").index).toBeUndefined();
     expect(e.uniques).toEqual([
       { fields: ["email"], name: "uq_email" },
       { fields: ["a", "b"], name: "uq_ab" },
     ]);
-    expect(e.indexes).toEqual([{ fields: ["email", "b"], unique: false }]);
+    expect(e.indexes).toEqual([
+      { fields: ["a"], name: "ix_a" },
+      { fields: ["email", "b"], name: "ix_eb" },
+    ]);
+  });
+
+  // apsoai/cli#245
+  test("a partial index keeps its WHERE; expression and DESC indexes are reported", () => {
+    const out = pgToApsorc(
+      schema([
+        table("jobs", {
+          primaryKey: ["id"],
+          columns: [col("id", "uuid"), col("status", "text"), col("email", "text"), col("at", "timestamptz")],
+          indexes: [
+            { name: "jobs_one_live_uq", columns: ["status"], unique: true, partial: true, predicate: "(status <> 'done'::text)" },
+            { name: "jobs_lower_email_idx", columns: [], unique: false, expression: true, definition: "CREATE INDEX jobs_lower_email_idx ON jobs (lower(email))" },
+            { name: "jobs_recent_idx", columns: ["at"], unique: false, descending: true, definition: "CREATE INDEX jobs_recent_idx ON jobs (at DESC)" },
+          ],
+        }),
+      ])
+    );
+    expect(findEntity(out, "jobs").indexes).toEqual([
+      { fields: ["status"], unique: true, name: "jobs_one_live_uq", where: "(status <> 'done'::text)" },
+      { fields: ["at"], name: "jobs_recent_idx" },
+    ]);
+    expect(out.report.warnings.indexesNotCarried).toEqual([
+      "CREATE INDEX jobs_lower_email_idx ON jobs (lower(email)) (not imported)",
+      "CREATE INDEX jobs_recent_idx ON jobs (at DESC) (imported ascending)",
+    ]);
   });
 
   test("index backing a unique constraint is not duplicated", () => {

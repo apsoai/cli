@@ -41,8 +41,9 @@ export const constraintName = {
     "REL_" + sha1(key(t, cols)).slice(0, 26),
   foreignKey: (t: string, cols: string[]) =>
     "FK_" + sha1(key(t, cols)).slice(0, 27),
-  index: (t: string, cols: string[]) =>
-    "IDX_" + sha1(key(t, cols)).slice(0, 26),
+  // TypeORM adds a partial index's condition to the text it hashes.
+  index: (t: string, cols: string[], where?: string) =>
+    "IDX_" + sha1(key(t, cols) + (where ? `_${where}` : "")).slice(0, 26),
 };
 
 export const q = (name: string) => `"${name.replace(/"/g, '""')}"`;
@@ -120,15 +121,19 @@ export function columnSpec(table: string, f: ComputedField): ColumnSpec {
     case "uuid":
       type = "uuid";
       def = hasDefault(f) ? String(f.default) : undefined;
+      unique = Boolean(f.unique);
       break;
     case "date":
       type = "date";
+      unique = Boolean(f.unique);
       break;
     case "timestamp":
       type = "TIMESTAMP";
+      unique = Boolean(f.unique);
       break;
     case "timestamptz":
       type = "TIMESTAMP WITH TIME ZONE";
+      unique = Boolean(f.unique);
       break;
     case "json":
     case "jsonb":
@@ -205,6 +210,8 @@ export interface ModelIndex {
   table: string;
   columns: string[];
   unique: boolean;
+  /** The condition of a partial index. */
+  where?: string;
 }
 
 export interface ModelEnum {
@@ -350,8 +357,18 @@ export function schemaModel(input: SchemaInput): Model {
   // The same columns can be indexed twice (a field or relationship
   // "index": true plus an "indexes" entry). TypeORM names an index by its
   // table and columns, so a second CREATE INDEX would fail on deploy: keep one.
-  const index = (table: string, columns: string[], unique = false) => {
-    const key = `index:${table}(${columns.join(",")})`;
+  // A named or partial index is its own index, so it is never merged.
+  const index = (
+    table: string,
+    columns: string[],
+    isUnique?: boolean,
+    name?: string,
+    where?: string
+  ) => {
+    const unique = Boolean(isUnique);
+    const key = `index:${table}(${columns.join(",")})${
+      where ? ` where ${where}` : ""
+    }${name ? ` as ${name}` : ""}`;
     const seen = model.indexes.find((i) => i.key === key);
     if (seen) {
       seen.unique ||= unique;
@@ -359,10 +376,11 @@ export function schemaModel(input: SchemaInput): Model {
     }
     model.indexes.push({
       key,
-      name: constraintName.index(table, columns),
+      name: name || constraintName.index(table, columns, where),
       table,
       columns,
       unique,
+      ...(where && { where }),
     });
   };
   const unique = (
@@ -483,7 +501,9 @@ export function schemaModel(input: SchemaInput): Model {
       index(
         table,
         i.fields.map((f) => columnByName.get(f) ?? f),
-        i.unique
+        i.unique,
+        i.name,
+        i.where
       );
     for (const u of e.uniques ?? []) {
       const columns = u.fields.map((f) => columnByName.get(f) ?? f);
@@ -568,7 +588,7 @@ export const createTypeSql = (e: ModelEnum) =>
 export const createIndexSql = (i: ModelIndex) =>
   `CREATE ${i.unique ? "UNIQUE " : ""}INDEX ${q(i.name)} ON ${q(
     i.table
-  )} (${cols(i.columns)})`;
+  )} (${cols(i.columns)})${i.where ? ` WHERE ${i.where}` : ""}`;
 export const addConstraintSql = (c: ModelConstraint) =>
   `ALTER TABLE ${q(c.table)} ADD CONSTRAINT ${q(c.name)} ${c.body}`;
 export const createTableSql = (t: ModelTable, constraints: ModelConstraint[]) =>

@@ -735,6 +735,39 @@ describe("a key declared as a field keeps its type and length", () => {
   });
 });
 
+// apsoai/cli#245, #248
+describe("indexes", () => {
+  test("an index keeps its name and WHERE condition", async () => {
+    const content = await renderEntity({
+      name: "Job",
+      fields: [{ name: "status", type: "text" }],
+      indexes: [
+        { fields: ["status"], unique: true, name: "jobs_one_live_uq", where: "status <> 'done'" },
+        { fields: ["status"], name: "jobs_status_idx" },
+        { fields: ["status"] },
+      ],
+    });
+    expect(content).toContain(`@Index("jobs_one_live_uq", ["status"], { unique: true, where: "status <> 'done'" } )`);
+    expect(content).toContain(`@Index("jobs_status_idx", ["status"])`);
+    expect(content).toContain(`@Index(["status"])`);
+  });
+
+  test("timestamp, date and uuid fields honor index and unique", async () => {
+    const rendered = await renderEntity({
+      name: "Event",
+      fields: [
+        { name: "expires_at", type: "timestamptz", nullable: true, index: true },
+        { name: "seen_on", type: "date", nullable: true, unique: true },
+        { name: "correlation_id", type: "uuid" as any, nullable: true, unique: true },
+      ],
+    });
+    const content = rendered.replace(/\s+/g, " ");
+    expect(content).toContain("@Index() @Column({ type: 'timestamptz', nullable: true }) expires_at: Date;");
+    expect(content).toContain("@Column({ type: 'date', nullable: true, unique: true }) seen_on: string;");
+    expect(content).toContain('@Column({ "type": "uuid", nullable: true, unique: true })');
+  });
+});
+
 // apsoai/cli#243
 describe("created_at and updated_at column type", () => {
   test("timestampType timestamptz keeps the time zone", async () => {

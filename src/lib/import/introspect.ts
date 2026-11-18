@@ -198,6 +198,8 @@ const INDEXES_SQL = `
   SELECT tc.relname AS table_name, ic.relname AS index_name,
          a.attname AS column_name, ix.indisunique, k.n AS ord,
          ix.indpred IS NOT NULL AS partial,
+         pg_get_expr(ix.indpred, ix.indrelid) AS predicate,
+         (ix.indoption[k.n - 1] & 1) = 1 AS descending,
          pg_get_indexdef(ix.indexrelid) AS definition
   FROM pg_index ix
   JOIN pg_class ic ON ic.oid = ix.indexrelid
@@ -363,6 +365,8 @@ export function buildSchema(schema: string, raw: RawRows): IntrospectedSchema {
     if (row.column_name === null) idx.expression = true;
     else idx.columns.push(row.column_name);
     if (row.partial) idx.partial = true;
+    if (row.predicate) idx.predicate = row.predicate;
+    if (row.descending) idx.descending = true;
     if (row.definition) idx.definition = row.definition;
     indexByName.set(row.index_name, idx);
   }

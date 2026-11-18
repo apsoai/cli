@@ -321,7 +321,7 @@ export class PythonGenerator extends BaseGenerator {
               (i) =>
                 `Index(${[i.name, ...i.columns].map((x) => pyString(x)).join(", ")}${
                   i.unique ? ", unique=True" : ""
-                })`
+                }${i.where ? `, postgresql_where=text(${pyString(i.where)})` : ""})`
             ),
         ],
       };

@@ -9,7 +9,10 @@ updated_at: Date;
 <% if (field.primary) { %>
 @PrimaryColumn({ type: 'timestamp'<% if (field.primaryKeyName) { %>, primaryKeyConstraintName: '<%= field.primaryKeyName %>'<% } %> })
 <% } else { %>
-@Column({ type: 'timestamp', nullable: <%= Boolean(field.nullable) %> })
+<% if (field.index) { %>
+@Index()
+<% } %>
+@Column({ type: 'timestamp', nullable: <%= Boolean(field.nullable) %><% if (field.unique) { %>, unique: true<% } %> })
 <% } %>
 <%= field.name %>: Date;
 <% } %>

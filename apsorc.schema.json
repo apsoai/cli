@@ -325,6 +325,14 @@
               },
               "unique": {
                 "type": "boolean"
+              },
+              "name": {
+                "description": "The index's name. Defaults to the name TypeORM derives. 'apso import' sets it so an existing database keeps its index names.",
+                "type": "string"
+              },
+              "where": {
+                "description": "A partial index: the SQL condition after WHERE, written against column names, for example 'deleted_at IS NULL'. Postgres only.",
+                "type": "string"
               }
             }
           }

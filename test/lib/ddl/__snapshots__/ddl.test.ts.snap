@@ -129,7 +129,7 @@ exports[`schemaDdl inventory-multi-fk runs on Postgres and matches its snapshot 
 exports[`schemaDdl join-column runs on Postgres and matches its snapshot 1`] = `
 [
   "CREATE TABLE "profile" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP DEFAULT now(), "bio" text, "patient_id" integer, CONSTRAINT "REL_13cc2705ab03e74e079128f139" UNIQUE ("patient_id"), CONSTRAINT "PK_3dd8bfc97e4a77c70971591bdcb" PRIMARY KEY ("id"))",
-  "CREATE TABLE "rate_counter" ("bucket" text NOT NULL, "window_start" TIMESTAMP WITH TIME ZONE NOT NULL, "hits" integer NOT NULL DEFAULT '0', CONSTRAINT "rate_counters_hits_key" UNIQUE ("hits"), CONSTRAINT "rate_counters_pkey" PRIMARY KEY ("bucket", "window_start"))",
+  "CREATE TABLE "rate_counter" ("bucket" text NOT NULL, "window_start" TIMESTAMP WITH TIME ZONE NOT NULL, "hits" integer NOT NULL DEFAULT '0', "expires_at" TIMESTAMP WITH TIME ZONE, "seen_on" date, "correlation_id" uuid, CONSTRAINT "UQ_e7a4bd2c618b68201dcc21410b0" UNIQUE ("seen_on"), CONSTRAINT "UQ_3a6a3838a11ce810fbb6885a222" UNIQUE ("correlation_id"), CONSTRAINT "rate_counters_hits_key" UNIQUE ("hits"), CONSTRAINT "rate_counters_pkey" PRIMARY KEY ("bucket", "window_start"))",
   "CREATE TABLE "tenant_setting" ("theme" text, "tenant_id" character varying(100) NOT NULL, CONSTRAINT "tenant_settings_pkey" PRIMARY KEY ("tenant_id"))",
   "CREATE TABLE "tenant_note" ("code" text NOT NULL, "body" text, "tenant_id" character varying(100) NOT NULL, CONSTRAINT "PK_19eda73e4a942881c4f6210e44c" PRIMARY KEY ("code"))",
   "CREATE TABLE "tenant" ("id" character varying(100) NOT NULL, "name" text NOT NULL, CONSTRAINT "tenants_pkey" PRIMARY KEY ("id"))",
@@ -138,7 +138,10 @@ exports[`schemaDdl join-column runs on Postgres and matches its snapshot 1`] = `
   "CREATE TABLE "organization" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "name" text NOT NULL, CONSTRAINT "organizations_pkey" PRIMARY KEY ("id"))",
   "CREATE INDEX "IDX_76ca4b02387131301df9718669" ON "enrollment" ("organization_id", "patient_id")",
   "CREATE INDEX "IDX_b4dc6e7771ada3565dd3127968" ON "enrollment" ("organization_id", "status")",
+  "CREATE UNIQUE INDEX "enrollments_one_live_uq" ON "enrollment" ("organization_id", "patient_id") WHERE status <> 'revoked'",
+  "CREATE INDEX "enrollments_year_idx" ON "enrollment" ("performance_year")",
   "CREATE INDEX "IDX_08783fb6134e3a93868b6857ea" ON "enrollment" ("patient_id")",
+  "CREATE INDEX "IDX_b4be681c6eff1fb91e6ac28219" ON "rate_counter" ("expires_at")",
   "ALTER TABLE "patient" ADD CONSTRAINT "patients_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "organization"("id") ON DELETE RESTRICT ON UPDATE NO ACTION",
   "ALTER TABLE "enrollment" ADD CONSTRAINT "FK_ed12dfd62dc1ae2855fb944c704" FOREIGN KEY ("organization_id") REFERENCES "organization"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
   "ALTER TABLE "enrollment" ADD CONSTRAINT "FK_08783fb6134e3a93868b6857ead" FOREIGN KEY ("patient_id") REFERENCES "patient"("id") ON DELETE SET NULL ON UPDATE NO ACTION",

@@ -49,7 +49,7 @@ const { CREATE, UPDATE } = CrudValidationGroups;
 
 @Entity('<%= it.tableName %>')
 <% it.indexes.forEach((index) => { %>
-@Index([<%~ index.fields.map((field) => `"${field}"`).join(', ') %>]<% if (index.unique) { %>, { unique: true } <% } %>)
+@Index(<% if (index.name) { %><%~ JSON.stringify(index.name) %>, <% } %>[<%~ index.fields.map((field) => `"${field}"`).join(', ') %>]<% if (index.unique || index.where) { %>, { <%~ [index.unique ? 'unique: true' : '', index.where ? 'where: ' + JSON.stringify(index.where) : ''].filter(Boolean).join(', ') %> } <% } %>)
 <% }) %>
 <% it.uniques.forEach((unique) => { %>
 @Unique(<% if (unique.name) {%> "<%= unique.name %>", <%} %>[<%~ unique.fields.map((field) => `"${field}"`).join(', ') %>])

@@ -3,10 +3,10 @@
 <% if (field.primary) { %>
 @PrimaryColumn({ type: 'date'<% if (field.primaryKeyName) { %>, primaryKeyConstraintName: '<%= field.primaryKeyName %>'<% } %> })
 <% } else { %>
-@Column({ type: 'date', nullable: <%= Boolean(field.nullable) %> })
-<% } %>
-<% if (field.index ) {%>
+<% if (field.index) { %>
 @Index()
+<% } %>
+@Column({ type: 'date', nullable: <%= Boolean(field.nullable) %><% if (field.unique) { %>, unique: true<% } %> })
 <% } %>
 
 <%= field.name %>: string;
