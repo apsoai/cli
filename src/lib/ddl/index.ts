@@ -8,7 +8,6 @@
  * see no drift. test/lib/ddl/project-parity.test.ts checks that against a
  * real scaffolded service.
  */
-import { createHash } from "crypto";
 import {
   Entity,
   timestampNullableOf,
@@ -28,7 +27,14 @@ import { getRelationshipForTemplate } from "../utils/relationships";
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const typeormCase = require("typeorm/util/StringUtils");
 
-const sha1 = (s: string) => createHash("sha1").update(s).digest("hex");
+// TypeORM hashes names with its own SHA-1 routine, which differs from the
+// standard one on text with characters such as quotes or "<>" (a check
+// expression, a partial index's condition). Names must come out as TypeORM's.
+const {
+  RandomGenerator,
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+} = require("typeorm/util/RandomGenerator");
+const sha1 = (s: string): string => RandomGenerator.sha1(s);
 const key = (table: string, columns: string[]) =>
   `${table.replace(".", "_")}_${[...columns].sort().join("_")}`;
 
@@ -41,6 +47,8 @@ export const constraintName = {
     "REL_" + sha1(key(t, cols)).slice(0, 26),
   foreignKey: (t: string, cols: string[]) =>
     "FK_" + sha1(key(t, cols)).slice(0, 27),
+  check: (t: string, expression: string) =>
+    "CHK_" + sha1(`${t.replace(".", "_")}_${expression}`).slice(0, 26),
   // TypeORM adds a partial index's condition to the text it hashes.
   index: (t: string, cols: string[], where?: string) =>
     "IDX_" + sha1(key(t, cols) + (where ? `_${where}` : "")).slice(0, 26),
@@ -197,8 +205,10 @@ export interface ModelConstraint {
   key: string;
   name: string;
   table: string;
-  kind: "pk" | "unique" | "fk";
+  kind: "pk" | "unique" | "fk" | "check";
   columns: string[];
+  /** The condition of a check constraint. */
+  expression?: string;
   /** Everything after CONSTRAINT "name". */
   body: string;
   references?: string;
@@ -505,6 +515,18 @@ export function schemaModel(input: SchemaInput): Model {
         i.name,
         i.where
       );
+    for (const c of e.checks ?? []) {
+      const name = c.name || constraintName.check(table, c.expression);
+      inline.push({
+        key: `check:${table}:${name}`,
+        name,
+        table,
+        kind: "check",
+        columns: [],
+        expression: c.expression,
+        body: `CHECK (${c.expression})`,
+      });
+    }
     for (const u of e.uniques ?? []) {
       const columns = u.fields.map((f) => columnByName.get(f) ?? f);
       unique(table, columns, u.name || constraintName.unique(table, columns));

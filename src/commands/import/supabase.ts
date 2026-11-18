@@ -87,6 +87,8 @@ export function formatReport(report: ImportReport): string {
     review.push(`  - Join tables (could be modeled as ManyToMany): ${w.joinTablesDetected.join(", ")}`);
   if (w.arraysLossy.length > 0)
     review.push(`  - Array columns with an unknown element type (imported as text[]): ${w.arraysLossy.join(", ")}`);
+  if (w.checksNotValid.length > 0)
+    review.push(`  - Check constraints that are NOT VALID in the source (the generated one is validated, so rows that break it must be fixed first): ${w.checksNotValid.join(", ")}`);
   if (w.foreignKeysNotValid.length > 0)
     review.push(`  - Foreign keys that are NOT VALID in the source (the generated key is validated, so rows that break it must be fixed first): ${w.foreignKeysNotValid.join(", ")}`);
   if (w.timestampDefaultsAdded.length > 0)

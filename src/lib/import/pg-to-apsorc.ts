@@ -52,6 +52,7 @@ export interface ApsorcImportEntityOutput {
   timestampNullable?: Entity["timestampNullable"];
   fields?: ApsorcImportFieldOutput[];
   uniques?: Array<{ fields: string[]; name?: string }>;
+  checks?: Array<{ name?: string; expression: string }>;
   indexes?: Array<{
     fields: string[];
     unique?: boolean;
@@ -311,6 +312,7 @@ function emptyReport(schema: IntrospectedSchema): ImportReport {
       arraysLossy: [],
       generatedColumns: [],
       foreignKeysNotValid: [],
+      checksNotValid: [],
       timestampDefaultsAdded: [],
       indexesNotCarried: [],
       relationshipsRenamed: [],
@@ -555,6 +557,15 @@ export function pgToApsorc(schema: IntrospectedSchema): {
     if (fields.length > 0) entity.fields = fields;
     if (uniqueComposite.length > 0) entity.uniques = uniqueComposite;
     if (indexes.length > 0) entity.indexes = indexes;
+    const checks = table.checks ?? [];
+    if (checks.length > 0)
+      entity.checks = checks.map((c) => ({
+        name: c.name,
+        expression: c.expression,
+      }));
+    for (const c of checks)
+      if (c.notValid)
+        report.warnings.checksNotValid.push(`${table.name}.${c.name}`);
     entities.push(entity);
 
     // --- Foreign keys -> ManyToOne relationships ---

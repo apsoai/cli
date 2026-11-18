@@ -123,6 +123,7 @@ export async function introspectClient(
     indexRows,
     enumRows,
     schemaRows,
+    checkRows,
   ] = [
     await client.query(TABLES_SQL, [schema]),
     await client.query(COLUMNS_SQL, [schema]),
@@ -132,6 +133,7 @@ export async function introspectClient(
     await client.query(INDEXES_SQL, [schema]),
     await client.query(ENUMS_SQL, [schema]),
     await client.query(SCHEMAS_SQL),
+    await client.query(CHECKS_SQL, [schema]),
   ];
 
   return buildSchema(schema, {
@@ -143,6 +145,7 @@ export async function introspectClient(
     indexRows: indexRows.rows,
     enumRows: enumRows.rows,
     schemaRows: schemaRows.rows,
+    checkRows: checkRows.rows,
   });
 }
 
@@ -194,6 +197,43 @@ const UNIQUE_SQL = `
   WHERE con.contype = 'u' AND ns.nspname = $1
   ORDER BY con.conname, ord.n`;
 
+/**
+ * The expression of a check constraint from pg_get_constraintdef's
+ * "CHECK (<expression>) [NOT VALID]".
+ *
+ * Postgres prints a value list on a varchar column as
+ * (col)::text = ANY ((ARRAY['a'::character varying, ...])::text[]), and
+ * prints that text differently when it is parsed again. Written back as
+ * col IN ('a', ...), it parses to the form the source has.
+ *
+ * @param {string} definition - pg_get_constraintdef's output.
+ * @returns {string} The expression to store in .apsorc.
+ */
+export function checkExpression(definition: string): string {
+  const expression = definition
+    .replace(/\s+NOT VALID$/, "")
+    .replace(/^CHECK \((.*)\)$/s, "$1");
+  return expression.replace(
+    /\((\w+)\)::text (=|<>) (ANY|ALL) \(\(ARRAY\[((?:'(?:[^']|'')*'::character varying(?:, )?)+)]\)::text\[]\)/g,
+    (_all, column, op, quantifier, list) =>
+      (op === "=" && quantifier === "ANY") || (op === "<>" && quantifier === "ALL")
+        ? `${column} ${op === "=" ? "IN" : "NOT IN"} (${list.replace(
+            /::character varying/g,
+            ""
+          )})`
+        : _all
+  );
+}
+
+const CHECKS_SQL = `
+  SELECT cl.relname AS table_name, con.conname, con.convalidated,
+         pg_get_constraintdef(con.oid) AS definition
+  FROM pg_constraint con
+  JOIN pg_class cl ON cl.oid = con.conrelid
+  JOIN pg_namespace ns ON ns.oid = cl.relnamespace
+  WHERE con.contype = 'c' AND ns.nspname = $1
+  ORDER BY cl.relname, con.conname`;
+
 const INDEXES_SQL = `
   SELECT tc.relname AS table_name, ic.relname AS index_name,
          a.attname AS column_name, ix.indisunique, k.n AS ord,
@@ -229,6 +269,7 @@ interface RawRows {
   indexRows: any[];
   enumRows: any[];
   schemaRows: any[];
+  checkRows?: any[];
 }
 
 /**
@@ -380,6 +421,14 @@ export function buildSchema(schema: string, raw: RawRows): IntrospectedSchema {
     columns: columnsByTable.get(name) ?? [],
     primaryKey: pkByTable.get(name) ?? [],
     primaryKeyName: pkNameByTable.get(name),
+    checks: (raw.checkRows ?? [])
+      .filter((row) => row.table_name === name)
+      .map((row) => ({
+        name: row.conname,
+        // pg_get_constraintdef prints CHECK (<expression>) [NOT VALID].
+        expression: checkExpression(String(row.definition)),
+        ...(row.convalidated === false && { notValid: true }),
+      })),
     foreignKeys: fksByTable.get(name) ?? [],
     uniqueConstraints: uniquesByTable.get(name) ?? [],
     indexes: indexesByTable.get(name) ?? [],

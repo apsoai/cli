@@ -195,6 +195,7 @@ export class TypeScriptGenerator extends BaseGenerator {
       name,
       indexes: toProperties(indexes),
       uniques: toProperties(uniques),
+      checks: entity.checks ?? [],
       createPrimaryKey,
       primaryKeyType,
       primaryKeyName: entity.primaryKeyName,

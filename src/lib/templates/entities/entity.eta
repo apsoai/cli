@@ -22,6 +22,7 @@ import {
     JoinTable,
     Index,
     Unique,
+    Check,
     PrimaryColumn
 } from "typeorm";
 import {
@@ -50,6 +51,9 @@ const { CREATE, UPDATE } = CrudValidationGroups;
 @Entity('<%= it.tableName %>')
 <% it.indexes.forEach((index) => { %>
 @Index(<% if (index.name) { %><%~ JSON.stringify(index.name) %>, <% } %>[<%~ index.fields.map((field) => `"${field}"`).join(', ') %>]<% if (index.unique || index.where) { %>, { <%~ [index.unique ? 'unique: true' : '', index.where ? 'where: ' + JSON.stringify(index.where) : ''].filter(Boolean).join(', ') %> } <% } %>)
+<% }) %>
+<% it.checks.forEach((check) => { %>
+@Check(<% if (check.name) { %><%~ JSON.stringify(check.name) %>, <% } %><%~ JSON.stringify(check.expression) %>)
 <% }) %>
 <% it.uniques.forEach((unique) => { %>
 @Unique(<% if (unique.name) {%> "<%= unique.name %>", <%} %>[<%~ unique.fields.map((field) => `"${field}"`).join(', ') %>])

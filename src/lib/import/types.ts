@@ -89,6 +89,8 @@ export interface IntrospectedTable {
   primaryKey: string[];
   /** The primary key constraint's name in the source database. */
   primaryKeyName?: string;
+  /** CHECK constraints, with the expression as Postgres prints it. */
+  checks?: Array<{ name: string; expression: string; notValid?: boolean }>;
   foreignKeys: IntrospectedFk[];
   uniqueConstraints: IntrospectedUnique[];
   indexes: IntrospectedIndex[];
@@ -126,6 +128,8 @@ export interface ImportReport {
   warnings: {
     /** "table.column" arrays whose element type is unknown, imported as text[]. */
     arraysLossy: string[];
+    /** "table.constraint" for CHECK constraints marked NOT VALID in the source. */
+    checksNotValid: string[];
     /**
      * "table.column -> table" for foreign keys marked NOT VALID in the source
      * (rows that predate the key were never checked). TypeORM cannot create

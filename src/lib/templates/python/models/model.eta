@@ -6,7 +6,7 @@ from datetime import datetime, date
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import CHAR, Column, Integer, SmallInteger, BigInteger, String, Text, Boolean, Float, Numeric, Date, DateTime, JSON, Enum as SAEnum, ForeignKey, Index, PrimaryKeyConstraint, UniqueConstraint, Table, text
+from sqlalchemy import CHAR, CheckConstraint, Column, Integer, SmallInteger, BigInteger, String, Text, Boolean, Float, Numeric, Date, DateTime, JSON, Enum as SAEnum, ForeignKey, Index, PrimaryKeyConstraint, UniqueConstraint, Table, text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID, JSONB, ARRAY, DOUBLE_PRECISION, REAL
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from sqlalchemy.sql import func

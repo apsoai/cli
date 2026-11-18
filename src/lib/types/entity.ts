@@ -1,4 +1,4 @@
-import { Unique } from "./constraints";
+import { Unique, Check } from "./constraints";
 import { Field } from "./field";
 import { Index } from "./indices";
 import { Association } from "./relationship";
@@ -91,6 +91,8 @@ export interface Entity {
   fields?: Field[];
   indexes?: Index[];
   uniques?: Unique[];
+  /** CHECK constraints, for example "end_date >= start_date". */
+  checks?: Check[];
 
   /**
    * Fields or paths that define the authorization scope for this entity.

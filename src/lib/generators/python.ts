@@ -315,6 +315,12 @@ export class PythonGenerator extends BaseGenerator {
                   .map((x) => pyString(x))
                   .join(", ")}, name=${pyString(c.name)})`
             ),
+          ...model.constraints
+            .filter((c) => c.kind === "check" && c.table === t)
+            .map(
+              (c) =>
+                `CheckConstraint(${pyString(c.expression ?? "")}, name=${pyString(c.name)})`
+            ),
           ...model.indexes
             .filter((i) => i.table === t)
             .map(

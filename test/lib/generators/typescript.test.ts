@@ -768,6 +768,20 @@ describe("indexes", () => {
   });
 });
 
+// apsoai/cli#246
+test("checks become @Check decorators, named or not", async () => {
+  const content = await renderEntity({
+    name: "Stay",
+    fields: [{ name: "start_date", type: "date" }, { name: "end_date", type: "date", nullable: true }],
+    checks: [
+      { name: "stays_end_after_start", expression: "end_date IS NULL OR end_date >= start_date" },
+      { expression: "start_date > '2000-01-01'" },
+    ],
+  });
+  expect(content).toContain(`@Check("stays_end_after_start", "end_date IS NULL OR end_date >= start_date")`);
+  expect(content).toContain(`@Check("start_date > '2000-01-01'")`);
+});
+
 // apsoai/cli#243
 describe("created_at and updated_at column type", () => {
   test("timestampType timestamptz keeps the time zone", async () => {

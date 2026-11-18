@@ -11,6 +11,7 @@
       "updated_at": true,
       "fields": [{ "name": "performance_year", "type": "integer" }, { "name": "status", "type": "text" }],
       "uniques": [{ "fields": ["patient", "performance_year"], "name": "enrollments_patient_year_uq" }],
+      "checks": [{ "name": "enrollments_year_ck", "expression": "performance_year >= 2000" }, { "expression": "status <> ''" }],
       "indexes": [{ "fields": ["organization", "patient"] }, { "fields": ["organizationId", "status"] }, { "name": "enrollments_one_live_uq", "fields": ["organization", "patient"], "unique": true, "where": "status <> 'revoked'" }, { "name": "enrollments_year_idx", "fields": ["performance_year"] }]
     },
     { "name": "Tenant", "primaryKeyName": "tenants_pkey", "fields": [{ "name": "id", "type": "varchar", "length": 100, "primary": true }, { "name": "name", "type": "text" }] },

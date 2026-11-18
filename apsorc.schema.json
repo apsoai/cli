@@ -395,6 +395,27 @@
         "http": {
           "description": "Generate an HTTP controller for this entity, overriding the top-level default.",
           "type": "boolean"
+        },
+        "checks": {
+          "description": "CHECK constraints: rules every row must satisfy, whatever writes it. 'apso import' carries the ones an existing database has.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "expression"
+            ],
+            "properties": {
+              "name": {
+                "description": "The constraint's name. Defaults to the name TypeORM derives.",
+                "type": "string"
+              },
+              "expression": {
+                "description": "The SQL condition, written against column names, for example 'end_date IS NULL OR end_date >= start_date'.",
+                "type": "string"
+              }
+            }
+          }
         }
       },
       "required": [
