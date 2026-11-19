@@ -59,7 +59,7 @@ export default class Generate extends BaseCommand {
     const skipFormat = flags["skip-format"];
 
     const totalBuildStart = performance.now();
-    const { rootFolder, entities, relationshipMap, apiType, auth, emitEvents, http, coAuthor, language: configLanguage } = parseApsorc();
+    const { rootFolder, entities, relationshipMap, apiType, auth, emitEvents, http, coAuthor, query, guards, language: configLanguage } = parseApsorc();
 
     // Resolve language: flag > .apsorc > prompt
     let language: TargetLanguage;
@@ -247,6 +247,7 @@ export default class Generate extends BaseCommand {
             apiType: lowerCaseApiType,
             relationshipMap,
             auth,
+            query,
           })
         );
       }
@@ -289,7 +290,7 @@ export default class Generate extends BaseCommand {
     }
 
     // Generate index module
-    const indexFiles = await generator.generateIndexModule(entities, lowerCaseApiType, { emitEvents, http, auth });
+    const indexFiles = await generator.generateIndexModule(entities, lowerCaseApiType, { emitEvents, http, auth, guards });
     for (const file of indexFiles) {
       // eslint-disable-next-line no-await-in-loop
       await writeGenerated(file.path, file.content);

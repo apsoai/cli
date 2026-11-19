@@ -266,6 +266,10 @@ export class TypeScriptGenerator extends BaseGenerator {
       mcp,
       mcpName: snakeCase(entityName),
       mcpPluralName: snakeCase(pluralEntityName),
+      dialects: options.query?.dialects ?? ["postgrest"],
+      dialectList: (options.query?.dialects ?? ["postgrest"]).map((d) => `'${d}'`).join(", "),
+      limit: options.query?.limit ?? 25,
+      alwaysPaginate: options.query?.alwaysPaginate ?? false,
     };
 
     const controllerContent = await this.renderTemplate(
@@ -505,13 +509,13 @@ export class TypeScriptGenerator extends BaseGenerator {
   async generateIndexModule(
     entities: Entity[],
     apiType: string,
-    _opts?: { emitEvents?: boolean; auth?: AuthConfig }
+    opts?: { emitEvents?: boolean; auth?: AuthConfig; guards?: boolean }
   ): Promise<GeneratedFile[]> {
     // Listing GuardsModule is what turns the global guards on; every service
-    // has at least the API key check.
+    // has at least the API key check. `.apsorc` "guards": false leaves it out.
     const content = await this.renderTemplate(
       `./${apiType}/index-module-${apiType}`,
-      { entities }
+      { entities, guards: opts?.guards !== false }
     );
 
     return [
