@@ -2,8 +2,21 @@
 
 package routes
 
-// MCP tools at /mcp (Streamable HTTP, stateless), served with the official MCP
-// SDK for Go.
+// MCP tools (Streamable HTTP, stateless), served with the official MCP SDK for
+// Go at two addresses, one per audience:
+//
+<% if (it.issuers.length > 0) { %>
+//   - /mcp, the external address, for your end users. It takes a signed-in
+//     user's token in Authorization: Bearer and nothing else: an API key is
+//     not read here.
+<% } else { %>
+//   - /mcp, the external address, for your end users, is not served: .apsorc
+//     has no auth block to sign them in with.
+<% } %>
+//   - /mcp/internal, for your own team, agents and scripts. It takes the
+//     service's API key (the same key source as the REST routes) and nothing
+//     else: the Authorization header is not read here. The caller is a
+//     service caller.
 //
 // A tool is a route. When an agent calls a tool, the request is sent through
 // the Gin engine in memory with the caller's headers, so authentication,
@@ -14,10 +27,18 @@ package routes
 // written here from .apsorc: path and query parameters are top-level
 // arguments, the JSON body is the "body" argument.
 //
-// Every request to /mcp passes the service's own auth check first. A request
-// with no valid credential gets the 401 that starts OAuth sign-in in an MCP
-// client, and /.well-known/oauth-protected-resource names the identity
-// provider (RFC 9728).
+// Every request passes the service's own auth check first, on the credential
+// its address reads. A request with no valid credential gets a 401.
+<% if (it.issuers.length > 0) { %>
+// On /mcp that 401 starts OAuth sign-in in an MCP client, and
+// /.well-known/oauth-protected-resource names the identity provider (RFC 9728).
+<% } %>
+//
+// When APSO_INTERNAL_AUTH_ISSUER is set (the platform sets it), the 401 on
+// /mcp/internal starts an Apso sign-in the same way, and
+// /.well-known/oauth-protected-resource/mcp/internal names that issuer. The
+// platform's gateway turns the Apso token into the service token this service
+// checks.
 //
 // Serve your own route as a tool by calling RegisterMCPTool before MountMCP.
 
@@ -87,8 +108,9 @@ func RegisterMCPTool(t MCPTool) {
 }
 
 const (
-	mcpPath = "/mcp"
-	prmPath = "/.well-known/oauth-protected-resource"
+	mcpPath     = "/mcp"
+	mcpInternal = "/internal"
+	prmPath     = "/.well-known/oauth-protected-resource"
 )
 
 // Headers that describe the MCP request itself, not the caller. Everything
@@ -103,6 +125,7 @@ var mcpNotForwarded = map[string]bool{
 	"transfer-encoding":    true,
 }
 
+<% if (it.issuers.length > 0) { %>
 func mcpEnv(name, fallback string) string {
 	if v := os.Getenv(name); v != "" {
 		return v
@@ -116,16 +139,18 @@ var mcpIssuers = []string{
 	mcpEnv(<%~ JSON.stringify(p.env) %>, <%~ JSON.stringify(p.issuer) %>),
 <% }) %>
 }
+<% } %>
 
 func mcpFirst(v string) string {
 	return strings.TrimSpace(strings.Split(v, ",")[0])
 }
 
-// mcpResourceURL is the MCP endpoint's public URL: MCP_RESOURCE_URL, else
-// what the request used.
-func mcpResourceURL(c *gin.Context) string {
+// mcpResourceURL is an MCP address's public URL: from MCP_RESOURCE_URL (the
+// external address; the internal one is that + /internal), else from what the
+// request used. suffix is "" or mcpInternal.
+func mcpResourceURL(c *gin.Context, suffix string) string {
 	if v := os.Getenv("MCP_RESOURCE_URL"); v != "" {
-		return strings.TrimRight(v, "/")
+		return strings.TrimRight(v, "/") + suffix
 	}
 	proto := mcpFirst(c.GetHeader("X-Forwarded-Proto"))
 	if proto == "" {
@@ -138,13 +163,20 @@ func mcpResourceURL(c *gin.Context) string {
 	if host == "" {
 		host = c.Request.Host
 	}
-	return proto + "://" + host + mcpPath
+	return proto + "://" + host + mcpPath + suffix
 }
 
-func mcpMetadataURL(c *gin.Context) string {
-	u, err := url.Parse(mcpResourceURL(c))
+// mcpMetadata is an address's protected resource metadata (RFC 9728).
+type mcpMetadata struct {
+	Resource               string   `json:"resource"`
+	AuthorizationServers   []string `json:"authorization_servers"`
+	BearerMethodsSupported []string `json:"bearer_methods_supported"`
+}
+
+func mcpMetadataURL(c *gin.Context, suffix string) string {
+	u, err := url.Parse(mcpResourceURL(c, suffix))
 	if err != nil {
-		return prmPath + mcpPath
+		return prmPath + mcpPath + suffix
 	}
 	return u.Scheme + "://" + u.Host + prmPath + u.Path
 }
@@ -240,8 +272,8 @@ func mcpCall(ctx context.Context, engine http.Handler, base string, t MCPTool, r
 	return mcpText(text, rec.Code >= 400)
 }
 
-// MountMCP serves the tools at POST /mcp on the engine. api is the group the
-// routes are registered on. Call it after RegisterAllRoutes.
+// MountMCP serves the tools on the engine. api is the group the routes are
+// registered on. Call it after RegisterAllRoutes.
 func MountMCP(r *gin.Engine, api *gin.RouterGroup) {
 	server := mcp.NewServer(&mcp.Implementation{Name: "api", Version: "1.0"}, nil)
 	seen := map[string]bool{}
@@ -266,42 +298,60 @@ func MountMCP(r *gin.Engine, api *gin.RouterGroup) {
 		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true},
 	)
 
-	r.Any(mcpPath,
-		func(c *gin.Context) {
-			if c.Request.Method != http.MethodPost {
-				c.Header("Allow", http.MethodPost)
-				c.AbortWithStatus(http.StatusMethodNotAllowed)
-				return
-			}
-			// The 401 is what starts sign-in: it points the client at the
-			// metadata. Set before the auth check answers, cleared once it passes.
-			if c.GetHeader("x-api-key") == "" && c.GetHeader("x-apso-service-token") == "" {
-				challenge := `Bearer resource_metadata="` + mcpMetadataURL(c) + `"`
-				if c.GetHeader("Authorization") != "" {
-					challenge += `, error="invalid_token"`
+	// serve mounts one address: /mcp (suffix "") or /mcp/internal. ignored is
+	// the credential it does not read: a user's token on the internal one, a
+	// key on the external one. It is dropped before the auth check, so a
+	// tool's route never sees it either.
+	serve := func(suffix string, challenge bool, ignored ...string) {
+		r.Any(mcpPath+suffix,
+			func(c *gin.Context) {
+				if c.Request.Method != http.MethodPost {
+					c.Header("Allow", http.MethodPost)
+					c.AbortWithStatus(http.StatusMethodNotAllowed)
+					return
 				}
-				c.Header("WWW-Authenticate", challenge)
-			}
-		},
-		// The same check every /api route runs: API key, then the user's token.
-		middleware.AuthMiddleware(nil),
-		func(c *gin.Context) {
-			c.Writer.Header().Del("WWW-Authenticate")
-			handler.ServeHTTP(c.Writer, c.Request)
-		},
-	)
-
-	// Tells an MCP client where to sign in. Public by design, and readable
-	// from a browser-based client on another origin.
-	metadata := func(c *gin.Context) {
-		c.Header("Access-Control-Allow-Origin", "*")
-		c.Header("Cache-Control", "max-age=300")
-		c.JSON(http.StatusOK, gin.H{
-			"resource":                 mcpResourceURL(c),
-			"authorization_servers":    mcpIssuers,
-			"bearer_methods_supported": []string{"header"},
-		})
+				sentToken := c.GetHeader("Authorization") != ""
+				for _, name := range ignored {
+					c.Request.Header.Del(name)
+				}
+				// The 401 is what starts sign-in: it points the client at the
+				// metadata. Set before the auth check answers, cleared once it passes.
+				if challenge {
+					value := `Bearer resource_metadata="` + mcpMetadataURL(c, suffix) + `"`
+					if sentToken {
+						value += `, error="invalid_token"`
+					}
+					c.Header("WWW-Authenticate", value)
+				}
+			},
+			// The same check every /api route runs, on what is left: only a key
+			// can pass on the internal address, only a user's token on the external one.
+			middleware.AuthMiddleware(nil),
+			func(c *gin.Context) {
+				c.Writer.Header().Del("WWW-Authenticate")
+				handler.ServeHTTP(c.Writer, c.Request)
+			},
+		)
 	}
-	r.GET(prmPath, metadata)
-	r.GET(prmPath+mcpPath, metadata)
+	// metadata tells an MCP client where to sign in. Public by design, and
+	// readable from a browser-based client on another origin.
+	metadata := func(suffix string, issuers []string) gin.HandlerFunc {
+		return func(c *gin.Context) {
+			c.Header("Access-Control-Allow-Origin", "*")
+			c.Header("Cache-Control", "max-age=300")
+			c.JSON(http.StatusOK, mcpMetadata{mcpResourceURL(c, suffix), issuers, []string{"header"}})
+		}
+	}
+
+	// Where an MCP client signs in to Apso for the internal address.
+	internalIssuer := os.Getenv("APSO_INTERNAL_AUTH_ISSUER")
+	serve(mcpInternal, internalIssuer != "", "Authorization")
+	if internalIssuer != "" {
+		r.GET(prmPath+mcpPath+mcpInternal, metadata(mcpInternal, []string{internalIssuer}))
+	}
+<% if (it.issuers.length > 0) { %>
+	serve("", true, "x-api-key", "x-apso-service-token")
+	r.GET(prmPath, metadata("", mcpIssuers))
+	r.GET(prmPath+mcpPath, metadata("", mcpIssuers))
+<% } %>
 }

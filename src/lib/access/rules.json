@@ -160,7 +160,7 @@
     {
       "id": "R22",
       "group": "MCP",
-      "rule": "When sign-in is configured, every MCP request needs a valid token issued for the MCP endpoint, including listing tools.",
+      "rule": "When sign-in is configured, every request to the external MCP address (`/mcp`) needs a valid token issued for it, including listing tools.",
       "status": { "typescript": "enforced", "python": "enforced", "go": "enforced" }
     },
     {
@@ -194,7 +194,7 @@
     {
       "id": "R27",
       "group": "Build time",
-      "rule": "A schema that cannot be enforced fails at generate: MCP or permissions without sign-in, an unprotected grants entity. A tenant scope whose provider maps no tenant claim does not fail: generate warns, and at run time a token with no tenant gets the \"no tenant\" 403 on tenant-scoped entities, in every language.",
+      "rule": "A schema that cannot be enforced fails at generate: permissions without sign-in, an unprotected grants entity. A tenant scope whose provider maps no tenant claim does not fail: generate warns, and at run time a token with no tenant gets the \"no tenant\" 403 on tenant-scoped entities, in every language.",
       "status": { "typescript": "enforced", "python": "enforced", "go": "enforced" }
     },
     {
@@ -202,6 +202,13 @@
       "group": "Service callers",
       "rule": "The auth entities answer a service caller only. With the `better-auth` provider these are the session, user and membership entities named in the `auth` block, plus Better Auth's other tables. A signed-in user is refused on every one of their routes, no other entity's route loads them through a join or an embed, and `apso generate` refuses `mcp` on them.",
       "status": { "typescript": "enforced", "python": "enforced", "go": "enforced" }
+    },
+    {
+      "id": "R29",
+      "group": "MCP",
+      "rule": "MCP tools have one address per audience. `/mcp/internal` exists whenever an entity has `mcp`, with or without sign-in, and answers service callers only: an API key, or the gateway's service token for a key or an Apso user. A user token is not a credential there. `/mcp` exists only when sign-in is configured and answers signed-in users only: an API key or a service token is not a credential there and does not reach the route a tool calls.",
+      "status": { "typescript": "enforced", "python": "enforced", "go": "enforced" },
+      "issue": "apsoai/cli#232"
     }
   ]
 }

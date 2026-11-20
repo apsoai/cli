@@ -2,7 +2,7 @@ import { expect, describe, test } from "@jest/globals";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { ensureAppMcpWiring, ensureMcpWiring } from "../../../src/lib/utils/crud-deps";
+import { MCP_DEP, ensureAppMcpWiring, ensureMcpWiring } from "../../../src/lib/utils/crud-deps";
 import { mcpOperations } from "../../../src/lib/guards";
 import { GoGenerator } from "../../../src/lib/generators/go";
 import { PythonGenerator } from "../../../src/lib/generators/python";
@@ -60,10 +60,10 @@ describe("mcp in .apsorc", () => {
     expect(all).not.toContain("alwaysPaginate");
   });
 
-  test("rejects an unknown operation and needs auth", async () => {
+  test("rejects an unknown operation, and does not need auth", async () => {
     expect(() => mcpOperations(invoice(["write"]))).toThrow("LineItem.mcp must be true or a list of");
     expect(() => mcpOperations(invoice("yes"))).toThrow("LineItem.mcp must be true or a list of");
-    await expect(controller(invoice(true))).rejects.toThrow("LineItem.mcp needs an auth block");
+    expect(await controller(invoice(true))).toContain("@McpTool({ name: 'list_line_items' })");
   });
 
 });
@@ -92,7 +92,7 @@ describe.each(["python", "go"] as const)("mcp in a %s service", (language) => {
     for (const name of names) expect(off).not.toContain(name);
   });
 
-  test("the endpoint is generated only when an entity opts in, and needs sign-in", async () => {
+  test("the endpoint is generated only when an entity opts in", async () => {
     const file = language === "python" ? "mcp.py" : "routes/mcp.go";
     const on = await generator(language, [invoice(true)]).generateGuards([invoice(true)], jwt, {});
     const endpoint = on.find((f) => f.path === file)!.content;
@@ -101,14 +101,54 @@ describe.each(["python", "go"] as const)("mcp in a %s service", (language) => {
     expect(endpoint).toContain(language === "python" ? '[p["issuer"] for p in _PROVIDERS]' : "https://issuer.example.com/");
     const off = await generator(language, [invoice()]).generateGuards([invoice()], jwt, {});
     expect(off.some((f) => f.path === file)).toBe(false);
-    await expect(generator(language, [invoice(true)]).generateGuards([invoice(true)], undefined, {})).rejects.toThrow(
-      "LineItem.mcp needs an auth block"
-    );
+    // mcp no longer needs an auth block in any language (apsoai/cli#232).
+    await expect(generator(language, [invoice(true)]).generateGuards([invoice(true)], undefined, {})).resolves.toBeDefined();
   });
 
   test("a token issued for the MCP endpoint's URL is an accepted audience", async () => {
     const files = await generator(language, [invoice(true)]).generateGuards([invoice(true)], jwt, {});
     expect(files.find((f) => /auth\.(py|go)$/.test(f.path))!.content).toContain("MCP_RESOURCE_URL");
+  });
+
+  // apsoai/cli#232: /mcp for signed-in users, /mcp/internal for service callers.
+  const addresses = async (auth?: AuthConfig) => {
+    const files = await generator(language, [invoice(true)]).generateGuards([invoice(true)], auth, {});
+    return {
+      endpoint: files.find((f) => f.path === (language === "python" ? "mcp.py" : "routes/mcp.go"))!.content,
+      auth: files.find((f) => /auth\.(py|go)$/.test(f.path))!.content,
+    };
+  };
+  // The lines that mount each address, and what the external one needs.
+  const internal = language === "python" ? "Route(MCP_PATH + INTERNAL, endpoint=Endpoint(INTERNAL))" : 'serve(mcpInternal, internalIssuer != "", "Authorization")';
+  const external = language === "python" ? 'Route(MCP_PATH, endpoint=Endpoint(""))' : 'serve("", true, "x-api-key", "x-apso-service-token")';
+  const issuers = language === "python" ? "_PROVIDERS" : "mcpIssuers";
+
+  test("with sign-in both addresses are served, each without the other's credential", async () => {
+    const { endpoint } = await addresses(jwt);
+    expect(endpoint).toContain(internal);
+    expect(endpoint).toContain(external);
+    // Python drops the headers an address does not read in one place; Go names them where it mounts the address.
+    if (language === "python")
+      expect(endpoint).toContain('self.ignored = {b"authorization"} if suffix else {b"x-api-key", b"x-apso-service-token"}');
+  });
+
+  test("with no auth block only the internal address is served", async () => {
+    const { endpoint } = await addresses();
+    expect(endpoint).toContain(internal);
+    expect(endpoint).not.toContain(external);
+    expect(endpoint).not.toContain(issuers);
+  });
+
+  test("the internal address names Apso sign-in only when the platform sets its issuer", async () => {
+    const { endpoint } = await addresses();
+    expect(endpoint).toContain("APSO_INTERNAL_AUTH_ISSUER");
+    expect(endpoint).toContain(language === "python" ? "if INTERNAL_ISSUER:" : 'if internalIssuer != "" {');
+  });
+
+  test("a gateway token for an Apso user (sub user:<id>) is a service caller, like one for a key", async () => {
+    const { auth } = await addresses();
+    expect(auth).toContain('"user:"');
+    expect(auth).toContain('"apikey:"');
   });
 });
 
@@ -176,27 +216,64 @@ describe("ensureMcpWiring", () => {
   });
 });
 
-const guards = async (entity: Entity, auth: AuthConfig) => {
+const guards = async (entity: Entity, auth?: AuthConfig) => {
   const files = await generator("typescript", [entity]).generateGuards([entity], auth, {});
-  const file = (name: string) => files.find((f) => f.path === `guards/${name}`)!.content;
+  const file = (name: string) => files.find((f) => f.path === `guards/${name}`)?.content ?? "";
   return { guard: file("auth.guard.ts"), key: file("key.guard.ts"), module: file("guards.module.ts") };
 };
 
-describe("OAuth sign-in for MCP clients", () => {
-  test("a JWT service with MCP tools shares its token check with @apso/mcp", async () => {
+// The body of one method of the generated key guard.
+const method = (key: string, name: string) => key.slice(key.indexOf(`async ${name}(`)).split("\n  }\n")[0];
+
+// apsoai/cli#232: /mcp for signed-in users, /mcp/internal for service callers.
+describe("the two MCP addresses of a TypeScript service", () => {
+  test("with sign-in, /mcp checks the user's token only and never the key", async () => {
     const { guard, key, module } = await guards(invoice(true), jwt);
-    // The API key check comes first on /mcp too, then the user's token.
     expect(key).toContain("provide: 'APSO_MCP_AUTH'");
     expect(key).toContain("inject: [ApiKeyGuard]");
     expect(key).toContain("verify: (request: any) => guard.authenticate(request)");
+    const external = method(key, "authenticate");
+    expect(external).toContain("this.authGuard.authenticate(request)");
+    expect(external).not.toContain("serviceCaller");
+    // A key sent next to a token is not passed on to the route a tool calls.
+    expect(key).toContain("ignoredHeaders: ['x-api-key', 'x-apso-service-token']");
     expect(guard).toContain("process.env.MCP_RESOURCE_URL");
     expect(module).toContain("McpAuthProvider,");
   });
 
-  test("no MCP tools, or no JWT issuer to sign in with, means no sign-in settings", async () => {
+  test("/mcp/internal takes service callers only, with or without sign-in", async () => {
+    for (const auth of [jwt, undefined]) {
+      // eslint-disable-next-line no-await-in-loop -- each service is generated in turn
+      const { key, module } = await guards(invoice(true), auth);
+      expect(key).toContain("provide: 'APSO_MCP_INTERNAL_AUTH'");
+      expect(key).toContain("verify: (request: any) => guard.authenticateInternal(request)");
+      const internal = method(key, "authenticateInternal");
+      expect(internal).toContain("await this.serviceCaller(request)");
+      expect(internal).not.toContain("authGuard");
+      expect(internal).toContain("this.refuse(request, NO_SOURCE, 'no key source');");
+      // Apso sign-in is named only when the platform sets its issuer.
+      expect(key).toContain("process.env.APSO_INTERNAL_AUTH_ISSUER ? [process.env.APSO_INTERNAL_AUTH_ISSUER] : []");
+      expect(key).toContain("process.env.MCP_RESOURCE_URL.replace(/\\/$/, '')}/internal");
+      expect(module).toContain("McpInternalAuthProvider,");
+    }
+  });
+
+  test("with no auth block there is no external address", async () => {
+    const { guard, key, module } = await guards(invoice(true));
+    expect(guard).toBe("");
+    expect(key).not.toContain("APSO_MCP_AUTH'");
+    expect(key).not.toContain("async authenticate(");
+    expect(module).not.toContain(" McpAuthProvider");
+  });
+
+  test("no MCP tools means neither address", async () => {
     const plain = await guards(invoice(), jwt);
-    expect(plain.key).not.toContain("APSO_MCP_AUTH");
+    expect(plain.key).not.toContain("APSO_MCP");
     expect(plain.guard).toContain("async authenticate(request: any)");
-    expect(plain.module).not.toContain("McpAuthProvider");
+    expect(plain.module).not.toContain("AuthProvider");
+  });
+
+  test("the library version is the first that serves both addresses", () => {
+    expect(MCP_DEP["@apso/mcp"]).toBe("^0.3.0");
   });
 });

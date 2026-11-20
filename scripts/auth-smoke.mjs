@@ -28,6 +28,9 @@
  *     names its own permission (invoice:approve) is held to it the same ways
  *   - mcp serves only the opted-in operations as tools at /mcp,
  *     and a tool call meets the same auth, permission and scope guards as REST
+ *   - a service has one MCP address per audience (apsoai/cli#232):
+ *     /mcp/internal for service callers, with or without sign-in, and /mcp
+ *     for signed-in users only.
  *   - with the better-auth provider, the auth entities (user, account,
  *     session, verification, membership) answer a service caller only: not a
  *     signed-in user, a join from another entity or an MCP tool
@@ -282,10 +285,15 @@ function providers(base) {
 
 // ---------- project ----------
 
-// Permissions and MCP tools need sign-in.
+// One MCP address per audience (rule R29). Python and Go still serve /mcp
+// alone, to a key or a user: apsoai/cli#232 moves them too.
+const TWO_ADDRESSES = true;
+const INTERNAL = TWO_ADDRESSES ? "/mcp/internal" : "/mcp";
+
+// Permissions need sign-in. MCP tools do not where the service has an internal address.
 const entities = (auth) => {
   const full = Boolean(auth);
-  const mcp = (ops) => (full ? { mcp: ops } : {});
+  const mcp = (ops) => (full || TWO_ADDRESSES ? { mcp: ops } : {});
   return [
     // Organizations are readable as MCP tools: an embed of their tenant-scoped relations is refused there as in REST.
     { name: "Organization", created_at: true, updated_at: true, ...mcp(["read"]), fields: [{ name: "name", type: "text" }] },
@@ -622,8 +630,8 @@ async function jwtCase(name, p, boot) {
     requestLine(t, "a role outside a hand-written route's own permission is refused by the permission guard", await logged(s, "POST", `${route("Invoices")}/1/approve`, { headers: member }), 403, { type: "user", userId: p.claims("1").sub, tenantId: "1" }, "missing permission invoice:approve");
   }
   if (name === "jwt") {
-    await keyNextToSignIn(base, t, valid("1"));
-    const platform = await boot(PLATFORM);
+    await keyNextToSignIn(base, t, valid("1"), bearer(sign({ ...p.claims("1"), app_metadata: { org_id: "1", roles: ["member"] } })));
+    const platform = await boot({ ...PLATFORM, ...(TWO_ADDRESSES ? { APSO_INTERNAL_AUTH_ISSUER: APSO_ISSUER } : {}) });
     await gatewayNextToSignIn(platform.base, t, bearer(sign(p.claims("1"))));
   } else {
     t.expect("[R14] keys off: a request that sends x-api-key is refused, valid user token or not", await call("GET", base + ORGS, { headers: { ...valid("1"), "x-api-key": KEY } }), 401);
@@ -711,7 +719,6 @@ function buildTimeCases(project) {
   refuses("[R27] generate refuses permissions without sign-in", { entities: [doc({ permissions: { read: ["owner"] } })] }, /permissions.*auth block/);
   refuses("[R27] generate refuses a grants entity anyone can write", { auth: jwtAuth, entities: [doc({ permissions: { read: ["owner"] } }), { name: "RolePermission", fields: [{ name: "role", type: "text" }, { name: "permission", type: "text" }] }] }, /grant themselves any permission/);
   refuses("[R27] generate refuses a grants entity with no tenant in a tenant-scoped schema", { auth: jwtAuth, entities: [org, doc({ scopeBy: "organizationId", permissions: { read: ["owner"] } }), { name: "RolePermission", permissions: { create: ["owner"], update: ["owner"], delete: ["owner"] }, fields: [{ name: "role", type: "text" }, { name: "permission", type: "text" }] }], relationships: [{ from: "Organization", to: "Doc", type: "OneToMany" }] }, /every tenant/);
-  refuses("[R27] generate refuses MCP tools without sign-in", { entities: [doc({ mcp: true })] }, /mcp.*auth block/i);
   // The tenant on a create always comes from the caller, so the option that kept the body's tenant is gone.
   refuses("[R6,R8] generate refuses scopeOptions.enforceOn", { auth: jwtAuth, entities: [org, doc({ scopeBy: "organizationId", scopeOptions: { enforceOn: ["find", "get"] } })], relationships: [{ from: "Organization", to: "Doc", type: "OneToMany" }] }, /enforceOn is no longer an option.*on[\s›]+every[\s›]+operation.*service[\s›]+caller/);
   for (const value of [false, true])
@@ -1110,6 +1117,7 @@ async function keyCase(name, boot, project, db) {
   s = await boot({ APSO_API_KEY: KEY });
   plain401(t, "[R5] wrong key, no local flag", await call("GET", s.base + ORGS, { headers: key("sk_smoke_nope") }), s.log);
   t.expect("[R14] a key removed from APSO_API_KEY is refused after a restart", await call("GET", s.base + ORGS, { headers: key(OLD_KEY) }), 401);
+  if (TWO_ADDRESSES) await internalOnly(s.base, t);
 
   // The platform's gateway token (hosted).
   s = await boot({ ...PLATFORM, APSO_LOCAL: "1" });
@@ -1120,7 +1128,82 @@ async function keyCase(name, boot, project, db) {
     requestLine(t, "platform mode: a service token caller is a service with the platform's key id", await logged(s, "GET", ORGS, { headers: serviceToken() }), 200, { type: "service", keyId: "key_123" }, undefined);
     requestLine(t, "platform mode: x-api-key with no service token is refused by the key guard", await logged(s, "GET", ORGS, { headers: key(KEY) }), 401, ANONYMOUS, "no valid service token");
   }
+  if (TWO_ADDRESSES) await internalSignIn(await boot({ ...PLATFORM, APSO_INTERNAL_AUTH_ISSUER: APSO_ISSUER }), t);
   return t.failures;
+}
+
+// ---------- MCP addresses (apsoai/cli#232; rule R29) ----------
+
+const APSO_ISSUER = "https://app.apso.test";
+const PRM = "/.well-known/oauth-protected-resource";
+const mcpList = (url, headers = {}) =>
+  fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json, text/event-stream", ...headers },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+  });
+const mcpClient = async (url, headers) => {
+  const client = new Client({ name: "auth-smoke-addresses", version: "1" });
+  await client.connect(new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers } }));
+  return client;
+};
+/** The tools a caller lists at an MCP address and whether list_invoices answers; an error when it cannot connect. */
+const mcpUse = (url, headers) =>
+  mcpClient(url, headers).then(
+    async (client) => ({ tools: (await client.listTools()).tools.length, listed: !(await client.callTool({ name: "list_invoices", arguments: {} })).isError }),
+    (error) => ({ tools: 0, listed: false, error: String(error) })
+  );
+
+/** mcp with no auth block and APSO_API_KEY set: the internal address alone. */
+async function internalOnly(base, t) {
+  const none = await mcpList(`${base}/mcp/internal`);
+  t.assert("[R29] no sign-in: /mcp/internal with no credential is a 401 that names no sign-in", none.status === 401 && !none.headers.get("www-authenticate"), `${none.status} ${none.headers.get("www-authenticate")}`);
+  t.assert("[R29] no sign-in: /mcp/internal with a wrong key is a 401", (await mcpList(`${base}/mcp/internal`, key("sk_smoke_nope"))).status === 401);
+  const used = await mcpUse(`${base}/mcp/internal`, key(KEY));
+  t.assert("[R29] no sign-in: /mcp/internal lists tools and answers a tool call for a key caller", used.tools > 0 && used.listed, JSON.stringify(used));
+  for (const [who, headers] of [["no credential", {}], ["a valid key", key(KEY)]])
+    t.assert(`[R29] no sign-in: /mcp is not served (${who})`, (await mcpList(`${base}/mcp`, headers)).status === 404);
+  for (const form of ["", "/mcp", "/mcp/internal"])
+    t.expect(`[R29] no sign-in and no Apso issuer: no sign-in metadata at ${PRM}${form}`, await call("GET", `${base}${PRM}${form}`), 404);
+}
+
+/** Platform mode with APSO_INTERNAL_AUTH_ISSUER: the internal address points a client at Apso sign-in. */
+async function internalSignIn(s, t) {
+  const { base } = s;
+  const metadataUrl = `${base}${PRM}/mcp/internal`;
+  const none = await mcpList(`${base}/mcp/internal`);
+  t.assert("[R29] Apso sign-in: /mcp/internal with no credential is a 401 that names its metadata", none.status === 401 && none.headers.get("www-authenticate") === `Bearer resource_metadata="${metadataUrl}"`, `${none.status} ${none.headers.get("www-authenticate")}`);
+  // What the gateway forwards for a token it could not vouch for: the bearer and no service token.
+  const stale = await mcpList(`${base}/mcp/internal`, { authorization: "Bearer opaque-apso-token" });
+  t.assert("[R29] Apso sign-in: a bearer token with no service token is a 401 invalid_token", stale.status === 401 && (stale.headers.get("www-authenticate") ?? "").includes('error="invalid_token"'), `${stale.status} ${stale.headers.get("www-authenticate")}`);
+  const metadata = await call("GET", metadataUrl);
+  t.assert(
+    "[R29] Apso sign-in: the internal metadata names the Apso issuer and the internal address",
+    JSON.stringify(metadata.json) === JSON.stringify({ resource: `${base}/mcp/internal`, authorization_servers: [APSO_ISSUER], bearer_methods_supported: ["header"] }),
+    metadata.text
+  );
+  t.expect("[R29] no sign-in: the root metadata form does not describe the internal address", await call("GET", `${base}${PRM}`), 404);
+  for (const [who, sub] of [["an API key", "apikey:key_123"], ["an Apso user", "user:usr_42"]]) {
+    const used = await mcpUse(`${base}/mcp/internal`, serviceToken({ sub }));
+    t.assert(`[R29] /mcp/internal answers a service token for ${who}`, used.tools > 0 && used.listed, JSON.stringify(used));
+  }
+  t.expect("[R15,R29] a service token for an Apso user is a service caller on REST too", await call("GET", base + ORGS, { headers: serviceToken({ sub: "user:usr_42" }) }), 200);
+  if (language === "typescript") requestLine(t, "platform mode: a service token for an Apso user is a service caller logged by user id", await logged(s, "GET", ORGS, { headers: serviceToken({ sub: "user:usr_42" }) }), 200, { type: "service", userId: "usr_42" }, undefined);
+  t.assert("[R16,R29] /mcp/internal refuses a service token whose subject is neither a key nor a user", (await mcpList(`${base}/mcp/internal`, serviceToken({ sub: "user_1" }))).status === 401);
+}
+
+/** Sign-in and APSO_API_KEY: each address takes its own credential and no other. */
+async function twoAddresses(base, t, member) {
+  const refused = await mcpList(`${base}/mcp`, key(KEY));
+  t.assert("[R29] /mcp refuses a valid key, with the sign-in challenge", refused.status === 401 && (refused.headers.get("www-authenticate") ?? "").includes(`resource_metadata="${base}${PRM}/mcp"`), `${refused.status} ${refused.headers.get("www-authenticate")}`);
+  t.assert("[R29] /mcp/internal refuses a valid user token", (await mcpList(`${base}/mcp/internal`, member)).status === 401);
+  // Invoices are for owners. A key sent next to a member's token must not turn the tool call into a key caller's.
+  const both = await mcpUse(`${base}/mcp`, { ...member, ...key(KEY) });
+  t.assert("[R29] /mcp: a key next to a member's token does not reach the route a tool calls", both.tools > 0 && !both.listed, JSON.stringify(both));
+  const external = await call("GET", `${base}${PRM}/mcp`);
+  const root = await call("GET", `${base}${PRM}`);
+  t.assert("[R29] the external metadata is the same at its path and root forms and names /mcp", external.json?.resource === `${base}/mcp` && external.text === root.text, `${external.text} ${root.text}`);
+  t.expect("[R29] no Apso issuer: no sign-in metadata for /mcp/internal", await call("GET", `${base}${PRM}/mcp/internal`), 404);
 }
 
 /** Platform mode: only a token the gateway signed for this service is accepted. */
@@ -1146,7 +1229,7 @@ async function gateway401s(s, t) {
 }
 
 /** APSO_API_KEY set on a service that also has sign-in. */
-async function keyNextToSignIn(base, t, user) {
+async function keyNextToSignIn(base, t, user, member) {
   t.expect("[R14] a wrong key is refused even with a valid user token", await call("GET", base + ORGS, { headers: { ...user, ...key("sk_smoke_nope") } }), 401);
   t.expect("[R4] a valid user token with no key still signs in", await call("GET", base + ORGS, { headers: user }), 200);
   t.expect("[R1] no key and no token", await call("GET", base + ORGS), 401);
@@ -1161,9 +1244,10 @@ async function keyNextToSignIn(base, t, user) {
     t.expect("[R13] key caller deletes an invoice without a role", await call("DELETE", `${base}${INVOICES}/${invoice.json.id}`, { headers: key(KEY) }), 200, 204);
   }
 
-  // /mcp follows the same rules.
+  // The address a key caller uses follows the same rules.
+  if (TWO_ADDRESSES) await twoAddresses(base, t, member);
   const rpc = (headers) =>
-    fetch(`${base}/mcp`, {
+    fetch(`${base}${INTERNAL}`, {
       method: "POST",
       headers: { "content-type": "application/json", accept: "application/json, text/event-stream", ...headers },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
@@ -1172,7 +1256,7 @@ async function keyNextToSignIn(base, t, user) {
   t.assert("[R14] mcp with a wrong key and a valid user token is a 401", (await rpc({ ...user, ...key("sk_smoke_nope") })).status === 401);
   const client = new Client({ name: "auth-smoke-key", version: "1" });
   try {
-    await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`), { requestInit: { headers: key(KEY) } }));
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${base}${INTERNAL}`), { requestInit: { headers: key(KEY) } }));
     t.assert("[R22] mcp lists tools for a key caller", (await client.listTools()).tools.length > 0);
     const listed = await client.callTool({ name: "list_invoices", arguments: {} });
     t.assert("[R23] mcp tool call by a key caller gets the REST answer (no role needed)", !listed.isError, listed.content?.[0]?.text);
@@ -1188,6 +1272,18 @@ async function gatewayNextToSignIn(base, t, user) {
   t.expect("[R16] platform mode: a bad service token is refused even with a valid user token", await call("GET", base + ORGS, { headers: { ...user, ...serviceToken({ aud: "svc_other" }) } }), 401);
   t.expect("[R15] platform mode: a valid service token is a service caller", await call("GET", base + PROJECTS, { headers: serviceToken() }), 200);
   t.expect("[R1] platform mode: no credential", await call("GET", base + ORGS), 401);
+  if (TWO_ADDRESSES) {
+    t.assert("[R29] platform mode: /mcp refuses a valid service token", (await mcpList(`${base}/mcp`, serviceToken())).status === 401);
+    const used = await mcpUse(`${base}/mcp/internal`, serviceToken());
+    t.assert("[R29] platform mode: /mcp/internal answers a valid service token", used.tools > 0 && used.listed, JSON.stringify(used));
+    const [external, internal] = [await call("GET", `${base}${PRM}/mcp`), await call("GET", `${base}${PRM}/mcp/internal`)];
+    t.assert(
+      "[R29] sign-in and an Apso issuer: each address has its own metadata, with its own issuer",
+      external.json?.resource === `${base}/mcp` && external.json.authorization_servers?.length === 1 && !external.json.authorization_servers.includes(APSO_ISSUER) &&
+        JSON.stringify(internal.json) === JSON.stringify({ resource: `${base}/mcp/internal`, authorization_servers: [APSO_ISSUER], bearer_methods_supported: ["header"] }),
+      `${external.text} ${internal.text}`
+    );
+  }
 }
 
 // ---------- auth entities (rule R28 in apsoai/cli#208) ----------
