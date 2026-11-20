@@ -643,3 +643,45 @@ describe("OpenAPI contract in the DTOs", () => {
     expect(row).toContain("format: 'decimal'");
   });
 });
+
+describe("OpenAPI access rules", () => {
+  const auth = { provider: "clerk", jwt: { issuer: "https://x" } } as any;
+  const deal = {
+    name: "Deal",
+    scopeBy: "organizationId",
+    permissions: { create: ["rep", "manager"], update: ["rep", "manager"], delete: ["manager"] },
+    fields: [{ name: "organizationId", type: "text", nullable: false }],
+  } as Entity;
+
+  test("info.description names the provider, the tenant claim and the roles", async () => {
+    const generator = new TypeScriptGenerator(createConfig([deal]));
+    const [index] = await generator.generateIndexModule([deal], "rest", { auth });
+    const description = JSON.parse(index.content.match(/apiDescription =\s*(".*");/s)![1]);
+    expect(description).toContain("**Sign-in:** Clerk.");
+    expect(description).toContain("`organizationId` is taken from the token's `o.id` claim");
+    expect(description).toContain("The client must not send it or filter by it.");
+    expect(description).toContain("**Roles** come from the token's `o.rol` claim.");
+    expect(description).toContain("Deal: create and update need rep or manager; delete needs manager.");
+
+    const [keyOnly] = await generator.generateIndexModule([{ name: "Note", fields: [] }], "rest", {});
+    expect(keyOnly.content).toContain("Every request needs the service API key");
+  });
+
+  test("role-gated operations carry their rule; every operation documents 401 and 403", async () => {
+    const generator = new TypeScriptGenerator(createConfig([deal]));
+    const [controller] = await generator.generateController({
+      entity: deal,
+      relationships: [],
+      relationshipMap: {},
+      allEntities: [deal],
+      apiType: "rest",
+      auth,
+    } as any);
+    const rules = controller.content.slice(controller.content.indexOf("@DescribeRoles("), controller.content.indexOf("@Crud("));
+    expect(rules).toContain(`"delete": "Requires role: manager (from the token's \`o.rol\` claim).`);
+    expect(rules).toContain(`"createMany": "Requires role: rep or manager`);
+    expect(rules).not.toContain("getMany");
+    expect(controller.content).toContain("@ApiUnauthorizedResponse(");
+    expect(controller.content).toContain("@ApiForbiddenResponse(");
+  });
+});

@@ -39,6 +39,9 @@ import {
   removedScopeOptionErrors,
   toRouteName,
   mcpOperations,
+  accessSummary,
+  entityRoleRules,
+  roleRuleText,
 } from "../guards";
 import { getEventEmittingEntities } from "../events";
 import {
@@ -245,7 +248,22 @@ export class TypeScriptGenerator extends BaseGenerator {
 
     const mcp = mcpOperations(entity);
 
+    // Each role-gated handler's rule, added to its OpenAPI description.
+    const handlers: Record<string, string[]> = {
+      read: ["getMany", "get"],
+      create: ["create", "createMany"],
+      update: ["update", "replace", "recoverOneBase"],
+      delete: ["delete"],
+    };
+    const roleDocs: Record<string, string> = {};
+    if (auth)
+      for (const [op, rule] of Object.entries(entityRoleRules(entity)))
+        for (const handler of handlers[op] ?? [])
+          roleDocs[handler] = roleRuleText(rule!, auth);
+
     const data = {
+      hasAuth: Boolean(auth),
+      roleDocs,
       svcName,
       ctrlName,
       entityName,
@@ -524,13 +542,14 @@ export class TypeScriptGenerator extends BaseGenerator {
   async generateIndexModule(
     entities: Entity[],
     apiType: string,
-    _opts?: { emitEvents?: boolean; auth?: AuthConfig }
+    opts?: { emitEvents?: boolean; auth?: AuthConfig }
   ): Promise<GeneratedFile[]> {
     // Listing GuardsModule is what turns the global guards on; every service
-    // has at least the API key check.
+    // has at least the API key check. The template uses apiDescription as the
+    // OpenAPI info.description.
     const content = await this.renderTemplate(
       `./${apiType}/index-module-${apiType}`,
-      { entities }
+      { entities, apiDescription: accessSummary(entities, opts?.auth) }
     );
 
     return [
