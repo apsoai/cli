@@ -45,6 +45,21 @@ export const PERMISSION_KEY = 'apsoPermission';
 export const Permission = (permission: string, ...roles: string[]) =>
   SetMetadata(PERMISSION_KEY, { permission, roles });
 
+/**
+ * Adds a role rule to each named handler's OpenAPI description. Goes above
+ * @Crud on a controller: @Crud writes its own operation text, and a class
+ * decorator listed above it runs after it.
+ */
+export const DescribeRoles = (rules: Record<string, string>): ClassDecorator => (target: any) => {
+  for (const [handler, rule] of Object.entries(rules)) {
+    const fn = target.prototype[handler];
+    if (typeof fn !== 'function') continue;
+    const op = Reflect.getMetadata('swagger/apiOperation', fn) ?? {};
+    const description = [rule, op.description].filter(Boolean).join('\n\n');
+    Reflect.defineMetadata('swagger/apiOperation', { ...op, description }, fn);
+  }
+};
+
 const OPERATIONS: Record<string, Operation> = {
   GET: 'read',
   HEAD: 'read',

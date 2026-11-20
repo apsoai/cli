@@ -2,7 +2,7 @@
 
 import { Controller, Body<% if (it.relationAccess) { %>, UseInterceptors<% } %> } from "@nestjs/common";
 import { Crud, <% if (it.crudAuth.length || it.crudAuthNested.length) { %>CrudAuth, <% } %>CrudController, Override, ParsedRequest, CrudRequest, ParsedBody, CreateManyDto } from '@apso/crud';
-import { ApiTags, ApiResponse, ApiOperation, ApiBody, ApiExtraModels } from '@nestjs/swagger';
+import { ApiTags, ApiResponse, ApiOperation, ApiBody, ApiExtraModels, ApiUnauthorizedResponse<% if (it.hasAuth) { %>, ApiForbiddenResponse<% } %> } from '@nestjs/swagger';
 <% if (it.mcp.length) { %>
 import { McpTool } from '@apso/mcp';
 <% } %>
@@ -14,6 +14,9 @@ import { <%= it.entityName %> } from './<%= it.entityName %>.entity';
 import {<%= it.svcName %>} from './<%= it.entityName %>.service';
 <% if (it.relationAccess) { %>
 import { RelationAccess, RelationRoot } from '../guards/relations.interceptor';
+<% } %>
+<% if (Object.keys(it.roleDocs).length) { %>
+import { DescribeRoles } from '../guards/permission.guard';
 <% } %>
   
 <% if (it.crudAuthNested.length) { %>
@@ -34,6 +37,10 @@ const skipScope = (req: any) => {
     const roles: string[] = req.auth?.roles ?? req.user?.roles ?? [];
     return roles.some((r) => BYPASS_ROLES.includes(r));
 };
+<% } %>
+<% if (Object.keys(it.roleDocs).length) { %>
+// Above @Crud, which writes its own operation text: adds each role rule to it.
+@DescribeRoles(<%~ JSON.stringify(it.roleDocs, null, 4) %>)
 <% } %>
 <% if (it.relationAccess) { %>
 // Above @Crud, so it runs after @Crud's interceptor has parsed the request.
@@ -107,6 +114,12 @@ const skipScope = (req: any) => {
 
 @Controller('<%= it.pluralEntityName %>')
 @ApiExtraModels(<%= it.entityName %>Row)
+<% if (it.hasAuth) { %>
+@ApiUnauthorizedResponse({ description: 'No valid sign-in token (Authorization: Bearer) or API key (x-api-key).' })
+@ApiForbiddenResponse({ description: "The token's role does not allow this operation, or the record is outside the caller's tenant." })
+<% } else { %>
+@ApiUnauthorizedResponse({ description: 'No valid API key (x-api-key).' })
+<% } %>
 @ApiTags('<%= it.pluralEntityName %>')
 export class <%= it.ctrlName %> implements CrudController<<%= it.entityName %>>{
     constructor(public service: <%= it.svcName %>) {}

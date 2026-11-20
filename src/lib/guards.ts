@@ -9,6 +9,7 @@ import {
   RelationshipMap,
   ScopeOptions,
   isDbSessionAuth,
+  ResolvedJwtAuth,
 } from "./types";
 import pluralize from "pluralize";
 import { snakeCase } from "./utils/casing";
@@ -562,4 +563,134 @@ export function scopedReferences(
       ([field, target]) => !own.has(field) && scopes?.[target]?.bypassRoles !== undefined
     )
   );
+}
+
+/*
+ * Access text for the OpenAPI contract (/_docs-json). An app builder reading
+ * the contract should leave these rules to the API instead of copying them
+ * into the browser: matching users to roles by email, sending the tenant on a
+ * write, hiding a delete button as the only check.
+ */
+
+const PROVIDER_NAMES: Record<string, string> = {
+  "better-auth": "Better Auth",
+  auth0: "Auth0",
+  clerk: "Clerk",
+  cognito: "Amazon Cognito",
+  jwt: "a JWT issuer",
+};
+
+const KEY_ONLY_DESCRIPTION =
+  "Every request needs the service API key in the `x-api-key` header; without it the API answers 401. " +
+  "The key is for server-side callers only. Never put it in a browser app: a browser app calls its own backend, which calls this API.";
+
+/** "the token's `o.rol` claim", naming each provider's claim when they differ. */
+function claimText(providers: ResolvedJwtAuth[], pick: (p: ResolvedJwtAuth) => string | undefined): string | undefined {
+  const names = [...new Set(providers.map((p) => pick(p)).filter((n): n is string => Boolean(n)))];
+  if (names.length === 0) return undefined;
+  return `the token's ${names.map((n) => `\`${n}\``).join(" or ")} claim`;
+}
+
+const tenantClaim = (p: ResolvedJwtAuth) => p.claims.workspaceId ?? p.claims.organizationId;
+
+const joinWords = (words: string[], last = "and"): string =>
+  words.length <= 1 ? words.join("") : `${words.slice(0, -1).join(", ")} ${last} ${words[words.length - 1]}`;
+
+/**
+ * One operation's role rule as a sentence, for its OpenAPI description:
+ * "Requires role: manager (from the token's `o.rol` claim). Other callers get 403."
+ */
+export function roleRuleText(rule: PermissionRule, auth?: AuthConfig): string {
+  const providers = resolveJwtProviders(auth);
+  const roles = claimText(providers, (p) => p.claims.roles);
+  const perms = claimText(providers, (p) => p.claims.permissions);
+  return (
+    `Requires role: ${joinWords(rule.roles, "or")}${roles ? ` (from ${roles})` : " (from the token)"}` +
+    `${perms ? `, or \`${rule.permission}\` in ${perms}` : ""}. Other signed-in users get 403. ` +
+    "The API checks this; a client app must not re-implement it."
+  );
+}
+
+/** Each guarded operation of an entity and its rule, from .apsorc permissions. */
+export function entityRoleRules(entity: Entity): Partial<Record<PermissionOperation, PermissionRule>> {
+  return Object.fromEntries(
+    Object.entries(entity.permissions ?? {}).map(([op, roles]) => [
+      op,
+      { permission: `${permissionKey(entity.name)}:${op}`, roles: roles ?? [] },
+    ])
+  );
+}
+
+/**
+ * The OpenAPI info.description: who signs callers in, how records are scoped
+ * and which operations need which role, in plain words.
+ */
+export function accessSummary(entities: Entity[], auth?: AuthConfig): string {
+  const providers = resolveJwtProviders(auth);
+  if (providers.length === 0) return KEY_ONLY_DESCRIPTION;
+  const lines: string[] = [
+    "**Access rules.** This API enforces every rule below on every request. A client app must not re-implement them: " +
+      "do not look users up to decide their role, do not send the tenant field, and do not treat a hidden button as the check.",
+    "",
+    `- **Sign-in:** ${joinWords(
+      [...new Set(providers.map((p) => (p.provider === "jwt" ? `a JWT issuer (${p.issuer})` : PROVIDER_NAMES[p.provider])))],
+      "or"
+    )}. Send the signed-in user's token as \`Authorization: Bearer <token>\`. Without a valid token the API answers 401.`,
+  ];
+
+  const tenant = claimText(providers, tenantClaim) ?? "the token's tenant claim";
+  const user = claimText(providers, (p) => p.claims.userId) ?? "the token's `sub` claim";
+  // Entities by scope sentence, so a schema scoped by one field reads as one line.
+  const byScope = new Map<string, { names: string[]; fields: string[] }>();
+  for (const { name, scopes, bypassRoles } of getScopedEntities(entities)) {
+    const parts = scopes.map((s) =>
+      s.direct
+        ? `\`${s.field}\` is taken from ${s.contextKey === "userId" ? user : s.contextKey === "email" ? "the token's email claim" : tenant}`
+        : `rows are limited through \`${s.path}\` to the caller's tenant (${tenant})`
+    );
+    const bypass = bypassRoles.length > 0 ? ` Callers with role ${joinWords(bypassRoles, "or")} see every tenant.` : "";
+    const key = `${parts.join("; ")}.${bypass}`;
+    const group = byScope.get(key) ?? { names: [], fields: scopes.filter((s) => s.direct).map((s) => `\`${s.field}\``) };
+    group.names.push(name);
+    byScope.set(key, group);
+  }
+  for (const [scope, { names, fields }] of byScope) {
+    const it = fields.length > 1 ? "them" : "it";
+    lines.push(
+      `- **Scoped records:** ${joinWords(names)}: ${scope} Reads and lists return only the caller's records` +
+        (fields.length > 0
+          ? `, and creates and updates set ${joinWords(fields)} from the token. The client must not send ${it} or filter by ${it}.`
+          : ".")
+    );
+  }
+
+  const guarded = entities.filter((e) => e.permissions && Object.keys(e.permissions).length > 0);
+  if (guarded.length > 0) {
+    const roles = claimText(providers, (p) => p.claims.roles) ?? "the token";
+    const perms = claimText(providers, (p) => p.claims.permissions);
+    lines.push(
+      `- **Roles** come from ${roles}${perms ? ` (a permission such as \`${permissionKey(guarded[0].name)}:delete\` in ${perms} also passes)` : ""}. ` +
+        "A caller without the role gets 403. Operations not listed are open to any signed-in user:"
+    );
+    for (const entity of guarded) {
+      // Operations that need the same roles share a clause.
+      const byRoles = new Map<string, string[]>();
+      for (const op of PERMISSION_OPERATIONS) {
+        const roles = entity.permissions?.[op];
+        if (!roles) continue;
+        const key = joinWords(roles, "or");
+        byRoles.set(key, [...(byRoles.get(key) ?? []), op]);
+      }
+      const clauses = [...byRoles].map(([roles, ops]) => `${joinWords(ops)} need${ops.length === 1 ? "s" : ""} ${roles}`);
+      lines.push(`  - ${entity.name}: ${clauses.join("; ")}.`);
+    }
+    lines.push(
+      "- To show only the actions a user may take, read the role from the same token, and still handle 403."
+    );
+  }
+
+  lines.push(
+    "- **API key:** server-side callers may send the service key in `x-api-key` instead of a token. It is not limited to one tenant or role. Never put it in a browser app."
+  );
+  return lines.join("\n");
 }
