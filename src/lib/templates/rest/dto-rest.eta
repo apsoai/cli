@@ -1,6 +1,6 @@
 <%~ includeFile('./header.eta') %>
 
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiHideProperty, ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
     IsString,
     IsNumber,
@@ -19,6 +19,10 @@ import { Type } from 'class-transformer';
 <% if (it.importEnums) { %>
 import * as enums from '../../enums';
 <% } %>
+<% /* Enum values go in the OpenAPI document, as one named schema per enum. */ %>
+<% const apiOpts = (f) => f.dataType.includes("Enum") ? `{ enum: enums.${f.dataType}, enumName: '${f.dataType}' }` : ''; %>
+<% /* Postgres numeric reads back as a string ("12.50"), so the row schema says so. */ %>
+<% const rowOpts = (f) => (f.type === 'numeric' || f.type === 'decimal') ? `{ type: String, format: 'decimal', description: 'A decimal, sent as a string ("12.50") to keep its precision.' }` : apiOpts(f); %>
 
 export class <%= it.entityName %>Create {
 <% if (it.addDefaultPKProperty && (it.primaryKeyType === 'uuid' || it.primaryKeyType === 'text')) { %>
@@ -29,11 +33,15 @@ export class <%= it.entityName %>Create {
 
 <% } -%>
 <% it.columns.forEach((field) => { -%>
-<% if (!field.required) { -%>
-    @ApiPropertyOptional()
+<% if (field.serverSet) { -%>
+    // Set by the server from the caller's tenant (scopeBy).
+    @ApiHideProperty()
+    @IsOptional()
+<% } else if (!field.required) { -%>
+    @ApiPropertyOptional(<%~ apiOpts(field) %>)
     @IsOptional()
 <% } else { -%>
-    @ApiProperty()
+    @ApiProperty(<%~ apiOpts(field) %>)
     @IsNotEmpty()
 <% } -%>
 <% if (field.dataType.includes("Enum")) { -%>
@@ -99,7 +107,11 @@ export class <%= it.entityName %>Create {
 
 export class <%= it.entityName %>Update {
 <% it.columns.forEach((field) => { -%>
-    @ApiPropertyOptional()
+<% if (field.serverSet) { -%>
+    @ApiHideProperty()
+<% } else { -%>
+    @ApiPropertyOptional(<%~ apiOpts(field) %>)
+<% } -%>
     @IsOptional()
 <% if (field.dataType.includes("Enum")) { -%>
     @IsEnum(enums.<%= field.dataType %>)
@@ -169,12 +181,12 @@ export class <%= it.entityName %> {
 
 <% } -%>
 <% it.columns.forEach((field) => { -%>
-<% if (!field.required) { -%>
-    @ApiPropertyOptional()
+<% if (field.nullable) { -%>
+    @ApiPropertyOptional(<%~ rowOpts(field) %>)
     <%= field.name %>?: <% if (field.dataType.includes("Enum")) { %>enums.<%= field.dataType %><% } else if (field.type === 'json' || field.type === 'json-plain') { %>Record<string, any><% } else if (field.type === 'timestamp' || field.type === 'timestamptz') { %>Date<% } else { %><%= field.dataType %><% } %>;
 
 <% } else { -%>
-    @ApiProperty()
+    @ApiProperty(<%~ rowOpts(field) %>)
     <%= field.name %>: <% if (field.dataType.includes("Enum")) { %>enums.<%= field.dataType %><% } else if (field.type === 'json' || field.type === 'json-plain') { %>Record<string, any><% } else if (field.type === 'timestamp' || field.type === 'timestamptz') { %>Date<% } else { %><%= field.dataType %><% } %>;
 
 <% } -%>
