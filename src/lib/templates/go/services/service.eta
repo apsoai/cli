@@ -79,6 +79,14 @@ func (s *<%= it.entityName %>Service) scoped(ctx context.Context, q *gorm.DB, op
 		// Compared as text: token claims are strings, the column may be a number or uuid.
 		q = q.Where(`CAST("`+table+`"."`+col+`" AS TEXT) = ?`, v)
 	}
+<% if (it.scope.nested.length > 0) { %>
+	// A path through a parent (task.workspaceId): the parent must be in the caller's tenant.
+	nested, nestedArgs, hasTenant := middleware.NestedWhere(a, <%~ JSON.stringify(it.entityName) %>, table)
+	if !hasTenant {
+		return nil, nil, ErrForbidden
+	}
+	q = q.Where(nested, nestedArgs...)
+<% } %>
 	return q, values, nil
 }
 <% } %>
@@ -199,7 +207,7 @@ func (s *<%= it.entityName %>Service) Create(ctx context.Context, input *dto.<%=
 <% if (it.scope) { %>
 
 	// The caller's tenant, never one from the body (.apsorc scopeBy).
-	_, scopeVals, scopeErr := s.scoped(ctx, s.db, "create")
+	_, <%= it.scope.fields.length > 0 ? 'scopeVals' : '_' %>, scopeErr := s.scoped(ctx, s.db, "create")
 	if scopeErr != nil {
 		return nil, scopeErr
 	}
@@ -210,6 +218,16 @@ func (s *<%= it.entityName %>Service) Create(ctx context.Context, input *dto.<%=
 		}
 	}
 <% }) %>
+<% if (it.scope.nested.length > 0) { %>
+	// A parent this entity is scoped through must be in the caller's tenant.
+	if err := middleware.CheckParents(ctx, s.db, <%~ JSON.stringify(it.entityName) %>, map[string]interface{}{
+<% it.scope.nested.forEach((n) => { %>
+		<%~ JSON.stringify(n.column) %>: item.<%= n.goField %>,
+<% }) %>
+	}); err != nil {
+		return nil, err
+	}
+<% } %>
 <% } %>
 <% if (it.references.length) { %>
 
@@ -281,6 +299,16 @@ func (s *<%= it.entityName %>Service) Update(ctx context.Context, id string, inp
 	for col := range scopeVals {
 		delete(updates, col)
 	}
+<% if (it.scope.nested.length > 0) { %>
+	// A new parent must be in the caller's tenant.
+	if err := middleware.CheckParents(ctx, s.db, <%~ JSON.stringify(it.entityName) %>, map[string]interface{}{
+<% it.scope.nested.forEach((n) => { %>
+		<%~ JSON.stringify(n.column) %>: updates[<%~ JSON.stringify(n.column) %>],
+<% }) %>
+	}); err != nil {
+		return nil, err
+	}
+<% } %>
 <% } %>
 <% if (it.references.length) { %>
 	if err := middleware.CheckReferences(ctx, s.db, map[string][]interface{}{
