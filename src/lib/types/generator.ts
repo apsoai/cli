@@ -3,6 +3,20 @@ import { AuthConfig } from "./auth";
 import { RelationshipMap, Relationship } from "./relationship";
 
 /**
+ * .apsorc `query` (TypeScript REST only): how the generated list routes read a
+ * request. Leave it out for the defaults. An app whose clients already send
+ * nestjsx queries keeps them working with `"dialects": ["nestjsx", "postgrest"]`.
+ */
+export interface QueryConfig {
+  /** Query syntaxes the list routes accept. Default `["postgrest"]`. */
+  dialects?: Array<"postgrest" | "nestjsx">;
+  /** Rows a list returns when the request names no limit. Default 25. */
+  limit?: number;
+  /** Answer every list with a page object instead of an array. Default false. */
+  alwaysPaginate?: boolean;
+}
+
+/**
  * Supported target languages for code generation
  */
 export type TargetLanguage = "typescript" | "python" | "go";
@@ -191,6 +205,9 @@ export interface ControllerGenerationOptions extends EntityGenerationOptions {
    * caller's tenant
    */
   auth?: AuthConfig;
+
+  /** The .apsorc `query` settings for list routes */
+  query?: QueryConfig;
 }
 
 /**
@@ -318,7 +335,7 @@ export interface LanguageGenerator {
   generateIndexModule(
     entities: Entity[],
     apiType: string,
-    opts?: { emitEvents?: boolean; http?: boolean; auth?: AuthConfig }
+    opts?: { emitEvents?: boolean; http?: boolean; auth?: AuthConfig; guards?: boolean }
   ): Promise<GeneratedFile[]>;
 
   /**
