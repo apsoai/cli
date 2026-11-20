@@ -3,7 +3,8 @@
 @Column({ 
   type: "<%= field.elementType || 'text' %>", 
   array: true<% if (field.nullable) {%>, 
-  nullable: true<% } %> 
+  nullable: true<% } %><% if (field.defaultSql) { %>,
+  default: () => <%~ JSON.stringify(field.defaultSql) %><% } %> 
 })
 <% if (field.index ) {%>
 @Index()

@@ -369,6 +369,23 @@ describe("GoGenerator", () => {
       expect(content).toContain("autoUpdateTime");
     });
 
+    test("timestampType timestamptz sets the column type, and timestamp stays the default", async () => {
+      const zoned: Entity = { name: "Zoned", created_at: true, updated_at: true, timestampType: "timestamptz" };
+      const plain: Entity = { name: "Plain", created_at: true, updated_at: true };
+      const render = async (entity: Entity, file: string) =>
+        findFileContent(
+          await generator.generateEntity({ entity, relationships: [], allEntities: [entity], apiType: "rest" }),
+          file
+        )!;
+
+      const z = await render(zoned, "zoned.go");
+      expect(z).toContain("column:created_at;type:timestamptz;");
+      expect(z).toContain("column:updated_at;type:timestamptz;");
+      const p = await render(plain, "plain.go");
+      expect(p).toContain("column:created_at;type:timestamp;");
+      expect(p).toContain("column:updated_at;type:timestamp;");
+    });
+
     test("omits timestamp fields when not requested", async () => {
       const entity: Entity = {
         name: "Lookup",
@@ -700,6 +717,13 @@ describe("GoGenerator", () => {
       const result = generator.validateConfig(config);
       expect(result.warnings).toHaveLength(0);
       expect(result.errors).toHaveLength(0);
+    });
+
+    test("refuses a generated column instead of declaring a plain one", () => {
+      const config = createConfig([{ name: "Line", fields: [{ name: "total", type: "integer", generated: "quantity * 2" }] }]);
+      expect(generator.validateConfig(config).errors).toEqual([
+        expect.stringContaining('Line.total sets "generated". The Go generator'),
+      ]);
     });
 
     test("unsupported type produces warning", () => {

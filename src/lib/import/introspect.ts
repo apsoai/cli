@@ -18,6 +18,7 @@ import {
   IntrospectedTable,
   Introspector,
   OnDeleteAction,
+  IntrospectedIndex,
 } from "./types";
 
 /** Supabase- and Postgres-managed schemas we never import from. */
@@ -89,36 +90,7 @@ export class PgIntrospector implements Introspector {
     try {
       client = await this.connect();
 
-      const [
-        tableRows,
-        columnRows,
-        pkRows,
-        fkRows,
-        uniqueRows,
-        indexRows,
-        enumRows,
-        schemaRows,
-      ] = [
-        await client.query(TABLES_SQL, [schema]),
-        await client.query(COLUMNS_SQL, [schema]),
-        await client.query(PRIMARY_KEYS_SQL, [schema]),
-        await client.query(FOREIGN_KEYS_SQL, [schema]),
-        await client.query(UNIQUE_SQL, [schema]),
-        await client.query(INDEXES_SQL, [schema]),
-        await client.query(ENUMS_SQL, [schema]),
-        await client.query(SCHEMAS_SQL),
-      ];
-
-      return buildSchema(schema, {
-        tableRows: tableRows.rows,
-        columnRows: columnRows.rows,
-        pkRows: pkRows.rows,
-        fkRows: fkRows.rows,
-        uniqueRows: uniqueRows.rows,
-        indexRows: indexRows.rows,
-        enumRows: enumRows.rows,
-        schemaRows: schemaRows.rows,
-      });
+      return await introspectClient(client, schema);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(
@@ -130,6 +102,53 @@ export class PgIntrospector implements Introspector {
   }
 }
 
+/**
+ * Read a schema through an open client. Separate from the connection so the
+ * round-trip test can read an in-process database.
+ *
+ * @param {object} client - Anything with pg's query(sql, params).
+ * @param {string} schema - The database schema to read.
+ * @returns {Promise<IntrospectedSchema>} The schema's tables, keys, indexes and enums.
+ */
+export async function introspectClient(
+  client: Pick<QueryClient, "query">,
+  schema: string
+): Promise<IntrospectedSchema> {
+  const [
+    tableRows,
+    columnRows,
+    pkRows,
+    fkRows,
+    uniqueRows,
+    indexRows,
+    enumRows,
+    schemaRows,
+    checkRows,
+  ] = [
+    await client.query(TABLES_SQL, [schema]),
+    await client.query(COLUMNS_SQL, [schema]),
+    await client.query(PRIMARY_KEYS_SQL, [schema]),
+    await client.query(FOREIGN_KEYS_SQL, [schema]),
+    await client.query(UNIQUE_SQL, [schema]),
+    await client.query(INDEXES_SQL, [schema]),
+    await client.query(ENUMS_SQL, [schema]),
+    await client.query(SCHEMAS_SQL),
+    await client.query(CHECKS_SQL, [schema]),
+  ];
+
+  return buildSchema(schema, {
+    tableRows: tableRows.rows,
+    columnRows: columnRows.rows,
+    pkRows: pkRows.rows,
+    fkRows: fkRows.rows,
+    uniqueRows: uniqueRows.rows,
+    indexRows: indexRows.rows,
+    enumRows: enumRows.rows,
+    schemaRows: schemaRows.rows,
+    checkRows: checkRows.rows,
+  });
+}
+
 const TABLES_SQL = `
   SELECT table_name, table_type
   FROM information_schema.tables
@@ -139,13 +158,13 @@ const TABLES_SQL = `
 const COLUMNS_SQL = `
   SELECT table_name, column_name, udt_name, data_type, is_nullable,
          column_default, character_maximum_length, numeric_precision,
-         numeric_scale, ordinal_position
+         numeric_scale, ordinal_position, is_generated, generation_expression
   FROM information_schema.columns
   WHERE table_schema = $1
   ORDER BY table_name, ordinal_position`;
 
 const PRIMARY_KEYS_SQL = `
-  SELECT cl.relname AS table_name, att.attname AS column_name, ord.n AS key_index
+  SELECT con.conname, cl.relname AS table_name, att.attname AS column_name, ord.n AS key_index
   FROM pg_constraint con
   JOIN pg_class cl ON cl.oid = con.conrelid
   JOIN pg_namespace ns ON ns.oid = cl.relnamespace
@@ -157,7 +176,7 @@ const PRIMARY_KEYS_SQL = `
 const FOREIGN_KEYS_SQL = `
   SELECT con.conname, cl.relname AS table_name, att.attname AS column_name,
          clf.relname AS referenced_table, attf.attname AS referenced_column,
-         con.confdeltype, ord.n AS key_index
+         con.confdeltype, con.convalidated, ord.n AS key_index
   FROM pg_constraint con
   JOIN pg_class cl ON cl.oid = con.conrelid
   JOIN pg_namespace ns ON ns.oid = cl.relnamespace
@@ -178,15 +197,70 @@ const UNIQUE_SQL = `
   WHERE con.contype = 'u' AND ns.nspname = $1
   ORDER BY con.conname, ord.n`;
 
+/**
+ * The expression of a check constraint from pg_get_constraintdef's
+ * "CHECK (<expression>) [NOT VALID]".
+ *
+ * Postgres prints a value list on a varchar column as
+ * (col)::text = ANY ((ARRAY['a'::character varying, ...])::text[]), and
+ * prints that text differently when it is parsed again. Written back as
+ * col IN ('a', ...), it parses to the form the source has.
+ *
+ * @param {string} definition - pg_get_constraintdef's output.
+ * @returns {string} The expression to store in .apsorc.
+ */
+export function checkExpression(definition: string): string {
+  const expression = definition
+    .replace(/\s+NOT VALID$/, "")
+    .replace(/^CHECK \((.*)\)$/s, "$1");
+  return valueLists(expression);
+}
+
+/**
+ * Postgres prints a value list on a varchar column as
+ * (col)::text = ANY ((ARRAY['a'::character varying, ...])::text[]), and
+ * prints that text differently when it is parsed again. Written back as
+ * col IN ('a', ...), it parses to the form the source has. Used for check
+ * expressions and for the WHERE condition of a partial index.
+ *
+ * @param {string} sql - An expression as Postgres prints it.
+ * @returns {string} The same expression with value lists written as IN.
+ */
+export function valueLists(sql: string): string {
+  return sql.replace(
+    /\((\w+)\)::text (=|<>) (ANY|ALL) \(\(ARRAY\[((?:'(?:[^']|'')*'::character varying(?:, )?)+)]\)::text\[]\)/g,
+    (_all, column, op, quantifier, list) =>
+      (op === "=" && quantifier === "ANY") || (op === "<>" && quantifier === "ALL")
+        ? `${column} ${op === "=" ? "IN" : "NOT IN"} (${list.replace(
+            /::character varying/g,
+            ""
+          )})`
+        : _all
+  );
+}
+
+const CHECKS_SQL = `
+  SELECT cl.relname AS table_name, con.conname, con.convalidated,
+         pg_get_constraintdef(con.oid) AS definition
+  FROM pg_constraint con
+  JOIN pg_class cl ON cl.oid = con.conrelid
+  JOIN pg_namespace ns ON ns.oid = cl.relnamespace
+  WHERE con.contype = 'c' AND ns.nspname = $1
+  ORDER BY cl.relname, con.conname`;
+
 const INDEXES_SQL = `
   SELECT tc.relname AS table_name, ic.relname AS index_name,
-         a.attname AS column_name, ix.indisunique, k.n AS ord
+         a.attname AS column_name, ix.indisunique, k.n AS ord,
+         ix.indpred IS NOT NULL AS partial,
+         pg_get_expr(ix.indpred, ix.indrelid) AS predicate,
+         (ix.indoption[k.n - 1] & 1) = 1 AS descending,
+         pg_get_indexdef(ix.indexrelid) AS definition
   FROM pg_index ix
   JOIN pg_class ic ON ic.oid = ix.indexrelid
   JOIN pg_class tc ON tc.oid = ix.indrelid
   JOIN pg_namespace ns ON ns.oid = tc.relnamespace
   JOIN LATERAL unnest(ix.indkey) WITH ORDINALITY AS k(attnum, n) ON true
-  JOIN pg_attribute a ON a.attrelid = tc.oid AND a.attnum = k.attnum
+  LEFT JOIN pg_attribute a ON a.attrelid = tc.oid AND a.attnum = k.attnum
   WHERE ns.nspname = $1 AND ix.indisprimary = false
   ORDER BY tc.relname, ic.relname, k.n`;
 
@@ -209,6 +283,7 @@ interface RawRows {
   indexRows: any[];
   enumRows: any[];
   schemaRows: any[];
+  checkRows?: any[];
 }
 
 /**
@@ -250,6 +325,9 @@ export function buildSchema(schema: string, raw: RawRows): IntrospectedSchema {
       numericPrecision: row.numeric_precision ?? null,
       numericScale: row.numeric_scale ?? null,
       ordinal: row.ordinal_position,
+      ...(row.is_generated === "ALWAYS" && {
+        generated: row.generation_expression ?? "",
+      }),
       isEnum,
       enumTypeName: isEnum ? row.udt_name : undefined,
     };
@@ -260,16 +338,18 @@ export function buildSchema(schema: string, raw: RawRows): IntrospectedSchema {
 
   // Primary keys
   const pkByTable = new Map<string, string[]>();
+  const pkNameByTable = new Map<string, string>();
   for (const row of raw.pkRows) {
     const list = pkByTable.get(row.table_name) ?? [];
     list.push(row.column_name);
     pkByTable.set(row.table_name, list);
+    if (row.conname) pkNameByTable.set(row.table_name, row.conname);
   }
 
   // Foreign keys (grouped by constraint name to handle composite keys)
   const fkByConstraint = new Map<
     string,
-    { table: string; columns: string[]; refTable: string; refColumns: string[]; confdeltype: string }
+    { table: string; columns: string[]; refTable: string; refColumns: string[]; confdeltype: string; notValid: boolean }
   >();
   for (const row of raw.fkRows) {
     const existing = fkByConstraint.get(row.conname);
@@ -283,13 +363,16 @@ export function buildSchema(schema: string, raw: RawRows): IntrospectedSchema {
         refTable: row.referenced_table,
         refColumns: [row.referenced_column],
         confdeltype: row.confdeltype,
+        notValid: row.convalidated === false,
       });
     }
   }
   const fksByTable = new Map<string, IntrospectedFk[]>();
-  for (const fk of fkByConstraint.values()) {
+  for (const [name, fk] of fkByConstraint.entries()) {
     const list = fksByTable.get(fk.table) ?? [];
     list.push({
+      name,
+      ...(fk.notValid && { notValid: true }),
       columns: fk.columns,
       referencedTable: fk.refTable,
       referencedColumns: fk.refColumns,
@@ -323,34 +406,43 @@ export function buildSchema(schema: string, raw: RawRows): IntrospectedSchema {
   }
 
   // Indexes (grouped by index name)
-  const indexByName = new Map<
-    string,
-    { table: string; columns: string[]; unique: boolean }
-  >();
+  const indexByName = new Map<string, IntrospectedIndex & { table: string }>();
   for (const row of raw.indexRows) {
-    const existing = indexByName.get(row.index_name);
-    if (existing) existing.columns.push(row.column_name);
-    else
-      indexByName.set(row.index_name, {
-        table: row.table_name,
-        columns: [row.column_name],
-        unique: row.indisunique,
-      });
+    const idx: IntrospectedIndex & { table: string } = indexByName.get(
+      row.index_name
+    ) ?? {
+      table: row.table_name,
+      name: row.index_name,
+      columns: [],
+      unique: row.indisunique,
+    };
+    // A null column is an expression such as lower(email).
+    if (row.column_name === null) idx.expression = true;
+    else idx.columns.push(row.column_name);
+    if (row.partial) idx.partial = true;
+    if (row.predicate) idx.predicate = valueLists(row.predicate);
+    if (row.descending) idx.descending = true;
+    if (row.definition) idx.definition = row.definition;
+    indexByName.set(row.index_name, idx);
   }
-  const indexesByTable = new Map<
-    string,
-    Array<{ name: string; columns: string[]; unique: boolean }>
-  >();
-  for (const [name, idx] of indexByName.entries()) {
-    const list = indexesByTable.get(idx.table) ?? [];
-    list.push({ name, columns: idx.columns, unique: idx.unique });
-    indexesByTable.set(idx.table, list);
+  const indexesByTable = new Map<string, IntrospectedIndex[]>();
+  for (const { table, ...idx } of indexByName.values()) {
+    indexesByTable.set(table, [...(indexesByTable.get(table) ?? []), idx]);
   }
 
   const tables: IntrospectedTable[] = baseTables.map((name) => ({
     name,
     columns: columnsByTable.get(name) ?? [],
     primaryKey: pkByTable.get(name) ?? [],
+    primaryKeyName: pkNameByTable.get(name),
+    checks: (raw.checkRows ?? [])
+      .filter((row) => row.table_name === name)
+      .map((row) => ({
+        name: row.conname,
+        // pg_get_constraintdef prints CHECK (<expression>) [NOT VALID].
+        expression: checkExpression(String(row.definition)),
+        ...(row.convalidated === false && { notValid: true }),
+      })),
     foreignKeys: fksByTable.get(name) ?? [],
     uniqueConstraints: uniquesByTable.get(name) ?? [],
     indexes: indexesByTable.get(name) ?? [],

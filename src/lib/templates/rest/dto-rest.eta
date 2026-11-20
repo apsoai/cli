@@ -28,7 +28,7 @@ export class <%= it.entityName %>Create {
     id?: string;
 
 <% } -%>
-<% it.columns.forEach((field) => { -%>
+<% it.columns.filter((field) => !field.generated).forEach((field) => { -%>
 <% if (!field.required) { -%>
     @ApiPropertyOptional()
     @IsOptional()
@@ -98,7 +98,7 @@ export class <%= it.entityName %>Create {
 }
 
 export class <%= it.entityName %>Update {
-<% it.columns.forEach((field) => { -%>
+<% it.columns.filter((field) => !field.generated).forEach((field) => { -%>
     @ApiPropertyOptional()
     @IsOptional()
 <% if (field.dataType.includes("Enum")) { -%>

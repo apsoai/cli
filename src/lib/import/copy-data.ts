@@ -158,6 +158,9 @@ export function planCopy(
     const keptSource: string[] = [];
     const keptTarget: string[] = [];
     for (const m of mapping) {
+      // An import keeps foreign key column names ("joinColumnName"); a project
+      // imported by an older CLI has the generated camelCase name instead.
+      if (targetColumns.has(m.sourceColumn)) m.targetColumn = m.sourceColumn;
       if (targetColumns.has(m.targetColumn)) {
         keptSource.push(m.sourceColumn);
         keptTarget.push(m.targetColumn);

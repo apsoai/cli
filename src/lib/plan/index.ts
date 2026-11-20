@@ -16,8 +16,11 @@ interface PlanField {
   type: string;
   values?: string[];
   nullable?: boolean;
-  default?: string | null;
+  /** A literal, or { sql } for an expression; the plan only asks whether one is set. */
+  default?: unknown;
   elementType?: string;
+  /** The expression of a stored generated column. */
+  generated?: string;
 }
 
 interface PlanEntity {
@@ -217,7 +220,8 @@ export function planMigration(
         });
         continue;
       }
-      if (!sameType(cur, old)) {
+      // Postgres rebuilds a generated column from its expression: no cast.
+      if (!sameType(cur, old) && !cur.generated) {
         questions.push({
           id: `cast:${now.name}.${old.name}`,
           kind: "cast",
@@ -238,7 +242,12 @@ export function planMigration(
           });
         }
       }
-      if (old.nullable && !cur.nullable && cur.default === undefined) {
+      if (
+        old.nullable &&
+        !cur.nullable &&
+        cur.default === undefined &&
+        !cur.generated
+      ) {
         questions.push({
           id: `backfill:${now.name}.${old.name}`,
           kind: "backfill",
@@ -298,7 +307,9 @@ export function planMigration(
       if (
         byName(fieldsOf(was), f.name) ||
         f.nullable ||
-        f.default !== undefined
+        f.default !== undefined ||
+        // Postgres computes a generated column for the existing rows.
+        f.generated
       )
         continue;
       const key = `${now.name}.${f.name}`;

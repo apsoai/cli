@@ -1,6 +1,6 @@
-import { Unique } from "./constraints";
+import { Unique, Check } from "./constraints";
 import { Field } from "./field";
-import { Index } from "./indices";
+import { Index, SqlIndex } from "./indices";
 import { Association } from "./relationship";
 
 /**
@@ -23,6 +23,56 @@ export const PERMISSION_OPERATIONS = ["read", "create", "update", "delete"] as c
 export type PermissionOperation = typeof PERMISSION_OPERATIONS[number];
 export type EntityPermissions = Partial<Record<PermissionOperation, string[]>>;
 
+export type TimestampType = "timestamp" | "timestamptz";
+export type TimestampColumn = "created_at" | "updated_at";
+
+/**
+ * The type of an entity's created_at or updated_at column.
+ *
+ * @param {object} entity - Anything carrying an entity's "timestampType".
+ * @param {TimestampColumn} column - Which of the two columns.
+ * @returns {TimestampType} "timestamptz" when the entity asks for it, else "timestamp".
+ */
+export const timestampTypeOf = (
+  entity: { timestampType?: Entity["timestampType"] },
+  column: TimestampColumn
+): TimestampType => {
+  const t = entity.timestampType;
+  return (typeof t === "string" ? t : t?.[column]) === "timestamptz"
+    ? "timestamptz"
+    : "timestamp";
+};
+
+/**
+ * Whether an entity's created_at or updated_at column accepts NULL.
+ *
+ * @param {object} entity - Anything carrying an entity's "timestampNullable".
+ * @param {TimestampColumn} column - Which of the two columns.
+ * @returns {boolean} True only when the entity asks for a nullable column.
+ */
+export const timestampNullableOf = (
+  entity: { timestampNullable?: Entity["timestampNullable"] },
+  column: TimestampColumn
+): boolean => {
+  const n = entity.timestampNullable;
+  return (typeof n === "object" ? n?.[column] : n) === true;
+};
+
+/**
+ * Whether an entity's created_at or updated_at column has DEFAULT now().
+ *
+ * @param {object} entity - Anything carrying an entity's "timestampDefault".
+ * @param {TimestampColumn} column - Which of the two columns.
+ * @returns {boolean} False only when the entity turns the default off.
+ */
+export const timestampDefaultOf = (
+  entity: { timestampDefault?: Entity["timestampDefault"] },
+  column: TimestampColumn
+): boolean => {
+  const d = entity.timestampDefault;
+  return (typeof d === "object" ? d?.[column] : d) !== false;
+};
+
 export interface Entity {
   name: string;
   /**
@@ -35,10 +85,43 @@ export interface Entity {
   created_at?: boolean;
   /* eslint-disable-next-line  camelcase */
   updated_at?: boolean;
+  /**
+   * Column type of created_at and updated_at. Defaults to "timestamp" (no time
+   * zone). `apso import` sets "timestamptz" when the source columns have one,
+   * or one type per column when the two differ.
+   */
+  timestampType?: TimestampType | Partial<Record<TimestampColumn, TimestampType>>;
+  /**
+   * Whether created_at and updated_at accept NULL: one value for both, or one
+   * per column. Defaults to false (NOT NULL). `apso import` sets it when the
+   * source columns are nullable.
+   */
+  timestampNullable?: boolean | Partial<Record<TimestampColumn, boolean>>;
+  /**
+   * Whether created_at and updated_at have DEFAULT now(): one boolean, or one
+   * per column. Defaults to true. Migrations honor false; TypeORM's own schema
+   * sync always writes the default. `apso import` sets it when a source
+   * column has none.
+   */
+  timestampDefault?: boolean | Partial<Record<TimestampColumn, boolean>>;
   primaryKeyType?: "serial" | "uuid";
+  /**
+   * Name of the primary key constraint. Defaults to the name TypeORM derives.
+   * `apso import` sets it so an existing database keeps its constraint names.
+   */
+  primaryKeyName?: string;
+  /**
+   * SQL expression that fills a uuid "id", for example "gen_random_uuid()".
+   * Defaults to uuid_generate_v4() from the uuid-ossp extension.
+   */
+  primaryKeyDefault?: string;
   fields?: Field[];
   indexes?: Index[];
+  /** Indexes on an expression or a descending column. */
+  sqlIndexes?: SqlIndex[];
   uniques?: Unique[];
+  /** CHECK constraints, for example "end_date >= start_date". */
+  checks?: Check[];
 
   /**
    * Fields or paths that define the authorization scope for this entity.

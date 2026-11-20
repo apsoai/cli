@@ -14,7 +14,7 @@ import * as os from "os";
 import * as path from "path";
 import pluralize from "pluralize";
 import { parseApsorcV2 } from "../apsorc-parser";
-import { schemaDdl } from "../ddl";
+import { literal, schemaDdl, tableName } from "../ddl";
 import { catalogDiff, readCatalog } from "../ddl/catalog";
 import { migrationSql, typeormMigration } from "../ddl/migration-file";
 import { Entity } from "../types/entity";
@@ -365,6 +365,7 @@ export async function verifyMigration(
   const source = fs.readFileSync(path.resolve(projectDir, migrationFile), "utf8");
   const findings = reviewMigration(source);
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "apso-pglite-"));
+  const metadataFile = `${dataDir}-generated.sql`;
   const steps: Step[] = [];
   const done = (s: Step) => {
     steps.push(s);
@@ -417,6 +418,12 @@ export async function verifyMigration(
     )
       return { ok: false, steps, findings };
 
+    const metadata = generatedMetadataSql(path.join(projectDir, ".apsorc"));
+    if (metadata) {
+      fs.writeFileSync(metadataFile, metadata);
+      if (!done(step("generated", await run(process.execPath, ["-e", RUN_CHECKS, metadataFile], projectDir, pgliteEnv(dataDir)))))
+        return { ok: false, steps, findings };
+    }
     const drift = await typeorm(
       projectDir,
       ["migration:generate", "./src/migrations/drift", "--check"],
@@ -425,8 +432,29 @@ export async function verifyMigration(
     return { ok: done(step("drift", drift)), steps, findings };
   } finally {
     fs.rmSync(dataDir, { recursive: true, force: true });
+    fs.rmSync(metadataFile, { force: true });
   }
 }
+
+/**
+ * TypeORM reads a generated column's expression from its own typeorm_metadata
+ * table, which only its schema sync writes. A migration leaves that table
+ * alone, so the scratch database gets the rows here before TypeORM compares.
+ */
+const generatedMetadataSql = (apsorcFile: string): string | undefined => {
+  const { entities } = parseApsorcV2(JSON.parse(fs.readFileSync(apsorcFile).toString()));
+  const rows = entities.flatMap((e) =>
+    (e.fields ?? [])
+      .filter((f) => f.generated)
+      .map((f) => `(current_database(), current_schema(), ${literal(tableName(e))}, 'GENERATED_COLUMN', ${literal(f.name)}, ${literal(f.generated!)})`)
+  );
+  if (rows.length === 0) return undefined;
+  return [
+    'CREATE TABLE IF NOT EXISTS "typeorm_metadata" ("type" varchar NOT NULL, "database" varchar, "schema" varchar, "table" varchar, "name" varchar, "value" text)',
+    `DELETE FROM "typeorm_metadata" WHERE "type" = 'GENERATED_COLUMN'`,
+    `INSERT INTO "typeorm_metadata" ("database", "schema", "table", "type", "name", "value") VALUES ${rows.join(", ")}`,
+  ].join(";\n");
+};
 
 const ddlOf = (apsorcFile: string) =>
   schemaDdl(parseApsorcV2(JSON.parse(fs.readFileSync(apsorcFile).toString()))).join(";\n");
@@ -583,9 +611,9 @@ const expectStatus = (res: Res, ...ok: number[]) => ({
     : `${res.status} ${tail(res.body, 500)}`,
 });
 
-const idOf = (body: string): unknown => {
+const idOf = (body: string, key = "id"): unknown => {
   try {
-    return JSON.parse(body).id ?? undefined;
+    return JSON.parse(body)[key] ?? undefined;
   } catch {
     return undefined;
   }
@@ -640,7 +668,7 @@ async function checkEndpoints(
       body[parent.property] = ids.get(parent.entity);
     const created = await request("POST", base + r, body);
     const id = [200, 201].includes(created.status)
-      ? idOf(created.body)
+      ? idOf(created.body, p.key)
       : undefined;
     if (
       !done({

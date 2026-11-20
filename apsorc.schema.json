@@ -56,17 +56,43 @@
             "description": "Indicates if deleting the 'from' entity should cascade delete related 'to' entities.",
             "type": "boolean"
           },
+          "primary": {
+            "description": "(Optional) The foreign key column of this ManyToOne is the entity's primary key, or part of it: a table keyed by the row it extends. No 'id' column is generated. TypeScript services only.",
+            "type": "boolean"
+          },
+          "foreignKeyName": {
+            "description": "(Optional) Name of the foreign key constraint on a ManyToOne or OneToMany. Defaults to the name TypeORM derives. 'apso import' sets it. TypeScript services only.",
+            "type": "string"
+          },
+          "onDelete": {
+            "description": "(Optional) The foreign key's ON DELETE rule on a ManyToOne or OneToMany. 'cascadeDelete': true is the same as 'CASCADE'. 'SET NULL' needs 'nullable': true. Defaults to 'NO ACTION'.",
+            "type": "string",
+            "enum": [
+              "CASCADE",
+              "SET NULL",
+              "RESTRICT",
+              "NO ACTION"
+            ]
+          },
           "joinTableName": {
             "description": "(Optional) Custom name for the join table created for a ManyToMany relationship.",
             "type": "string"
           },
           "joinColumnName": {
-            "description": "(Optional) Custom name for the foreign key column in the join table referencing the 'from' entity (owning side) in a ManyToMany relationship.",
+            "description": "(Optional) ManyToMany: custom name for the join table column that references the 'from' entity (owning side). ManyToOne, OneToMany and OneToOne: the name of the foreign key column itself, e.g. 'patient_id'; the generated property stays camelCase ('patientId'). 'apso import' sets it so an existing database keeps its column names. TypeScript services only for foreign keys.",
             "type": "string"
           },
           "inverseJoinColumnName": {
             "description": "(Optional) Custom name for the foreign key column in the join table referencing the 'to' entity (inverse side) in a ManyToMany relationship.",
             "type": "string"
+          },
+          "index": {
+            "description": "(Optional) Index the foreign key column of a ManyToOne or OneToMany.",
+            "type": "boolean"
+          },
+          "validate": {
+            "description": "(Optional) false keeps the foreign key NOT VALID: enforced for new rows, never checked against the rows already there. Migrations create it that way; a database built by TypeORM's schema sync has it validated. TypeScript services only.",
+            "type": "boolean"
           }
         },
         "required": [
@@ -83,12 +109,51 @@
       "items": {
         "$ref": "#/definitions/entity"
       }
+    },
+    "apiType": {
+      "description": "The API style to generate. Case is ignored; defaults to 'rest'.",
+      "type": "string",
+      "enum": [
+        "rest",
+        "Rest",
+        "REST",
+        "graphql",
+        "Graphql",
+        "GraphQL",
+        "GRAPHQL"
+      ]
+    },
+    "language": {
+      "description": "The language of the generated service. 'apso generate' needs it to run without a prompt.",
+      "type": "string",
+      "enum": [
+        "typescript",
+        "python",
+        "go"
+      ]
+    },
+    "auth": {
+      "description": "Sign-in and tenant configuration: a provider block, or a list of them. See the CLI's access rules for the fields of each provider.",
+      "type": [
+        "object",
+        "array"
+      ]
+    },
+    "emitEvents": {
+      "description": "Default for domain events: when true, every entity emits them unless it sets 'emitEvents': false.",
+      "type": "boolean"
+    },
+    "http": {
+      "description": "Default for HTTP controllers: when false, no entity gets one unless it sets 'http': true.",
+      "type": "boolean"
+    },
+    "coAuthor": {
+      "description": "Set false to skip the commit hook that adds the Apso co-author trailer.",
+      "type": "boolean"
     }
   },
   "required": [
     "version",
-    "rootFolder",
-    "relationships",
     "entities"
   ],
   "additionalProperties": false,
@@ -109,10 +174,93 @@
           "description": "Indicates if the entity should have an 'updated_at' timestamp field.",
           "type": "boolean"
         },
+        "timestampType": {
+          "description": "Column type of created_at and updated_at: one value for both, or one per column as { \"created_at\": ..., \"updated_at\": ... }. Defaults to 'timestamp' (no time zone). 'apso import' writes what the source columns use.",
+          "default": "timestamp",
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": [
+                "timestamp",
+                "timestamptz"
+              ]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "created_at": {
+                  "type": "string",
+                  "enum": [
+                    "timestamp",
+                    "timestamptz"
+                  ]
+                },
+                "updated_at": {
+                  "type": "string",
+                  "enum": [
+                    "timestamp",
+                    "timestamptz"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "timestampNullable": {
+          "description": "Whether created_at and updated_at accept NULL: one boolean for both, or one per column as { \"created_at\": ..., \"updated_at\": ... }. Defaults to false (NOT NULL). 'apso import' writes what the source columns use.",
+          "default": false,
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "created_at": {
+                  "type": "boolean"
+                },
+                "updated_at": {
+                  "type": "boolean"
+                }
+              }
+            }
+          ]
+        },
+        "timestampDefault": {
+          "description": "Whether created_at and updated_at have DEFAULT now(): one boolean for both, or one per column as { \"created_at\": ..., \"updated_at\": ... }. Defaults to true. Migrations honor false; TypeORM's own schema sync always writes the default. 'apso import' sets false when a source column has none.",
+          "default": true,
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "created_at": {
+                  "type": "boolean"
+                },
+                "updated_at": {
+                  "type": "boolean"
+                }
+              }
+            }
+          ]
+        },
+        "primaryKeyName": {
+          "description": "Name of the primary key constraint. Defaults to the name TypeORM derives. 'apso import' sets it so an existing database keeps its constraint names. TypeScript services only.",
+          "type": "string"
+        },
         "primaryKeyType": {
-          "description": "The type of primary key to use for this entity. Defaults to 'serial' (auto-increment integer). Use 'uuid' for UUID-based primary keys.",
+          "description": "The type of the generated 'id' primary key: 'serial' (auto-increment integer, the default), 'uuid' or 'text'. Ignored when a field or a relationship is the primary key.",
           "type": "string",
-          "enum": ["serial", "uuid"],
+          "enum": [
+            "serial",
+            "uuid",
+            "text"
+          ],
           "default": "serial"
         },
         "uniques": {
@@ -137,7 +285,6 @@
               }
             },
             "required": [
-              "name",
               "fields"
             ],
             "additionalProperties": false
@@ -152,13 +299,16 @@
           "minItems": 1
         },
         "scopeBy": {
-          "description": "Fields or paths that define the authorization scope for this entity. These typically correspond to generated foreign key columns (e.g., workspaceId, serviceId) or relationship-based paths (e.g., task.workspaceId). Used to auto-generate guards that enforce data isolation.",
-          "oneOf": [
-            { "type": "string", "minLength": 1 },
+          "description": "Field or path that holds the tenant of a row, or a list of them, for example 'workspaceId' or 'task.workspaceId'.",
+          "anyOf": [
+            {
+              "type": "string"
+            },
             {
               "type": "array",
-              "items": { "type": "string", "minLength": 1 },
-              "minItems": 1
+              "items": {
+                "type": "string"
+              }
             }
           ]
         },
@@ -169,15 +319,170 @@
             "bypassRoles": {
               "description": "Roles allowed to bypass scope enforcement (e.g., system_admin).",
               "type": "array",
-              "items": { "type": "string", "minLength": 1 }
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
             }
           },
           "additionalProperties": false
+        },
+        "table": {
+          "description": "Explicit database table name. Defaults to the snake_cased entity name.",
+          "type": "string"
+        },
+        "indexes": {
+          "description": "Indexes over one or more fields. A foreign key may be named by its relationship, its id property or its column.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "fields"
+            ],
+            "properties": {
+              "fields": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              },
+              "unique": {
+                "type": "boolean"
+              },
+              "name": {
+                "description": "The index's name. Defaults to the name TypeORM derives. 'apso import' sets it so an existing database keeps its index names.",
+                "type": "string"
+              },
+              "where": {
+                "description": "A partial index: the SQL condition after WHERE, written against column names, for example 'deleted_at IS NULL'. Postgres only.",
+                "type": "string"
+              }
+            }
+          }
+        },
+        "permissions": {
+          "description": "Roles allowed to perform each operation. A missing operation lets any signed-in caller do it; an empty list lets nobody.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "read": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "create": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "update": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "delete": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "mcp": {
+          "description": "Expose the entity's operations as MCP tools: true for all, or a list of operations.",
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "read",
+                  "create",
+                  "update",
+                  "delete"
+                ]
+              }
+            }
+          ]
+        },
+        "emitEvents": {
+          "description": "Emit domain events for this entity, overriding the top-level default.",
+          "type": "boolean"
+        },
+        "http": {
+          "description": "Generate an HTTP controller for this entity, overriding the top-level default.",
+          "type": "boolean"
+        },
+        "checks": {
+          "description": "CHECK constraints: rules every row must satisfy, whatever writes it. 'apso import' carries the ones an existing database has.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "expression"
+            ],
+            "properties": {
+              "name": {
+                "description": "The constraint's name. Defaults to the name TypeORM derives.",
+                "type": "string"
+              },
+              "expression": {
+                "description": "The SQL condition, written against column names, for example 'end_date IS NULL OR end_date >= start_date'.",
+                "type": "string"
+              },
+              "validate": {
+                "description": "False keeps the constraint NOT VALID in migrations: new and changed rows are checked, rows already there are not. 'apso import' sets it for a constraint that is NOT VALID in the source.",
+                "type": "boolean",
+                "default": true
+              }
+            }
+          }
+        },
+        "primaryKeyDefault": {
+          "description": "SQL expression that fills a uuid 'id', for example 'gen_random_uuid()'. Defaults to uuid_generate_v4() from the uuid-ossp extension.",
+          "type": "string"
+        },
+        "sqlIndexes": {
+          "description": "Indexes whose column list is SQL: an expression such as lower(email), or a column sorted DESC. Apso creates them in migrations and after a schema sync; TypeORM is told to leave them alone. TypeScript and Go services.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "columns"
+            ],
+            "properties": {
+              "name": {
+                "description": "The index's name.",
+                "type": "string"
+              },
+              "columns": {
+                "description": "The column list as SQL, for example 'user_id, created_at DESC' or 'lower(btrim(mrn))'.",
+                "type": "string"
+              },
+              "unique": {
+                "type": "boolean"
+              },
+              "where": {
+                "description": "The condition of a partial index.",
+                "type": "string"
+              }
+            }
+          }
         }
       },
       "required": [
-        "name",
-        "fields"
+        "name"
       ],
       "additionalProperties": false
     },
@@ -194,24 +499,50 @@
           "type": "string",
           "enum": [
             "text",
-            "enum",
-            "integer",
+            "string",
+            "varchar",
+            "char",
             "boolean",
+            "integer",
+            "int",
+            "smallint",
+            "bigint",
             "float",
+            "real",
+            "double",
             "decimal",
             "numeric",
-            "timestamptz",
-            "json",
+            "serial",
+            "bigserial",
+            "smallserial",
             "date",
+            "timestamp",
+            "timestamptz",
+            "datetime",
+            "time",
+            "timetz",
+            "json",
+            "jsonb",
+            "json-plain",
+            "uuid",
+            "money",
+            "bytea",
+            "xml",
+            "inet",
+            "interval",
+            "tsvector",
+            "enum",
+            "array",
+            "point",
             "geometry",
             "geography",
-            "point",
             "linestring",
             "polygon",
             "multipoint",
             "multilinestring",
             "multipolygon",
-            "geometrycollection"
+            "geometrycollection",
+            "int4range"
           ]
         },
         "unique": {
@@ -220,16 +551,29 @@
         },
         "nullable": {
           "description": "Indicates if the field can be null.",
-           "oneOf": [ 
-             { "type": "boolean" },
-             { "type": "string", "enum": ["true", "false"]} 
-           ]
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          ]
         },
         "length": {
           "description": "Specifies the maximum length for string types.",
           "oneOf": [
-            { "type": "string", "pattern": "^[0-9]+$" },
-            { "type": "integer" }
+            {
+              "type": "string",
+              "pattern": "^[0-9]+$"
+            },
+            {
+              "type": "integer"
+            }
           ]
         },
         "is_email": {
@@ -237,13 +581,15 @@
           "type": "boolean"
         },
         "default": {
-          "description": "The default value for the field.",
-           "anyOf": [ 
-             { "type": "string" },
-             { "type": "number" },
-             { "type": "boolean" },
-             { "type": "integer" }
-           ]
+          "description": "The default value for the field: a literal, or { \"sql\": \"<expression>\" } for a SQL expression such as now() or gen_random_uuid(). A json, jsonb or array field also takes an object or array literal.",
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null",
+            "object",
+            "array"
+          ]
         },
         "values": {
           "description": "The allowed values for an enum field.",
@@ -264,6 +610,43 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 16383
+        },
+        "index": {
+          "description": "Index this field.",
+          "type": "boolean"
+        },
+        "primary": {
+          "description": "The field is the primary key, or part of it. No 'id' column is generated.",
+          "type": "boolean"
+        },
+        "elementType": {
+          "description": "Element type of an 'array' field, for example 'uuid' or 'integer'. Defaults to 'text'.",
+          "type": "string"
+        },
+        "isIndex": {
+          "description": "The platform's spelling of 'index'.",
+          "type": "boolean"
+        },
+        "isUnique": {
+          "description": "The platform's spelling of 'unique'.",
+          "type": "boolean"
+        },
+        "arrayType": {
+          "description": "An older spelling of 'elementType'.",
+          "type": "string"
+        },
+        "arrayItemType": {
+          "description": "An older spelling of 'elementType'.",
+          "type": "string"
+        },
+        "noDefault": {
+          "description": "The column has no database default. A boolean field otherwise defaults to false.",
+          "type": "boolean"
+        },
+        "generated": {
+          "description": "The SQL expression of a stored generated column, e.g. \"(quantity * price)\". Postgres computes the value, so create and update requests do not accept the field. It cannot have a default. TypeScript only.",
+          "type": "string",
+          "minLength": 1
         }
       },
       "required": [
@@ -271,12 +654,18 @@
         "type"
       ],
       "if": {
-        "properties": { "type": { "const": "enum" } }
+        "properties": {
+          "type": {
+            "const": "enum"
+          }
+        }
       },
       "then": {
-        "required": ["values"]
+        "required": [
+          "values"
+        ]
       },
       "additionalProperties": false
     }
   }
-} 
+}

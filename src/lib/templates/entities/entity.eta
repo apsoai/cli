@@ -22,6 +22,7 @@ import {
     JoinTable,
     Index,
     Unique,
+    Check,
     PrimaryColumn
 } from "typeorm";
 import {
@@ -49,7 +50,13 @@ const { CREATE, UPDATE } = CrudValidationGroups;
 
 @Entity('<%= it.tableName %>')
 <% it.indexes.forEach((index) => { %>
-@Index([<%~ index.fields.map((field) => `"${field}"`).join(', ') %>]<% if (index.unique) { %>, { unique: true } <% } %>)
+@Index(<% if (index.name) { %><%~ JSON.stringify(index.name) %>, <% } %>[<%~ index.fields.map((field) => `"${field}"`).join(', ') %>]<% if (index.unique || index.where) { %>, { <%~ [index.unique ? 'unique: true' : '', index.where ? 'where: ' + JSON.stringify(index.where) : ''].filter(Boolean).join(', ') %> } <% } %>)
+<% }) %>
+<% it.sqlIndexes.forEach((index) => { %>
+@Index(<%~ JSON.stringify(index.name) %>, { synchronize: false })
+<% }) %>
+<% it.checks.forEach((check) => { %>
+@Check(<% if (check.name) { %><%~ JSON.stringify(check.name) %>, <% } %><%~ JSON.stringify(check.expression) %>)
 <% }) %>
 <% it.uniques.forEach((unique) => { %>
 @Unique(<% if (unique.name) {%> "<%= unique.name %>", <%} %>[<%~ unique.fields.map((field) => `"${field}"`).join(', ') %>])
@@ -58,25 +65,31 @@ export class <%= it.name %> {
 <% if (it.createPrimaryKey) { %>
     // Fields
     <% if (it.primaryKeyType === 'uuid') { %>
-    @PrimaryGeneratedColumn('uuid')
+    <% if (it.primaryKeyDefault) { %>
+    @PrimaryColumn({ type: 'uuid', default: () => <%~ JSON.stringify(it.primaryKeyDefault) %><% if (it.primaryKeyName) { %>, primaryKeyConstraintName: '<%= it.primaryKeyName %>'<% } %> })
+    <% if (it.primaryKeyGenerated) { %>
+    @Generated('uuid')
+    <% } %>
+    <% } else { %>
+    @PrimaryGeneratedColumn('uuid'<% if (it.primaryKeyName) { %>, { primaryKeyConstraintName: '<%= it.primaryKeyName %>' }<% } %>)
+    <% } %>
     id: string;
     <% } else if (it.primaryKeyType === 'text') { %>
-    @Column({ type: 'text' })
-    @PrimaryColumn()
+    @PrimaryColumn({ type: 'text'<% if (it.primaryKeyName) { %>, primaryKeyConstraintName: '<%= it.primaryKeyName %>'<% } %> })
     id: string;
     <% } else { %>
-    @PrimaryGeneratedColumn()
+    @PrimaryGeneratedColumn(<% if (it.primaryKeyName) { %>{ primaryKeyConstraintName: '<%= it.primaryKeyName %>' }<% } %>)
     id!: number;
     <% } %>
 <% } %>
 
 <% if (it.createdAt) { %>
-    @CreateDateColumn()
+    @CreateDateColumn(<%~ it.createdAtArgs %>)
     created_at: Date;
 <% } %>
 
 <% if (it.updatedAt) { %>
-    @UpdateDateColumn()
+    @UpdateDateColumn(<%~ it.updatedAtArgs %>)
     updated_at: Date;
 <% } %>
 
@@ -90,7 +103,11 @@ const columnsToProcess = it.columns.filter(c => {
 });
 columnsToProcess.forEach((field) => { %>
 
-<%~ includeFile(`./entities/entity-col-${field.type}`, { field }) %>
+<%
+// A generated column: Postgres computes it, so TypeORM never writes it.
+const columnCode = includeFile(`./entities/entity-col-${field.type}`, { field });
+%>
+<%~ field.generated ? columnCode.replace(/@Column\(('\w+', )?\{/, (open) => `${open} generatedType: 'STORED', asExpression: ${JSON.stringify(field.generated)}, insert: false, update: false,`) : columnCode %>
 
 <% }); %>
 
@@ -113,17 +130,12 @@ columnsToProcess.forEach((field) => { %>
         <% if (assoc.index) { %>
         @Index()
         <% } %>
-        @ManyToOne(() => <%= assoc.name %><% if (assoc.biDirectional) { %>, <%= assoc.camelCasedName %> => <%= assoc.camelCasedName %>.<%= assoc.inverseSidePropertyName %><% } %><% if (assoc.cascadeDelete) { %>, { onDelete: "CASCADE" }<% } %>)
-        @JoinColumn({ name: '<%= assoc.camelCasedId %>' })
+        @ManyToOne(() => <%= assoc.name %><% if (assoc.biDirectional) { %>, <%= assoc.camelCasedName %> => <%= assoc.camelCasedName %>.<%= assoc.inverseSidePropertyName %><% } %><% if (assoc.onDeleteRule) { %>, { onDelete: "<%= assoc.onDeleteRule %>" }<% } %>)
+        @JoinColumn({ name: '<%= assoc.joinColumnName || assoc.camelCasedId %>'<% if (assoc.foreignKeyName) { %>, foreignKeyConstraintName: '<%= assoc.foreignKeyName %>'<% } %> })
         <%= assoc.relationshipName %>: <%= assoc.name %>;
 
-        <% if (assoc.referencedEntityPrimaryKeyType === 'uuid') { %>
-        @Column({ type: "uuid", <% if (assoc.nullable) { %> nullable: true <% } %>})
-        <%= assoc.camelCasedId %>: string;
-        <% } else { %>
-        @Column({ type: "integer", <% if (assoc.nullable) { %> nullable: true <% } %>})
-        <%= assoc.camelCasedId %>: number;
-        <% } %>
+        @<%= assoc.primary ? 'PrimaryColumn' : 'Column' %>({ <% if (assoc.joinColumnName) { %>name: '<%= assoc.joinColumnName %>', <% } %><%~ assoc.fkColumnOptions %>, <% if (assoc.primary && it.primaryKeyName) { %>primaryKeyConstraintName: '<%= it.primaryKeyName %>', <% } %><% if (assoc.nullable) { %> nullable: true <% } %>})
+        <%= assoc.camelCasedId %>: <%= assoc.fkTsType %>;
 
     <% } else if (assoc.type === 'ManyToMany') { %>
 
@@ -150,7 +162,7 @@ columnsToProcess.forEach((field) => { %>
                 onDelete: "CASCADE",
                 cascade: ["insert", "update"],
             })
-         <% if (assoc.joinTable) { %>@JoinColumn()<% } %>
+         <% if (assoc.joinTable) { %>@JoinColumn(<% if (assoc.joinColumnName) { %>{ name: '<%= assoc.joinColumnName %>' }<% } %>)<% } %>
         <%= assoc.relationshipName %>: <%= assoc.name %>;
 
     <% } %>

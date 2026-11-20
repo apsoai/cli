@@ -16,6 +16,8 @@ import {
   Field,
   resolveJwtProviders,
 } from "../types";
+import { timestampNullableOf, timestampTypeOf } from "../types/entity";
+import { onDeleteOf } from "../types/relationship";
 import {
   authEntityNames,
   hidesRelation,
@@ -34,7 +36,10 @@ import {
   typeExistsInEntity,
   fieldToEnumType,
 } from "../utils/field";
-import { getRelationshipForTemplate } from "../utils/relationships";
+import {
+  getRelationshipForTemplate,
+  joinColumnErrors,
+} from "../utils/relationships";
 import { snakeCase, camelCase, pascalCase, kebabCase } from "../utils/casing";
 import { getEventEmittingEntities } from "../events";
 import { gooseStatements } from "../ddl/migration-file";
@@ -148,6 +153,18 @@ export class GoGenerator extends BaseGenerator {
       errors.push("No entities defined in configuration");
     }
     errors.push(...removedScopeOptionErrors(config.entities ?? []));
+    errors.push(...joinColumnErrors(config.relationshipMap, "Go"));
+    for (const e of config.entities ?? [])
+      for (const f of e.fields ?? [])
+        if (f.generated)
+          errors.push(
+            `${e.name}.${f.name} sets "generated". The Go generator cannot declare a generated column yet; remove it or generate a TypeScript service.`
+          );
+    for (const e of config.entities ?? [])
+      if (e.primaryKeyName)
+        errors.push(
+          `${e.name} sets "primaryKeyName": "${e.primaryKeyName}". The Go generator cannot keep a custom primary key constraint name yet; remove it or generate a TypeScript service.`
+        );
 
     // Validate each entity
     for (const entity of config.entities) {
@@ -342,7 +359,7 @@ export class GoGenerator extends BaseGenerator {
             : undefined,
           // The child's foreign key field, for OneToMany and the inverse OneToOne.
           foreignKey: `${pascalCase(rel.inverseReferenceName || entity.name)}ID`,
-          onDeleteCascade: rel.type === "OneToOne" || Boolean(rel.cascadeDelete),
+          onDelete: rel.type === "OneToOne" ? "CASCADE" : onDeleteOf(rel),
           join,
           camelReferenceName: camelCase(rel.referenceName || rel.name),
           snakeReferenceName: snakeCase(rel.referenceName || rel.name),
@@ -370,6 +387,10 @@ export class GoGenerator extends BaseGenerator {
       tableName: tableName(entity),
       createdAt: entity.created_at,
       updatedAt: entity.updated_at,
+      createdAtType: timestampTypeOf(entity, "created_at"),
+      updatedAtType: timestampTypeOf(entity, "updated_at"),
+      createdAtNotNull: timestampNullableOf(entity, "created_at") ? "" : "not null;",
+      updatedAtNotNull: timestampNullableOf(entity, "updated_at") ? "" : "not null;",
       columns,
       associations,
       importTime:

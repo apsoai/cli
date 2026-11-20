@@ -13,6 +13,8 @@
         { "name": "active", "type": "boolean" },
         { "name": "verified", "type": "boolean", "default": "false" },
         { "name": "visits", "type": "bigint", "default": "0" },
+        { "name": "visits_doubled", "type": "bigint", "generated": "visits * 2", "nullable": true },
+        { "name": "busy", "type": "boolean", "generated": "visits > 10" },
         { "name": "balance", "type": "decimal", "precision": 12, "scale": 4, "nullable": true },
         { "name": "ratio", "type": "float", "nullable": true },
         { "name": "score", "type": "double", "nullable": true },
@@ -22,7 +24,17 @@
         { "name": "raw", "type": "json-plain", "nullable": true },
         { "name": "tier", "type": "enum", "values": ["free", "pro"], "index": true },
         { "name": "labels", "type": "array" },
-        { "name": "lucky", "type": "array", "elementType": "integer", "nullable": true, "index": true }
+        { "name": "lucky", "type": "array", "elementType": "integer", "nullable": true, "index": true },
+        { "name": "avatar", "type": "bytea", "nullable": true },
+        { "name": "weight", "type": "real", "nullable": true },
+        { "name": "credit", "type": "money", "nullable": true },
+        { "name": "opensAt", "type": "time", "nullable": true },
+        { "name": "closesAt", "type": "timetz", "nullable": true },
+        { "name": "trial", "type": "interval", "nullable": true },
+        { "name": "lastIp", "type": "inet", "nullable": true, "index": true },
+        { "name": "profileXml", "type": "xml", "nullable": true },
+        { "name": "search", "type": "tsvector", "nullable": true },
+        { "name": "ageBand", "type": "int4range", "nullable": true }
       ],
       "indexes": [{ "fields": ["code", "tier"] }, { "fields": ["visits"], "unique": true }],
       "uniques": [{ "name": "unique_account_code_born", "fields": ["code", "born"] }, { "fields": ["ratio", "score"] }]

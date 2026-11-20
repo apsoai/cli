@@ -177,6 +177,27 @@ describe("planCopy", () => {
   });
 });
 
+// apsoai/cli#241
+test("planCopy keeps a foreign key column name the target also has", () => {
+  const source = {
+    schema: "public",
+    enums: [],
+    viewsSkipped: [],
+    systemSchemasSkipped: [],
+    tables: [
+      table("posts", {
+        primaryKey: ["id"],
+        columns: [col("id", "uuid", 1), col("user_id", "uuid", 2)],
+        foreignKeys: [{ columns: ["user_id"], referencedTable: "users", referencedColumns: ["id"], onDelete: "NO ACTION" }],
+      }),
+    ],
+  } as any;
+  const kept = planCopy(source, new Map([["posts", new Set(["id", "user_id"])]]));
+  expect(kept.tables[0].targetColumns).toEqual(["id", "user_id"]);
+  const legacy = planCopy(source, new Map([["posts", new Set(["id", "userId"])]]));
+  expect(legacy.tables[0].targetColumns).toEqual(["id", "userId"]);
+});
+
 describe("coerceValue", () => {
   test("stringifies objects/arrays, passes primitives/Date/Buffer/null", () => {
     expect(coerceValue({ a: 1 })).toBe('{"a":1}');

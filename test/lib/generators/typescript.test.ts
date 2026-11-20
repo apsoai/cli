@@ -1,4 +1,5 @@
 import { expect, describe, test, beforeAll } from "@jest/globals";
+import { parseRelationships } from "../../../src/lib/utils/relationships";
 import { TypeScriptGenerator } from "../../../src/lib/generators/typescript";
 import { GeneratorConfig, Entity, Relationship, Field } from "../../../src/lib/types";
 
@@ -582,6 +583,347 @@ describe("guard regeneration (cli#129)", () => {
     // TypeORM has no "workspaceId" property here; "workspace" resolves to its join column.
     expect(content).toContain('@Unique(["workspace", "tz"])');
     expect(content).toContain('@Index(["workspace"])');
+  });
+});
+
+const renderEntity = async (entity: Entity) => {
+  const generator = new TypeScriptGenerator(createConfig([entity]));
+  const files = await generator.generateEntity({ entity, relationships: [], allEntities: [entity], apiType: "rest" });
+  return findFileContent(files, `${entity.name}.entity`)!;
+};
+
+// apsoai/cli#241
+describe("joinColumnName on a foreign key", () => {
+  const patient: Entity = { name: "Patient", primaryKeyType: "uuid" };
+  const enrollment: Entity = {
+    name: "Enrollment",
+    fields: [{ name: "year", type: "integer" }],
+    uniques: [{ fields: ["patient_id", "year"] }],
+    indexes: [{ fields: ["patient", "year"] }],
+  };
+  const render = async (joinColumnName?: string) => {
+    // Parsed without the linter: @apso/schema-tools accepts the column name
+    // in "uniques" only after its own release (apsoai/cli#244).
+    const relationshipMap = parseRelationships([
+      { from: "Enrollment", to: "Patient", type: "ManyToOne", joinColumnName },
+    ]);
+    const generator = new TypeScriptGenerator(createConfig([patient, enrollment], relationshipMap));
+    const files = await generator.generateEntity({
+      entity: enrollment,
+      relationships: relationshipMap.Enrollment,
+      allEntities: [patient, enrollment],
+      apiType: "rest",
+    });
+    return findFileContent(files, "Enrollment.entity")!.replace(/\s+/g, " ");
+  };
+
+  test("names the column and keeps the camelCase property", async () => {
+    const content = await render("patient_id");
+    expect(content).toContain("@JoinColumn({ name: 'patient_id' }) patient: Patient;");
+    expect(content).toContain(`@Column({ name: 'patient_id', type: "uuid", }) patientId: string;`);
+    // @Unique takes the property, not the database column.
+    expect(content).toContain(`@Unique(["patientId", "year"])`);
+  });
+
+  test("onDelete writes the foreign key's delete rule", async () => {
+    const relationshipMap = parseRelationships([
+      { from: "Enrollment", to: "Patient", type: "ManyToOne", nullable: true, onDelete: "SET NULL" },
+    ]);
+    const generator = new TypeScriptGenerator(createConfig([patient, enrollment], relationshipMap));
+    const files = await generator.generateEntity({
+      entity: { name: "Enrollment" },
+      relationships: relationshipMap.Enrollment,
+      allEntities: [patient, enrollment],
+      apiType: "rest",
+    });
+    expect(findFileContent(files, "Enrollment.entity")).toContain('{ onDelete: "SET NULL" }');
+  });
+
+  test("without it the generated column is unchanged", async () => {
+    const content = await render();
+    expect(content).toContain("@JoinColumn({ name: 'patientId' }) patient: Patient;");
+    expect(content).toContain(`@Column({ type: "uuid", }) patientId: string;`);
+  });
+});
+
+describe("a key declared as a field keeps its type and length", () => {
+  const org: Entity = { name: "Org", fields: [{ name: "id", type: "varchar" as any, length: 100, primary: true }] };
+  const member: Entity = { name: "Member", fields: [{ name: "label", type: "text" }] };
+  const relationshipMap = parseRelationships([{ from: "Member", to: "Org", type: "ManyToOne" }]);
+  const render = async (entity: Entity) => {
+    const generator = new TypeScriptGenerator(createConfig([org, member], relationshipMap));
+    const files = await generator.generateEntity({
+      entity,
+      relationships: relationshipMap[entity.name] || [],
+      allEntities: [org, member],
+      apiType: "rest",
+    });
+    return findFileContent(files, `${entity.name}.entity`)!.replace(/\s+/g, " ");
+  };
+
+  test("on the key itself", async () => {
+    const content = await render(org);
+    expect(content).toContain('@PrimaryColumn({ type: "varchar", length: 100 }) id: string;');
+    expect(content).not.toContain("@PrimaryColumn()");
+  });
+
+  test("primaryKeyName and foreignKeyName keep an existing database's constraint names", async () => {
+    const named = parseRelationships([{ from: "Member", to: "Org", type: "ManyToOne", foreignKeyName: "members_org_fkey" }]);
+    const generator = new TypeScriptGenerator(createConfig([org, member], named));
+    const entity = async (e: Entity) =>
+      findFileContent(
+        await generator.generateEntity({ entity: e, relationships: named[e.name] || [], allEntities: [org, member], apiType: "rest" }),
+        `${e.name}.entity`
+      )!.replace(/\s+/g, " ");
+    expect(await entity({ ...org, primaryKeyName: "orgs_pkey" })).toContain(
+      `@PrimaryColumn({ type: "varchar", length: 100, primaryKeyConstraintName: 'orgs_pkey' }) id: string;`
+    );
+    const m = await entity({ ...member, primaryKeyName: "members_pkey" });
+    expect(m).toContain("@PrimaryGeneratedColumn({ primaryKeyConstraintName: 'members_pkey' }) id!: number;");
+    expect(m).toContain("@JoinColumn({ name: 'orgId', foreignKeyConstraintName: 'members_org_fkey' })");
+  });
+
+  test("a foreign key can be the primary key: no id is generated", async () => {
+    const setting: Entity = { name: "Setting", primaryKeyName: "settings_pkey", fields: [{ name: "theme", type: "text" }] };
+    const keyed = parseRelationships([{ from: "Setting", to: "Org", type: "ManyToOne", joinColumnName: "org_id", primary: true }]);
+    const generator = new TypeScriptGenerator(createConfig([org, setting], keyed));
+    const files = await generator.generateEntity({ entity: setting, relationships: keyed.Setting, allEntities: [org, setting], apiType: "rest" });
+    const content = findFileContent(files, "Setting.entity")!.replace(/\s+/g, " ");
+    expect(content).toContain(
+      `@PrimaryColumn({ name: 'org_id', type: "varchar", length: 100, primaryKeyConstraintName: 'settings_pkey', }) orgId: string;`
+    );
+    expect(content).not.toContain("@PrimaryGeneratedColumn()");
+  });
+
+  test("a timestamptz field can be part of the primary key", async () => {
+    const counter: Entity = {
+      name: "Counter",
+      primaryKeyName: "counters_pkey",
+      fields: [
+        { name: "bucket", type: "text", primary: true },
+        { name: "window_start", type: "timestamptz", primary: true },
+      ],
+    };
+    const rendered = await renderEntity(counter);
+    const content = rendered.replace(/\s+/g, " ");
+    expect(content).toContain(`@PrimaryColumn({ type: "text", primaryKeyConstraintName: 'counters_pkey' }) bucket: string;`);
+    expect(content).toContain("@PrimaryColumn({ type: 'timestamptz', primaryKeyConstraintName: 'counters_pkey' }) window_start: Date;");
+  });
+
+  test("the controller's id parameter maps to the entity's own key", async () => {
+    const keyed = parseRelationships([{ from: "Setting", to: "Org", type: "ManyToOne", joinColumnName: "org_id", primary: true }]);
+    const setting: Entity = { name: "Setting", fields: [{ name: "theme", type: "text" }] };
+    const code: Entity = { name: "Code", fields: [{ name: "icd10_code", type: "text", primary: true }] };
+    const generator = new TypeScriptGenerator(createConfig([org, member, setting, code], keyed));
+    const controller = async (entity: Entity) => {
+      const files = await generator.generateController({
+        entity,
+        relationships: keyed[entity.name] || [],
+        relationshipMap: keyed,
+        allEntities: [org, member, setting, code],
+        apiType: "rest",
+      });
+      return files.find((f) => f.path.endsWith(".controller.ts"))!.content;
+    };
+    expect(await controller(member)).toContain("field: 'id',");
+    expect(await controller(code)).toContain("field: 'icd10_code',");
+    expect(await controller(setting)).toContain("field: 'orgId',");
+  });
+
+  test("on a foreign key that references it", async () => {
+    expect(await render(member)).toContain('@Column({ type: "varchar", length: 100, }) orgId: string;');
+  });
+});
+
+// apsoai/cli#245, #248
+describe("indexes", () => {
+  test("an index keeps its name and WHERE condition", async () => {
+    const content = await renderEntity({
+      name: "Job",
+      fields: [{ name: "status", type: "text" }],
+      indexes: [
+        { fields: ["status"], unique: true, name: "jobs_one_live_uq", where: "status <> 'done'" },
+        { fields: ["status"], name: "jobs_status_idx" },
+        { fields: ["status"] },
+      ],
+    });
+    expect(content).toContain(`@Index("jobs_one_live_uq", ["status"], { unique: true, where: "status <> 'done'" } )`);
+    expect(content).toContain(`@Index("jobs_status_idx", ["status"])`);
+    expect(content).toContain(`@Index(["status"])`);
+  });
+
+  test("sqlIndexes are marked for TypeORM to leave alone and created by a generated module", async () => {
+    const doc: Entity = {
+      name: "Doc",
+      fields: [{ name: "title", type: "text" }],
+      sqlIndexes: [{ name: "docs_title_lower_uq", columns: "lower(title)", unique: true, where: "title <> ''" }],
+    };
+    expect(await renderEntity(doc)).toContain(`@Index("docs_title_lower_uq", { synchronize: false })`);
+    const generator = new TypeScriptGenerator(createConfig([doc]));
+    const files = await generator.generateIndexModule([doc], "rest");
+    expect(files.find((f) => f.path === "index.ts")!.content).toContain("SchemaExtrasModule");
+    expect(files.find((f) => f.path === "schema-extras.module.ts")!.content).toContain(
+      `CREATE UNIQUE INDEX IF NOT EXISTS \\"docs_title_lower_uq\\" ON \\"doc\\" (lower(title)) WHERE title <> ''`
+    );
+    // A schema without them gets no extra module.
+    const plain = await generator.generateIndexModule([{ name: "Doc" }], "rest");
+    expect(plain.map((f) => f.path)).toEqual(["index.ts"]);
+    expect(plain[0].content).not.toContain("SchemaExtrasModule");
+  });
+
+  test("timestamp, date and uuid fields honor index and unique", async () => {
+    const rendered = await renderEntity({
+      name: "Event",
+      fields: [
+        { name: "expires_at", type: "timestamptz", nullable: true, index: true },
+        { name: "seen_on", type: "date", nullable: true, unique: true },
+        { name: "correlation_id", type: "uuid" as any, nullable: true, unique: true },
+      ],
+    });
+    const content = rendered.replace(/\s+/g, " ");
+    expect(content).toContain("@Index() @Column({ type: 'timestamptz', nullable: true }) expires_at: Date;");
+    expect(content).toContain("@Column({ type: 'date', nullable: true, unique: true }) seen_on: string;");
+    expect(content).toContain('@Column({ "type": "uuid", nullable: true, unique: true })');
+  });
+});
+
+// apsoai/cli#246
+test("checks become @Check decorators, named or not", async () => {
+  const content = await renderEntity({
+    name: "Stay",
+    fields: [{ name: "start_date", type: "date" }, { name: "end_date", type: "date", nullable: true }],
+    checks: [
+      { name: "stays_end_after_start", expression: "end_date IS NULL OR end_date >= start_date" },
+      { expression: "start_date > '2000-01-01'" },
+    ],
+  });
+  expect(content).toContain(`@Check("stays_end_after_start", "end_date IS NULL OR end_date >= start_date")`);
+  expect(content).toContain(`@Check("start_date > '2000-01-01'")`);
+});
+
+// apsoai/cli#247
+describe("defaults", () => {
+  test("a SQL expression, a JSON literal, and a boolean with no default", async () => {
+    const rendered = await renderEntity({
+      name: "Audit",
+      fields: [
+        { name: "retention_until", type: "timestamptz", default: { sql: "now() + interval '6 years'" } },
+        { name: "tags", type: "jsonb" as any, default: [] },
+        { name: "living_will", type: "boolean", nullable: true, noDefault: true },
+        { name: "active", type: "boolean" },
+        { name: "trace_id", type: "uuid" as any, default: { sql: "gen_random_uuid()" } },
+      ],
+    });
+    const content = rendered.replace(/\s+/g, " ");
+    expect(content).toContain(`@Column({ type: 'timestamptz', nullable: false, default: () => "now() + interval '6 years'" })`);
+    expect(content).toContain(`default: () => "'[]'" })`);
+    expect(content).toContain("@Column({ type: 'boolean', nullable: true })");
+    expect(content).toContain("@Column({ type: 'boolean', nullable: false, default: false })");
+    expect(content).toContain(`default: () => "gen_random_uuid()" })`);
+  });
+
+  test("primaryKeyDefault fills a uuid id with another function", async () => {
+    const content = await renderEntity({ name: "Doc", primaryKeyType: "uuid", primaryKeyDefault: "gen_random_uuid()" });
+    expect(content).toContain(`@PrimaryColumn({ type: 'uuid', default: () => "gen_random_uuid()" })`);
+    expect(content).not.toContain("@PrimaryGeneratedColumn('uuid')");
+    // TypeORM reads a uuid column with this default back as generated; an
+    // entity that does not say so is "changed" on every schema sync.
+    expect(content).toContain("@Generated('uuid')");
+  });
+
+  test("a SQL default is written the way TypeORM reads it back", async () => {
+    const content = await renderEntity({
+      name: "Doc",
+      fields: [
+        { name: "tags", type: "jsonb" as Field["type"], default: { sql: "'[]'::jsonb" } },
+        { name: "keep_until", type: "timestamptz", default: { sql: "(now() + '6 years'::interval)" } },
+        { name: "last_year", type: "integer", default: { sql: "(date_part('year', now()))::integer - 1" } },
+        { name: "token", type: "uuid" as Field["type"], default: { sql: "gen_random_uuid()" } },
+      ],
+    });
+    expect(content).toContain(`default: () => "'[]'" })`);
+    expect(content).toContain(`default: () => "(now() + '6 years')" })`);
+    // More than a cast would be removed here, so the text is kept.
+    expect(content).toContain(`default: () => "(date_part('year', now()))::integer - 1" })`);
+    expect(content).toMatch(/default: \(\) => "gen_random_uuid\(\)" }\)\s+@Generated\('uuid'\)/);
+  });
+});
+
+describe("generated columns", () => {
+  test("the entity declares the expression and the request bodies leave the field out", async () => {
+    const entity: Entity = {
+      name: "Line",
+      fields: [
+        { name: "quantity", type: "integer" },
+        { name: "total", type: "integer", generated: "quantity * 2" },
+        { name: "busy", type: "boolean", generated: "quantity > 10" },
+        { name: "summary", type: "jsonb" as Field["type"], nullable: true, generated: "jsonb_build_object('q', quantity)" },
+      ],
+    };
+    const generator = new TypeScriptGenerator(createConfig([entity]));
+    const options = { entity, relationships: [], allEntities: [entity], apiType: "rest" };
+    const entityFiles = await generator.generateEntity(options);
+    const content = findFileContent(entityFiles, "Line.entity")!.replace(/\s+/g, " ");
+    expect(content).toContain(`@Column({ generatedType: 'STORED', asExpression: "quantity * 2", insert: false, update: false, "type": "int", nullable: false })`);
+    // A boolean gets no DEFAULT false: Postgres refuses a default on a generated column.
+    expect(content).toContain(`@Column({ generatedType: 'STORED', asExpression: "quantity > 10", insert: false, update: false, type: 'boolean', nullable: false })`);
+    expect(content).toContain(`@Column('jsonb', { generatedType: 'STORED', asExpression: "jsonb_build_object('q', quantity)", insert: false, update: false, nullable: true })`);
+    const dtoFiles = await generator.generateDto(options);
+    const [create, update, read] = dtoFiles.find((f) => f.path.includes("dto"))!.content.split(/export class /).slice(1);
+    expect(create).toMatch(/quantity\??: number;/);
+    expect(create).not.toContain("total");
+    expect(update).not.toContain("total");
+    expect(read).toMatch(/total\??: number;/);
+    // A value sent for one is dropped, so the response never echoes it as stored.
+    const controllerOf = async (e: Entity) => {
+      const files = await new TypeScriptGenerator(createConfig([e])).generateController({ ...options, entity: e, allEntities: [e], relationshipMap: {} });
+      return files.find((f) => f.path.endsWith(".controller.ts"))!.content;
+    };
+    const controller = await controllerOf(entity);
+    expect(controller).toContain(`const GENERATED = ["total","busy","summary"];`);
+    expect(controller).toContain("this.base.updateOneBase(req, writable(dto) as unknown as Line)");
+    expect(await controllerOf({ ...entity, fields: [entity.fields![0]] })).not.toContain("writable");
+  });
+});
+
+// apsoai/cli#243
+describe("created_at and updated_at column type", () => {
+  test("timestampType timestamptz keeps the time zone", async () => {
+    const content = await renderEntity({ name: "Zoned", created_at: true, updated_at: true, timestampType: "timestamptz" });
+    expect(content).toContain("@CreateDateColumn({ type: 'timestamptz' })");
+    expect(content).toContain("@UpdateDateColumn({ type: 'timestamptz' })");
+  });
+
+  test("one type per column", async () => {
+    const content = await renderEntity({
+      name: "Mixed",
+      created_at: true,
+      updated_at: true,
+      timestampType: { updated_at: "timestamptz" },
+    });
+    expect(content).toContain("@CreateDateColumn()");
+    expect(content).toContain("@UpdateDateColumn({ type: 'timestamptz' })");
+  });
+
+  test("timestampNullable drops NOT NULL, for both or per column", async () => {
+    const both = await renderEntity({ name: "Loose", created_at: true, updated_at: true, timestampNullable: true });
+    expect(both).toContain("@CreateDateColumn({ nullable: true })");
+    expect(both).toContain("@UpdateDateColumn({ nullable: true })");
+    const one = await renderEntity({
+      name: "Half",
+      created_at: true,
+      updated_at: true,
+      timestampType: "timestamptz",
+      timestampNullable: { created_at: true },
+    });
+    expect(one).toContain("@CreateDateColumn({ type: 'timestamptz', nullable: true })");
+    expect(one).toContain("@UpdateDateColumn({ type: 'timestamptz' })");
+  });
+
+  test("timestamp stays the default", async () => {
+    const content = await renderEntity({ name: "Plain", created_at: true, updated_at: true });
+    expect(content).toContain("@CreateDateColumn()");
+    expect(content).toContain("@UpdateDateColumn()");
   });
 });
 

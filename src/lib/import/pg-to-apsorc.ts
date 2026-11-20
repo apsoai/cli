@@ -14,7 +14,12 @@
 
 import { camelCase } from "../utils/casing";
 import { fieldTypeToColumnType } from "../utils/field";
-import { getRelationshipIdField } from "../utils/relationships";
+import {
+  getRelationshipIdField,
+  getRelationshipName,
+} from "../utils/relationships/parse";
+import { Relationship } from "../types/relationship";
+import { Entity, TimestampColumn, TimestampType } from "../types/entity";
 import {
   ImportReport,
   IntrospectedColumn,
@@ -28,22 +33,42 @@ export interface ApsorcImportFieldOutput {
   nullable?: boolean;
   unique?: boolean;
   default?: unknown;
+  noDefault?: boolean;
+  generated?: string;
   index?: boolean;
   values?: string[];
   length?: number;
   precision?: number;
   scale?: number;
   primary?: boolean;
+  elementType?: string;
 }
 
 export interface ApsorcImportEntityOutput {
   name: string;
   primaryKeyType?: "serial" | "uuid" | "text";
+  primaryKeyName?: string;
+  primaryKeyDefault?: string;
   created_at?: boolean;
   updated_at?: boolean;
+  timestampType?: Entity["timestampType"];
+  timestampNullable?: Entity["timestampNullable"];
   fields?: ApsorcImportFieldOutput[];
   uniques?: Array<{ fields: string[]; name?: string }>;
-  indexes?: Array<{ fields: string[]; unique?: boolean }>;
+  checks?: Array<{ name?: string; expression: string; validate?: boolean }>;
+  timestampDefault?: Entity["timestampDefault"];
+  sqlIndexes?: Array<{
+    name: string;
+    columns: string;
+    unique?: boolean;
+    where?: string;
+  }>;
+  indexes?: Array<{
+    fields: string[];
+    unique?: boolean;
+    name?: string;
+    where?: string;
+  }>;
 }
 
 export interface ApsorcImportRelationshipOutput {
@@ -54,10 +79,18 @@ export interface ApsorcImportRelationshipOutput {
   nullable?: boolean;
   bi_directional?: boolean;
   cascadeDelete?: boolean;
+  onDelete?: "SET NULL" | "RESTRICT";
+  foreignKeyName?: string;
+  primary?: boolean;
+  validate?: boolean;
+  index?: boolean;
+  joinColumnName?: string;
 }
 
 export interface ApsorcImportOutput {
   version: number;
+  /** Set when the file is written: the existing file's, else typescript. */
+  language?: string;
   rootFolder: string;
   apiType: string;
   entities: ApsorcImportEntityOutput[];
@@ -99,6 +132,21 @@ const udtToApsorcType: Record<string, string> = {
 };
 
 const TIMESTAMP_UDTS = new Set(["timestamp", "timestamptz"]);
+/** Field types whose templates write a literal default; others take SQL. */
+const LITERAL_DEFAULT_TYPES = new Set([
+  "text",
+  "varchar",
+  "char",
+  "integer",
+  "smallint",
+  "bigint",
+  "numeric",
+  "decimal",
+  "float",
+  "double",
+  "boolean",
+  "enum",
+]);
 const AUTO_TIMESTAMP_DEFAULTS = new Set([
   "now()",
   "current_timestamp",
@@ -108,6 +156,8 @@ const AUTO_TIMESTAMP_DEFAULTS = new Set([
 
 interface TypeResolution {
   type: string;
+  /** Element type of an array column, when it is not text. */
+  elementType?: string;
   /** True when the mapping loses information (arrays, unknown types). */
   lossy?: "array" | "defaulted";
 }
@@ -122,7 +172,12 @@ export function pgTypeToApsorcType(col: IntrospectedColumn): TypeResolution {
     return { type: "enum" };
   }
   if (col.dataType === "ARRAY" || col.udtName.startsWith("_")) {
-    return { type: "array", lossy: "array" };
+    // uuid[] must stay uuid[]: the element type is the udt without its "_".
+    const element = udtToApsorcType[col.udtName.replace(/^_/, "")];
+    if (!element) return { type: "array", lossy: "array" };
+    return element === "text"
+      ? { type: "array" }
+      : { type: "array", elementType: element };
   }
   const mapped = udtToApsorcType[col.udtName];
   if (mapped) {
@@ -181,6 +236,80 @@ export function parseDefault(
 }
 
 /**
+ * The column list of a btree index from pg_get_indexdef's
+ * "CREATE INDEX name ON t USING btree (<columns>) [WHERE ...]". Undefined for
+ * another index method, which .apsorc cannot express.
+ *
+ * @param {string} [definition] - pg_get_indexdef's output.
+ * @returns {string | undefined} The text between the outer parentheses.
+ */
+export function indexColumnsSql(definition?: string): string | undefined {
+  const start = definition?.indexOf(" USING btree (") ?? -1;
+  if (!definition || start < 0) return undefined;
+  const open = start + " USING btree ".length;
+  let depth = 0;
+  for (let i = open; i < definition.length; i++) {
+    if (definition[i] === "(") depth++;
+    if (definition[i] === ")" && --depth === 0)
+      return definition.slice(open + 1, i);
+  }
+  return undefined;
+}
+
+/**
+ * How a single-column foreign key is written to .apsorc: the relationship
+ * name ("to_name" when the default would not do) and "joinColumnName" when
+ * the generated column would differ from the source column, so an import
+ * never renames a foreign key (apsoai/cli#241).
+ *
+ * A relationship named like one of the table's own columns would collide
+ * with that field ("facility" text beside "facility_id"), so it gets another
+ * name; the column is kept either way (apsoai/cli#250).
+ *
+ * @param {string} sourceColumn - The foreign key column in the source table.
+ * @param {string} targetTable - The table it references.
+ * @param {string[]} columns - The source table's column names.
+ * @returns {object} toName and joinColumnName when needed, and the relationship's property name.
+ */
+export function foreignKeyNames(
+  sourceColumn: string,
+  targetTable: string,
+  columns: string[] = []
+): {
+  toName?: string;
+  joinColumnName?: string;
+  property: string;
+  renamed: boolean;
+} {
+  let { toName } = deriveToName(sourceColumn, targetTable);
+  const natural = getRelationshipName({
+    name: targetTable,
+    type: "ManyToOne",
+    referenceName: toName,
+  });
+  const renamed = columns.includes(natural);
+  if (renamed) {
+    toName = `${natural}Record`;
+    for (let n = 2; columns.includes(toName); n++)
+      toName = `${natural}Record${n}`;
+  }
+  const relationship: Relationship = {
+    name: targetTable,
+    type: "ManyToOne",
+    referenceName: toName,
+  };
+  return {
+    toName,
+    joinColumnName:
+      getRelationshipIdField(relationship) === sourceColumn
+        ? undefined
+        : sourceColumn,
+    property: getRelationshipName(relationship),
+    renamed,
+  };
+}
+
+/**
  * Derive the relationship `to_name` so the platform regenerates a FK column
  * matching the source column. Returns `undefined` when the default naming
  * (`${camelCase(target)}Id`) already produces the source column. Sets
@@ -216,8 +345,7 @@ export function deriveToName(
     }
   }
 
-  // Best-effort: emit a reference name but flag that the generated FK column
-  // may not match the source column exactly.
+  // No relationship name generates this column; "joinColumnName" keeps it.
   return { toName: camelCase(base || sourceColumn), unmapped: true };
 }
 
@@ -229,12 +357,16 @@ function emptyReport(schema: IntrospectedSchema): ImportReport {
     systemSchemasSkipped: schema.skipped.systemSchemas,
     warnings: {
       arraysLossy: [],
+      checksNotValid: [],
+      timestampDefaultsAdded: [],
+      indexesNotCarried: [],
+      relationshipsRenamed: [],
+      foreignKeysNotCarried: [],
       compositePks: [],
       compositeFks: [],
       nonStandardPks: [],
       noPrimaryKey: [],
       typesDefaulted: [],
-      fkColumnNameUnmapped: [],
       defaultsDropped: [],
       joinTablesDetected: [],
     },
@@ -273,6 +405,9 @@ export function pgToApsorc(schema: IntrospectedSchema): {
     }
 
     const entity: ApsorcImportEntityOutput = { name: table.name };
+    // Keep the source's constraint names, so a first migration against the
+    // existing database does not drop and recreate every key.
+    if (table.primaryKeyName) entity.primaryKeyName = table.primaryKeyName;
 
     // Columns covered by a single-column FK are materialized by the
     // relationship, so they must not also be emitted as scalar fields.
@@ -293,13 +428,24 @@ export function pgToApsorc(schema: IntrospectedSchema): {
       const pkCol = table.columns.find((c) => c.name === pk[0]);
       if (pk[0] === "id" && pkCol) {
         const t = pgTypeToApsorcType(pkCol).type;
-        if (t === "uuid") entity.primaryKeyType = "uuid";
-        else if (t === "text" || t === "varchar") entity.primaryKeyType = "text";
+        // A varchar(n) or char(n) id is kept as a primary field, so its
+        // length and the columns that reference it keep theirs.
         // integer/bigint/smallint id => default serial, omit primaryKeyType.
+        if (t === "uuid" || t === "text") entity.primaryKeyType = t;
+        // The generated uuid id uses uuid_generate_v4(); keep another function.
+        const idDefault = pkCol.default?.trim();
+        if (t === "uuid" && idDefault && idDefault !== "uuid_generate_v4()")
+          entity.primaryKeyDefault = idDefault;
+        else pkAsField = t === "varchar" || t === "char";
       } else {
-        // Single, non-"id" PK: emit it as a primary field.
+        // Single, non-"id" PK: a primary field, or the relationship's own
+        // key when the column is a foreign key (a table keyed by the row it
+        // extends).
         pkAsField = true;
-        report.warnings.nonStandardPks.push(table.name);
+        const keyIsForeignKey = table.foreignKeys.some(
+          (fk) => fk.columns.length === 1 && fk.columns[0] === pk[0]
+        );
+        if (!keyIsForeignKey) report.warnings.nonStandardPks.push(table.name);
       }
     } else if (pk.length > 1) {
       pkAsField = true;
@@ -310,37 +456,98 @@ export function pgToApsorc(schema: IntrospectedSchema): {
 
     // --- created_at / updated_at detection ---
     const autoTimestamps = new Set<string>();
+    const stampTypes: Partial<Record<TimestampColumn, TimestampType>> = {};
+    const stampNullable: Partial<Record<TimestampColumn, boolean>> = {};
+    const stampDefault: Partial<Record<TimestampColumn, boolean>> = {};
     for (const name of ["created_at", "updated_at"] as const) {
       const col = table.columns.find((c) => c.name === name);
       if (col && TIMESTAMP_UDTS.has(col.udtName)) {
         entity[name] = true;
         autoTimestamps.add(name);
+        stampTypes[name] = col.udtName as TimestampType;
+        if (col.default === null) {
+          stampDefault[name] = false;
+          report.warnings.timestampDefaultsAdded.push(`${table.name}.${name}`);
+        }
+        stampNullable[name] = col.nullable;
       }
     }
+    if (Object.keys(stampDefault).length > 0)
+      entity.timestampDefault =
+        autoTimestamps.size === Object.keys(stampDefault).length
+          ? false
+          : stampDefault;
+    const nullable = [...new Set(Object.values(stampNullable))];
+    if (nullable.length > 1) entity.timestampNullable = stampNullable;
+    else if (nullable[0]) entity.timestampNullable = true;
+    // Keep the source types: one value when the columns agree (nothing when
+    // that is the default "timestamp"), one per column when they differ.
+    const stamps = [...new Set(Object.values(stampTypes))];
+    if (stamps.length > 1) entity.timestampType = stampTypes;
+    else if (stamps[0] === "timestamptz") entity.timestampType = "timestamptz";
 
     // --- Fields ---
     const uniqueSingle = new Set<string>();
     const uniqueComposite: Array<{ fields: string[]; name?: string }> = [];
+    // A foreign key column is not a field: indexes and uniques name the
+    // relationship that owns it, which the generators resolve to the column.
+    const columnNames = table.columns.map((c) => c.name);
+    const fkProperty = new Map<string, string>();
+    for (const [column, fk] of fkColumns)
+      fkProperty.set(
+        column,
+        foreignKeyNames(column, fk.referencedTable, columnNames).property
+      );
     for (const uc of table.uniqueConstraints) {
-      if (uc.columns.length === 1) uniqueSingle.add(uc.columns[0]);
-      else uniqueComposite.push({ fields: uc.columns, name: uc.name });
+      // A field's "unique": true gets a generated name, so a constraint the
+      // source names goes in "uniques", which carries the name.
+      if (uc.columns.length === 1 && !fkColumns.has(uc.columns[0]) && !uc.name)
+        uniqueSingle.add(uc.columns[0]);
+      else
+        uniqueComposite.push({
+          fields: uc.columns.map((c) => fkProperty.get(c) ?? c),
+          name: uc.name,
+        });
     }
 
-    const indexSingle = new Set<string>();
-    const indexComposite: Array<{ fields: string[]; unique?: boolean }> = [];
+    // Every index is an "indexes" entry with the source's name and WHERE
+    // condition, so it is rebuilt as it was. A field's or a relationship's
+    // "index": true would get a generated name.
+    const indexes: NonNullable<ApsorcImportEntityOutput["indexes"]> = [];
+    const sqlIndexes: NonNullable<ApsorcImportEntityOutput["sqlIndexes"]> = [];
     for (const idx of table.indexes) {
       const cols = idx.columns;
-      // Skip indexes that merely back the PK or a unique constraint.
-      const backsPk =
-        cols.length === pk.length && cols.every((c) => pkSet.has(c));
-      const backsUnique = table.uniqueConstraints.some(
-        (uc) =>
-          uc.columns.length === cols.length &&
-          uc.columns.every((c) => cols.includes(c))
-      );
-      if (backsPk || backsUnique) continue;
-      if (cols.length === 1) indexSingle.add(cols[0]);
-      else indexComposite.push({ fields: cols, unique: idx.unique });
+      // Skip the index Postgres itself creates for the primary key or a
+      // unique constraint: it has the constraint's name. A separate index on
+      // the same columns is the source's own and is kept.
+      const backsConstraint =
+        idx.name === table.primaryKeyName ||
+        table.uniqueConstraints.some((uc) => uc.name === idx.name);
+      if (backsConstraint) continue;
+      // An index on an expression or with a DESC column goes in "sqlIndexes"
+      // with its column list as Postgres prints it (apsoai/cli#249).
+      if (idx.expression || idx.descending) {
+        const columns = indexColumnsSql(idx.definition);
+        if (columns === undefined) {
+          report.warnings.indexesNotCarried.push(
+            `${idx.definition ?? idx.name} (not imported)`
+          );
+        } else {
+          sqlIndexes.push({
+            name: idx.name,
+            columns,
+            ...(idx.unique && { unique: true }),
+            ...(idx.predicate && { where: idx.predicate }),
+          });
+        }
+        continue;
+      }
+      indexes.push({
+        fields: cols.map((c) => fkProperty.get(c) ?? c),
+        ...(idx.unique && { unique: true }),
+        name: idx.name,
+        ...(idx.predicate && { where: idx.predicate }),
+      });
     }
 
     const fields: ApsorcImportFieldOutput[] = [];
@@ -367,10 +574,11 @@ export function pgToApsorc(schema: IntrospectedSchema): {
         name: col.name,
         type: resolved.type,
       };
+      if (resolved.elementType) field.elementType = resolved.elementType;
       if (col.nullable) field.nullable = true;
       if (uniqueSingle.has(col.name)) field.unique = true;
-      if (indexSingle.has(col.name)) field.index = true;
       if (pkSet.has(col.name) && pkAsField) field.primary = true;
+      if (col.generated) field.generated = col.generated;
 
       if ((resolved.type === "varchar" || resolved.type === "char") && col.charMaxLength) field.length = col.charMaxLength;
       if (resolved.type === "numeric" || resolved.type === "decimal") {
@@ -386,10 +594,20 @@ export function pgToApsorc(schema: IntrospectedSchema): {
       }
 
       // Defaults (skip for PK columns — those are implicit/sequence-driven).
-      if (!(pkSet.has(col.name) && !pkAsField)) {
+      if (!(pkSet.has(col.name) && !pkAsField) && !col.generated) {
         const parsed = parseDefault(col.default, resolved.type);
-        if (parsed.drop && col.default !== null) {
+        const literal =
+          "value" in parsed && LITERAL_DEFAULT_TYPES.has(resolved.type);
+        if (col.default === null) {
+          // A boolean field gets DEFAULT false unless it says otherwise.
+          if (resolved.type === "boolean") field.noDefault = true;
+        } else if (col.default.trim().toLowerCase().startsWith("nextval(")) {
+          // A sequence .apsorc does not create.
           report.warnings.defaultsDropped.push(`${table.name}.${col.name}`);
+        } else if (!literal) {
+          // A function call, an expression or a literal the field's template
+          // cannot write (json, array, date, uuid): kept as Postgres prints it.
+          field.default = { sql: col.default };
         } else if ("value" in parsed) {
           if (resolved.type === "enum") {
             // Only keep an enum default that is one of the allowed labels.
@@ -411,28 +629,60 @@ export function pgToApsorc(schema: IntrospectedSchema): {
 
     if (fields.length > 0) entity.fields = fields;
     if (uniqueComposite.length > 0) entity.uniques = uniqueComposite;
-    if (indexComposite.length > 0) entity.indexes = indexComposite;
+    if (indexes.length > 0) entity.indexes = indexes;
+    if (sqlIndexes.length > 0) entity.sqlIndexes = sqlIndexes;
+    const checks = table.checks ?? [];
+    if (checks.length > 0)
+      entity.checks = checks.map((c) => ({
+        name: c.name,
+        expression: c.expression,
+        ...(c.notValid && { validate: false }),
+      }));
+    for (const c of checks)
+      if (c.notValid)
+        report.warnings.checksNotValid.push(`${table.name}.${c.name}`);
     entities.push(entity);
 
     // --- Foreign keys -> ManyToOne relationships ---
+    const keyed = new Set<string>();
     for (const fk of table.foreignKeys) {
       if (fk.columns.length !== 1) continue; // composite FK handled above
       const sourceColumn = fk.columns[0];
+      // A relationship holds one key per column. A second key on the same
+      // column (usually an exact duplicate) is left out and reported.
+      if (keyed.has(sourceColumn)) {
+        report.warnings.foreignKeysNotCarried.push(
+          `${table.name}.${fk.name} (${sourceColumn} -> ${fk.referencedTable})`
+        );
+        continue;
+      }
+      keyed.add(sourceColumn);
       const col = table.columns.find((c) => c.name === sourceColumn);
       const rel: ApsorcImportRelationshipOutput = {
         from: table.name,
         to: fk.referencedTable,
         type: "ManyToOne",
       };
-      const { toName, unmapped } = deriveToName(sourceColumn, fk.referencedTable);
-      if (toName) rel.to_name = toName;
-      if (unmapped) {
-        report.warnings.fkColumnNameUnmapped.push(
-          `${table.name}.${sourceColumn}`
+      const { toName, joinColumnName, property, renamed } = foreignKeyNames(
+        sourceColumn,
+        fk.referencedTable,
+        columnNames
+      );
+      if (renamed)
+        report.warnings.relationshipsRenamed.push(
+          `${table.name}.${sourceColumn} is relationship "${property}"`
         );
-      }
+      if (toName) rel.to_name = toName;
+      if (joinColumnName) rel.joinColumnName = joinColumnName;
+      if (fk.name) rel.foreignKeyName = fk.name;
+      if (pkSet.has(sourceColumn)) rel.primary = true;
+      // Migrations keep the key NOT VALID. A database built by TypeORM's own
+      // schema sync has it validated, which only matters on an empty one.
+      if (fk.notValid) rel.validate = false;
       if (col?.nullable) rel.nullable = true;
       if (fk.onDelete === "CASCADE") rel.cascadeDelete = true;
+      else if (fk.onDelete === "SET NULL" || fk.onDelete === "RESTRICT")
+        rel.onDelete = fk.onDelete;
       relationships.push(rel);
     }
   }

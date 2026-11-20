@@ -2,6 +2,7 @@
 import { expect, describe, test } from "@jest/globals";
 import {
   buildSchema,
+  checkExpression,
   redactConnectionString,
 } from "../../../src/lib/import/introspect";
 
@@ -126,6 +127,7 @@ describe("buildSchema", () => {
     const posts = result.tables.find((t) => t.name === "posts")!;
     expect(posts.foreignKeys).toEqual([
       {
+        name: "posts_author_fkey",
         columns: ["author_id"],
         referencedTable: "users",
         referencedColumns: ["id"],
@@ -170,11 +172,31 @@ describe("buildSchema", () => {
     });
     expect(result.tables[0].foreignKeys).toEqual([
       {
+        name: "fk_pair",
         columns: ["org_id", "user_id"],
         referencedTable: "pairs",
         referencedColumns: ["a", "b"],
         onDelete: "NO ACTION",
       },
     ]);
+  });
+});
+
+// apsoai/cli#246
+describe("checkExpression", () => {
+  test("strips CHECK (...) and NOT VALID", () => {
+    expect(checkExpression("CHECK ((minutes >= 0))")).toBe("(minutes >= 0)");
+    expect(checkExpression("CHECK ((minutes >= 0)) NOT VALID")).toBe("(minutes >= 0)");
+  });
+
+  test("writes a varchar value list as IN, the form Postgres prints back unchanged", () => {
+    expect(
+      checkExpression(
+        "CHECK (((status)::text = ANY ((ARRAY['pending'::character varying, 'it''s'::character varying])::text[])))"
+      )
+    ).toBe("(status IN ('pending', 'it''s'))");
+    expect(
+      checkExpression("CHECK (((kind)::text <> ALL ((ARRAY['a'::character varying, 'b'::character varying])::text[])))")
+    ).toBe("(kind NOT IN ('a', 'b'))");
   });
 });

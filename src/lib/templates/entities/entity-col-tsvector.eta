@@ -1,11 +1,11 @@
 <% const {field} = it; %>
 
-@Column({ "type": "tsvector"<% if (field.nullable) {%>, nullable: true<% } %> })
+@Column({ "type": "tsvector"<% if (field.nullable) {%>, nullable: true<% } %><% if (field.defaultSql) { %>, default: () => <%~ JSON.stringify(field.defaultSql) %><% } %> })
 <% if (field.index ) {%>
 @Index()
 <% } %>
 <% if (field.primary ) {%>
-@PrimaryColumn()
+@PrimaryColumn(<% if (field.primaryKeyName) { %>{ primaryKeyConstraintName: '<%= field.primaryKeyName %>' }<% } %>)
 <% } %>
 
 <%= field.name %>: string; 

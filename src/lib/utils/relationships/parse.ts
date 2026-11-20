@@ -70,7 +70,7 @@ export const parseManytoOne = (
           referenceName: relationship.to_name || null,
           nullable: relationship.nullable || false,
           index: relationship.index || false,
-        },
+          },
       ],
     };
   }
@@ -287,6 +287,7 @@ const createFromOneToOneRelationship = (
     referenceName: relationship.to_name || relationship.to,
     biDirectional: relationship.bi_directional || false,
     inverseReferenceName: inverseDefinition?.to_name || relationship.from,
+    joinColumnName: isOwner ? relationship.joinColumnName : undefined,
   };
 };
 
@@ -309,6 +310,7 @@ const createToOneToOneRelationship = (
     join: !isOwner,
     referenceName: inverseDefinition.to_name || relationship.from,
     inverseReferenceName: relationship.to_name || relationship.to,
+    joinColumnName: isOwner ? undefined : relationship.joinColumnName,
   };
 };
 
@@ -352,6 +354,11 @@ export const parseRelationship = (
             cascadeDelete: relationship.cascadeDelete || false,
             referenceName: toSideRefName,
             inverseReferenceName: fromSideRefName,
+            joinColumnName: relationship.joinColumnName,
+            onDelete: relationship.onDelete,
+            foreignKeyName: relationship.foreignKeyName,
+            primary: relationship.primary,
+            validate: relationship.validate,
           },
         ],
       };
@@ -376,6 +383,11 @@ export const parseRelationship = (
               referenceName: manySideRefName,
               nullable: relationship.nullable || false,
               index: relationship.index || false,
+              joinColumnName: relationship.joinColumnName,
+            onDelete: relationship.onDelete,
+            foreignKeyName: relationship.foreignKeyName,
+            primary: relationship.primary,
+            validate: relationship.validate,
             },
           ],
         };
@@ -391,6 +403,11 @@ export const parseRelationship = (
             cascadeDelete: relationship.cascadeDelete || false,
             referenceName: manySideRefName,
             inverseReferenceName: relationship.from,
+            joinColumnName: relationship.joinColumnName,
+            onDelete: relationship.onDelete,
+            foreignKeyName: relationship.foreignKeyName,
+            primary: relationship.primary,
+            validate: relationship.validate,
           },
         ],
         [relationship.to]: [
@@ -822,3 +839,50 @@ export const getRelationshipsForImport = (
     ),
   ];
 };
+
+/**
+ * One error per foreign key that names its own column. The Python and Go
+ * generators use one name for the column, the model attribute and the API
+ * field, so they refuse "joinColumnName" on a foreign key instead of
+ * building a different column (apsoai/cli#241).
+ *
+ * @param {RelationshipMap} relationshipMap - The parsed relationships.
+ * @param {string} language - The generator's name, for the message.
+ * @returns {string[]} The errors, empty when no foreign key sets a column name.
+ */
+export const joinColumnErrors = (
+  relationshipMap: RelationshipMap | undefined,
+  language: string
+): string[] =>
+  Object.entries(relationshipMap ?? {}).flatMap(([entity, relationships]) =>
+    relationships
+      .filter((r) => r.type === "ManyToOne" || r.type === "OneToOne")
+      .flatMap((r) => [
+        ...(r.validate === false
+          ? [
+              `${entity} ${r.type} ${r.name} sets "validate": false. The ${language} generator cannot keep a NOT VALID foreign key yet; remove it or generate a TypeScript service.`,
+            ]
+          : []),
+        ...keyAndNameErrors(entity, r, language),
+      ])
+  );
+
+const keyAndNameErrors = (
+  entity: string,
+  r: Relationship,
+  language: string
+): string[] =>
+  (["joinColumnName", "foreignKeyName", "primary"] as const)
+    .filter((key) => r[key])
+    .map(
+      (key) =>
+        `${entity} ${r.type} ${r.name} sets "${key}": ${JSON.stringify(
+          r[key]
+        )}. The ${language} generator cannot keep ${
+          key === "primary"
+            ? "a primary key that is a foreign key"
+            : `a custom foreign key ${
+                key === "joinColumnName" ? "column" : "constraint"
+              } name`
+        } yet; remove it or generate a TypeScript service.`
+    );

@@ -1,0 +1,31 @@
+{
+  "version": 2,
+  "rootFolder": "src",
+  "apiType": "rest",
+  "entities": [
+    { "name": "Organization", "primaryKeyName": "organizations_pkey", "created_at": true, "updated_at": true, "timestampType": "timestamptz", "fields": [{ "name": "name", "type": "text" }] },
+    { "name": "Patient", "primaryKeyType": "uuid", "primaryKeyDefault": "gen_random_uuid()", "created_at": true, "updated_at": true, "timestampType": "timestamptz", "fields": [{ "name": "mrn", "type": "text", "nullable": true }, { "name": "living_will", "type": "boolean", "nullable": true, "noDefault": true }, { "name": "tags", "type": "jsonb", "default": [] }, { "name": "retention_until", "type": "timestamptz", "default": { "sql": "now() + interval '6 years'" } }, { "name": "recorded_on", "type": "date", "default": { "sql": "'2020-01-01'::date" } }, { "name": "codes", "type": "array", "default": { "sql": "'{}'::text[]" } }, { "name": "trace_id", "type": "uuid", "default": { "sql": "gen_random_uuid()" } }] },
+    {
+      "name": "Enrollment",
+      "created_at": true,
+      "updated_at": true,
+      "fields": [{ "name": "performance_year", "type": "integer" }, { "name": "status", "type": "text" }],
+      "uniques": [{ "fields": ["patient", "performance_year"], "name": "enrollments_patient_year_uq" }],
+      "checks": [{ "name": "enrollments_year_ck", "expression": "performance_year >= 2000" }, { "expression": "status <> ''" }],
+      "indexes": [{ "fields": ["organization", "patient"] }, { "fields": ["organizationId", "status"] }, { "name": "enrollments_one_live_uq", "fields": ["organization", "patient"], "unique": true, "where": "status <> 'revoked'" }, { "name": "enrollments_year_idx", "fields": ["performance_year"] }]
+    },
+    { "name": "Tenant", "primaryKeyName": "tenants_pkey", "fields": [{ "name": "id", "type": "varchar", "length": 100, "primary": true }, { "name": "name", "type": "text" }] },
+    { "name": "TenantNote", "fields": [{ "name": "code", "type": "text", "primary": true }, { "name": "body", "type": "text", "nullable": true }] },
+    { "name": "TenantSetting", "primaryKeyName": "tenant_settings_pkey", "fields": [{ "name": "theme", "type": "text", "nullable": true }] },
+    { "name": "RateCounter", "primaryKeyName": "rate_counters_pkey", "fields": [{ "name": "bucket", "type": "text", "primary": true }, { "name": "window_start", "type": "timestamptz", "primary": true }, { "name": "hits", "type": "integer", "default": 0 }, { "name": "expires_at", "type": "timestamptz", "nullable": true, "index": true }, { "name": "seen_on", "type": "date", "nullable": true, "unique": true }, { "name": "correlation_id", "type": "uuid", "nullable": true, "unique": true }], "uniques": [{ "fields": ["hits"], "name": "rate_counters_hits_key" }] },
+    { "name": "Profile", "created_at": true, "updated_at": true, "timestampType": { "created_at": "timestamptz" }, "timestampNullable": { "updated_at": true }, "fields": [{ "name": "bio", "type": "text", "nullable": true }] }
+  ],
+  "relationships": [
+    { "from": "Patient", "to": "Organization", "type": "ManyToOne", "joinColumnName": "organization_id", "onDelete": "RESTRICT", "foreignKeyName": "patients_organization_id_fkey" },
+    { "from": "Enrollment", "to": "Organization", "type": "ManyToOne", "joinColumnName": "organization_id" },
+    { "from": "Enrollment", "to": "Patient", "type": "ManyToOne", "joinColumnName": "patient_id", "index": true, "nullable": true, "onDelete": "SET NULL" },
+    { "from": "Profile", "to": "Patient", "type": "OneToOne", "joinColumnName": "patient_id" },
+    { "from": "TenantNote", "to": "Tenant", "type": "ManyToOne", "joinColumnName": "tenant_id" },
+    { "from": "TenantSetting", "to": "Tenant", "type": "ManyToOne", "joinColumnName": "tenant_id", "primary": true, "cascadeDelete": true }
+  ]
+}

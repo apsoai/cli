@@ -1,11 +1,11 @@
 <% const {field} = it; %>
 
-@Column({ "type": "interval", nullable: <%= Boolean(field.nullable) %><% if (field.default !== null) {%>, default:  <%= field.default %><% } %> })
+@Column({ "type": "interval", nullable: <%= Boolean(field.nullable) %><% if (field.default !== null) {%>, default:  <%= field.default %><% } %><% if (field.defaultSql) { %>, default: () => <%~ JSON.stringify(field.defaultSql) %><% } %> })
 <% if (field.index ) {%>
 @Index()
 <% } %>
 <% if (field.primary ) {%>
-@PrimaryColumn()
+@PrimaryColumn(<% if (field.primaryKeyName) { %>{ primaryKeyConstraintName: '<%= field.primaryKeyName %>' }<% } %>)
 <% } %>
 
 <%= field.name %>: string; 

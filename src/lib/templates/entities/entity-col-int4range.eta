@@ -28,7 +28,7 @@
 @Index()
 <% } %>
 <% if (field.primary ) {%>
-@PrimaryColumn()
+@PrimaryColumn(<% if (field.primaryKeyName) { %>{ primaryKeyConstraintName: '<%= field.primaryKeyName %>' }<% } %>)
 <% } %>
 
 <%= field.name %>: {lower: number, upper: number, lowerInclusive: boolean, upperInclusive: boolean}; 
