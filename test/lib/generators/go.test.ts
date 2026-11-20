@@ -719,6 +719,13 @@ describe("GoGenerator", () => {
       expect(result.errors).toHaveLength(0);
     });
 
+    test("refuses a generated column instead of declaring a plain one", () => {
+      const config = createConfig([{ name: "Line", fields: [{ name: "total", type: "integer", generated: "quantity * 2" }] }]);
+      expect(generator.validateConfig(config).errors).toEqual([
+        expect.stringContaining('Line.total sets "generated". The Go generator'),
+      ]);
+    });
+
     test("unsupported type produces warning", () => {
       const config = createConfig([
         {

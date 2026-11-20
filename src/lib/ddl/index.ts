@@ -68,6 +68,8 @@ export interface ColumnSpec {
   type: string;
   notNull: boolean;
   default?: string;
+  /** The expression of a stored generated column. */
+  generated?: string;
   unique: boolean;
   index: boolean;
 }
@@ -93,6 +95,9 @@ const PLAIN_TYPES: Record<string, string> = {
 };
 /** Their templates take no literal default (a SQL default still applies). */
 const NO_LITERAL_DEFAULT = new Set(["xml", "tsvector", "int4range"]);
+
+const generatedSql = (expression: string) =>
+  ` GENERATED ALWAYS AS (${expression}) STORED`;
 
 /** One column as its entity template declares it. */
 export function columnSpec(table: string, f: ComputedField): ColumnSpec {
@@ -193,7 +198,10 @@ export function columnSpec(table: string, f: ComputedField): ColumnSpec {
   // "noDefault" removes the default a boolean would otherwise get.
   if (f.defaultSql !== undefined) def = f.defaultSql;
   else if (f.noDefault) def = undefined;
+  // Postgres computes a generated column, so it has no default.
+  if (f.generated) def = undefined;
   let sql = `${q(f.name)} ${type}`;
+  if (f.generated) sql += generatedSql(f.generated);
   if (!f.nullable) sql += " NOT NULL";
   if (def !== undefined) sql += ` DEFAULT ${def}`;
   return {
@@ -201,6 +209,7 @@ export function columnSpec(table: string, f: ComputedField): ColumnSpec {
     type,
     notNull: !f.nullable,
     default: def,
+    generated: f.generated,
     unique,
     index: Boolean(f.index),
   };
@@ -220,6 +229,8 @@ export interface ModelColumn {
   default?: string;
   /** A SERIAL id, whose default is the table's id sequence. */
   serial?: boolean;
+  /** The expression of a stored generated column. */
+  generated?: string;
 }
 
 export interface ModelTable {
@@ -275,16 +286,18 @@ const column = (
   type: string,
   notNull: boolean,
   def?: string,
-  serial?: boolean
+  serial?: boolean,
+  generated?: string
 ): ModelColumn => ({
   name,
-  sql: `${q(name)} ${serial ? "SERIAL" : type}${notNull ? " NOT NULL" : ""}${
-    def && !serial ? ` DEFAULT ${def}` : ""
-  }`,
+  sql: `${q(name)} ${serial ? "SERIAL" : type}${
+    generated ? generatedSql(generated) : ""
+  }${notNull ? " NOT NULL" : ""}${def && !serial ? ` DEFAULT ${def}` : ""}`,
   type,
   notNull,
   default: def,
   serial,
+  generated,
 });
 
 export const pkColumn = (e: Entity): string =>
@@ -531,7 +544,9 @@ export function schemaModel(input: SchemaInput): Model {
           values: [...f.values],
         });
       const spec = columnSpec(table, f);
-      t.columns.push(column(f.name, spec.type, spec.notNull, spec.default));
+      t.columns.push(
+        column(f.name, spec.type, spec.notNull, spec.default, false, spec.generated)
+      );
       if (spec.unique)
         unique(table, [f.name], constraintName.unique(table, [f.name]));
       if (spec.index) index(table, [f.name]);

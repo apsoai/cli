@@ -29,7 +29,8 @@ describe("import round trip", () => {
   test("the rebuilt schema differs from the source only in the known ways", async () => {
     const original = await database(source);
     const { apsorc, report } = pgToApsorc(await introspectClient(original, "public"));
-    expect(report.warnings.generatedColumns).toEqual(["enrollments.minutes_doubled = (minutes * 2)"]);
+    // A generated column keeps its expression; it is not imported as a plain column.
+    expect(apsorc.entities.find((e) => e.name === "enrollments")?.fields).toContainEqual({ name: "minutes_doubled", type: "integer", nullable: true, generated: "(minutes * 2)" });
     expect(report.warnings.arraysLossy).toEqual([]);
     expect(apsorc.entities.find((e) => e.name === "patients")?.indexes).toContainEqual({ fields: ["mrn"], unique: true, name: "patients_mrn_plain_uq" });
     // What .apsorc cannot express is reported, never imported as something stricter.

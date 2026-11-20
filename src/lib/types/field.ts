@@ -30,6 +30,11 @@ export interface Field {
   default?: string | null | { sql: string } | Record<string, unknown> | unknown[];
   /** The column has no database default (a boolean otherwise defaults to false). */
   noDefault?: boolean;
+  /**
+   * The SQL expression of a stored generated column: Postgres computes the
+   * value, so the API never accepts one for it.
+   */
+  generated?: string;
   length?: number;
   precision?: number;
   scale?: number;

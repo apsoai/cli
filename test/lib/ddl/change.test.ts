@@ -237,6 +237,49 @@ describe("array fields", () => {
   });
 });
 
+const lineSchema = (fields: Field[]): ApsorcType => ({
+  version: 2,
+  rootFolder: "src",
+  apiType: "Rest" as ApsorcType["apiType"],
+  entities: [{ name: "Line", fields: [{ name: "quantity", type: "integer" }, ...fields] }],
+  relationships: [],
+});
+const totalField = (generated?: string): Field => ({ name: "total", type: "integer", ...(generated && { generated }) });
+const lineDdl = (field: Partial<Field>) => () =>
+  schemaDdl(parseApsorcV2(lineSchema([{ ...totalField("quantity * 2"), ...field }])));
+
+describe("generated columns", () => {
+  test("added, given a new expression, then made a plain column", async () => {
+    const versions = [lineSchema([]), lineSchema([totalField("quantity * 2")]), lineSchema([totalField("quantity * 3")]), lineSchema([totalField()])];
+    const db = await pglite();
+    await db.exec(schemaDdl(parseApsorcV2(versions[0])).join(";\n"));
+    await db.exec(`INSERT INTO "line" ("quantity") VALUES (5)`);
+    const totalAfter = async (step: number) => {
+      const plan = planMigration(versions[step - 1], versions[step]);
+      expect(openQuestions(plan)).toEqual([]);
+      const { up } = changeDdl(versions[step - 1], versions[step], plan);
+      await db.exec(up.join(";\n"));
+      const fresh = await pglite();
+      await fresh.exec(schemaDdl(parseApsorcV2(versions[step])).join(";\n"));
+      expect(catalogDiff(await readCatalog(fresh), await readCatalog(db))).toEqual([]);
+      await fresh.close();
+      const { rows } = await db.query<{ total: number }>(`SELECT "total" FROM "line"`);
+      return { up, total: rows[0].total };
+    };
+    // NOT NULL needs no backfill: Postgres computes the existing row.
+    expect(await totalAfter(1)).toEqual({ up: ['ALTER TABLE "line" ADD "total" integer GENERATED ALWAYS AS (quantity * 2) STORED NOT NULL'], total: 10 });
+    expect(await totalAfter(2)).toMatchObject({ total: 15 });
+    // The computed value stays once the database stops computing it.
+    expect(await totalAfter(3)).toEqual({ up: ['ALTER TABLE "line" ALTER COLUMN "total" DROP EXPRESSION'], total: 15 });
+    await db.close();
+  });
+
+  test("a default or a primary key on one is refused", () => {
+    expect(lineDdl({ default: "0" })).toThrow(/sets "generated" and "default"/);
+    expect(lineDdl({ primary: true })).toThrow(/sets "generated" and "primary"/);
+  });
+});
+
 describe("extensions", () => {
   test("adding a uuid-keyed entity creates uuid-ossp before the table", async () => {
     const base = {

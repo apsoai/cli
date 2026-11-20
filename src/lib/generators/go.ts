@@ -155,6 +155,12 @@ export class GoGenerator extends BaseGenerator {
     errors.push(...removedScopeOptionErrors(config.entities ?? []));
     errors.push(...joinColumnErrors(config.relationshipMap, "Go"));
     for (const e of config.entities ?? [])
+      for (const f of e.fields ?? [])
+        if (f.generated)
+          errors.push(
+            `${e.name}.${f.name} sets "generated". The Go generator cannot declare a generated column yet; remove it or generate a TypeScript service.`
+          );
+    for (const e of config.entities ?? [])
       if (e.primaryKeyName)
         errors.push(
           `${e.name} sets "primaryKeyName": "${e.primaryKeyName}". The Go generator cannot keep a custom primary key constraint name yet; remove it or generate a TypeScript service.`

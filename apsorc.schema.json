@@ -642,6 +642,11 @@
         "noDefault": {
           "description": "The column has no database default. A boolean field otherwise defaults to false.",
           "type": "boolean"
+        },
+        "generated": {
+          "description": "The SQL expression of a stored generated column, e.g. \"(quantity * price)\". Postgres computes the value, so create and update requests do not accept the field. It cannot have a default. TypeScript only.",
+          "type": "string",
+          "minLength": 1
         }
       },
       "required": [

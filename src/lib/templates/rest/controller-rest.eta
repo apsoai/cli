@@ -15,6 +15,17 @@ import {<%= it.svcName %>} from './<%= it.entityName %>.service';
 import { RelationAccess, RelationRoot } from '../guards/relations.interceptor';
 <% } %>
   
+<%
+// Postgres computes a generated column, so a value sent for one is dropped
+// before it can come back in the response as if it had been stored.
+const writable = (dto) => it.generatedFields.length ? `writable(${dto})` : dto;
+%>
+<% if (it.generatedFields.length) { %>
+const GENERATED = <%~ JSON.stringify(it.generatedFields) %>;
+const writable = <T>(dto: T): T =>
+    Object.fromEntries(Object.entries(dto as object).filter(([key]) => !GENERATED.includes(key))) as T;
+
+<% } %>
 <% if (it.crudAuthNested.length) { %>
 // A nested scopeBy path (task.workspaceId) limits rows to the parents ScopeGuard
 // found in the caller's tenant (req.apsoScope). An empty list matches no rows.
@@ -198,7 +209,7 @@ export class <%= it.ctrlName %> implements CrudController<<%= it.entityName %>>{
         @ParsedRequest() req: CrudRequest,
         @Body() dto: <%= it.entityName %>Create,
     ) {
-        return this.base.createOneBase(req, dto as unknown as <%= it.entityName %>);
+        return this.base.createOneBase(req, <%= writable('dto') %> as unknown as <%= it.entityName %>);
     }
 
     @Override('createManyBase')
@@ -207,7 +218,7 @@ export class <%= it.ctrlName %> implements CrudController<<%= it.entityName %>>{
         @ParsedRequest() req: CrudRequest,
         @Body() dto: CreateManyDto<<%= it.entityName %>Create>
     ) {
-        return this.base.createManyBase(req, dto as unknown as CreateManyDto<<%= it.entityName %>>);
+        return this.base.createManyBase(req, <%~ it.generatedFields.length ? '{ ...dto, bulk: dto.bulk.map((row) => writable(row)) }' : 'dto' %> as unknown as CreateManyDto<<%= it.entityName %>>);
     }
 
     @Override('updateOneBase')
@@ -219,7 +230,7 @@ export class <%= it.ctrlName %> implements CrudController<<%= it.entityName %>>{
         @ParsedRequest() req: CrudRequest,
         @Body() dto: <%= it.entityName %>Update,
     ) {
-        return this.base.updateOneBase(req, dto as unknown as <%= it.entityName %>);
+        return this.base.updateOneBase(req, <%= writable('dto') %> as unknown as <%= it.entityName %>);
     }
 
     @Override('replaceOneBase')
@@ -228,7 +239,7 @@ export class <%= it.ctrlName %> implements CrudController<<%= it.entityName %>>{
         @ParsedRequest() req: CrudRequest,
         @Body() dto: <%= it.entityName %>Update,
     ) {
-        return this.base.replaceOneBase(req, dto as unknown as <%= it.entityName %>);
+        return this.base.replaceOneBase(req, <%= writable('dto') %> as unknown as <%= it.entityName %>);
     }
 
     @Override('deleteOneBase')

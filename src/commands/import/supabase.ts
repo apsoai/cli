@@ -91,8 +91,6 @@ export function formatReport(report: ImportReport): string {
     review.push(`  - Check constraints that are NOT VALID in the source (kept NOT VALID in migrations; TypeORM's schema sync creates them validated): ${w.checksNotValid.join(", ")}`);
   if (w.timestampDefaultsAdded.length > 0)
     review.push(`  - created_at / updated_at with no default in the source (kept without one in migrations; TypeORM's schema sync adds DEFAULT now()): ${w.timestampDefaultsAdded.join(", ")}`);
-  if (w.generatedColumns.length > 0)
-    review.push(`  - Generated columns imported as plain columns (the database will no longer compute them): ${w.generatedColumns.join("; ")}`);
   if (w.foreignKeysNotCarried.length > 0)
     review.push(`  - Foreign keys left out because the column already has one (the database keeps them; apso migrate does not know about them): ${w.foreignKeysNotCarried.join(", ")}`);
   if (w.relationshipsRenamed.length > 0)

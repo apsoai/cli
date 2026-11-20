@@ -86,6 +86,13 @@ describe("PythonGenerator", () => {
     });
   });
 
+  test("refuses a generated column instead of declaring a plain one", () => {
+    const config = createConfig([{ name: "Line", fields: [{ name: "total", type: "integer", generated: "quantity * 2" }] }]);
+    expect(generator.validateConfig(config).errors).toEqual([
+      expect.stringContaining('Line.total sets "generated". The Python generator'),
+    ]);
+  });
+
   // apsoai/cli#241
   test("refuses joinColumnName on a foreign key instead of building another column", () => {
     const config = createConfig(

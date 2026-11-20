@@ -329,6 +329,9 @@ export class TypeScriptGenerator extends BaseGenerator {
       entityName,
       pluralEntityName,
       primaryKeyType,
+      generatedFields: (entity.fields ?? [])
+        .filter((f) => f.generated)
+        .map((f) => f.name),
       keyField: keyFields.length === 1 ? keyFields[0] : "id",
       associations: [...new Set(relationshipsForTemplate)],
       nestedJoinsFile,

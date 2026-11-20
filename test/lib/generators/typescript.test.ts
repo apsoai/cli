@@ -849,6 +849,43 @@ describe("defaults", () => {
   });
 });
 
+describe("generated columns", () => {
+  test("the entity declares the expression and the request bodies leave the field out", async () => {
+    const entity: Entity = {
+      name: "Line",
+      fields: [
+        { name: "quantity", type: "integer" },
+        { name: "total", type: "integer", generated: "quantity * 2" },
+        { name: "busy", type: "boolean", generated: "quantity > 10" },
+        { name: "summary", type: "jsonb" as Field["type"], nullable: true, generated: "jsonb_build_object('q', quantity)" },
+      ],
+    };
+    const generator = new TypeScriptGenerator(createConfig([entity]));
+    const options = { entity, relationships: [], allEntities: [entity], apiType: "rest" };
+    const entityFiles = await generator.generateEntity(options);
+    const content = findFileContent(entityFiles, "Line.entity")!.replace(/\s+/g, " ");
+    expect(content).toContain(`@Column({ generatedType: 'STORED', asExpression: "quantity * 2", insert: false, update: false, "type": "int", nullable: false })`);
+    // A boolean gets no DEFAULT false: Postgres refuses a default on a generated column.
+    expect(content).toContain(`@Column({ generatedType: 'STORED', asExpression: "quantity > 10", insert: false, update: false, type: 'boolean', nullable: false })`);
+    expect(content).toContain(`@Column('jsonb', { generatedType: 'STORED', asExpression: "jsonb_build_object('q', quantity)", insert: false, update: false, nullable: true })`);
+    const dtoFiles = await generator.generateDto(options);
+    const [create, update, read] = dtoFiles.find((f) => f.path.includes("dto"))!.content.split(/export class /).slice(1);
+    expect(create).toMatch(/quantity\??: number;/);
+    expect(create).not.toContain("total");
+    expect(update).not.toContain("total");
+    expect(read).toMatch(/total\??: number;/);
+    // A value sent for one is dropped, so the response never echoes it as stored.
+    const controllerOf = async (e: Entity) => {
+      const files = await new TypeScriptGenerator(createConfig([e])).generateController({ ...options, entity: e, allEntities: [e], relationshipMap: {} });
+      return files.find((f) => f.path.endsWith(".controller.ts"))!.content;
+    };
+    const controller = await controllerOf(entity);
+    expect(controller).toContain(`const GENERATED = ["total","busy","summary"];`);
+    expect(controller).toContain("this.base.updateOneBase(req, writable(dto) as unknown as Line)");
+    expect(await controllerOf({ ...entity, fields: [entity.fields![0]] })).not.toContain("writable");
+  });
+});
+
 // apsoai/cli#243
 describe("created_at and updated_at column type", () => {
   test("timestampType timestamptz keeps the time zone", async () => {

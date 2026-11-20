@@ -34,6 +34,7 @@ export interface ApsorcImportFieldOutput {
   unique?: boolean;
   default?: unknown;
   noDefault?: boolean;
+  generated?: string;
   index?: boolean;
   values?: string[];
   length?: number;
@@ -356,7 +357,6 @@ function emptyReport(schema: IntrospectedSchema): ImportReport {
     systemSchemasSkipped: schema.skipped.systemSchemas,
     warnings: {
       arraysLossy: [],
-      generatedColumns: [],
       checksNotValid: [],
       timestampDefaultsAdded: [],
       indexesNotCarried: [],
@@ -561,10 +561,6 @@ export function pgToApsorc(schema: IntrospectedSchema): {
       if (pk.length === 1 && col.name === pk[0] && !pkAsField) continue;
 
       const resolved = pgTypeToApsorcType(col);
-      if (col.generated)
-        report.warnings.generatedColumns.push(
-          `${table.name}.${col.name} = ${col.generated}`
-        );
       if (resolved.lossy === "array") {
         report.warnings.arraysLossy.push(`${table.name}.${col.name}`);
       } else if (resolved.lossy === "defaulted") {
@@ -582,6 +578,7 @@ export function pgToApsorc(schema: IntrospectedSchema): {
       if (col.nullable) field.nullable = true;
       if (uniqueSingle.has(col.name)) field.unique = true;
       if (pkSet.has(col.name) && pkAsField) field.primary = true;
+      if (col.generated) field.generated = col.generated;
 
       if ((resolved.type === "varchar" || resolved.type === "char") && col.charMaxLength) field.length = col.charMaxLength;
       if (resolved.type === "numeric" || resolved.type === "decimal") {
@@ -597,7 +594,7 @@ export function pgToApsorc(schema: IntrospectedSchema): {
       }
 
       // Defaults (skip for PK columns — those are implicit/sequence-driven).
-      if (!(pkSet.has(col.name) && !pkAsField)) {
+      if (!(pkSet.has(col.name) && !pkAsField) && !col.generated) {
         const parsed = parseDefault(col.default, resolved.type);
         const literal =
           "value" in parsed && LITERAL_DEFAULT_TYPES.has(resolved.type);

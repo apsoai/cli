@@ -241,6 +241,15 @@ export const getFieldForTemplate = (
   fields.map((field: Field) => {
     // Validate decimal/numeric fields
     validateDecimalField(field);
+    if (field.generated !== undefined) {
+      const clash =
+        (field.primary && "primary") ||
+        (field.default !== undefined && field.default !== null && "default");
+      if (clash)
+        throw new Error(
+          `${entityName}.${field.name} sets "generated" and "${clash}". Postgres computes a generated column, so it cannot have a default or be the primary key.`
+        );
+    }
 
     // Normalize field type for template lookup (e.g., "double precision" -> "double")
     const normalizedType = normalizeFieldType(field.type);
@@ -251,7 +260,9 @@ export const getFieldForTemplate = (
       type: normalizedType as FieldType,
       // Resolved here so every template and the DDL writer read one key.
       ...(field.type === "array" && { elementType: arrayElementType(field) }),
-      default: getDefaultValueForField(field),
+      // A generated column has no default (a boolean would otherwise get false).
+      default: field.generated ? null : getDefaultValueForField(field),
+      ...(field.generated && { noDefault: true }),
       ...(defaultSqlOf(field) !== undefined && {
         defaultSql: defaultSqlOf(field),
       }),

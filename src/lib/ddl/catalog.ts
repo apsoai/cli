@@ -19,10 +19,13 @@ interface Queryable {
 const COLUMNS = `
 SELECT table_name || '.' || column_name || ' ' || format_type(a.atttypid, a.atttypmod)
        || CASE WHEN c.is_nullable = 'NO' THEN ' NOT NULL' ELSE '' END
-       || COALESCE(' DEFAULT ' || c.column_default, '') AS line
+       || COALESCE(' DEFAULT ' || c.column_default, '')
+       || CASE WHEN c.is_generated = 'ALWAYS' THEN ' GENERATED ' || c.generation_expression ELSE '' END AS line
 FROM information_schema.columns c
 JOIN pg_attribute a ON a.attrelid = ('"' || c.table_name || '"')::regclass AND a.attname = c.column_name
-WHERE c.table_schema = 'public'`;
+WHERE c.table_schema = 'public'
+  -- TypeORM's bookkeeping table, written by its schema sync.
+  AND c.table_name <> 'typeorm_metadata'`;
 
 const CONSTRAINTS = `
 SELECT conrelid::regclass::text || ' ' || conname || ' ' || pg_get_constraintdef(oid) AS line

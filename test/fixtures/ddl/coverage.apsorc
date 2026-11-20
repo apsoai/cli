@@ -13,6 +13,8 @@
         { "name": "active", "type": "boolean" },
         { "name": "verified", "type": "boolean", "default": "false" },
         { "name": "visits", "type": "bigint", "default": "0" },
+        { "name": "visits_doubled", "type": "bigint", "generated": "visits * 2", "nullable": true },
+        { "name": "busy", "type": "boolean", "generated": "visits > 10" },
         { "name": "balance", "type": "decimal", "precision": 12, "scale": 4, "nullable": true },
         { "name": "ratio", "type": "float", "nullable": true },
         { "name": "score", "type": "double", "nullable": true },

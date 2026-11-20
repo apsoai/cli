@@ -227,13 +227,27 @@ export function changeDdl(
       const o = old.columns.find((x) => x.name === c.name);
       const at = `ALTER TABLE ${q(t.name)} ALTER COLUMN ${q(c.name)}`;
       if (!o) {
-        const needsData = c.notNull && c.default === undefined && !c.serial;
+        const needsData =
+          c.notNull && c.default === undefined && !c.serial && !c.generated;
         up.push(
           `ALTER TABLE ${q(t.name)} ADD ${needsData ? nullableSql(c) : c.sql}`
         );
         if (needsData) setNotNull.push(`${at} SET NOT NULL`);
         continue;
       }
+      if (c.generated && (o.generated !== c.generated || o.type !== c.type)) {
+        // Postgres 15 cannot change a generated column's expression in
+        // place, and the values are derived, so the column is rebuilt.
+        // ponytail: an index or constraint on the column goes with it and is
+        // not rebuilt here; the check after the migration reports it.
+        up.push(
+          `ALTER TABLE ${q(t.name)} DROP COLUMN ${q(c.name)}`,
+          `ALTER TABLE ${q(t.name)} ADD ${c.sql}`
+        );
+        continue;
+      }
+      // Now a plain column: it keeps the values Postgres computed.
+      if (o.generated && !c.generated) up.push(`${at} DROP EXPRESSION`);
       const enumName = typeOf(c.type);
       const retype = o.type !== c.type || (enumName && swapped.has(enumName));
       if (retype) {

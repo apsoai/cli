@@ -103,7 +103,11 @@ const columnsToProcess = it.columns.filter(c => {
 });
 columnsToProcess.forEach((field) => { %>
 
-<%~ includeFile(`./entities/entity-col-${field.type}`, { field }) %>
+<%
+// A generated column: Postgres computes it, so TypeORM never writes it.
+const columnCode = includeFile(`./entities/entity-col-${field.type}`, { field });
+%>
+<%~ field.generated ? columnCode.replace(/@Column\(('\w+', )?\{/, (open) => `${open} generatedType: 'STORED', asExpression: ${JSON.stringify(field.generated)}, insert: false, update: false,`) : columnCode %>
 
 <% }); %>
 
