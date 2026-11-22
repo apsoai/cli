@@ -230,16 +230,20 @@ export function track(event: string, properties: Record<string, unknown> = {}): 
     posthog.capture({
       distinctId,
       event,
-      properties: { ...commonProps(), ...properties },
+      properties: {
+        ...commonProps(),
+        ...properties,
+        // Set internal as person properties via $set (posthog-node types don't include it, but it works)
+        // eslint-disable-next-line camelcase
+        $set: {
+          internal: internalDetection.internal,
+          // eslint-disable-next-line camelcase
+          ...(internalDetection.reason ? { internal_reason: internalDetection.reason } : {}),
+        },
+      },
       // PostHog group analytics: roll activity up per workspace.
       ...(workspaceId ? { groups: { workspace: workspaceId } } : {}),
-      // Set internal as a person property so person-level filtering works
-      $set: {
-        internal: internalDetection.internal,
-        // eslint-disable-next-line camelcase
-        ...(internalDetection.reason ? { internal_reason: internalDetection.reason } : {}),
-      },
-    });
+    } as Parameters<typeof posthog.capture>[0]);
   } catch {
     // never break a command over telemetry
   }
@@ -297,15 +301,16 @@ export function capturePostHogException(
         ],
         // Additional structured error properties
         ...errorProps,
+        // Set internal as person properties via $set (posthog-node types don't include it, but it works)
+        // eslint-disable-next-line camelcase
+        $set: {
+          internal: internalDetection.internal,
+          // eslint-disable-next-line camelcase
+          ...(internalDetection.reason ? { internal_reason: internalDetection.reason } : {}),
+        },
       },
       ...(workspaceId ? { groups: { workspace: workspaceId } } : {}),
-      // Set internal as a person property
-      $set: {
-        internal: internalDetection.internal,
-        // eslint-disable-next-line camelcase
-        ...(internalDetection.reason ? { internal_reason: internalDetection.reason } : {}),
-      },
-    });
+    } as Parameters<typeof posthog.capture>[0]);
   } catch {
     // never break a command over telemetry
   }
