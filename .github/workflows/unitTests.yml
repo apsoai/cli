@@ -7,6 +7,10 @@ on:
 permissions:
   contents: read
 
+# Mark all runs in this workflow as internal (Apso team/system)
+env:
+  APSO_INTERNAL: '1'
+
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest

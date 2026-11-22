@@ -14,6 +14,10 @@ on:
     # Mondays 06:00 UTC — a low-noise heartbeat, does not block PRs.
     - cron: "0 6 * * 1"
 
+# Mark all runs in this workflow as internal (Apso team/system)
+env:
+  APSO_INTERNAL: '1'
+
 jobs:
   scaffold-and-compile:
     runs-on: ubuntu-latest

@@ -24,6 +24,7 @@ import os from "os";
 import ciInfo from "ci-info";
 import { globalConfig, credentials, projectLink } from "../config";
 import { extractErrorProperties } from "./error-utils";
+import { detectInternal, type InternalDetectionResult } from "./internal-detection";
 
 // Public ingestion keys (same tokens the browser/build-engine ship, per env).
 const POSTHOG_KEY_PROD = "phc_Es9UUMw8pOs7Bs21b5PhfC5Qdo94GpYVv8MfdrG12LC";
@@ -53,6 +54,7 @@ let serviceId: string | undefined;
 let environment: "production" | "staging" = "production";
 let startedAt = Date.now();
 let noticePending = false;
+let internalDetection: InternalDetectionResult = { internal: false };
 
 function isDisabled(telemetryDisabled: boolean): boolean {
   if (process.env.DO_NOT_TRACK === "1" || process.env.DO_NOT_TRACK === "true")
@@ -128,6 +130,14 @@ export function initTelemetry(): void {
     workspaceSlug = link?.workspaceSlug || cfg.activeWorkspaceSlug || undefined;
     serviceId = link?.serviceId || undefined;
 
+    // Detect internal runs (Apso team/system)
+    internalDetection = detectInternal({
+      configInternal: cfg.internal,
+      userEmail: creds?.user?.email,
+      workspaceSlug,
+      workspaceId,
+    });
+
     posthog = new PostHog(
       environment === "staging" ? POSTHOG_KEY_STAGING : POSTHOG_KEY_PROD,
       { host: POSTHOG_HOST, flushAt: 1, flushInterval: 0 }
@@ -155,6 +165,11 @@ export function initTelemetry(): void {
       Sentry.setTag("cli_version", cliVersion);
       if (workspaceId) Sentry.setTag("workspace_id", workspaceId);
       if (serviceId) Sentry.setTag("service_id", serviceId);
+      // Tag internal runs in Sentry
+      Sentry.setTag("internal", String(internalDetection.internal));
+      if (internalDetection.reason) {
+        Sentry.setTag("internal_reason", internalDetection.reason);
+      }
       sentryOn = true;
     }
   } catch {
@@ -171,6 +186,9 @@ function commonProps(): Record<string, unknown> {
     node_version: process.version,
     authenticated: authenticatedUser,
     ci: ciInfo.isCI,
+    internal: internalDetection.internal,
+    // eslint-disable-next-line camelcase
+    ...(internalDetection.reason ? { internal_reason: internalDetection.reason } : {}),
     ...(workspaceId ? { workspace_id: workspaceId } : {}),
     ...(workspaceSlug ? { workspace_slug: workspaceSlug } : {}),
     ...(serviceId ? { service_id: serviceId } : {}),
@@ -215,6 +233,12 @@ export function track(event: string, properties: Record<string, unknown> = {}): 
       properties: { ...commonProps(), ...properties },
       // PostHog group analytics: roll activity up per workspace.
       ...(workspaceId ? { groups: { workspace: workspaceId } } : {}),
+      // Set internal as a person property so person-level filtering works
+      $set: {
+        internal: internalDetection.internal,
+        // eslint-disable-next-line camelcase
+        ...(internalDetection.reason ? { internal_reason: internalDetection.reason } : {}),
+      },
     });
   } catch {
     // never break a command over telemetry
@@ -275,6 +299,12 @@ export function capturePostHogException(
         ...errorProps,
       },
       ...(workspaceId ? { groups: { workspace: workspaceId } } : {}),
+      // Set internal as a person property
+      $set: {
+        internal: internalDetection.internal,
+        // eslint-disable-next-line camelcase
+        ...(internalDetection.reason ? { internal_reason: internalDetection.reason } : {}),
+      },
     });
   } catch {
     // never break a command over telemetry
