@@ -205,12 +205,15 @@ export default class SchemaValidate extends BaseCommand {
       for (const err of errors) {
         this.log(`  - ${err}`);
       }
-      // Throw a ValidationError with the individual error messages so telemetry
-      // can extract and report them (up to 10, redacted/truncated).
-      throw new ValidationError(
+      // Use this.error() to maintain oclif's exit code 2 and formatting.
+      // Attach the error list so telemetry can still extract individual messages.
+      const validationError = new ValidationError(
         `Validation failed with ${errors.length} error(s).`,
         errors
       );
+      // this.error() will trigger base-command's catch(), which will extract
+      // errorMessages from the ValidationError and send them to telemetry.
+      this.error(validationError);
     } else {
       this.log("Validation passed.");
     }

@@ -22,6 +22,22 @@ describe("redactSensitiveData", () => {
     expect(redactSensitiveData(path)).toBe("~/projects/apso/src/index.ts");
   });
 
+  test("redacts home paths with regex special characters", () => {
+    // Mock a home directory with regex special characters
+    const originalHomedir = require("os").homedir;
+    require("os").homedir = () => "/home/user.name+test";
+    const path = "/home/user.name+test/projects/file.ts";
+    expect(redactSensitiveData(path)).toBe("~/projects/file.ts");
+    // Restore
+    require("os").homedir = originalHomedir;
+  });
+
+  test("handles multiple occurrences of home path", () => {
+    const homeDir = require("os").homedir();
+    const message = `File at ${homeDir}/a and ${homeDir}/b`;
+    expect(redactSensitiveData(message)).toBe("File at ~/a and ~/b");
+  });
+
   test("redacts API keys", () => {
     // Build fake API keys at runtime to avoid tripping security scanners
     const fakeApiKey1 = `api_key: sk_${"live"}_${"a".repeat(10)}${"12345"}`;

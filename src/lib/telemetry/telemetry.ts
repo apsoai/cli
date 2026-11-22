@@ -362,34 +362,95 @@ export async function shutdownTelemetry(): Promise<void> {
 }
 
 /**
+ * Guard against re-entry in global error handlers.
+ */
+let handlingFatalError = false;
+
+/**
  * Install global handlers for uncaught exceptions and unhandled rejections.
- * These are captured in both Sentry and PostHog.
+ * These handlers capture telemetry, flush with a timeout, then crash properly
+ * with non-zero exit and stderr output (preserving Node's default behavior).
  */
 function installGlobalErrorHandlers(): void {
   process.on("uncaughtException", (err: Error) => {
+    if (handlingFatalError) {
+      // Re-entry during error handling - bail immediately
+      process.stderr.write("Fatal error during error handling\n");
+      // eslint-disable-next-line no-process-exit
+      process.exit(1);
+    }
+    handlingFatalError = true;
+
+    // Capture telemetry (best-effort, non-blocking)
     try {
       // eslint-disable-next-line camelcase
       captureException(err, { event_type: "uncaught_exception" });
       // eslint-disable-next-line camelcase
       capturePostHogException(err, { event_type: "uncaught_exception" });
-      // Flush both clients before the process exits
-      // eslint-disable-next-line @typescript-eslint/no-floating-promises
-      shutdownTelemetry();
     } catch {
-      // ignore
+      // ignore telemetry errors
     }
+
+    // Flush telemetry with a short timeout (2s), then crash properly
+    const flushWithTimeout = Promise.race([
+      shutdownTelemetry(),
+      new Promise<void>((resolve) => {
+        setTimeout(() => resolve(), 2000);
+      }),
+    ]);
+
+    flushWithTimeout
+      .catch(() => {
+        // ignore flush errors
+      })
+      .finally(() => {
+        // Print error to stderr (Node's default behavior)
+        process.stderr.write(`\n${err.stack || err.message}\n`);
+        // Exit non-zero (Node's default behavior)
+        // eslint-disable-next-line no-process-exit
+        process.exit(1);
+      });
   });
 
   process.on("unhandledRejection", (reason: unknown) => {
+    if (handlingFatalError) {
+      process.stderr.write("Fatal error during error handling\n");
+      // eslint-disable-next-line no-process-exit
+      process.exit(1);
+    }
+    handlingFatalError = true;
+
+    const err = reason instanceof Error ? reason : new Error(String(reason));
+
+    // Capture telemetry (best-effort, non-blocking)
     try {
-      const err = reason instanceof Error ? reason : new Error(String(reason));
       // eslint-disable-next-line camelcase
       captureException(err, { event_type: "unhandled_rejection" });
       // eslint-disable-next-line camelcase
       capturePostHogException(err, { event_type: "unhandled_rejection" });
     } catch {
-      // ignore
+      // ignore telemetry errors
     }
+
+    // Flush telemetry with a short timeout (2s), then crash properly
+    const flushWithTimeout = Promise.race([
+      shutdownTelemetry(),
+      new Promise<void>((resolve) => {
+        setTimeout(() => resolve(), 2000);
+      }),
+    ]);
+
+    flushWithTimeout
+      .catch(() => {
+        // ignore flush errors
+      })
+      .finally(() => {
+        // Print error to stderr (Node's default behavior)
+        process.stderr.write(`\nUnhandled rejection: ${err.stack || err.message}\n`);
+        // Exit non-zero (Node's default behavior)
+        // eslint-disable-next-line no-process-exit
+        process.exit(1);
+      });
   });
 }
 

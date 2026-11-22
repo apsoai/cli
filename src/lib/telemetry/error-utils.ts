@@ -38,13 +38,22 @@ export const MAX_ERROR_MESSAGES = 10;
 
 /**
  * Redact home directory paths from a string, replacing them with ~.
+ * Handles both Unix (/) and Windows (\) path separators.
  */
 function redactHomePath(str: string): string {
   const homeDir = os.homedir();
-  if (homeDir) {
-    return str.replace(new RegExp(homeDir, "g"), "~");
+  if (!homeDir) return str;
+
+  // Use split/join for safe replacement (no regex)
+  let redacted = str.split(homeDir).join("~");
+
+  // Also handle Windows paths with forward slashes (normalized paths)
+  if (os.platform() === "win32" && homeDir.includes("\\")) {
+    const homeDirForward = homeDir.replace(/\\/g, "/");
+    redacted = redacted.split(homeDirForward).join("~");
   }
-  return str;
+
+  return redacted;
 }
 
 /**
