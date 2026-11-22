@@ -3,10 +3,15 @@ import { spawn } from "child_process";
 import os from "os";
 import {
   captureException,
+  capturePostHogException,
   track,
   shutdownTelemetry,
   elapsedMs,
 } from "./telemetry/telemetry";
+import {
+  extractErrorProperties,
+  isConfigOrValidationError,
+} from "./telemetry/error-utils";
 
 /**
  * True for errors oclif raised deliberately (this.error, this.exit, parse
@@ -31,17 +36,32 @@ export default abstract class BaseCommand extends Command {
       // and arg parse failures) with an `oclif` property. Those are messages
       // we chose to show the user, e.g. "No entity named X", not crashes, so
       // they go to PostHog only. Everything else is a real bug for Sentry.
-      const userError = isUserError(err);
+      //
+      // Config and validation errors (ApsorcNamingError, validation failures)
+      // are also user errors, not CLI bugs.
+      const isOclifError = isUserError(err);
+      const isConfigError = isConfigOrValidationError(err);
+      const userError = isOclifError || isConfigError;
+
+      // Sentry: only real bugs (not user errors)
       if (!userError) {
         captureException(err, { command: this.id });
       }
+
+      // PostHog: capture the exception with full context
+      capturePostHogException(err, { command: this.id });
+
+      // Extract detailed error properties for the cli_command_failed event
+      const errorProps = extractErrorProperties(err);
+
+      // Track the failure event with structured error properties
       track("cli_command_failed", {
         command: this.id,
         duration_ms: elapsedMs(),
-        error: err?.message,
-        error_code: err?.code,
         user_error: userError,
+        ...errorProps,
       });
+
       await shutdownTelemetry();
     } catch {
       // never mask the original error with a telemetry failure

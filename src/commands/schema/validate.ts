@@ -14,6 +14,21 @@ import { GeneratorConfig } from "../../lib/types";
 import { apsorcToServiceSchema } from "../../lib/utils/schema-convert";
 
 /**
+ * A validation error that includes the individual error messages.
+ * This allows telemetry to extract and report the specific validation failures.
+ */
+class ValidationError extends Error {
+  readonly userError = true;
+  readonly errorMessages: string[];
+
+  constructor(message: string, errors: string[]) {
+    super(message);
+    this.name = "ValidationError";
+    this.errorMessages = errors;
+  }
+}
+
+/**
  * What `apso generate` would stop on: its configuration checks and the auth,
  * permissions and mcp rules. It runs the generator's own checks
  * and writes nothing, so the two cannot disagree.
@@ -190,7 +205,12 @@ export default class SchemaValidate extends BaseCommand {
       for (const err of errors) {
         this.log(`  - ${err}`);
       }
-      this.error(`Validation failed with ${errors.length} error(s).`);
+      // Throw a ValidationError with the individual error messages so telemetry
+      // can extract and report them (up to 10, redacted/truncated).
+      throw new ValidationError(
+        `Validation failed with ${errors.length} error(s).`,
+        errors
+      );
     } else {
       this.log("Validation passed.");
     }

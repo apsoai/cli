@@ -21,7 +21,9 @@ import { PostHog } from "posthog-node";
 import * as Sentry from "@sentry/node";
 import { createHash, randomUUID } from "crypto";
 import os from "os";
+import ciInfo from "ci-info";
 import { globalConfig, credentials, projectLink } from "../config";
+import { extractErrorProperties } from "./error-utils";
 
 // Public ingestion keys (same tokens the browser/build-engine ship, per env).
 const POSTHOG_KEY_PROD = "phc_Es9UUMw8pOs7Bs21b5PhfC5Qdo94GpYVv8MfdrG12LC";
@@ -97,6 +99,9 @@ export function initTelemetry(): void {
       return;
     }
     enabled = true;
+
+    // Install uncaught exception and unhandled rejection handlers
+    installGlobalErrorHandlers();
     environment = (cfg.apiUrl || "").includes("staging")
       ? "staging"
       : "production";
@@ -165,6 +170,7 @@ function commonProps(): Record<string, unknown> {
     arch: os.arch(),
     node_version: process.version,
     authenticated: authenticatedUser,
+    ci: ciInfo.isCI,
     ...(workspaceId ? { workspace_id: workspaceId } : {}),
     ...(workspaceSlug ? { workspace_slug: workspaceSlug } : {}),
     ...(serviceId ? { service_id: serviceId } : {}),
@@ -228,6 +234,79 @@ export function captureException(
   }
 }
 
+/**
+ * Capture an exception event in PostHog with structured error properties.
+ *
+ * PostHog's posthog-node SDK (v5.21.2+) doesn't have a direct captureException
+ * method, so we send an $exception event with $exception_list in the standard
+ * format: https://posthog.com/docs/data/exceptions
+ *
+ * @param err - The error to capture
+ * @param context - Additional context properties (command, etc.)
+ */
+export function capturePostHogException(
+  err: unknown,
+  context: Record<string, unknown> = {}
+): void {
+  try {
+    if (!enabled || !posthog) return;
+
+    const errorProps = extractErrorProperties(err);
+    const stack = err instanceof Error ? err.stack : undefined;
+
+    // PostHog exception format: $exception event with $exception_list
+    posthog.capture({
+      distinctId,
+      event: "$exception",
+      properties: {
+        ...commonProps(),
+        ...context,
+        // eslint-disable-next-line camelcase
+        $exception_list: [
+          {
+            // eslint-disable-next-line camelcase
+            type: errorProps.error_class || "Error",
+            // eslint-disable-next-line camelcase
+            value: errorProps.error_message || String(err),
+            ...(stack ? { stacktrace: { frames: parseStackTrace(stack) } } : {}),
+          },
+        ],
+        // Additional structured error properties
+        ...errorProps,
+      },
+      ...(workspaceId ? { groups: { workspace: workspaceId } } : {}),
+    });
+  } catch {
+    // never break a command over telemetry
+  }
+}
+
+/**
+ * Parse a stack trace string into PostHog's frame format.
+ * Best-effort parsing; PostHog accepts frames with minimal structure.
+ */
+function parseStackTrace(stack: string): Array<Record<string, unknown>> {
+  try {
+    const lines = stack.split("\n").slice(1); // Skip the error message line
+    return lines.slice(0, 10).map((line) => {
+      // Basic parsing: extract function name and location if available
+      const match = line.match(/at\s+(?:(.+?)\s+\()?(.+?):(\d+):(\d+)\)?/);
+      if (match) {
+        const [, fn, filename, lineno, colno] = match;
+        return {
+          function: fn || "<anonymous>",
+          filename: filename?.replace(os.homedir(), "~") || "unknown",
+          lineno: Number.parseInt(lineno, 10),
+          colno: Number.parseInt(colno, 10),
+        };
+      }
+      return { raw: line.trim() };
+    });
+  } catch {
+    return [{ raw: "Failed to parse stack trace" }];
+  }
+}
+
 /** Milliseconds since the process (CLI invocation) started. */
 export function elapsedMs(): number {
   return Date.now() - startedAt;
@@ -245,6 +324,38 @@ export async function shutdownTelemetry(): Promise<void> {
   } catch {
     // ignore
   }
+}
+
+/**
+ * Install global handlers for uncaught exceptions and unhandled rejections.
+ * These are captured in both Sentry and PostHog.
+ */
+function installGlobalErrorHandlers(): void {
+  process.on("uncaughtException", (err: Error) => {
+    try {
+      // eslint-disable-next-line camelcase
+      captureException(err, { event_type: "uncaught_exception" });
+      // eslint-disable-next-line camelcase
+      capturePostHogException(err, { event_type: "uncaught_exception" });
+      // Flush both clients before the process exits
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises
+      shutdownTelemetry();
+    } catch {
+      // ignore
+    }
+  });
+
+  process.on("unhandledRejection", (reason: unknown) => {
+    try {
+      const err = reason instanceof Error ? reason : new Error(String(reason));
+      // eslint-disable-next-line camelcase
+      captureException(err, { event_type: "unhandled_rejection" });
+      // eslint-disable-next-line camelcase
+      capturePostHogException(err, { event_type: "unhandled_rejection" });
+    } catch {
+      // ignore
+    }
+  });
 }
 
 export const __testing = { isDisabled, anonMachineId, getOrCreateInstallId };
