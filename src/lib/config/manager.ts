@@ -171,6 +171,22 @@ export const credentials = {
    * Read stored credentials
    */
   read(): CredentialsFile | null {
+    // APSO_TOKEN lets CI, agents and scripts authenticate without 'apso login'.
+    // It never touches disk and is not refreshed.
+    const envToken = process.env.APSO_TOKEN?.trim();
+    if (envToken) {
+      return {
+        tokens: {
+          accessToken: envToken,
+          refreshToken: envToken,
+          expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+          tokenType: "Bearer",
+        },
+        user: { id: "token", email: "" },
+        updatedAt: new Date().toISOString(),
+        cliVersion,
+      };
+    }
     return readJsonFile<CredentialsFile>(getCredentialsPath());
   },
 

@@ -18,6 +18,7 @@ import {
   initGitRepo,
 } from "../lib/utils/template";
 import { installCoAuthorHook } from "../lib/utils/git-hooks";
+import { writeApsorcIdentity } from "../lib/utils/apsorc-identity";
 
 export default class Init extends BaseCommand {
   static description = "Create a new Apso project or clone an existing one";
@@ -25,7 +26,7 @@ export default class Init extends BaseCommand {
   static examples = [
     `$ apso init`,
     `$ apso init --name my-app --language typescript`,
-    `$ apso init --name my-app --language python --skip-platform`,
+    `$ APSO_TOKEN=<token> apso init --name my-app --language python`,
   ];
 
   static flags = {
@@ -37,10 +38,6 @@ export default class Init extends BaseCommand {
       char: "l",
       description: "Target language (typescript, python, go)",
       options: ["typescript", "python", "go"],
-    }),
-    "skip-platform": Flags.boolean({
-      description: "Skip platform linking (offline mode)",
-      default: false,
     }),
   };
 
@@ -65,15 +62,19 @@ export default class Init extends BaseCommand {
       );
     }
 
-    const isAuthenticated = !flags["skip-platform"] && credentials.isValid();
+    // Every new service is registered with Apso, so init needs a login.
+    if (!credentials.isValid()) {
+      this.error(
+        "apso init registers every new service with Apso. Run 'apso login' first, or set APSO_TOKEN for CI and scripts."
+      );
+    }
 
-    await (isAuthenticated ? this.runAuthenticated(flags) : this.runOffline(flags));
+    await this.runAuthenticated(flags);
   }
 
   private async runAuthenticated(flags: {
     name?: string;
     language?: string;
-    "skip-platform": boolean;
   }): Promise<void> {
     // Headless: init is the guided human path; require the essentials up-front so
     // no prompt is reached. Agents should prefer 'apso generate' + 'apso link --create'.
@@ -188,6 +189,11 @@ export default class Init extends BaseCommand {
       linkedAt: new Date().toISOString(),
     };
     projectLink.write(link, projectPath);
+    writeApsorcIdentity(projectPath, {
+      serviceName: service.slug,
+      serviceId: service.id,
+      workspaceId: workspace.id,
+    });
 
     this.installCoAuthorHook(projectPath);
 
@@ -313,6 +319,11 @@ export default class Init extends BaseCommand {
       linkedAt: new Date().toISOString(),
     };
     projectLink.write(link, projectPath);
+    writeApsorcIdentity(projectPath, {
+      serviceName: service.slug,
+      serviceId: service.id,
+      workspaceId: ws.id,
+    });
 
     await this.postSetup(projectPath, language!);
 
@@ -328,77 +339,6 @@ export default class Init extends BaseCommand {
     this.log("  apso generate            # scaffold code from the schema");
     this.log(
       "  apso deploy              # ship it (prompts to connect GitHub if needed)"
-    );
-  }
-
-  private async runOffline(flags: {
-    name?: string;
-    language?: string;
-    "skip-platform": boolean;
-  }): Promise<void> {
-    // Prompt for name if not provided
-    let projectName = flags.name;
-    if (!projectName) {
-      const response = await inquirer.prompt([
-        {
-          type: "input",
-          name: "projectName",
-          message: "Enter your project name:",
-          validate: (input: string) => {
-            if (!input.trim()) {
-              return "Project name is required";
-            }
-            if (!PROJECT_NAME_PATTERN.test(input)) {
-              return "Project name must start with a letter and contain only letters, numbers, hyphens, and underscores";
-            }
-            return true;
-          },
-        },
-      ]);
-      projectName = response.projectName;
-    }
-
-    if (!projectName || !PROJECT_NAME_PATTERN.test(projectName)) {
-      this.error(
-        "Project name must start with a letter and contain only letters, numbers, hyphens, and underscores"
-      );
-    }
-
-    // Prompt for language if not provided
-    let language = flags.language as TargetLanguage | undefined;
-    if (!language) {
-      const response = await inquirer.prompt([
-        {
-          type: "list",
-          name: "language",
-          message: "Select your target language:",
-          choices: [
-            { name: "TypeScript", value: "typescript" },
-            { name: "Python", value: "python" },
-            { name: "Go", value: "go" },
-          ],
-          default: "typescript",
-        },
-      ]);
-      language = response.language as TargetLanguage;
-    }
-
-    const projectPath = path.join(process.cwd(), projectName);
-    const resolvedPath = path.resolve(projectPath);
-    if (!resolvedPath.startsWith(path.resolve(process.cwd()))) {
-      this.error("Invalid project name: path traversal detected");
-    }
-
-    // Clone template and init git
-    cloneTemplate(projectPath, language!, this.log.bind(this));
-    initGitRepo(projectPath);
-
-    await this.postSetup(projectPath, language!);
-
-    this.log(`\nProject created at ${projectPath}`);
-    this.log(`Language: ${language}`);
-    this.log(
-      'Run "apso login" to link this project to the Apso platform.'
     );
   }
 
