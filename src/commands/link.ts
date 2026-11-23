@@ -9,6 +9,7 @@ import { workspacesApi, servicesApi } from "../lib/api/services";
 import { withUpgradeRetry } from "../lib/upgrade";
 import { Workspace, Service } from "../lib/api/types";
 import { isInteractive, missingFlag } from "../lib/utils/interactive";
+import { writeApsorcIdentity } from "../lib/utils/apsorc-identity";
 
 export default class Link extends BaseCommand {
   static description = "Link this project to a platform service";
@@ -191,6 +192,11 @@ export default class Link extends BaseCommand {
       linkedAt: new Date().toISOString(),
     };
     projectLink.write(link);
+    writeApsorcIdentity(process.cwd(), {
+      serviceName: service.slug,
+      serviceId: service.id,
+      workspaceId: workspace.id,
+    });
 
     this.log(
       `Linked to workspace "${workspace.name}" / service "${service.name}"`

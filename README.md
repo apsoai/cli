@@ -185,16 +185,15 @@ Create a new Apso project from a language-specific template.
 ```bash
 apso init
 apso init --name my-app --language typescript
-apso init --name my-app --language python --skip-platform
+APSO_TOKEN=<token> apso init --name my-app --language python
 ```
 
 | Option | Description | Default |
 |--------|-------------|---------|
 | `-n, --name` | Project name | _(prompted)_ |
 | `-l, --language` | Target language (`typescript`, `python`, `go`) | _(prompted)_ |
-| `--skip-platform` | Skip platform linking (offline mode) | `false` |
 
-When authenticated, `apso init` lets you create a new project or clone an existing one from the platform.
+`apso init` registers every new service with Apso, so it needs a login: run `apso login`, or set `APSO_TOKEN` for CI and scripts. It writes the service's `serviceName`, `serviceId` and `workspaceId` into `.apsorc`. Commands that work on an existing project (`generate`, `migrate`, `dev`) stay offline.
 
 ### `apso generate`
 
