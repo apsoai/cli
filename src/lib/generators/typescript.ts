@@ -16,8 +16,33 @@ import {
   Field,
   RelationshipMap,
 } from "../types";
+import {
+  TimestampColumn,
+  timestampNullableOf,
+  timestampTypeOf,
+} from "../types/entity";
+
+// The options of @CreateDateColumn / @UpdateDateColumn: empty for the default
+// (timestamp, NOT NULL), so entities generated before these settings are unchanged.
+const timestampArgs = (entity: Entity, column: TimestampColumn): string => {
+  const args = [
+    ...(timestampTypeOf(entity, column) === "timestamptz"
+      ? ["type: 'timestamptz'"]
+      : []),
+    ...(timestampNullableOf(entity, column) ? ["nullable: true"] : []),
+  ];
+  return args.length > 0 ? `{ ${args.join(", ")} }` : "";
+};
+import { onDeleteOf } from "../types/relationship";
+import { keyColumn, sqlIndexStatements } from "../ddl";
 // Utilities available for future use: createFile from "../utils/file-system"
-import { getFieldForTemplate, typeExistsInEntity, fieldToEnumType } from "../utils/field";
+import {
+  getFieldForTemplate,
+  typeExistsInEntity,
+  fieldToEnumType,
+  isUuidGenerator,
+  typeormDefault,
+} from "../utils/field";
 import {
   getRelationshipForTemplate,
   getRelationshipsForImport,
@@ -125,10 +150,11 @@ export class TypeScriptGenerator extends BaseGenerator {
     const { entity, relationships, allEntities, apiType } = options;
     const { name, fields = [], indexes, uniques } = entity;
 
-    const columns = getFieldForTemplate(fields, name);
-    const createPrimaryKey =
-      columns.filter((column: Field) => column.primary === true).length === 0;
-
+    const columns = getFieldForTemplate(fields, name).map((c) =>
+      c.defaultSql === undefined
+        ? c
+        : { ...c, defaultSql: typeormDefault(c.defaultSql) }
+    );
     const createdAt = entity.created_at;
     const updatedAt = entity.updated_at;
     const primaryKeyType = entity.primaryKeyType || "serial";
@@ -142,6 +168,10 @@ export class TypeScriptGenerator extends BaseGenerator {
       name,
       relationshipsForTemplate
     );
+    // No generated id when a field, or a foreign key, is the primary key.
+    const createPrimaryKey =
+      !columns.some((column: Field) => column.primary === true) &&
+      !relationshipsForTemplate.some((r) => r.primary);
 
     // A OneToOne's FK column has no property of its own on the entity, so
     // @Index/@Unique name the relation property; TypeORM resolves it to the
@@ -149,29 +179,64 @@ export class TypeScriptGenerator extends BaseGenerator {
     const oneToOneColumns = new Map(
       relationshipsForTemplate
         .filter((r) => r.type === "OneToOne" && r.joinTable)
-        .map((r) => [r.camelCasedId, r.relationshipName])
+        .flatMap((r) =>
+          [r.camelCasedId, r.joinColumnName]
+            .filter(Boolean)
+            .map((column) => [column as string, r.relationshipName])
+        )
     );
+    // A ManyToOne's "joinColumnName" is a database name; @Index and @Unique
+    // take the property that maps to it (patient_id -> patientId).
+    const joinColumns = new Map(
+      relationshipsForTemplate
+        .filter((r) => r.type === "ManyToOne" && r.joinColumnName)
+        .map((r) => [r.joinColumnName as string, r.camelCasedId])
+    );
+    const fieldNames = new Set(columns.map((c: Field) => c.name));
     const toProperties = <T extends { fields: string[] }>(list: T[] = []) =>
       list.map((c) => ({
         ...c,
-        fields: c.fields.map((f) => oneToOneColumns.get(f) ?? f),
+        fields: c.fields.map((f) =>
+          fieldNames.has(f) ? f : oneToOneColumns.get(f) ?? joinColumns.get(f) ?? f
+        ),
       }));
 
     const data = {
       name,
       indexes: toProperties(indexes),
       uniques: toProperties(uniques),
+      checks: entity.checks ?? [],
+      sqlIndexes: entity.sqlIndexes ?? [],
       createPrimaryKey,
       primaryKeyType,
+      primaryKeyName: entity.primaryKeyName,
+      primaryKeyDefault: entity.primaryKeyDefault,
+      primaryKeyGenerated: isUuidGenerator(entity.primaryKeyDefault),
       snakeCasedName: snakeCase(name),
       // Honor an explicit per-entity `table` override; otherwise derive from
       // the entity name. See apsoai/cli#98.
       tableName: entity.table || snakeCase(name),
       createdAt,
       updatedAt,
+      createdAtArgs: timestampArgs(entity, "created_at"),
+      updatedAtArgs: timestampArgs(entity, "updated_at"),
       pluralizedName: camelCase(pluralize(name)),
-      columns,
-      associations: [...new Set(relationshipsForTemplate)],
+      // Every column of a named primary key carries the name (TypeORM requires it).
+      columns: columns.map((c: Field) =>
+        c.primary && entity.primaryKeyName
+          ? { ...c, primaryKeyName: entity.primaryKeyName }
+          : c
+      ),
+      associations: [...new Set(relationshipsForTemplate)].map((r) => {
+        // A foreign key column copies the type of the key it references.
+        const key = keyColumn(allEntities.find((e) => e.name === r.name));
+        return {
+          ...r,
+          onDeleteRule: onDeleteOf(r),
+          fkColumnOptions: key.options,
+          fkTsType: key.ts,
+        };
+      }),
       entitiesToImport,
       importEnums: typeExistsInEntity(entity, "enum") !== -1,
       apiType,
@@ -245,12 +310,25 @@ export class TypeScriptGenerator extends BaseGenerator {
 
     const mcp = mcpOperations(entity);
 
+    // The :id route parameter maps to the entity's own key: a primary field,
+    // or the id property of a foreign key that is the primary key. A
+    // composite key has no single field, so it keeps the default.
+    const keyFields = [
+      ...(entity.fields ?? []).filter((f) => f.primary).map((f) => f.name),
+      ...relationshipsForTemplate
+        .filter((r) => r.primary)
+        .map((r) => r.camelCasedId),
+    ];
     const data = {
       svcName,
       ctrlName,
       entityName,
       pluralEntityName,
       primaryKeyType,
+      generatedFields: (entity.fields ?? [])
+        .filter((f) => f.generated)
+        .map((f) => f.name),
+      keyField: keyFields.length === 1 ? keyFields[0] : "id",
       associations: [...new Set(relationshipsForTemplate)],
       nestedJoinsFile,
       // scopeBy fields @CrudAuth adds to every query once a caller is
@@ -372,17 +450,15 @@ export class TypeScriptGenerator extends BaseGenerator {
       if (rel.type === "ManyToOne") {
         const fkName = camelCase(rel.referenceName || rel.name) + "Id";
         const referencedEntity = allEntities?.find((e) => e.name === rel.name);
-        const referencedPrimaryKeyType =
-          referencedEntity?.primaryKeyType || "serial";
-        const fkDataType =
-          referencedPrimaryKeyType === "uuid" ? "string" : "number";
-        const fkType = referencedPrimaryKeyType === "uuid" ? "text" : "integer";
+        const fkDataType = keyColumn(referencedEntity).ts;
+        const fkType = fkDataType === "string" ? "text" : "integer";
 
         if (!columns.some((col) => col.name === fkName)) {
           columns.push({
             name: fkName,
             dataType: fkDataType,
             type: fkType,
+            ...(rel.primary && { primary: true }),
           });
         }
       }
@@ -513,9 +589,12 @@ export class TypeScriptGenerator extends BaseGenerator {
   ): Promise<GeneratedFile[]> {
     // Listing GuardsModule is what turns the global guards on; every service
     // has at least the API key check. `.apsorc` "guards": false leaves it out.
+    // "sqlIndexes" are created by a generated module, after TypeORM's sync.
+    const statements = entities.flatMap((e) => sqlIndexStatements(e));
+    const schemaExtras = apiType === "rest" && statements.length > 0;
     const content = await this.renderTemplate(
       `./${apiType}/index-module-${apiType}`,
-      { entities, guards: opts?.guards !== false }
+      { entities, schemaExtras, guards: opts?.guards !== false }
     );
 
     return [
@@ -523,6 +602,17 @@ export class TypeScriptGenerator extends BaseGenerator {
         path: "index.ts",
         content,
       },
+      ...(schemaExtras
+        ? [
+            {
+              path: "schema-extras.module.ts",
+              content: await this.renderTemplate(
+                "./rest/schema-extras-module",
+                { statements }
+              ),
+            },
+          ]
+        : []),
     ];
   }
 

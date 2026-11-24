@@ -6,11 +6,12 @@ exports[`schemaDdl coverage runs on Postgres and matches its snapshot 1`] = `
   "CREATE TABLE "post" ("id" SERIAL NOT NULL, "title" text NOT NULL, "accountId" integer NOT NULL, "profileId" integer, CONSTRAINT "PK_be5fda3aac270b134ff9c21cdee" PRIMARY KEY ("id"))",
   "CREATE TABLE "tag" ("id" SERIAL NOT NULL, "label" character varying(255) NOT NULL, CONSTRAINT "UQ_647c189a51deb35bc452751bc4a" UNIQUE ("label"), CONSTRAINT "PK_8e4052373c579afc1471f526760" PRIMARY KEY ("id"))",
   "CREATE TABLE "account_profile" ("id" SERIAL NOT NULL, "bio" character varying(500), CONSTRAINT "PK_928b8a91ee2e4bceee8c0ddf0cd" PRIMARY KEY ("id"))",
-  "CREATE TABLE "account" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), "handle" text NOT NULL, "code" character(3), "active" boolean NOT NULL DEFAULT false, "verified" boolean NOT NULL DEFAULT false, "visits" bigint NOT NULL DEFAULT '0', "balance" numeric(12,4), "ratio" numeric, "score" double precision, "born" date, "seenAt" TIMESTAMP WITH TIME ZONE, "prefs" jsonb, "raw" json, "tier" "public"."account_tier_enum" NOT NULL DEFAULT 'free', "labels" text[] NOT NULL, "lucky" integer[], "profileId" integer, CONSTRAINT "UQ_734bbcf136a53616581ed7489c1" UNIQUE ("handle"), CONSTRAINT "unique_account_code_born" UNIQUE ("code", "born"), CONSTRAINT "UQ_0faf7d6efef933e4b40996ad023" UNIQUE ("ratio", "score"), CONSTRAINT "REL_ff102ecfd2f4b5a7edf239dd02" UNIQUE ("profileId"), CONSTRAINT "PK_54115ee388cdb6d86bb4bf5b2ea" PRIMARY KEY ("id"))",
+  "CREATE TABLE "account" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), "handle" text NOT NULL, "code" character(3), "active" boolean NOT NULL DEFAULT false, "verified" boolean NOT NULL DEFAULT false, "visits" bigint NOT NULL DEFAULT '0', "visits_doubled" bigint GENERATED ALWAYS AS (visits * 2) STORED, "busy" boolean GENERATED ALWAYS AS (visits > 10) STORED NOT NULL, "balance" numeric(12,4), "ratio" numeric, "score" double precision, "born" date, "seenAt" TIMESTAMP WITH TIME ZONE, "prefs" jsonb, "raw" json, "tier" "public"."account_tier_enum" NOT NULL DEFAULT 'free', "labels" text[] NOT NULL, "lucky" integer[], "avatar" bytea, "weight" real, "credit" money, "opensAt" TIME, "closesAt" TIME WITH TIME ZONE, "trial" interval, "lastIp" inet, "profileXml" xml, "search" tsvector, "ageBand" int4range, "profileId" integer, CONSTRAINT "UQ_734bbcf136a53616581ed7489c1" UNIQUE ("handle"), CONSTRAINT "unique_account_code_born" UNIQUE ("code", "born"), CONSTRAINT "UQ_0faf7d6efef933e4b40996ad023" UNIQUE ("ratio", "score"), CONSTRAINT "REL_ff102ecfd2f4b5a7edf239dd02" UNIQUE ("profileId"), CONSTRAINT "PK_54115ee388cdb6d86bb4bf5b2ea" PRIMARY KEY ("id"))",
   "CREATE TABLE "post_tags_tag" ("postId" integer NOT NULL, "tagId" integer NOT NULL, CONSTRAINT "PK_e9b7b8e6a07bdccb6a954171676" PRIMARY KEY ("postId", "tagId"))",
   "CREATE INDEX "IDX_734bbcf136a53616581ed7489c" ON "account" ("handle")",
   "CREATE INDEX "IDX_a924efb2a1b358e0fcf9b80931" ON "account" ("tier")",
   "CREATE INDEX "IDX_c19889b6e772f6e099d0188a22" ON "account" ("lucky")",
+  "CREATE INDEX "IDX_befd8ae42b10c531865873dd1e" ON "account" ("lastIp")",
   "CREATE INDEX "IDX_8a4bcb70c6769e9a951b5448cc" ON "account" ("code", "tier")",
   "CREATE UNIQUE INDEX "IDX_77f186f325459ffba1c72fd405" ON "account" ("visits")",
   "CREATE INDEX "IDX_f219a87fd8c020d3bb6527c942" ON "post" ("accountId")",
@@ -123,6 +124,31 @@ exports[`schemaDdl inventory-multi-fk runs on Postgres and matches its snapshot 
   "ALTER TABLE "inventory_count" ADD CONSTRAINT "FK_9d9a2491e8963a389cc87249b27" FOREIGN KEY ("warehouseId") REFERENCES "warehouse"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
   "ALTER TABLE "alert" ADD CONSTRAINT "FK_6d80a2602a8e0e9ed4871ad909d" FOREIGN KEY ("productId") REFERENCES "product"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
   "ALTER TABLE "alert" ADD CONSTRAINT "FK_0e50368f6f58c7b3c7152485124" FOREIGN KEY ("warehouseId") REFERENCES "warehouse"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
+]
+`;
+
+exports[`schemaDdl join-column runs on Postgres and matches its snapshot 1`] = `
+[
+  "CREATE TABLE "profile" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP DEFAULT now(), "bio" text, "patient_id" uuid, CONSTRAINT "REL_13cc2705ab03e74e079128f139" UNIQUE ("patient_id"), CONSTRAINT "PK_3dd8bfc97e4a77c70971591bdcb" PRIMARY KEY ("id"))",
+  "CREATE TABLE "rate_counter" ("bucket" text NOT NULL, "window_start" TIMESTAMP WITH TIME ZONE NOT NULL, "hits" integer NOT NULL DEFAULT '0', "expires_at" TIMESTAMP WITH TIME ZONE, "seen_on" date, "correlation_id" uuid, CONSTRAINT "UQ_e7a4bd2c618b68201dcc21410b0" UNIQUE ("seen_on"), CONSTRAINT "UQ_3a6a3838a11ce810fbb6885a222" UNIQUE ("correlation_id"), CONSTRAINT "rate_counters_hits_key" UNIQUE ("hits"), CONSTRAINT "rate_counters_pkey" PRIMARY KEY ("bucket", "window_start"))",
+  "CREATE TABLE "tenant_setting" ("theme" text, "tenant_id" character varying(100) NOT NULL, CONSTRAINT "tenant_settings_pkey" PRIMARY KEY ("tenant_id"))",
+  "CREATE TABLE "tenant_note" ("code" text NOT NULL, "body" text, "tenant_id" character varying(100) NOT NULL, CONSTRAINT "PK_19eda73e4a942881c4f6210e44c" PRIMARY KEY ("code"))",
+  "CREATE TABLE "tenant" ("id" character varying(100) NOT NULL, "name" text NOT NULL, CONSTRAINT "tenants_pkey" PRIMARY KEY ("id"))",
+  "CREATE TABLE "enrollment" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), "performance_year" integer NOT NULL, "status" text NOT NULL, "organization_id" integer NOT NULL, "patient_id" uuid, CONSTRAINT "enrollments_year_ck" CHECK (performance_year >= 2000), CONSTRAINT "CHK_7a30833bbdbb960bed08908dff" CHECK (status <> ''), CONSTRAINT "enrollments_patient_year_uq" UNIQUE ("patient_id", "performance_year"), CONSTRAINT "PK_7e200c699fa93865cdcdd025885" PRIMARY KEY ("id"))",
+  "CREATE TABLE "patient" ("id" uuid NOT NULL DEFAULT gen_random_uuid(), "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "mrn" text, "living_will" boolean, "tags" jsonb NOT NULL DEFAULT '[]', "retention_until" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now() + interval '6 years', "recorded_on" date NOT NULL DEFAULT '2020-01-01'::date, "codes" text[] NOT NULL DEFAULT '{}'::text[], "trace_id" uuid NOT NULL DEFAULT gen_random_uuid(), "organization_id" integer NOT NULL, CONSTRAINT "PK_8dfa510bb29ad31ab2139fbfb99" PRIMARY KEY ("id"))",
+  "CREATE TABLE "organization" ("id" SERIAL NOT NULL, "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "name" text NOT NULL, CONSTRAINT "organizations_pkey" PRIMARY KEY ("id"))",
+  "CREATE INDEX "IDX_76ca4b02387131301df9718669" ON "enrollment" ("organization_id", "patient_id")",
+  "CREATE INDEX "IDX_b4dc6e7771ada3565dd3127968" ON "enrollment" ("organization_id", "status")",
+  "CREATE UNIQUE INDEX "enrollments_one_live_uq" ON "enrollment" ("organization_id", "patient_id") WHERE status <> 'revoked'",
+  "CREATE INDEX "enrollments_year_idx" ON "enrollment" ("performance_year")",
+  "CREATE INDEX "IDX_08783fb6134e3a93868b6857ea" ON "enrollment" ("patient_id")",
+  "CREATE INDEX "IDX_b4be681c6eff1fb91e6ac28219" ON "rate_counter" ("expires_at")",
+  "ALTER TABLE "patient" ADD CONSTRAINT "patients_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "organization"("id") ON DELETE RESTRICT ON UPDATE NO ACTION",
+  "ALTER TABLE "enrollment" ADD CONSTRAINT "FK_ed12dfd62dc1ae2855fb944c704" FOREIGN KEY ("organization_id") REFERENCES "organization"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
+  "ALTER TABLE "enrollment" ADD CONSTRAINT "FK_08783fb6134e3a93868b6857ead" FOREIGN KEY ("patient_id") REFERENCES "patient"("id") ON DELETE SET NULL ON UPDATE NO ACTION",
+  "ALTER TABLE "tenant_note" ADD CONSTRAINT "FK_1eb2737fdb6f1467e1e85ddbac7" FOREIGN KEY ("tenant_id") REFERENCES "tenant"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
+  "ALTER TABLE "tenant_setting" ADD CONSTRAINT "FK_1ee2e3a0b2c804cf326765597f7" FOREIGN KEY ("tenant_id") REFERENCES "tenant"("id") ON DELETE CASCADE ON UPDATE NO ACTION",
+  "ALTER TABLE "profile" ADD CONSTRAINT "FK_13cc2705ab03e74e079128f139e" FOREIGN KEY ("patient_id") REFERENCES "patient"("id") ON DELETE CASCADE ON UPDATE NO ACTION",
 ]
 `;
 

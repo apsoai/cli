@@ -1,0 +1,24 @@
+<%~ includeFile('./header.eta') %>
+
+import { Module, OnApplicationBootstrap } from '@nestjs/common';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
+
+// Indexes TypeORM cannot declare: an expression, or a column sorted DESC.
+// Migrations create them. TypeORM's own schema sync (apso dev, tests) does
+// not, so this creates them after it, and the database has the same guards.
+export const SCHEMA_EXTRAS: string[] = [
+<% it.statements.forEach((statement) => { %>
+  <%~ JSON.stringify(statement) %>,
+<% }) %>
+];
+
+@Module({})
+export class SchemaExtrasModule implements OnApplicationBootstrap {
+  constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
+
+  async onApplicationBootstrap(): Promise<void> {
+    if (!this.dataSource.options.synchronize) return;
+    for (const statement of SCHEMA_EXTRAS) await this.dataSource.query(statement);
+  }
+}

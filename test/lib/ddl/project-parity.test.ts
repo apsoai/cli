@@ -31,6 +31,8 @@ const cases: [string, string][] = [
     path.join(__dirname, "../../apsorc-json/apsorc-decimal-example.json"),
   ],
   ["coverage", path.join(fixtures, "ddl", "coverage.apsorc")],
+  // apsoai/cli#241, #243: kept foreign key column names and timestamptz.
+  ["join-column", path.join(fixtures, "ddl", "join-column.apsorc")],
 ];
 
 const catalogOf = async (

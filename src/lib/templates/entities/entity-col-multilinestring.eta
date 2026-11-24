@@ -38,7 +38,7 @@
 @Index()
 <% } %>
 <% if (field.primary ) {%>
-@PrimaryColumn()
+@PrimaryColumn(<% if (field.primaryKeyName) { %>{ primaryKeyConstraintName: '<%= field.primaryKeyName %>' }<% } %>)
 <% } %>
 
 <%= field.name %>: { coordinates: Array<Array<{ x: number, y: number }>> }; 

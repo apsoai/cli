@@ -42,6 +42,10 @@ export default class Init extends BaseCommand {
       description: "Skip platform linking (offline mode)",
       default: false,
     }),
+    schema: Flags.string({
+      description:
+        "Use this .apsorc as the new project's schema, for example the one 'apso import' wrote",
+    }),
   };
 
   async run(): Promise<void> {
@@ -56,8 +60,20 @@ export default class Init extends BaseCommand {
 
     // Detect existing project
     const cwd = process.cwd();
+    // --schema is how an imported .apsorc becomes a project: that file may
+    // sit in this directory without making the directory a project.
+    if (flags.schema) {
+      try {
+        JSON.parse(fs.readFileSync(flags.schema).toString());
+      } catch {
+        this.error(`--schema ${flags.schema} is not a readable .apsorc file.`);
+      }
+    }
+    const schemaHere =
+      flags.schema !== undefined &&
+      path.resolve(flags.schema) === path.join(cwd, ".apsorc");
     if (
-      fs.existsSync(path.join(cwd, ".apsorc")) ||
+      (fs.existsSync(path.join(cwd, ".apsorc")) && !schemaHere) ||
       fs.existsSync(path.join(cwd, ".apso", "link.json"))
     ) {
       this.error(
@@ -74,6 +90,7 @@ export default class Init extends BaseCommand {
     name?: string;
     language?: string;
     "skip-platform": boolean;
+    schema?: string;
   }): Promise<void> {
     // Headless: init is the guided human path; require the essentials up-front so
     // no prompt is reached. Agents should prefer 'apso generate' + 'apso link --create'.
@@ -200,6 +217,7 @@ export default class Init extends BaseCommand {
   private async createNew(flags: {
     name?: string;
     language?: string;
+    schema?: string;
   }): Promise<void> {
     // Prompt for name if not provided
     let projectName = flags.name;
@@ -302,6 +320,7 @@ export default class Init extends BaseCommand {
 
     // Clone template
     cloneTemplate(projectPath, language!, this.log.bind(this));
+    this.useSchema(flags.schema, projectPath);
     initGitRepo(projectPath);
 
     // Write project link
@@ -335,6 +354,7 @@ export default class Init extends BaseCommand {
     name?: string;
     language?: string;
     "skip-platform": boolean;
+    schema?: string;
   }): Promise<void> {
     // Prompt for name if not provided
     let projectName = flags.name;
@@ -391,6 +411,7 @@ export default class Init extends BaseCommand {
 
     // Clone template and init git
     cloneTemplate(projectPath, language!, this.log.bind(this));
+    this.useSchema(flags.schema, projectPath);
     initGitRepo(projectPath);
 
     await this.postSetup(projectPath, language!);
@@ -407,6 +428,19 @@ export default class Init extends BaseCommand {
    * fails the command. No `.apsorc` may exist yet at init time, so we only
    * respect the `APSO_NO_COAUTHOR=1` env opt-out (handled inside the installer).
    */
+  /**
+   * Replace the template's starter schema with the one --schema names.
+   *
+   * @param {string | undefined} schema - Path given to --schema, if any.
+   * @param {string} projectPath - The new project's folder.
+   * @returns {void}
+   */
+  private useSchema(schema: string | undefined, projectPath: string): void {
+    if (!schema) return;
+    fs.copyFileSync(schema, path.join(projectPath, ".apsorc"));
+    this.log(`Using ${schema} as the project's .apsorc`);
+  }
+
   private installCoAuthorHook(projectPath: string): void {
     try {
       const result = installCoAuthorHook(projectPath);

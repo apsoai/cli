@@ -148,7 +148,59 @@ export const arrayElementType = (
 ): string =>
   field.elementType || field.arrayType || field.arrayItemType || "text";
 
+/**
+ * A default that has to be written as SQL: { "sql": ... }, or an object or
+ * array literal on a json or array field.
+ *
+ * @param {Field} field - A field from .apsorc.
+ * @returns {string | undefined} The SQL text, or undefined for a plain literal.
+ */
+export const defaultSqlOf = (field: Field): string | undefined => {
+  const d = field.default;
+  if (d === null || typeof d !== "object") return undefined;
+  if (!Array.isArray(d) && typeof d.sql === "string") return d.sql;
+  return `'${JSON.stringify(d).replace(/'/g, "''")}'`;
+};
+
+/** A default Postgres itself fills with a new uuid. */
+export const isUuidGenerator = (sql?: string | null): boolean =>
+  /^(gen_random_uuid|uuid_generate_v\d)\(\)$/.test(sql ?? "");
+
+// TypeORM reads a column default back through the first pattern before it
+// compares it with the entity's. The second is the same thing limited to real
+// type casts: TypeORM's also swallows what follows a cast, as in "::integer - 1".
+const TYPEORM_CAST = /::[\s\w".[\]-]+/g;
+const TYPE_CAST =
+  /::"?[_a-z]\w*"?(?: varying| precision| with(?:out)? time zone)?(?:\(\d+(?:,\d+)?\))?(?:\[])?/gi;
+
+const squash = (s: string) => s.replace(/\s+/g, "");
+
+/**
+ * A SQL default as a TypeORM entity has to spell it. TypeORM strips type
+ * casts from the default it reads out of Postgres, so an entity that keeps
+ * `'[]'::jsonb` never compares equal and the default is set again on every
+ * schema sync and reported as drift. Postgres puts the cast back when the
+ * column is created, so the database is the same either way.
+ *
+ * @param {string} sql - The default as the source database prints it.
+ * @returns {string} The cast-free text, or the original when removing the
+ * casts would remove more than casts or leave an untyped empty array.
+ */
+export const typeormDefault = (sql: string): string => {
+  const stripped = sql.replace(TYPEORM_CAST, "");
+  const onlyCasts = squash(stripped) === squash(sql.replace(TYPE_CAST, ""));
+  return onlyCasts && !/array\[\s*]/i.test(stripped) ? stripped : sql;
+};
+
 export const getDefaultValueForField = (field: Field): string | null => {
+  if (defaultSqlOf(field) !== undefined) return null;
+  const literal = { ...field, default: field.default as string | null | undefined };
+  return literalDefault(literal);
+};
+
+const literalDefault = (
+  field: Omit<Field, "default"> & { default?: string | null }
+): string | null => {
   switch (field.type) {
     case "enum":
       if (field.default === null) {
@@ -189,6 +241,15 @@ export const getFieldForTemplate = (
   fields.map((field: Field) => {
     // Validate decimal/numeric fields
     validateDecimalField(field);
+    if (field.generated !== undefined) {
+      const clash =
+        (field.primary && "primary") ||
+        (field.default !== undefined && field.default !== null && "default");
+      if (clash)
+        throw new Error(
+          `${entityName}.${field.name} sets "generated" and "${clash}". Postgres computes a generated column, so it cannot have a default or be the primary key.`
+        );
+    }
 
     // Normalize field type for template lookup (e.g., "double precision" -> "double")
     const normalizedType = normalizeFieldType(field.type);
@@ -199,7 +260,12 @@ export const getFieldForTemplate = (
       type: normalizedType as FieldType,
       // Resolved here so every template and the DDL writer read one key.
       ...(field.type === "array" && { elementType: arrayElementType(field) }),
-      default: getDefaultValueForField(field),
+      // A generated column has no default (a boolean would otherwise get false).
+      default: field.generated ? null : getDefaultValueForField(field),
+      ...(field.generated && { noDefault: true }),
+      ...(defaultSqlOf(field) !== undefined && {
+        defaultSql: defaultSqlOf(field),
+      }),
       dataType:
         field.type === "enum"
           ? fieldToEnumType(field.name, entityName)

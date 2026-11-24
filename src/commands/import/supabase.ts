@@ -83,12 +83,24 @@ export function formatReport(report: ImportReport): string {
     review.push(`  - Tables with no primary key: ${w.noPrimaryKey.join(", ")}`);
   if (w.compositeFks.length > 0)
     review.push(`  - Composite foreign keys (kept as columns, no relationship): ${w.compositeFks.join(", ")}`);
-  if (w.fkColumnNameUnmapped.length > 0)
-    review.push(`  - Foreign keys whose generated column may differ: ${w.fkColumnNameUnmapped.join(", ")}`);
   if (w.joinTablesDetected.length > 0)
     review.push(`  - Join tables (could be modeled as ManyToMany): ${w.joinTablesDetected.join(", ")}`);
   if (w.arraysLossy.length > 0)
-    review.push(`  - Array columns reduced to text: ${w.arraysLossy.join(", ")}`);
+    review.push(`  - Array columns with an unknown element type (imported as text[]): ${w.arraysLossy.join(", ")}`);
+  if (w.checksNotValid.length > 0)
+    review.push(`  - Check constraints that are NOT VALID in the source (kept NOT VALID in migrations; TypeORM's schema sync creates them validated): ${w.checksNotValid.join(", ")}`);
+  if (w.timestampDefaultsAdded.length > 0)
+    review.push(`  - created_at / updated_at with no default in the source (kept without one in migrations; TypeORM's schema sync adds DEFAULT now()): ${w.timestampDefaultsAdded.join(", ")}`);
+  if (w.foreignKeysNotCarried.length > 0)
+    review.push(`  - Foreign keys left out because the column already has one (the database keeps them; apso migrate does not know about them): ${w.foreignKeysNotCarried.join(", ")}`);
+  if (w.relationshipsRenamed.length > 0)
+    review.push(`  - Relationships renamed because a column has the natural name (columns unchanged): ${w.relationshipsRenamed.join(", ")}`);
+  if (w.indexesNotCarried.length > 0)
+    review.push(
+      `  - Indexes .apsorc cannot fully express yet:\n${w.indexesNotCarried
+        .map((i) => `      ${i}`)
+        .join("\n")}`
+    );
   if (w.typesDefaulted.length > 0)
     review.push(
       `  - Unknown types defaulted to text: ${w.typesDefaulted
@@ -113,10 +125,23 @@ export function writeApsorcFile(
   outPath: string
 ): { backupPath?: string } {
   let backupPath: string | undefined;
+  // `apso generate` needs a language to run without prompting. Keep the
+  // project's own when the file exists; foreign key column names need
+  // TypeScript, so that is the default.
+  let language = "typescript";
   if (fs.existsSync(outPath)) {
     backupPath = createBackup(outPath);
+    try {
+      language = JSON.parse(fs.readFileSync(outPath).toString()).language || language;
+    } catch {
+      // An unreadable file is replaced; the backup keeps it.
+    }
   }
-  fs.writeFileSync(outPath, JSON.stringify(apsorc, null, 2), "utf-8");
+  fs.writeFileSync(
+    outPath,
+    JSON.stringify({ language, ...apsorc }, null, 2),
+    "utf-8"
+  );
   return { backupPath };
 }
 
@@ -234,8 +259,14 @@ export default class ImportSupabase extends BaseCommand {
       this.log("");
       this.log("Next steps:");
       this.log("  - Review the .apsorc, especially any items flagged above");
-      this.log("  - Run 'apso migrate' to validate the schema locally");
-      this.log("  - Run 'apso generate' to scaffold code");
+      if (fs.existsSync(path.join(path.dirname(outPath), "package.json"))) {
+        this.log("  - Run 'apso migrate' to validate the schema locally");
+        this.log("  - Run 'apso generate' to scaffold code");
+      } else {
+        this.log(
+          `  - No project here yet: run 'apso init --schema ${path.relative(process.cwd(), outPath) || outPath}' to create one from this schema`
+        );
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       // Defense-in-depth: never surface the connection string in an error.

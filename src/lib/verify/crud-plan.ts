@@ -47,14 +47,19 @@ export function sampleValue(field: Field): unknown {
   }
 }
 
-/** Required = not nullable, no default, and not a user-declared primary key. */
+/**
+ * Required = not nullable, no default, and not a key the database fills. A
+ * uuid primary key is generated; any other primary field needs a value.
+ */
 const required = (field: Field) =>
   !field.nullable &&
   (field.default === undefined || field.default === null) &&
-  !field.primary;
+  !(field.primary && (field.type as string) === "uuid");
 
 export interface PlannedEntity {
   name: string;
+  /** The property that addresses a row: "id" unless the entity has its own key. */
+  key: string;
   payload: Record<string, unknown>;
   /** Foreign keys to fill from parents created earlier: property -> parent entity. */
   parents: { property: string; entity: string }[];
@@ -87,10 +92,23 @@ export function planCrud(
       });
       continue;
     }
-    const parents = (relationships[entity.name] || [])
-      .filter((r) => r.type === "ManyToOne" && !r.nullable)
+    const manyToOne = (relationships[entity.name] || []).filter(
+      (r) => r.type === "ManyToOne"
+    );
+    const parents = manyToOne
+      .filter((r) => !r.nullable)
       .map((r) => ({ property: getRelationshipIdField(r), entity: r.name }));
-    pending.push({ name: entity.name, payload, parents });
+    // The same rule as the generated controller's id parameter.
+    const keys = [
+      ...(entity.fields || []).filter((f) => f.primary).map((f) => f.name),
+      ...manyToOne.filter((r) => r.primary).map((r) => getRelationshipIdField(r)),
+    ];
+    pending.push({
+      name: entity.name,
+      key: keys.length === 1 ? keys[0] : "id",
+      payload,
+      parents,
+    });
   }
 
   // Topological order: take entities whose required parents are all planned.

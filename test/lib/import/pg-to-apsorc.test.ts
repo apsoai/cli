@@ -44,6 +44,7 @@ function table(
     name,
     columns: overrides.columns ?? [],
     primaryKey: overrides.primaryKey ?? [],
+    primaryKeyName: overrides.primaryKeyName,
     foreignKeys: overrides.foreignKeys ?? [],
     uniqueConstraints: overrides.uniqueConstraints ?? [],
     indexes: overrides.indexes ?? [],
@@ -100,10 +101,10 @@ describe("pgTypeToApsorcType", () => {
     expect(pgTypeToApsorcType(col("c", udt)).type).toBe(expected);
   });
 
-  test("array udt is lossy and maps to array", () => {
-    const r = pgTypeToApsorcType(col("tags", "_text", { dataType: "ARRAY" }));
-    expect(r.type).toBe("array");
-    expect(r.lossy).toBe("array");
+  test("an array keeps its element type, and is lossy only when that type is unknown", () => {
+    expect(pgTypeToApsorcType(col("tags", "_text", { dataType: "ARRAY" }))).toEqual({ type: "array" });
+    expect(pgTypeToApsorcType(col("ids", "_uuid", { dataType: "ARRAY" }))).toEqual({ type: "array", elementType: "uuid" });
+    expect(pgTypeToApsorcType(col("shapes", "_polygon_thing", { dataType: "ARRAY" }))).toEqual({ type: "array", lossy: "array" });
   });
 
   test("enum column maps to enum", () => {
@@ -243,6 +244,25 @@ describe("primary key handling", () => {
   });
 });
 
+const fk = (column: string, referencedTable: string) => ({
+  columns: [column],
+  referencedTable,
+  referencedColumns: ["id"],
+  onDelete: "NO ACTION" as const,
+});
+
+const importedRule = (onDelete: string) =>
+  pgToApsorc(
+    schema([
+      table("User", { primaryKey: ["id"], columns: [col("id", "uuid")] }),
+      table("Post", {
+        primaryKey: ["id"],
+        columns: [col("id", "uuid"), col("userId", "uuid", { nullable: true })],
+        foreignKeys: [{ columns: ["userId"], referencedTable: "User", referencedColumns: ["id"], onDelete: onDelete as any }],
+      }),
+    ])
+  ).apsorc.relationships[0];
+
 // ---- created_at / updated_at ----
 
 describe("timestamp metadata columns", () => {
@@ -265,6 +285,42 @@ describe("timestamp metadata columns", () => {
     expect(e.updated_at).toBe(true);
     expect(findField(e, "created_at")).toBeUndefined();
     expect(findField(e, "updated_at")).toBeUndefined();
+  });
+
+  // apsoai/cli#243: the default stays timestamp; an import keeps what the
+  // source database uses.
+  test("timestamptz source columns set timestampType, timestamp ones do not", () => {
+    const out = pgToApsorc(
+      schema([
+        table("Zoned", {
+          primaryKey: ["id"],
+          columns: [col("id", "uuid"), col("created_at", "timestamptz"), col("updated_at", "timestamptz")],
+        }),
+        table("Plain", {
+          primaryKey: ["id"],
+          columns: [col("id", "uuid"), col("created_at", "timestamp"), col("updated_at", "timestamp")],
+        }),
+        table("OnlyCreated", {
+          primaryKey: ["id"],
+          columns: [col("id", "uuid"), col("created_at", "timestamptz")],
+        }),
+      ])
+    );
+    expect(findEntity(out, "Zoned").timestampType).toBe("timestamptz");
+    expect(findEntity(out, "Plain").timestampType).toBeUndefined();
+    expect(findEntity(out, "OnlyCreated").timestampType).toBe("timestamptz");
+  });
+
+  test("a table that mixes timestamp and timestamptz keeps one type per column", () => {
+    const out = pgToApsorc(
+      schema([
+        table("Mixed", {
+          primaryKey: ["id"],
+          columns: [col("id", "uuid"), col("created_at", "timestamptz"), col("updated_at", "timestamp")],
+        }),
+      ])
+    );
+    expect(findEntity(out, "Mixed").timestampType).toEqual({ created_at: "timestamptz", updated_at: "timestamp" });
   });
 
   test("created_at that is not a timestamp stays a field", () => {
@@ -335,6 +391,152 @@ describe("foreign keys", () => {
       ])
     );
     expect(out.apsorc.relationships[0].to_name).toBe("author");
+  });
+
+  // apsoai/cli#241: an import never renames a foreign key column.
+  test("a snake_case FK column keeps its name, and indexes on it name the relationship", () => {
+    const out = pgToApsorc(
+      schema([
+        table("organizations", { primaryKey: ["id"], columns: [col("id", "uuid")] }),
+        table("patients", { primaryKey: ["id"], columns: [col("id", "uuid")] }),
+        table("enrollments", {
+          primaryKey: ["id"],
+          columns: [
+            col("id", "uuid"),
+            col("organization_id", "uuid"),
+            col("patient_id", "uuid"),
+            col("year", "int4"),
+          ],
+          foreignKeys: [fk("organization_id", "organizations"), fk("patient_id", "patients")],
+          uniqueConstraints: [{ name: "enrollments_patient_year_uq", columns: ["patient_id", "year"] }],
+          indexes: [
+            { name: "enrollments_org_patient_idx", columns: ["organization_id", "patient_id"], unique: false },
+            { name: "enrollments_patient_idx", columns: ["patient_id"], unique: false },
+          ],
+        }),
+      ])
+    );
+    const rels = out.apsorc.relationships.filter((r) => r.from === "enrollments");
+    expect(rels).toEqual([
+      { from: "enrollments", to: "organizations", type: "ManyToOne", to_name: "organization", joinColumnName: "organization_id" },
+      { from: "enrollments", to: "patients", type: "ManyToOne", to_name: "patient", joinColumnName: "patient_id" },
+    ]);
+    const e = findEntity(out, "enrollments");
+    expect(e.uniques).toEqual([{ fields: ["patient", "year"], name: "enrollments_patient_year_uq" }]);
+    // Every index is an entry with the source's name, a single-column one too.
+    expect(e.indexes).toEqual([
+      { fields: ["organization", "patient"], name: "enrollments_org_patient_idx" },
+      { fields: ["patient"], name: "enrollments_patient_idx" },
+    ]);
+  });
+
+  test("ON DELETE SET NULL and RESTRICT are kept, CASCADE stays cascadeDelete", () => {
+    expect(importedRule("SET NULL")).toMatchObject({ onDelete: "SET NULL", nullable: true });
+    expect(importedRule("RESTRICT").onDelete).toBe("RESTRICT");
+    expect(importedRule("CASCADE")).toMatchObject({ cascadeDelete: true });
+    expect(importedRule("CASCADE").onDelete).toBeUndefined();
+    expect(importedRule("NO ACTION").onDelete).toBeUndefined();
+  });
+
+  test("a varchar(n) id is kept as a primary field with its length", () => {
+    const out = pgToApsorc(
+      schema([table("orgs", { primaryKey: ["id"], columns: [col("id", "varchar", { charMaxLength: 100 })] })])
+    );
+    const orgs = findEntity(out, "orgs");
+    expect(orgs.primaryKeyType).toBeUndefined();
+    expect(findField(orgs, "id")).toMatchObject({ type: "varchar", length: 100, primary: true });
+  });
+
+
+  test("a NOT VALID foreign key keeps validate: false; a timestamp with no default is reported", () => {
+    const out = pgToApsorc(
+      schema([
+        table("patients", { primaryKey: ["id"], columns: [col("id", "uuid")] }),
+        table("screenings", {
+          primaryKey: ["id"],
+          columns: [col("id", "uuid"), col("patient_id", "uuid"), col("updated_at", "timestamptz")],
+          foreignKeys: [{ ...fk("patient_id", "patients"), notValid: true }],
+        }),
+      ])
+    );
+    expect(out.apsorc.relationships[0].validate).toBe(false);
+    expect(out.report.warnings.timestampDefaultsAdded).toEqual(["screenings.updated_at"]);
+    expect(out.apsorc.entities[1].timestampDefault).toBe(false);
+  });
+
+  test("a second foreign key on one column is left out and reported", () => {
+    const out = pgToApsorc(
+      schema([
+        table("patients", { primaryKey: ["id"], columns: [col("id", "uuid")] }),
+        table("vitals", {
+          primaryKey: ["id"],
+          columns: [col("id", "uuid"), col("patient_id", "uuid")],
+          foreignKeys: [
+            { ...fk("patient_id", "patients"), name: "vitals_patient_id_fk" },
+            { ...fk("patient_id", "patients"), name: "vitals_patient_id_fkey" },
+          ],
+        }),
+      ])
+    );
+    expect(out.apsorc.relationships.map((r) => r.foreignKeyName)).toEqual(["vitals_patient_id_fk"]);
+    expect(out.report.warnings.foreignKeysNotCarried).toEqual([
+      "vitals.vitals_patient_id_fkey (patient_id -> patients)",
+    ]);
+  });
+
+  test("a primary key that is also a foreign key stays the key, on the relationship", () => {
+    const out = pgToApsorc(
+      schema([
+        table("patients", { primaryKey: ["id"], columns: [col("id", "uuid")] }),
+        table("patient_flags", {
+          primaryKey: ["patient_id"],
+          primaryKeyName: "patient_flags_pkey",
+          columns: [col("patient_id", "uuid"), col("flag", "text")],
+          foreignKeys: [fk("patient_id", "patients")],
+        }),
+      ])
+    );
+    expect(out.apsorc.relationships).toEqual([
+      { from: "patient_flags", to: "patients", type: "ManyToOne", to_name: "patient", joinColumnName: "patient_id", primary: true },
+    ]);
+    expect(findEntity(out, "patient_flags").primaryKeyName).toBe("patient_flags_pkey");
+    expect(out.report.warnings.nonStandardPks).toEqual([]);
+  });
+
+  // apsoai/cli#250: never rename a column to make room for a relationship.
+  test("a relationship that would take a column's name is renamed, and the column kept", () => {
+    const out = pgToApsorc(
+      schema([
+        table("facilities", { primaryKey: ["id"], columns: [col("id", "uuid")] }),
+        table("notes", {
+          primaryKey: ["id"],
+          columns: [col("id", "uuid"), col("facility", "text"), col("facility_id", "uuid")],
+          foreignKeys: [fk("facility_id", "facilities")],
+          indexes: [{ name: "notes_facility_idx", columns: ["facility_id", "facility"], unique: false }],
+        }),
+      ])
+    );
+    expect(out.apsorc.relationships).toEqual([
+      { from: "notes", to: "facilities", type: "ManyToOne", to_name: "facilityRecord", joinColumnName: "facility_id" },
+    ]);
+    const notes = findEntity(out, "notes");
+    expect(findField(notes, "facility")).toBeDefined();
+    expect(notes.indexes).toEqual([{ fields: ["facilityRecord", "facility"], name: "notes_facility_idx" }]);
+    expect(out.report.warnings.relationshipsRenamed).toEqual(['notes.facility_id is relationship "facilityRecord"']);
+  });
+
+  test("a FK column the default name already generates gets no joinColumnName", () => {
+    const out = pgToApsorc(
+      schema([
+        table("User", { primaryKey: ["id"], columns: [col("id", "uuid")] }),
+        table("Post", {
+          primaryKey: ["id"],
+          columns: [col("id", "uuid"), col("userId", "uuid")],
+          foreignKeys: [{ columns: ["userId"], referencedTable: "User", referencedColumns: ["id"], onDelete: "NO ACTION" }],
+        }),
+      ])
+    );
+    expect(out.apsorc.relationships).toEqual([{ from: "Post", to: "User", type: "ManyToOne" }]);
   });
 
   test("composite FK -> columns kept, no relationship, warning", () => {
@@ -429,7 +631,7 @@ describe("enums", () => {
 // ---- unique / index ----
 
 describe("unique and index", () => {
-  test("single-col unique/index set on field; multi-col go to entity", () => {
+  test("indexes and uniques go to the entity with their names", () => {
     const out = pgToApsorc(
       schema([
         table("User", {
@@ -452,11 +654,49 @@ describe("unique and index", () => {
       ])
     );
     const e = findEntity(out, "User");
-    expect(findField(e, "email").unique).toBe(true);
+    // A field's "unique": true would rename the constraint, so a named
+    // single-column unique is an entity-level entry too.
+    expect(findField(e, "email").unique).toBeUndefined();
     expect(findField(e, "email").length).toBe(255);
-    expect(findField(e, "a").index).toBe(true);
-    expect(e.uniques).toEqual([{ fields: ["a", "b"], name: "uq_ab" }]);
-    expect(e.indexes).toEqual([{ fields: ["email", "b"], unique: false }]);
+    expect(findField(e, "a").index).toBeUndefined();
+    expect(e.uniques).toEqual([
+      { fields: ["email"], name: "uq_email" },
+      { fields: ["a", "b"], name: "uq_ab" },
+    ]);
+    expect(e.indexes).toEqual([
+      { fields: ["a"], name: "ix_a" },
+      { fields: ["email", "b"], name: "ix_eb" },
+    ]);
+  });
+
+  // apsoai/cli#245
+  test("a partial index keeps its WHERE; expression and DESC indexes become sqlIndexes", () => {
+    const out = pgToApsorc(
+      schema([
+        table("jobs", {
+          primaryKey: ["id"],
+          columns: [col("id", "uuid"), col("status", "text"), col("email", "text"), col("at", "timestamptz")],
+          indexes: [
+            { name: "jobs_one_live_uq", columns: ["status"], unique: true, partial: true, predicate: "(status <> 'done'::text)" },
+            { name: "jobs_lower_email_uq", columns: [], unique: true, expression: true, definition: "CREATE UNIQUE INDEX jobs_lower_email_uq ON public.jobs USING btree (lower(email))" },
+            { name: "jobs_recent_idx", columns: ["at"], unique: false, descending: true, definition: "CREATE INDEX jobs_recent_idx ON public.jobs USING btree (status, at DESC) WHERE (status <> 'done'::text)", predicate: "(status <> 'done'::text)" },
+            { name: "jobs_gin_idx", columns: [], unique: false, expression: true, definition: "CREATE INDEX jobs_gin_idx ON public.jobs USING gin (to_tsvector('english'::regconfig, email))" },
+          ],
+        }),
+      ])
+    );
+    const jobs = findEntity(out, "jobs");
+    expect(jobs.indexes).toEqual([
+      { fields: ["status"], unique: true, name: "jobs_one_live_uq", where: "(status <> 'done'::text)" },
+    ]);
+    expect(jobs.sqlIndexes).toEqual([
+      { name: "jobs_lower_email_uq", columns: "lower(email)", unique: true },
+      { name: "jobs_recent_idx", columns: "status, at DESC", where: "(status <> 'done'::text)" },
+    ]);
+    // Another index method cannot be expressed, so it is reported.
+    expect(out.report.warnings.indexesNotCarried).toEqual([
+      "CREATE INDEX jobs_gin_idx ON public.jobs USING gin (to_tsvector('english'::regconfig, email)) (not imported)",
+    ]);
   });
 
   test("index backing a unique constraint is not duplicated", () => {
@@ -471,9 +711,38 @@ describe("unique and index", () => {
       ])
     );
     const e = findEntity(out, "User");
-    expect(findField(e, "email").unique).toBe(true);
+    expect(e.uniques).toEqual([{ fields: ["email"], name: "uq_email" }]);
+    expect(e.indexes).toBeUndefined();
     expect(findField(e, "email").index).toBeUndefined();
   });
+});
+
+// apsoai/cli#247
+test("defaults are kept: SQL expressions as { sql }, booleans without one as noDefault", () => {
+  const out = pgToApsorc(
+    schema([
+      table("audits", {
+        primaryKey: ["id"],
+        columns: [
+          col("id", "uuid", { default: "gen_random_uuid()" }),
+          col("retention_until", "timestamptz", { default: "(now() + '6 years'::interval)" }),
+          col("tags", "jsonb", { default: "'[]'::jsonb" }),
+          col("living_will", "bool", { nullable: true }),
+          col("active", "bool", { default: "true" }),
+          col("status", "varchar", { default: "'open'::character varying" }),
+          col("seq", "int4", { default: "nextval('audits_seq'::regclass)" }),
+        ],
+      }),
+    ])
+  );
+  const e = findEntity(out, "audits");
+  expect(e.primaryKeyDefault).toBe("gen_random_uuid()");
+  expect(findField(e, "retention_until").default).toEqual({ sql: "(now() + '6 years'::interval)" });
+  expect(findField(e, "tags").default).toEqual({ sql: "'[]'::jsonb" });
+  expect(findField(e, "living_will").noDefault).toBe(true);
+  expect(findField(e, "active").default).toBe(true);
+  expect(findField(e, "status").default).toBe("open");
+  expect(out.report.warnings.defaultsDropped).toEqual(["audits.seq"]);
 });
 
 // ---- numeric precision/scale ----

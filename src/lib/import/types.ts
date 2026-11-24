@@ -30,6 +30,8 @@ export interface IntrospectedColumn {
   numericPrecision: number | null;
   numericScale: number | null;
   ordinal: number;
+  /** The expression of a GENERATED ALWAYS AS (...) STORED column. */
+  generated?: string;
   /** True when the column's type is a user-defined enum. */
   isEnum: boolean;
   /** Links to IntrospectedEnum.name when isEnum is true. */
@@ -38,6 +40,10 @@ export interface IntrospectedColumn {
 
 /** A foreign key constraint (may be composite). */
 export interface IntrospectedFk {
+  /** The key is NOT VALID: existing rows were never checked against it. */
+  notValid?: boolean;
+  /** The constraint's name in the source database. */
+  name?: string;
   /** Local column(s) participating in the FK. */
   columns: string[];
   referencedTable: string;
@@ -54,8 +60,19 @@ export interface IntrospectedUnique {
 /** A secondary index (may be composite). */
 export interface IntrospectedIndex {
   name: string;
+  /** Plain columns only; an expression is flagged, not listed. */
   columns: string[];
   unique: boolean;
+  /** The index has a WHERE clause. */
+  partial?: boolean;
+  /** The WHERE condition, as Postgres prints it. */
+  predicate?: string;
+  /** A column is sorted DESC, which .apsorc cannot express yet. */
+  descending?: boolean;
+  /** The index covers an expression, e.g. lower(email). */
+  expression?: boolean;
+  /** pg_get_indexdef, for the import report. */
+  definition?: string;
 }
 
 /** A user-defined enum type and its labels (in sort order). */
@@ -70,6 +87,10 @@ export interface IntrospectedTable {
   columns: IntrospectedColumn[];
   /** Ordered primary-key column names ([] if the table has no primary key). */
   primaryKey: string[];
+  /** The primary key constraint's name in the source database. */
+  primaryKeyName?: string;
+  /** CHECK constraints, with the expression as Postgres prints it. */
+  checks?: Array<{ name: string; expression: string; notValid?: boolean }>;
   foreignKeys: IntrospectedFk[];
   uniqueConstraints: IntrospectedUnique[];
   indexes: IntrospectedIndex[];
@@ -105,8 +126,30 @@ export interface ImportReport {
   viewsSkipped: string[];
   systemSchemasSkipped: string[];
   warnings: {
-    /** "table.column" whose Postgres array type was reduced to text. */
+    /** "table.column" arrays whose element type is unknown, imported as text[]. */
     arraysLossy: string[];
+    /** "table.constraint" for CHECK constraints marked NOT VALID in the source. */
+    checksNotValid: string[];
+    /**
+     * "table.column" for a created_at or updated_at with no default in the
+     * source. TypeORM always gives these columns DEFAULT now().
+     */
+    timestampDefaultsAdded: string[];
+    /**
+     * Foreign keys whose relationship could not take its natural name because
+     * the table has a column of that name. The column itself is unchanged.
+     */
+    relationshipsRenamed: string[];
+    /**
+     * "table.constraint (column -> target)" for a foreign key on a column
+     * that already has one. Only the first is imported.
+     */
+    foreignKeysNotCarried: string[];
+    /**
+     * Indexes .apsorc cannot express, as Postgres defines them: an expression
+     * or DESC index that is not a btree. They are left out.
+     */
+    indexesNotCarried: string[];
     /** Tables with composite primary keys (emitted as primary:true fields). */
     compositePks: string[];
     /** Tables with composite foreign keys (kept as scalar columns, no relationship). */
@@ -117,8 +160,6 @@ export interface ImportReport {
     noPrimaryKey: string[];
     /** Columns whose type was unknown and defaulted to text. */
     typesDefaulted: Array<{ column: string; udt: string }>;
-    /** FK columns whose name could not be round-tripped to a relationship name. */
-    fkColumnNameUnmapped: string[];
     /** "table.column" defaults that were dropped (unsupported expressions). */
     defaultsDropped: string[];
     /** Tables that look like pure join tables (candidates for manual ManyToMany). */

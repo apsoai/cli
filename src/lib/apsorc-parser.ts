@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import rc from "rc";
 import { Entity } from "./types/entity";
+import { Index } from "./types/indices";
 import {
   ApsorcRelationship,
   Relationship,
@@ -132,6 +133,9 @@ export const assertCodegenSafeNames = (
 };
 
 const columns = (fields: string[]) => fields.join(",");
+// An index with its own name or a WHERE condition is a different index from
+// a plain one on the same columns, so only plain ones are merged.
+const plain = (index: Index) => !index.name && !index.where;
 
 /**
  * Drop indexes the database cannot create alongside another. TypeORM names an
@@ -147,15 +151,17 @@ export const dedupeIndexes = (entity: Entity): Entity => {
   if (!entity.indexes?.length) return entity;
   const uniqueColumns = new Set(
     entity.indexes
-      .filter((index) => index.unique)
+      .filter((index) => index.unique && plain(index))
       .map((index) => columns(index.fields))
   );
   const seen = new Set<string>();
   const indexes = entity.indexes.filter((index) => {
-    const key = `${columns(index.fields)}|${index.unique ? "unique" : ""}`;
+    const key = `${columns(index.fields)}|${index.unique ? "unique" : ""}|${
+      index.where ?? ""
+    }|${index.name ?? ""}`;
     if (
       seen.has(key) ||
-      (!index.unique && uniqueColumns.has(columns(index.fields)))
+      (plain(index) && !index.unique && uniqueColumns.has(columns(index.fields)))
     )
       return false;
     seen.add(key);

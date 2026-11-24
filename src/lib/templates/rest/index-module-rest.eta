@@ -6,6 +6,9 @@ import {<%= entity.name %>Module} from './<%= entity.name %>/<%= entity.name %>.
 <% if (it.guards) { %>
 import { GuardsModule } from './guards/guards.module'
 <% } %>
+<% if (it.schemaExtras) { %>
+import { SchemaExtrasModule } from './schema-extras.module'
+<% } %>
 
 export default [
 <% it.entities.forEach((entity) => { %>
@@ -13,5 +16,8 @@ export default [
 <%}) %>
 <% if (it.guards) { %>
 GuardsModule,
+<% } %>
+<% if (it.schemaExtras) { %>
+SchemaExtrasModule,
 <% } %>
 ]

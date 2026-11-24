@@ -6,6 +6,13 @@ created_at: Date;
 @UpdateDateColumn()
 updated_at: Date;
 <% } else { %>
-@Column({ type: 'timestamp', nullable: <%= Boolean(field.nullable) %> })
+<% if (field.primary) { %>
+@PrimaryColumn({ type: 'timestamp'<% if (field.primaryKeyName) { %>, primaryKeyConstraintName: '<%= field.primaryKeyName %>'<% } %> })
+<% } else { %>
+<% if (field.index) { %>
+@Index()
+<% } %>
+@Column({ type: 'timestamp', nullable: <%= Boolean(field.nullable) %><% if (field.unique) { %>, unique: true<% } %><% if (field.defaultSql) { %>, default: () => <%~ JSON.stringify(field.defaultSql) %><% } %> })
+<% } %>
 <%= field.name %>: Date;
 <% } %>

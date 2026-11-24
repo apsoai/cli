@@ -1,0 +1,3 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`import round trip the rebuilt schema differs from the source only in the known ways 1`] = `[]`;

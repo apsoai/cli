@@ -209,6 +209,12 @@ The CLI only processes these relationship properties:
 - `cascadeDelete` - for cascade delete (optional)
 - `index` - for indexing (optional)
 - `joinTableName`, `joinColumnName`, `inverseJoinColumnName` - for ManyToMany customizations (optional)
+- `joinColumnName` on ManyToOne, OneToMany or OneToOne - the foreign key column's own name, e.g. `patient_id` (optional, TypeScript services only). `apso import` sets it so an existing database keeps its column names
+- `onDelete` - the foreign key's delete rule: `CASCADE`, `SET NULL`, `RESTRICT` or `NO ACTION` (optional; `cascadeDelete: true` is `CASCADE`)
+- `foreignKeyName` - the foreign key constraint's name (optional, TypeScript services only)
+- `primary` - the foreign key column is the entity's primary key, for a table keyed by the row it extends (optional, TypeScript services only)
+
+Entities that mirror an existing database can also set `timestampType` and `timestampNullable` (for `created_at` and `updated_at`, one value or one per column) and `primaryKeyName`. `apso import` writes all of these; a new schema rarely needs them. `apsorc.schema.json` lists every setting.
 
 ### What the CLI Automatically Generates
 

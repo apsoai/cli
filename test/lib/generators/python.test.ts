@@ -86,6 +86,33 @@ describe("PythonGenerator", () => {
     });
   });
 
+  test("refuses a generated column instead of declaring a plain one", () => {
+    const config = createConfig([{ name: "Line", fields: [{ name: "total", type: "integer", generated: "quantity * 2" }] }]);
+    expect(generator.validateConfig(config).errors).toEqual([
+      expect.stringContaining('Line.total sets "generated". The Python generator'),
+    ]);
+  });
+
+  // apsoai/cli#241
+  test("refuses joinColumnName on a foreign key instead of building another column", () => {
+    const config = createConfig(
+      [{ name: "Patient" }, { name: "Enrollment" }],
+      { Enrollment: [{ name: "Patient", type: "ManyToOne", joinColumnName: "patient_id" }] }
+    );
+    expect(generator.validateConfig(config).errors).toEqual([
+      expect.stringContaining('Enrollment ManyToOne Patient sets "joinColumnName": "patient_id". The Python generator'),
+    ]);
+  });
+
+  // apsoai/cli#243
+  test("timestampType timestamptz gives created_at and updated_at a time zone", async () => {
+    const entity: Entity = { name: "Zoned", created_at: true, updated_at: true, timestampType: "timestamptz" };
+    const files = await generator.generateEntity({ entity, relationships: [], allEntities: [entity], apiType: "rest" });
+    const content = files.find((f) => f.path.includes("models"))!.content;
+    expect(content).toContain("created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False");
+    expect(content).toContain("updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False");
+  });
+
   describe("table name override (cli#107)", () => {
     test("honors an explicit per-entity table override", async () => {
       const entity: Entity = {

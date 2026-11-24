@@ -27,6 +27,7 @@ import {
 import {
   getRelationshipForTemplate,
   getRelationshipsForImport,
+  joinColumnErrors,
 } from "../utils/relationships";
 import { camelCase } from "../utils/casing";
 import { getEventEmittingEntities } from "../events";
@@ -212,6 +213,23 @@ export class PythonGenerator extends BaseGenerator {
       errors.push("No entities defined in configuration");
     }
     errors.push(...removedScopeOptionErrors(config.entities ?? []));
+    errors.push(...joinColumnErrors(config.relationshipMap, "Python"));
+    for (const e of config.entities ?? [])
+      if (e.sqlIndexes?.length)
+        errors.push(
+          `${e.name} sets "sqlIndexes". The Python generator cannot create an index on an expression or a descending column yet; remove it or generate a TypeScript service.`
+        );
+    for (const e of config.entities ?? [])
+      for (const f of e.fields ?? [])
+        if (f.generated)
+          errors.push(
+            `${e.name}.${f.name} sets "generated". The Python generator cannot declare a generated column yet; remove it or generate a TypeScript service.`
+          );
+    for (const e of config.entities ?? [])
+      if (e.primaryKeyName)
+        errors.push(
+          `${e.name} sets "primaryKeyName": "${e.primaryKeyName}". The Python generator cannot keep a custom primary key constraint name yet; remove it or generate a TypeScript service.`
+        );
 
     // Validate each entity
     for (const entity of config.entities) {
@@ -308,13 +326,19 @@ export class PythonGenerator extends BaseGenerator {
                   .map((x) => pyString(x))
                   .join(", ")}, name=${pyString(c.name)})`
             ),
+          ...model.constraints
+            .filter((c) => c.kind === "check" && c.table === t)
+            .map(
+              (c) =>
+                `CheckConstraint(${pyString(c.expression ?? "")}, name=${pyString(c.name)})`
+            ),
           ...model.indexes
             .filter((i) => i.table === t)
             .map(
               (i) =>
                 `Index(${[i.name, ...i.columns].map((x) => pyString(x)).join(", ")}${
                   i.unique ? ", unique=True" : ""
-                })`
+                }${i.where ? `, postgresql_where=text(${pyString(i.where)})` : ""})`
             ),
         ],
       };
