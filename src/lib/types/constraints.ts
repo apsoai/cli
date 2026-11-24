@@ -16,3 +16,18 @@ export interface Check {
    */
   validate?: boolean;
 }
+
+/**
+ * A foreign key beyond the one a relationship makes, for a column that has
+ * more than one. It is a database constraint only: no relation property.
+ */
+export interface ExtraForeignKey {
+  name: string;
+  /** The column's database name. */
+  column: string;
+  /** The entity it references, by its primary key. */
+  to: string;
+  onDelete?: "CASCADE" | "SET NULL" | "RESTRICT" | "NO ACTION";
+  /** False keeps the key NOT VALID in migrations, as on a relationship. */
+  validate?: boolean;
+}

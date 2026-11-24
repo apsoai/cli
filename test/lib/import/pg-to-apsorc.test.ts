@@ -464,7 +464,7 @@ describe("foreign keys", () => {
     expect(out.apsorc.entities[1].timestampDefault).toBe(false);
   });
 
-  test("a second foreign key on one column is left out and reported", () => {
+  test("a second foreign key on one column is kept as a constraint", () => {
     const out = pgToApsorc(
       schema([
         table("patients", { primaryKey: ["id"], columns: [col("id", "uuid")] }),
@@ -479,8 +479,8 @@ describe("foreign keys", () => {
       ])
     );
     expect(out.apsorc.relationships.map((r) => r.foreignKeyName)).toEqual(["vitals_patient_id_fk"]);
-    expect(out.report.warnings.foreignKeysNotCarried).toEqual([
-      "vitals.vitals_patient_id_fkey (patient_id -> patients)",
+    expect(out.apsorc.entities.find((e) => e.name === "vitals")?.foreignKeys).toEqual([
+      { name: "vitals_patient_id_fkey", column: "patient_id", to: "patients" },
     ]);
   });
 

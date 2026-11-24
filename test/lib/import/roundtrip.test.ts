@@ -29,6 +29,8 @@ describe("import round trip", () => {
   test("the rebuilt schema differs from the source only in the known ways", async () => {
     const original = await database(source);
     const { apsorc, report } = pgToApsorc(await introspectClient(original, "public"));
+    // A second foreign key on a column is kept, as a constraint only.
+    expect(apsorc.entities.find((e) => e.name === "enrollments")?.foreignKeys).toEqual([{ name: "enrollments_patient_id_fkey2", column: "patient_id", to: "patients", onDelete: "CASCADE", validate: false }]);
     // A generated column keeps its expression; it is not imported as a plain column.
     expect(apsorc.entities.find((e) => e.name === "enrollments")?.fields).toContainEqual({ name: "minutes_doubled", type: "integer", nullable: true, generated: "(minutes * 2)" });
     expect(report.warnings.arraysLossy).toEqual([]);

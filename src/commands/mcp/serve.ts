@@ -1206,6 +1206,7 @@ is tracked separately.
 | primary | field | The field is the primary key, or part of it |
 | elementType | field | Element type of an \`array\` field, e.g. \`uuid\` |
 | generated | field | The SQL expression of a stored generated column, e.g. \`(quantity * price)\`. Postgres computes it; create and update requests do not accept the field. TypeScript only |
+| foreignKeys | entity | A second foreign key on a column, as \`{ name, column, to, onDelete?, validate? }\`. A database constraint only; \`apso import\` writes it when a column has two keys. TypeScript only |
 
 In \`indexes\` and \`uniques\`, a foreign key may be named by its relationship (\`patient\`), its id property (\`patientId\`) or its column (\`patient_id\`).
 `;

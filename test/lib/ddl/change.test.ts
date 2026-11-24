@@ -280,6 +280,51 @@ describe("generated columns", () => {
   });
 });
 
+const vitalSchema = (foreignKeys?: ApsorcType["entities"][number]["foreignKeys"]): ApsorcType => ({
+  version: 2,
+  rootFolder: "src",
+  apiType: "Rest" as ApsorcType["apiType"],
+  entities: [
+    { name: "Patient", fields: [] },
+    { name: "Vital", fields: [{ name: "patient_id", type: "integer" }], ...(foreignKeys && { foreignKeys }) },
+  ],
+  relationships: [],
+});
+
+describe("a second foreign key on a column", () => {
+  test("added, then removed", async () => {
+    const key = { name: "vital_patient_fk2", column: "patient_id", to: "Patient", onDelete: "CASCADE" as const };
+    const versions = [vitalSchema(), vitalSchema([key]), vitalSchema()];
+    const db = await pglite();
+    await db.exec(schemaDdl(parseApsorcV2(versions[0])).join(";\n"));
+    const upAfter = async (step: number) => {
+      const plan = planMigration(versions[step - 1], versions[step]);
+      expect(openQuestions(plan)).toEqual([]);
+      const { up } = changeDdl(versions[step - 1], versions[step], plan);
+      await db.exec(up.join(";\n"));
+      const fresh = await pglite();
+      await fresh.exec(schemaDdl(parseApsorcV2(versions[step])).join(";\n"));
+      expect(catalogDiff(await readCatalog(fresh), await readCatalog(db))).toEqual([]);
+      await fresh.close();
+      return up;
+    };
+    expect(await upAfter(1)).toEqual(['ALTER TABLE "vital" ADD CONSTRAINT "vital_patient_fk2" FOREIGN KEY ("patient_id") REFERENCES "patient"("id") ON DELETE CASCADE ON UPDATE NO ACTION']);
+    expect(await upAfter(2)).toEqual(['ALTER TABLE "vital" DROP CONSTRAINT "vital_patient_fk2"']);
+    await db.close();
+  });
+
+  test("an entry on a column the entity does not have is refused", () => {
+    const apsorc = parseApsorcV2({
+      version: 2,
+      rootFolder: "src",
+      apiType: "Rest" as ApsorcType["apiType"],
+      entities: [{ name: "Vital", fields: [], foreignKeys: [{ name: "fk2", column: "nope", to: "Vital" }] }],
+      relationships: [],
+    });
+    expect(() => schemaDdl(apsorc)).toThrow('names column "nope", which Vital does not have');
+  });
+});
+
 describe("extensions", () => {
   test("adding a uuid-keyed entity creates uuid-ossp before the table", async () => {
     const base = {

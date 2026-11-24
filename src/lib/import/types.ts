@@ -141,11 +141,6 @@ export interface ImportReport {
      */
     relationshipsRenamed: string[];
     /**
-     * "table.constraint (column -> target)" for a foreign key on a column
-     * that already has one. Only the first is imported.
-     */
-    foreignKeysNotCarried: string[];
-    /**
      * Indexes .apsorc cannot express, as Postgres defines them: an expression
      * or DESC index that is not a btree. They are left out.
      */

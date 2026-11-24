@@ -34,7 +34,7 @@ const timestampArgs = (entity: Entity, column: TimestampColumn): string => {
   return args.length > 0 ? `{ ${args.join(", ")} }` : "";
 };
 import { onDeleteOf } from "../types/relationship";
-import { keyColumn, sqlIndexStatements } from "../ddl";
+import { extraForeignKeys, keyColumn, sqlIndexStatements } from "../ddl";
 // Utilities available for future use: createFile from "../utils/file-system"
 import {
   getFieldForTemplate,
@@ -201,8 +201,14 @@ export class TypeScriptGenerator extends BaseGenerator {
         ),
       }));
 
+    const foreignKeys = extraForeignKeys(
+      entity,
+      new Map(allEntities.map((e) => [e.name, e]))
+    );
+
     const data = {
       name,
+      foreignKeys,
       indexes: toProperties(indexes),
       uniques: toProperties(uniques),
       checks: entity.checks ?? [],
@@ -237,7 +243,9 @@ export class TypeScriptGenerator extends BaseGenerator {
           fkTsType: key.ts,
         };
       }),
-      entitiesToImport,
+      entitiesToImport: [
+        ...new Set([...entitiesToImport, ...foreignKeys.map((k) => k.target)]),
+      ].filter((other) => other !== name),
       importEnums: typeExistsInEntity(entity, "enum") !== -1,
       apiType,
     };

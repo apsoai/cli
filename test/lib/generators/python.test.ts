@@ -86,6 +86,16 @@ describe("PythonGenerator", () => {
     });
   });
 
+  test("refuses a second foreign key on a column instead of dropping it", () => {
+    const config = createConfig([
+      { name: "Patient", fields: [] },
+      { name: "Vital", fields: [{ name: "patient_id", type: "integer" }], foreignKeys: [{ name: "vital_patient_fk2", column: "patient_id", to: "Patient" }] },
+    ]);
+    expect(generator.validateConfig(config).errors).toEqual([
+      expect.stringContaining('Vital sets "foreignKeys". The Python generator'),
+    ]);
+  });
+
   test("refuses a generated column instead of declaring a plain one", () => {
     const config = createConfig([{ name: "Line", fields: [{ name: "total", type: "integer", generated: "quantity * 2" }] }]);
     expect(generator.validateConfig(config).errors).toEqual([
