@@ -39,6 +39,7 @@ export {
 } from "./auth";
 export {
   TargetLanguage,
+  QueryConfig,
   GeneratedFile,
   ValidationResult,
   PythonLanguageConfig,

@@ -9,7 +9,7 @@ import {
   RelationshipMap,
 } from "./types/relationship";
 import { AuthConfig, authProviders } from "./types/auth";
-import { TargetLanguage } from "./types/generator";
+import { QueryConfig, TargetLanguage } from "./types/generator";
 import {
   getRelationshipIdField,
   parseRelationships,
@@ -49,6 +49,14 @@ export type ApsorcType = {
    * trailer. Defaults to enabled.
    */
   coAuthor?: boolean;
+  /** TypeScript list route settings; see QueryConfig. */
+  query?: QueryConfig;
+  /**
+   * TypeScript only. False leaves the generated GuardsModule out of the
+   * autogen module list, for an app that registers its own global guards.
+   * Not allowed with `auth`, whose checks run in those guards.
+   */
+  guards?: boolean;
 };
 
 type ParsedApsorcData = {
@@ -68,6 +76,8 @@ export type ParsedApsorc = {
   http?: boolean;
   /** Opt-out for the Apso commit co-author hook (defaults to enabled). */
   coAuthor?: boolean;
+  query?: QueryConfig;
+  guards?: boolean;
 };
 
 export const parseApsorcV1 = (apsorc: ApsorcType): ParsedApsorcData => {
@@ -217,6 +227,14 @@ const parseRc = (): ApsorcType => {
   const emitEvents = apsoConfig.emitEvents as boolean | undefined;
   const http = apsoConfig.http as boolean | undefined;
   const coAuthor = apsoConfig.coAuthor as boolean | undefined;
+  const query = parseQuery(apsoConfig.query);
+  const guards = apsoConfig.guards as boolean | undefined;
+  if (guards !== undefined && typeof guards !== "boolean")
+    throw new Error(`.apsorc "guards" must be true or false`);
+  if (guards === false && auth)
+    throw new Error(
+      `.apsorc "guards": false leaves out the guards that enforce "auth"; remove one of them`
+    );
 
   return {
     rootFolder,
@@ -229,8 +247,41 @@ const parseRc = (): ApsorcType => {
     emitEvents,
     http,
     coAuthor,
+    query,
+    guards,
   };
 };
+
+const DIALECTS = new Set(["postgrest", "nestjsx"]);
+
+/** Checks the .apsorc `query` block; undefined when it is left out. */
+export function parseQuery(raw: unknown): QueryConfig | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw))
+    throw new Error(`.apsorc "query" must be an object`);
+  const { dialects, limit, alwaysPaginate, ...rest } = raw as Record<string, unknown>;
+  const unknown = Object.keys(rest);
+  if (unknown.length > 0)
+    throw new Error(
+      `.apsorc "query" has unknown setting(s) ${unknown.join(", ")}; use dialects, limit or alwaysPaginate`
+    );
+  if (
+    dialects !== undefined &&
+    (!Array.isArray(dialects) ||
+      dialects.length === 0 ||
+      dialects.some((d) => !DIALECTS.has(d as string)))
+  )
+    throw new Error(`.apsorc "query.dialects" must list one or both of "postgrest" and "nestjsx"`);
+  if (limit !== undefined && (!Number.isInteger(limit) || (limit as number) < 1 || (limit as number) > 100))
+    throw new Error(`.apsorc "query.limit" must be a whole number from 1 to 100`);
+  if (alwaysPaginate !== undefined && typeof alwaysPaginate !== "boolean")
+    throw new Error(`.apsorc "query.alwaysPaginate" must be true or false`);
+  return {
+    dialects: dialects as QueryConfig["dialects"],
+    limit: limit as number | undefined,
+    alwaysPaginate: alwaysPaginate as boolean | undefined,
+  };
+}
 
 export const parseApsorc = (): ParsedApsorc => {
   const debug = process.env.DEBUG;
@@ -255,6 +306,8 @@ export const parseApsorc = (): ParsedApsorc => {
           emitEvents: apsoConfig.emitEvents,
           http: apsoConfig.http,
           coAuthor: apsoConfig.coAuthor,
+          query: apsoConfig.query,
+          guards: apsoConfig.guards,
           ...parseApsorcV1(apsoConfig),
         };
         if (debug) {
@@ -282,6 +335,8 @@ export const parseApsorc = (): ParsedApsorc => {
           emitEvents: apsoConfig.emitEvents,
           http: apsoConfig.http,
           coAuthor: apsoConfig.coAuthor,
+          query: apsoConfig.query,
+          guards: apsoConfig.guards,
           ...(() => {
             const relStart = performance.now();
             const parsed = parseApsorcV2(apsoConfig);

@@ -359,6 +359,8 @@ export default class McpServe extends BaseCommand {
             relationshipMap,
             apiType,
             auth,
+            query,
+            guards,
             language: configLanguage,
           } = parseApsorc();
 
@@ -461,6 +463,7 @@ export default class McpServe extends BaseCommand {
                 apiType: lowerCaseApiType,
                 relationshipMap,
                 auth,
+                query,
               }),
               generator.generateModule({
                 entity,
@@ -496,7 +499,7 @@ export default class McpServe extends BaseCommand {
           const indexFiles = await generator.generateIndexModule(
             entities,
             lowerCaseApiType,
-            { auth }
+            { auth, guards }
           );
           for (const file of indexFiles) {
             const fullPath = path.join(autogenPath, file.path);

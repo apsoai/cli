@@ -60,9 +60,13 @@ const skipScope = (req: any) => {
         replace: <%= it.entityName %>Update,
     },
     validation: false,
+<% if (it.dialects.length === 1 && it.dialects[0] === 'postgrest') { %>
     // List queries are PostgREST syntax only (?status=eq.open&select=id,name&order=id.desc).
     // A nestjsx parameter (filter, join, sort, s, fields, page, per_page, cache) gets a 400.
-    dialects: ['postgrest'],
+<% } else { %>
+    // Query syntaxes accepted, from .apsorc "query.dialects".
+<% } %>
+    dialects: [<%~ it.dialectList %>],
     params: {
         id: {
             field: '<%= it.keyField %>',
@@ -74,7 +78,10 @@ const skipScope = (req: any) => {
         // The default page: a list with no limit returns at most this many
         // rows. When more exist the answer is a 206 and its Content-Range
         // header has the total (0-24/42). The largest limit is 100.
-        limit: 25,
+        limit: <%= it.limit %>,
+<% if (it.alwaysPaginate) { %>
+        alwaysPaginate: true,
+<% } %>
         <% if (it.associations.length) { %>
             join: {
                 <% it.associations.forEach((assoc) => { %>

@@ -1,15 +1,15 @@
 {
   "name": "@apso/cli",
-  "version": "0.51.0",
+  "version": "0.52.0",
   "lockfileVersion": 3,
   "requires": true,
   "packages": {
     "": {
       "name": "@apso/cli",
-      "version": "0.51.0",
+      "version": "0.52.0",
       "license": "Apache-2.0",
       "dependencies": {
-        "@apso/schema-tools": "^0.2.2",
+        "@apso/schema-tools": "^0.2.3",
         "@biomejs/biome": "^1.9.4",
         "@electric-sql/pglite": "^0.2.17",
         "@modelcontextprotocol/sdk": "^1.29.0",
@@ -150,9 +150,9 @@
       "license": "MIT"
     },
     "node_modules/@apso/schema-tools": {
-      "version": "0.2.2",
-      "resolved": "https://registry.npmjs.org/@apso/schema-tools/-/schema-tools-0.2.2.tgz",
-      "integrity": "sha512-qLz49EyG6hwWMzjzwxp9L0+Ou7EAi7lu6TaxrJixqPm7/J8EMWzBePssmjTE6eotw9qMZNnh1dZ/ky8a9to1rw==",
+      "version": "0.2.3",
+      "resolved": "https://registry.npmjs.org/@apso/schema-tools/-/schema-tools-0.2.3.tgz",
+      "integrity": "sha512-KID0kcVd2p8mOskklramL7tEGr6Ik5mXy3DaYG80/N19sAB12An0mk0Mfr9hPh++CPP0fAoBEsH42NS9qp0glQ==",
       "license": "Apache-2.0",
       "dependencies": {
         "pluralize": "^8.0.0"

@@ -150,6 +150,34 @@
     "coAuthor": {
       "description": "Set false to skip the commit hook that adds the Apso co-author trailer.",
       "type": "boolean"
+    },
+    "query": {
+      "description": "How list routes read a request, for an app whose clients already exist. TypeScript only.",
+      "type": "object",
+      "properties": {
+        "dialects": {
+          "description": "Query syntaxes the list routes accept. Defaults to [\"postgrest\"].",
+          "type": "array",
+          "items": { "type": "string", "enum": ["postgrest", "nestjsx"] },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "limit": {
+          "description": "Rows a list returns when the request names no limit. Defaults to 25.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "alwaysPaginate": {
+          "description": "Answer every list with a page object instead of an array. Defaults to false.",
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "guards": {
+      "description": "Set false to leave the generated guards out of the module list, for an app that registers its own. Not allowed with 'auth'.",
+      "type": "boolean"
     }
   },
   "required": [
