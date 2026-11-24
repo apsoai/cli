@@ -17,7 +17,7 @@ Each command run sends a small event:
 | duration + success | `duration_ms`, `success` | reliability / performance |
 | anonymous install id | random UUID in your config | distinct-install counting |
 
-Events: `cli_command_started`, `cli_command_completed`, `cli_command_failed`.
+Events: `cli_command_started`, `cli_command_completed`, `cli_command_failed`, and `$exception` for detailed error tracking.
 
 The **install id** is a random UUID generated on first run and stored in your
 CLI config (`installId`). It is not derived from your hostname, MAC, username,
@@ -46,6 +46,75 @@ export DO_NOT_TRACK=1              # honors the consoledonottrack.com standard
 work (legacy aliases). Check the current state with `apso config get telemetry`.
 
 When telemetry is disabled, nothing is sent and no install id is generated.
+
+## Internal vs. external runs
+
+Every telemetry event includes an `internal` boolean and optional `internal_reason` to distinguish **Apso team/system runs** from external anonymous users. This allows filtering internal development, testing, and CI from real user activity in both PostHog and Sentry.
+
+### What counts as internal
+
+A run is marked `internal: true` if **any** of these conditions match:
+
+1. **Explicit env var**: `APSO_INTERNAL=1` or `APSO_INTERNAL=true`
+   - Override with `APSO_INTERNAL=0` to force false (for testing external behavior internally)
+   - Reason: `env`
+
+2. **GitHub Actions auto-detection**: `GITHUB_ACTIONS=true` and the repository owner is `apsoai`
+   - Covers all workflows in `apsoai/*` repos automatically, with no per-job setup needed
+   - Checks `GITHUB_REPOSITORY_OWNER` or the owner prefix of `GITHUB_REPOSITORY`
+   - Case-insensitive
+   - Reason: `github_owner`
+
+3. **Config flag**: `apso config set internal true` stored in `~/.apso/config.json`
+   - For team laptops and persistent development machines
+   - Reason: `config`
+
+4. **Account-based** (after `apso login`):
+   - User email domain is `apso.ai` or `mavrictech.com`
+   - Workspace slug is `apso`, `apso-team`, or `mavric`
+   - Reason: `account` or `workspace`
+
+The first matching condition sets the reason. Never sends the email itself — only the boolean and reason.
+
+### For CI and automation
+
+**GitHub Actions** (apsoai repos): Automatic — no setup needed. The owner check covers it.
+
+**Other CI** (Jenkins, GitLab CI, CircleCI, Buildkite, etc.): Set `APSO_INTERNAL=1` in your workflow/pipeline env vars:
+
+```yaml
+# .github/workflows/my-workflow.yml
+env:
+  APSO_INTERNAL: '1'
+
+# .gitlab-ci.yml
+variables:
+  APSO_INTERNAL: '1'
+
+# CircleCI config.yml
+environment:
+  APSO_INTERNAL: '1'
+```
+
+**Docker / scripts**: Pass the env var when running the CLI:
+
+```bash
+docker run -e APSO_INTERNAL=1 my-image apso generate
+APSO_INTERNAL=1 apso migrate plan
+```
+
+### Retroactive identification (past events)
+
+Past events before internal tagging can be approximated as internal by:
+- `os: "linux"` and `node_version: "v24.22.x"` with short-lived install IDs
+- Sentry events with runner paths (`/home/runner/work/`)
+- Identified team persons in PostHog
+
+These are heuristics, not exact matches.
+
+### Privacy note
+
+The `internal` flag respects all existing opt-out mechanisms (`APSO_TELEMETRY=0`, `DO_NOT_TRACK=1`, `apso config set telemetry off`). When telemetry is disabled, nothing is sent.
 
 ## First-run notice
 

@@ -25,6 +25,10 @@ on:
       - "scripts/break-each-rule.mjs"
       - ".github/workflows/break-each-rule.yml"
 
+# Mark all runs in this workflow as internal (Apso team/system)
+env:
+  APSO_INTERNAL: '1'
+
 jobs:
   break-each-rule:
     runs-on: ubuntu-latest

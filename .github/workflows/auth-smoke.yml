@@ -25,6 +25,10 @@ on:
       - "scripts/access-mutations.mjs"
       - ".github/workflows/auth-smoke.yml"
 
+# Mark all runs in this workflow as internal (Apso team/system)
+env:
+  APSO_INTERNAL: '1'
+
 jobs:
   auth-smoke:
     runs-on: ubuntu-latest

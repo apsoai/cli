@@ -21,7 +21,10 @@ import { PostHog } from "posthog-node";
 import * as Sentry from "@sentry/node";
 import { createHash, randomUUID } from "crypto";
 import os from "os";
+import ciInfo from "ci-info";
 import { globalConfig, credentials, projectLink } from "../config";
+import { extractErrorProperties } from "./error-utils";
+import { detectInternal, type InternalDetectionResult } from "./internal-detection";
 
 // Public ingestion keys (same tokens the browser/build-engine ship, per env).
 const POSTHOG_KEY_PROD = "phc_Es9UUMw8pOs7Bs21b5PhfC5Qdo94GpYVv8MfdrG12LC";
@@ -51,6 +54,7 @@ let serviceId: string | undefined;
 let environment: "production" | "staging" = "production";
 let startedAt = Date.now();
 let noticePending = false;
+let internalDetection: InternalDetectionResult = { internal: false };
 
 function isDisabled(telemetryDisabled: boolean): boolean {
   if (process.env.DO_NOT_TRACK === "1" || process.env.DO_NOT_TRACK === "true")
@@ -97,6 +101,9 @@ export function initTelemetry(): void {
       return;
     }
     enabled = true;
+
+    // Install uncaught exception and unhandled rejection handlers
+    installGlobalErrorHandlers();
     environment = (cfg.apiUrl || "").includes("staging")
       ? "staging"
       : "production";
@@ -122,6 +129,14 @@ export function initTelemetry(): void {
     workspaceId = link?.workspaceId || cfg.activeWorkspaceId || undefined;
     workspaceSlug = link?.workspaceSlug || cfg.activeWorkspaceSlug || undefined;
     serviceId = link?.serviceId || undefined;
+
+    // Detect internal runs (Apso team/system)
+    internalDetection = detectInternal({
+      configInternal: cfg.internal,
+      userEmail: creds?.user?.email,
+      workspaceSlug,
+      workspaceId,
+    });
 
     posthog = new PostHog(
       environment === "staging" ? POSTHOG_KEY_STAGING : POSTHOG_KEY_PROD,
@@ -150,6 +165,11 @@ export function initTelemetry(): void {
       Sentry.setTag("cli_version", cliVersion);
       if (workspaceId) Sentry.setTag("workspace_id", workspaceId);
       if (serviceId) Sentry.setTag("service_id", serviceId);
+      // Tag internal runs in Sentry
+      Sentry.setTag("internal", String(internalDetection.internal));
+      if (internalDetection.reason) {
+        Sentry.setTag("internal_reason", internalDetection.reason);
+      }
       sentryOn = true;
     }
   } catch {
@@ -165,6 +185,10 @@ function commonProps(): Record<string, unknown> {
     arch: os.arch(),
     node_version: process.version,
     authenticated: authenticatedUser,
+    ci: ciInfo.isCI,
+    internal: internalDetection.internal,
+    // eslint-disable-next-line camelcase
+    ...(internalDetection.reason ? { internal_reason: internalDetection.reason } : {}),
     ...(workspaceId ? { workspace_id: workspaceId } : {}),
     ...(workspaceSlug ? { workspace_slug: workspaceSlug } : {}),
     ...(serviceId ? { service_id: serviceId } : {}),
@@ -206,10 +230,20 @@ export function track(event: string, properties: Record<string, unknown> = {}): 
     posthog.capture({
       distinctId,
       event,
-      properties: { ...commonProps(), ...properties },
+      properties: {
+        ...commonProps(),
+        ...properties,
+        // Set internal as person properties via $set (posthog-node types don't include it, but it works)
+        // eslint-disable-next-line camelcase
+        $set: {
+          internal: internalDetection.internal,
+          // eslint-disable-next-line camelcase
+          ...(internalDetection.reason ? { internal_reason: internalDetection.reason } : {}),
+        },
+      },
       // PostHog group analytics: roll activity up per workspace.
       ...(workspaceId ? { groups: { workspace: workspaceId } } : {}),
-    });
+    } as Parameters<typeof posthog.capture>[0]);
   } catch {
     // never break a command over telemetry
   }
@@ -225,6 +259,86 @@ export function captureException(
     Sentry.captureException(err, { extra: context });
   } catch {
     // ignore
+  }
+}
+
+/**
+ * Capture an exception event in PostHog with structured error properties.
+ *
+ * PostHog's posthog-node SDK (v5.21.2+) doesn't have a direct captureException
+ * method, so we send an $exception event with $exception_list in the standard
+ * format: https://posthog.com/docs/data/exceptions
+ *
+ * @param err - The error to capture
+ * @param context - Additional context properties (command, etc.)
+ */
+export function capturePostHogException(
+  err: unknown,
+  context: Record<string, unknown> = {}
+): void {
+  try {
+    if (!enabled || !posthog) return;
+
+    const errorProps = extractErrorProperties(err);
+    const stack = err instanceof Error ? err.stack : undefined;
+
+    // PostHog exception format: $exception event with $exception_list
+    posthog.capture({
+      distinctId,
+      event: "$exception",
+      properties: {
+        ...commonProps(),
+        ...context,
+        // eslint-disable-next-line camelcase
+        $exception_list: [
+          {
+            // eslint-disable-next-line camelcase
+            type: errorProps.error_class || "Error",
+            // eslint-disable-next-line camelcase
+            value: errorProps.error_message || String(err),
+            ...(stack ? { stacktrace: { frames: parseStackTrace(stack) } } : {}),
+          },
+        ],
+        // Additional structured error properties
+        ...errorProps,
+        // Set internal as person properties via $set (posthog-node types don't include it, but it works)
+        // eslint-disable-next-line camelcase
+        $set: {
+          internal: internalDetection.internal,
+          // eslint-disable-next-line camelcase
+          ...(internalDetection.reason ? { internal_reason: internalDetection.reason } : {}),
+        },
+      },
+      ...(workspaceId ? { groups: { workspace: workspaceId } } : {}),
+    } as Parameters<typeof posthog.capture>[0]);
+  } catch {
+    // never break a command over telemetry
+  }
+}
+
+/**
+ * Parse a stack trace string into PostHog's frame format.
+ * Best-effort parsing; PostHog accepts frames with minimal structure.
+ */
+function parseStackTrace(stack: string): Array<Record<string, unknown>> {
+  try {
+    const lines = stack.split("\n").slice(1); // Skip the error message line
+    return lines.slice(0, 10).map((line) => {
+      // Basic parsing: extract function name and location if available
+      const match = line.match(/at\s+(?:(.+?)\s+\()?(.+?):(\d+):(\d+)\)?/);
+      if (match) {
+        const [, fn, filename, lineno, colno] = match;
+        return {
+          function: fn || "<anonymous>",
+          filename: filename?.replace(os.homedir(), "~") || "unknown",
+          lineno: Number.parseInt(lineno, 10),
+          colno: Number.parseInt(colno, 10),
+        };
+      }
+      return { raw: line.trim() };
+    });
+  } catch {
+    return [{ raw: "Failed to parse stack trace" }];
   }
 }
 
@@ -245,6 +359,99 @@ export async function shutdownTelemetry(): Promise<void> {
   } catch {
     // ignore
   }
+}
+
+/**
+ * Guard against re-entry in global error handlers.
+ */
+let handlingFatalError = false;
+
+/**
+ * Install global handlers for uncaught exceptions and unhandled rejections.
+ * These handlers capture telemetry, flush with a timeout, then crash properly
+ * with non-zero exit and stderr output (preserving Node's default behavior).
+ */
+function installGlobalErrorHandlers(): void {
+  process.on("uncaughtException", (err: Error) => {
+    if (handlingFatalError) {
+      // Re-entry during error handling - bail immediately
+      process.stderr.write("Fatal error during error handling\n");
+      // eslint-disable-next-line no-process-exit
+      process.exit(1);
+    }
+    handlingFatalError = true;
+
+    // Capture telemetry (best-effort, non-blocking)
+    try {
+      // eslint-disable-next-line camelcase
+      captureException(err, { event_type: "uncaught_exception" });
+      // eslint-disable-next-line camelcase
+      capturePostHogException(err, { event_type: "uncaught_exception" });
+    } catch {
+      // ignore telemetry errors
+    }
+
+    // Flush telemetry with a short timeout (2s), then crash properly
+    const flushWithTimeout = Promise.race([
+      shutdownTelemetry(),
+      new Promise<void>((resolve) => {
+        setTimeout(() => resolve(), 2000);
+      }),
+    ]);
+
+    flushWithTimeout
+      .catch(() => {
+        // ignore flush errors
+      })
+      .finally(() => {
+        // Print error to stderr (Node's default behavior)
+        process.stderr.write(`\n${err.stack || err.message}\n`);
+        // Exit non-zero (Node's default behavior)
+        // eslint-disable-next-line no-process-exit
+        process.exit(1);
+      });
+  });
+
+  process.on("unhandledRejection", (reason: unknown) => {
+    if (handlingFatalError) {
+      process.stderr.write("Fatal error during error handling\n");
+      // eslint-disable-next-line no-process-exit
+      process.exit(1);
+    }
+    handlingFatalError = true;
+
+    const err = reason instanceof Error ? reason : new Error(String(reason));
+
+    // Capture telemetry (best-effort, non-blocking)
+    try {
+      // eslint-disable-next-line camelcase
+      captureException(err, { event_type: "unhandled_rejection" });
+      // eslint-disable-next-line camelcase
+      capturePostHogException(err, { event_type: "unhandled_rejection" });
+    } catch {
+      // ignore telemetry errors
+    }
+
+    // Flush telemetry with a short timeout (2s), then crash properly
+    const flushWithTimeout = Promise.race([
+      shutdownTelemetry(),
+      new Promise<void>((resolve) => {
+        setTimeout(() => resolve(), 2000);
+      }),
+    ]);
+
+    flushWithTimeout
+      .catch(() => {
+        // ignore flush errors
+      })
+      .finally(() => {
+        // Print error to stderr (Node's default behavior)
+        process.stderr.write(`\nUnhandled rejection: ${err.stack || err.message}\n`);
+        // Exit non-zero (Node's default behavior)
+        // eslint-disable-next-line no-process-exit
+        process.exit(1);
+      });
+  });
 }
 
 export const __testing = { isDisabled, anonMachineId, getOrCreateInstallId };

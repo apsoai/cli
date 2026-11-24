@@ -15,6 +15,10 @@ on:
 permissions:
   contents: read
 
+# Mark all runs in this workflow as internal (Apso team/system)
+env:
+  APSO_INTERNAL: '1'
+
 jobs:
   tarball-smoke:
     runs-on: ubuntu-latest
