@@ -69,6 +69,9 @@ import {
   removedScopeOptionErrors,
   toRouteName,
   mcpOperations,
+  accessSummary,
+  entityRoleRules,
+  roleRuleText,
 } from "../guards";
 import { getEventEmittingEntities } from "../events";
 import {
@@ -365,7 +368,23 @@ export class TypeScriptGenerator extends BaseGenerator {
         .filter((r) => r.primary)
         .map((r) => r.camelCasedId),
     ];
+
+    // Each role-gated handler's rule, added to its OpenAPI description.
+    const handlers: Record<string, string[]> = {
+      read: ["getMany", "get"],
+      create: ["create", "createMany"],
+      update: ["update", "replace", "recoverOneBase"],
+      delete: ["delete"],
+    };
+    const roleDocs: Record<string, string> = {};
+    if (auth)
+      for (const [op, rule] of Object.entries(entityRoleRules(entity)))
+        for (const handler of handlers[op] ?? [])
+          roleDocs[handler] = roleRuleText(rule!, auth);
+
     const data = {
+      hasAuth: Boolean(auth),
+      roleDocs,
       svcName,
       ctrlName,
       entityName,
@@ -662,7 +681,12 @@ export class TypeScriptGenerator extends BaseGenerator {
     const schemaExtras = apiType === "rest" && statements.length > 0;
     const content = await this.renderTemplate(
       `./${apiType}/index-module-${apiType}`,
-      { entities, schemaExtras, guards: opts?.guards !== false }
+      {
+        entities,
+        schemaExtras,
+        guards: opts?.guards !== false,
+        apiDescription: accessSummary(entities, opts?.auth),
+      }
     );
 
     return [

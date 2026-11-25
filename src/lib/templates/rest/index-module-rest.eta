@@ -21,3 +21,7 @@ GuardsModule,
 SchemaExtrasModule,
 <% } %>
 ]
+
+// The OpenAPI info.description: who signs callers in, how records are scoped
+// and which operations need which role (from .apsorc).
+export const apiDescription = <%~ JSON.stringify(it.apiDescription) %>;
