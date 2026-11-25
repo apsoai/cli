@@ -301,8 +301,10 @@ const entities = (auth) => {
     { name: "Project", created_at: true, updated_at: true, scopeBy: "organizationId", ...mcp(["read"]), fields: [{ name: "title", type: "text" }] },
     // A tenant field that is not named workspaceId/organizationId (imported schemas).
     { name: "Note", created_at: true, updated_at: true, scopeBy: "orgId", fields: [{ name: "body", type: "text" }, { name: "orgId", type: "integer", nullable: true }] },
-    // Scoped through its parent (TypeScript only; generate refuses the path for Python and Go).
-    { name: "Task", created_at: true, updated_at: true, ...(language === "typescript" ? { scopeBy: "project.organizationId" } : {}), fields: [{ name: "title", type: "text" }] },
+    // Scoped through its parent.
+    { name: "Task", created_at: true, updated_at: true, scopeBy: "project.organizationId", fields: [{ name: "title", type: "text" }] },
+    // Scoped through two parents: its task's project's tenant.
+    { name: "Step", created_at: true, updated_at: true, scopeBy: "task.project.organizationId", fields: [{ name: "title", type: "text" }] },
     // A "support" role reads every tenant's tickets (scopeOptions.bypassRoles). Readable as MCP tools, for the
     // cases on a stored foreign key to another tenant's project.
     { name: "Ticket", created_at: true, updated_at: true, scopeBy: "organizationId", scopeOptions: { bypassRoles: ["support"] }, ...mcp(["read"]), fields: [{ name: "title", type: "text" }] },
@@ -331,6 +333,7 @@ const entities = (auth) => {
 const relationships = (auth) => [
   { from: "Organization", to: "Project", type: "OneToMany" },
   { from: "Project", to: "Task", type: "OneToMany" },
+  { from: "Task", to: "Step", type: "OneToMany" },
   { from: "Organization", to: "Ticket", type: "OneToMany" },
   // A foreign key between two tenant-scoped entities that is not the scope column.
   { from: "Project", to: "Ticket", type: "OneToMany", nullable: true },
@@ -540,7 +543,7 @@ async function crudAndScope(base, t, auth, auth2, noTenant, support) {
       const theirNotes = await call("GET", base + NOTES, { headers: as2 });
       t.assert("[R6] other tenant's notes exclude it", theirNotes.status === 200 && !rows(theirNotes.json).some((n) => n.id === note.json.id), `${theirNotes.status}`);
     }
-    if (language === "typescript") await nestedScope(base, t, as1, as2, pid);
+    await nestedScope(base, t, as1, as2, pid);
     if (support) await bypassScope(base, t, as1, as2, support(String(id2)));
   }
   t.expect("[R6] delete project", await call("DELETE", `${base}${PROJECTS}/${pid}`, { headers: as1 }), 200, 204);
@@ -575,6 +578,20 @@ async function nestedScope(base, t, as1, as2, pid) {
     t.assert("[R6] other tenant's task list excludes the task", theirs.status === 200 && !rows(theirs.json).some((x) => x.id === tid), `${theirs.status} ${theirs.text.slice(0, 200)}`);
     t.expect("[R6] other tenant cannot read the task", await call("GET", `${base}${TASKS}/${tid}`, { headers: as2 }), 403, 404);
     t.expect("[R8] task cannot move to another tenant's project", await call("PATCH", `${base}${TASKS}/${tid}`, { headers: as1, body: { projectId: pid2 } }), 403);
+    // Two hops (scopeBy "task.project.organizationId"): a Step belongs to its task's project's tenant.
+    const STEPS = route("Steps");
+    const step = await call("POST", base + STEPS, { headers: as1, body: { title: "Draft", taskId: tid } });
+    if (t.expect("[R6] create step under own task (two hops)", step, 200, 201)) {
+      const sid = step.json.id;
+      const mySteps = await call("GET", base + STEPS, { headers: as1 });
+      t.assert("[R6] own step list includes the step", mySteps.status === 200 && rows(mySteps.json).some((x) => x.id === sid), `${mySteps.status} ${mySteps.text.slice(0, 200)}`);
+      const theirSteps = await call("GET", base + STEPS, { headers: as2 });
+      t.assert("[R6] other tenant's step list excludes the step", theirSteps.status === 200 && !rows(theirSteps.json).some((x) => x.id === sid), `${theirSteps.status} ${theirSteps.text.slice(0, 200)}`);
+      t.expect("[R6] other tenant cannot read the step", await call("GET", `${base}${STEPS}/${sid}`, { headers: as2 }), 403, 404);
+      t.expect("[R6] other tenant cannot delete the step", await call("DELETE", `${base}${STEPS}/${sid}`, { headers: as2 }), 403, 404);
+      t.expect("[R8] cannot create a step under another tenant's task", await call("POST", base + STEPS, { headers: as2, body: { title: "Sneak", taskId: tid } }), 403);
+      t.expect("[R6] delete step", await call("DELETE", `${base}${STEPS}/${sid}`, { headers: as1 }), 200, 204);
+    }
     t.expect("[R6] delete task", await call("DELETE", `${base}${TASKS}/${tid}`, { headers: as1 }), 200, 204);
   }
   t.expect("[R8] cannot create a task under another tenant's project", await call("POST", base + TASKS, { headers: as2, body: { title: "Sneak", projectId: pid } }), 403);
@@ -724,8 +741,8 @@ function buildTimeCases(project) {
   for (const value of [false, true])
     refuses(`[R8] generate refuses scopeOptions.injectOnCreate (${value})`, { auth: jwtAuth, entities: [org, doc({ scopeBy: "organizationId", scopeOptions: { injectOnCreate: value } })], relationships: [{ from: "Organization", to: "Doc", type: "OneToMany" }] }, /injectOnCreate is no longer an option.*always[\s›]+comes[\s›]+from[\s›]+the[\s›]+caller.*can[\s›]+set[\s›]+any[\s›]+tenant/);
   if (language !== "typescript") {
-    // What this language cannot enforce it refuses, so the rule is never silently missing.
-    refuses("[R26,R6] generate refuses a scopeBy path through a parent for this language", { auth: jwtAuth, entities: [org, { name: "Project", scopeBy: "organizationId", fields: [{ name: "title", type: "text" }] }, doc({ scopeBy: "project.organizationId" })], relationships: [{ from: "Organization", to: "Project", type: "OneToMany" }, { from: "Project", to: "Doc", type: "OneToMany" }] }, /path through a parent/);
+    // What this language cannot build it refuses, so a schema is never half applied.
+    refuses("[R26] generate refuses a field type this language cannot build", { entities: [doc({ fields: [{ name: "title", type: "text" }, { name: "address", type: "inet" }] })] }, /does[\s›]+not[\s›]+support[\s›]+field[\s›]+type[\s›]+"inet"/);
   }
   // Every sign-in provider is a JWT provider in every language; the removed ones and an incomplete one fail.
   refuses("[R27] generate refuses the removed custom-db-session provider", { auth: { provider: "custom-db-session" }, entities: [doc({})] }, /"custom-db-session" was removed/);

@@ -283,11 +283,15 @@ export class ScopeGuard implements CanActivate {
       const relations: string[] = [];
       for (const scope of scopeConfig.scopes) {
         if (!scope.direct && scope.path) {
-          // Extract relation name from path (e.g., 'task.workspaceId' -> 'task')
-          const relationName = scope.path.split('.')[0];
-          if (!relations.includes(relationName)) {
-            relations.push(relationName);
-          }
+          // Every relation on the way to the tenant column:
+          // 'task.project.workspaceId' -> 'task', 'task.project'
+          const hops = scope.path.split('.').slice(0, -1);
+          hops.forEach((_hop, i) => {
+            const relationName = hops.slice(0, i + 1).join('.');
+            if (!relations.includes(relationName)) {
+              relations.push(relationName);
+            }
+          });
         }
       }
 

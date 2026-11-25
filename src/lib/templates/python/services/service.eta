@@ -11,6 +11,9 @@ from sqlalchemy import String, cast
 <% if (it.references.length) { %>
 from ..auth import check_references
 <% } %>
+<% if (it.scope && it.scope.nested.length) { %>
+from ..auth import check_parents, nested_conditions
+<% } %>
 from ..models.<%= it.entityName.toLowerCase() %> import <%= it.entityName %>
 from ..schemas.<%= it.entityName.toLowerCase() %> import <%= it.entityName %>Create, <%= it.entityName %>Update
 from ..utils.query import QueryBuilder, QueryOptions, PaginatedResult
@@ -57,6 +60,10 @@ class <%= it.entityName %>Service:
             cast(getattr(<%= it.entityName %>, field), String) == str(value)
             for field, value in self._scope_values(op).items()
         ]
+<% if (it.scope.nested.length) { %>
+        # A path through a parent (task.workspaceId): the parent must be in the caller's tenant.
+        scope += nested_conditions(self.auth, <%~ JSON.stringify(it.entityName) %>, <%= it.entityName %>)
+<% } %>
         return QueryBuilder(<%= it.entityName %>, self.db, auth=self.auth, scope=scope)
 
     def _with_tenant(self, payload: dict) -> dict:
@@ -115,6 +122,9 @@ class <%= it.entityName %>Service:
         payload = data.model_dump(exclude_unset=True)
 <% if (it.scope) { %>
         payload = self._with_tenant(payload)
+<% if (it.scope.nested.length) { %>
+        await check_parents(self.auth, self.db, <%~ JSON.stringify(it.entityName) %>, [payload])
+<% } %>
 <% } %>
 <% if (it.references.length) { %>
         await self._check_references([payload])
@@ -132,6 +142,9 @@ class <%= it.entityName %>Service:
         payloads = [item.model_dump(exclude_unset=True) for item in data]
 <% if (it.scope) { %>
         payloads = [self._with_tenant(payload) for payload in payloads]
+<% if (it.scope.nested.length) { %>
+        await check_parents(self.auth, self.db, <%~ JSON.stringify(it.entityName) %>, payloads)
+<% } %>
 <% } %>
 <% if (it.references.length) { %>
         await self._check_references(payloads)
@@ -160,6 +173,9 @@ class <%= it.entityName %>Service:
         # A scoped row cannot move to another tenant.
         for field in self._scope_values("update"):
             update_data.pop(field, None)
+<% if (it.scope.nested.length) { %>
+        await check_parents(self.auth, self.db, <%~ JSON.stringify(it.entityName) %>, [update_data])
+<% } %>
 <% } %>
 <% if (it.references.length) { %>
         await self._check_references([update_data])
@@ -187,6 +203,9 @@ class <%= it.entityName %>Service:
 <% if (it.scope) { %>
         for field in self._scope_values("update"):
             replace_data.pop(field, None)
+<% if (it.scope.nested.length) { %>
+        await check_parents(self.auth, self.db, <%~ JSON.stringify(it.entityName) %>, [replace_data])
+<% } %>
 <% } %>
 <% if (it.references.length) { %>
         await self._check_references([replace_data])

@@ -1033,3 +1033,80 @@ describe("array element types", () => {
     expect(files.find((f) => f.path.includes("dto"))!.content).toContain(": number[];");
   });
 });
+
+describe("OpenAPI contract in the DTOs", () => {
+  test("required fields, enum values, hidden scopeBy field, decimal rows", async () => {
+    const entity = {
+      name: "Deal",
+      scopeBy: "organizationId",
+      fields: [
+        { name: "organizationId", type: "text", nullable: false },
+        { name: "name", type: "varchar", nullable: false },
+        { name: "notes", type: "text", nullable: true },
+        { name: "value", type: "numeric", nullable: false },
+        { name: "stage", type: "enum", nullable: false, values: ["lead", "won"] },
+      ],
+    } as Entity;
+    const company: Entity = { name: "Company", fields: [] };
+    const generator = new TypeScriptGenerator(createConfig([entity, company]));
+    const [dto] = await generator.generateDto({
+      entity,
+      relationships: [{ name: "Company", type: "ManyToOne" } as Relationship],
+      allEntities: [entity, company],
+      apiType: "rest",
+      auth: { provider: "clerk", jwt: { issuer: "https://x" } } as any,
+    });
+    const create = dto.content.slice(dto.content.indexOf("class DealCreate"), dto.content.indexOf("class DealUpdate"));
+    const row = dto.content.slice(dto.content.indexOf("class Deal {"));
+    expect(create).toMatch(/@ApiHideProperty\(\)\s+@IsOptional\(\)\s+@IsString\(\)\s+organizationId\?/);
+    expect(create).toMatch(/@ApiProperty\(\)\s+@IsNotEmpty\(\)\s+@IsString\(\)\s+name: string/);
+    expect(create).toMatch(/@ApiProperty\(\)\s+@IsNotEmpty\(\)\s+@IsNumber\(\)\s+companyId: number/);
+    expect(create).toMatch(/@ApiProperty(?:Optional\(\)\s+@Is){2}String\(\)\s+notes\?/);
+    // An enum has a database default (its first value), so a create may omit it.
+    expect(create).toContain("@ApiPropertyOptional({ enum: enums.DealStageEnum, enumName: 'DealStageEnum' })");
+    expect(row).toContain("@ApiProperty({ enum: enums.DealStageEnum, enumName: 'DealStageEnum' })");
+    expect(row).toContain("format: 'decimal'");
+  });
+});
+
+describe("OpenAPI access rules", () => {
+  const auth = { provider: "clerk", jwt: { issuer: "https://x" } } as any;
+  const deal = {
+    name: "Deal",
+    scopeBy: "organizationId",
+    permissions: { create: ["rep", "manager"], update: ["rep", "manager"], delete: ["manager"] },
+    fields: [{ name: "organizationId", type: "text", nullable: false }],
+  } as Entity;
+
+  test("info.description names the provider, the tenant claim and the roles", async () => {
+    const generator = new TypeScriptGenerator(createConfig([deal]));
+    const [index] = await generator.generateIndexModule([deal], "rest", { auth });
+    const description = JSON.parse(index.content.match(/apiDescription =\s*(".*");/s)![1]);
+    expect(description).toContain("**Sign-in:** Clerk.");
+    expect(description).toContain("`organizationId` is taken from the token's `o.id` claim");
+    expect(description).toContain("The client must not send it or filter by it.");
+    expect(description).toContain("**Roles** come from the token's `o.rol` claim.");
+    expect(description).toContain("Deal: create and update need rep or manager; delete needs manager.");
+
+    const [keyOnly] = await generator.generateIndexModule([{ name: "Note", fields: [] }], "rest", {});
+    expect(keyOnly.content).toContain("Every request needs the service API key");
+  });
+
+  test("role-gated operations carry their rule; every operation documents 401 and 403", async () => {
+    const generator = new TypeScriptGenerator(createConfig([deal]));
+    const [controller] = await generator.generateController({
+      entity: deal,
+      relationships: [],
+      relationshipMap: {},
+      allEntities: [deal],
+      apiType: "rest",
+      auth,
+    } as any);
+    const rules = controller.content.slice(controller.content.indexOf("@DescribeRoles("), controller.content.indexOf("@Crud("));
+    expect(rules).toContain(`"delete": "Requires role: manager (from the token's \`o.rol\` claim).`);
+    expect(rules).toContain(`"createMany": "Requires role: rep or manager`);
+    expect(rules).not.toContain("getMany");
+    expect(controller.content).toContain("@ApiUnauthorizedResponse(");
+    expect(controller.content).toContain("@ApiForbiddenResponse(");
+  });
+});
