@@ -113,6 +113,18 @@ describe("topoSortTables", () => {
     expect(cyclic).toEqual([]);
   });
 
+  test("a key into another schema is no dependency on a same-named table here", () => {
+    const tables = [
+      table("profiles", {
+        foreignKeys: [{ columns: ["id"], referencedTable: "users", referencedSchema: "auth", referencedColumns: ["id"], onDelete: "CASCADE" }],
+      }),
+      table("users", {
+        foreignKeys: [{ columns: ["profile_id"], referencedTable: "profiles", referencedColumns: ["id"], onDelete: "NO ACTION" }],
+      }),
+    ];
+    expect(topoSortTables(tables)).toEqual({ order: ["profiles", "users"], cyclic: [] });
+  });
+
   test("mutual FK cycle is reported and still ordered best-effort", () => {
     const tables = [
       table("a", { foreignKeys: [{ columns: ["b_id"], referencedTable: "b", referencedColumns: ["id"], onDelete: "NO ACTION" }] }),

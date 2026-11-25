@@ -343,6 +343,17 @@ describe("a second foreign key on a column", () => {
     await db.close();
   });
 
+  test("a changed rule drops the key and adds it back with the new rule", () => {
+    const key = { name: "fk2", column: "patient_id", to: "Patient" };
+    const versions = [vitalSchema([key]), vitalSchema([{ ...key, onUpdate: "CASCADE", deferrable: "INITIALLY DEFERRED" }])];
+    const plan = planMigration(versions[0], versions[1]);
+    expect(openQuestions(plan)).toEqual([]);
+    expect(changeDdl(versions[0], versions[1], plan).up).toEqual([
+      'ALTER TABLE "vital" DROP CONSTRAINT "fk2"',
+      'ALTER TABLE "vital" ADD CONSTRAINT "fk2" FOREIGN KEY ("patient_id") REFERENCES "patient"("id") ON DELETE NO ACTION ON UPDATE CASCADE DEFERRABLE INITIALLY DEFERRED',
+    ]);
+  });
+
   test("a name another foreign key on the table already has is refused", () => {
     const key = { name: "fk2", column: "patient_id", to: "Patient" };
     expect(() => schemaDdl(parseApsorcV2(vitalSchema([key, key])))).toThrow(

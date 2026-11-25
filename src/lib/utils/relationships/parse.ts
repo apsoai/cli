@@ -326,6 +326,17 @@ export const parseRelationship = (
   relationship: ApsorcRelationship,
   allRelationships: ApsorcRelationship[]
 ): RelationshipMap => {
+  // These describe the one foreign key of a ManyToOne, or of the OneToMany
+  // that mirrors it. Anywhere else they would be dropped without a word.
+  if (relationship.type !== "ManyToOne" && relationship.type !== "OneToMany") {
+    const set = (["onUpdate", "deferrable", "joinColumnDefault"] as const).find(
+      (key) => relationship[key] !== undefined
+    );
+    if (set)
+      throw new Error(
+        `${relationship.from} ${relationship.type} ${relationship.to} sets "${set}", which only a ManyToOne or OneToMany takes.`
+      );
+  }
   if (relationship.type === "ManyToMany") {
     return parseManyToMany(relationship, allRelationships);
   }
@@ -359,6 +370,9 @@ export const parseRelationship = (
             foreignKeyName: relationship.foreignKeyName,
             primary: relationship.primary,
             validate: relationship.validate,
+            onUpdate: relationship.onUpdate,
+            deferrable: relationship.deferrable,
+            joinColumnDefault: relationship.joinColumnDefault,
           },
         ],
       };
@@ -383,11 +397,15 @@ export const parseRelationship = (
               referenceName: manySideRefName,
               nullable: relationship.nullable || false,
               index: relationship.index || false,
+              cascadeDelete: relationship.cascadeDelete,
               joinColumnName: relationship.joinColumnName,
             onDelete: relationship.onDelete,
             foreignKeyName: relationship.foreignKeyName,
             primary: relationship.primary,
             validate: relationship.validate,
+            onUpdate: relationship.onUpdate,
+            deferrable: relationship.deferrable,
+            joinColumnDefault: relationship.joinColumnDefault,
             },
           ],
         };
@@ -408,6 +426,9 @@ export const parseRelationship = (
             foreignKeyName: relationship.foreignKeyName,
             primary: relationship.primary,
             validate: relationship.validate,
+            onUpdate: relationship.onUpdate,
+            deferrable: relationship.deferrable,
+            joinColumnDefault: relationship.joinColumnDefault,
           },
         ],
         [relationship.to]: [
@@ -864,6 +885,14 @@ export const joinColumnErrors = (
             ]
           : []),
         ...keyAndNameErrors(entity, r, language),
+        ...(r.onUpdate ||
+        r.deferrable ||
+        r.joinColumnDefault ||
+        r.onDelete === "SET DEFAULT"
+          ? [
+              `${entity} ${r.type} ${r.name} sets "onUpdate", "deferrable", "joinColumnDefault" or "SET DEFAULT". The ${language} generator cannot keep those foreign key settings yet; remove them or generate a TypeScript service.`,
+            ]
+          : []),
       ])
   );
 

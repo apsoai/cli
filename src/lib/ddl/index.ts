@@ -18,6 +18,7 @@ import { ComputedField } from "../types/field";
 import {
   RelationshipForTemplate,
   RelationshipMap,
+  keyRulesSql,
   onDeleteOf,
 } from "../types/relationship";
 import { arrayElementType, getFieldForTemplate } from "../utils/field";
@@ -300,20 +301,52 @@ const column = (
   generated,
 });
 
-export const pkColumn = (e: Entity): string =>
-  (e.fields ?? []).find((f) => f.primary)?.name ?? "id";
+/**
+ * The relationship that is an entity's whole primary key ("primary": true and
+ * no primary field): a table keyed by the row it extends.
+ *
+ * @param {Entity} e - The entity.
+ * @param {SchemaInput} [schema] - The schema, to look its relationships up in.
+ * @returns {RelationshipForTemplate | undefined} The relationship, if one is the key.
+ */
+const keyRelationship = (e: Entity, schema?: SchemaInput) => {
+  if (!schema || (e.fields ?? []).some((f) => f.primary)) return;
+  const keys = getRelationshipForTemplate(
+    e.name,
+    schema.relationshipMap[e.name] || [],
+    schema.entities
+  ).filter((r) => r.primary && ownsColumn(r) && r.name !== e.name);
+  return keys.length === 1 ? keys[0] : undefined;
+};
+
+export const pkColumn = (e: Entity, schema?: SchemaInput): string => {
+  const r = keyRelationship(e, schema);
+  return r
+    ? relationColumn(r)
+    : (e.fields ?? []).find((f) => f.primary)?.name ?? "id";
+};
 /**
  * The primary key column of an entity, as a foreign key onto it must copy it:
  * its SQL type, the matching TypeORM column options and the TypeScript type.
  * A key declared as a field (varchar(100), text, bigint) keeps that type
  * instead of falling back to integer.
  *
+ * A key that is a relationship has the type of the key that one references.
+ *
  * @param {Entity} [target] - The referenced entity.
+ * @param {SchemaInput} [schema] - The schema, to follow such a key through.
  * @returns {object} sql, options and ts for the key column.
  */
 export const keyColumn = (
-  target?: Entity
+  target?: Entity,
+  schema?: SchemaInput
 ): { sql: string; options: string; ts: "string" | "number" } => {
+  const through = target && keyRelationship(target, schema);
+  if (through)
+    return keyColumn(
+      schema!.entities.find((e) => e.name === through.name),
+      schema
+    );
   const keys = (target?.fields ?? []).filter((f) => f.primary);
   if (target && keys.length === 1) {
     const [f] = getFieldForTemplate(keys, target.name);
@@ -335,7 +368,8 @@ export const keyColumn = (
     return { sql: "text", options: 'type: "text"', ts: "string" };
   return { sql: "integer", options: 'type: "integer"', ts: "number" };
 };
-export const fkType = (target?: Entity): string => keyColumn(target).sql;
+export const fkType = (target?: Entity, schema?: SchemaInput): string =>
+  keyColumn(target, schema).sql;
 
 /**
  * The foreign key column of a ManyToOne or an owning OneToOne:
@@ -346,12 +380,12 @@ export const fkType = (target?: Entity): string => keyColumn(target).sql;
  * An entity's "foreignKeys" entries with the table and key column each one
  * references.
  * @param {Entity} e - The entity.
- * @param {Map<string, Entity>} byName - Every entity by name.
+ * @param {SchemaInput} schema - The schema the entity is in.
  * @returns {Array} One resolved entry per key.
  */
-export const extraForeignKeys = (e: Entity, byName: Map<string, Entity>) =>
+export const extraForeignKeys = (e: Entity, schema: SchemaInput) =>
   (e.foreignKeys ?? []).map((k) => {
-    const target = byName.get(k.to);
+    const target = schema.entities.find((x) => x.name === k.to);
     if (!k.name || !k.column || !target)
       throw new Error(
         `${e.name} "foreignKeys" entry ${JSON.stringify(k.name ?? k)} needs a "name", a "column" and a "to" that names an entity in .apsorc.`
@@ -360,7 +394,7 @@ export const extraForeignKeys = (e: Entity, byName: Map<string, Entity>) =>
       ...k,
       target: target.name,
       targetTable: tableName(target),
-      targetColumn: pkColumn(target),
+      targetColumn: pkColumn(target, schema),
     };
   });
 
@@ -397,7 +431,8 @@ export const relationColumns = (
 export const joinTableOf = (
   e: Entity,
   r: RelationshipForTemplate,
-  target: Entity
+  target: Entity,
+  schema?: SchemaInput
 ): { name: string; ownCol: string; otherCol: string } => {
   const table = tableName(e);
   const targetTable = tableName(target);
@@ -408,10 +443,11 @@ export const joinTableOf = (
         `${table}_${r.pluralizedRelationshipName}_${targetTable}`
       ),
     ownCol:
-      r.joinColumnName || typeormCase.camelCase(`${table}_${pkColumn(e)}`),
+      r.joinColumnName ||
+      typeormCase.camelCase(`${table}_${pkColumn(e, schema)}`),
     otherCol:
       r.inverseJoinColumnName ||
-      typeormCase.camelCase(`${targetTable}_${pkColumn(target)}`),
+      typeormCase.camelCase(`${targetTable}_${pkColumn(target, schema)}`),
   };
 };
 
@@ -629,7 +665,14 @@ export function schemaModel(input: SchemaInput): Model {
 
       if (r.type === "ManyToOne" || (oneToOne && r.joinTable)) {
         const col = relationColumn(r);
-        t.columns.push(column(col, fkType(target), !(r.nullable || oneToOne)));
+        t.columns.push(
+          column(
+            col,
+            fkType(target, input),
+            !(r.nullable || oneToOne),
+            r.joinColumnDefault
+          )
+        );
         if (oneToOne)
           unique(table, [col], constraintName.relation(table, [col]));
         if (r.type === "ManyToOne" && r.index) index(table, [col]);
@@ -637,22 +680,20 @@ export function schemaModel(input: SchemaInput): Model {
           table,
           col,
           targetTable,
-          pkColumn(target),
+          pkColumn(target, input),
           // NOT VALID exists only on a key added by ALTER TABLE, as these are.
-          `ON DELETE ${onDelete} ON UPDATE NO ACTION${
-            r.validate === false ? " NOT VALID" : ""
-          }`,
+          keyRulesSql(onDelete, r),
           r.foreignKeyName || undefined
         );
       }
 
       if (r.type === "ManyToMany" && r.joinTable) {
-        const { name: join, ownCol, otherCol } = joinTableOf(e, r, target);
+        const { name: join, ownCol, otherCol } = joinTableOf(e, r, target, input);
         joinTables.push({
           name: join,
           columns: [
-            column(ownCol, fkType(e), true),
-            column(otherCol, fkType(target), true),
+            column(ownCol, fkType(e, input), true),
+            column(otherCol, fkType(target, input), true),
           ],
         });
         primaryKey(join, [ownCol, otherCol]);
@@ -664,20 +705,20 @@ export function schemaModel(input: SchemaInput): Model {
           join,
           ownCol,
           table,
-          pkColumn(e),
+          pkColumn(e, input),
           "ON DELETE CASCADE ON UPDATE CASCADE"
         );
         foreignKey(
           join,
           otherCol,
           targetTable,
-          pkColumn(target),
+          pkColumn(target, input),
           `ON DELETE ${inverse} ON UPDATE ${inverse}`
         );
       }
     }
 
-    for (const k of extraForeignKeys(e, byName)) {
+    for (const k of extraForeignKeys(e, input)) {
       if (!t.columns.some((c) => c.name === k.column))
         throw new Error(
           `${e.name} "foreignKeys" entry "${k.name}" names column "${k.column}", which ${e.name} does not have.`
@@ -691,9 +732,7 @@ export function schemaModel(input: SchemaInput): Model {
         k.column,
         k.targetTable,
         k.targetColumn,
-        `ON DELETE ${k.onDelete ?? "NO ACTION"} ON UPDATE NO ACTION${
-          k.validate === false ? " NOT VALID" : ""
-        }`,
+        keyRulesSql(k.onDelete, k),
         k.name,
         `fk:${table}:${k.name}`
       );
