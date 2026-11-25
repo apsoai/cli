@@ -131,10 +131,12 @@ describe("the schema as the cases see it", () => {
     expect(by("Project").route).toBe("/Projects");
   });
 
-  it("has no tenant scope without sign-in, and no path scope outside TypeScript", () => {
+  it("has no tenant scope without sign-in, and a path scope in every language", () => {
     expect(buildModel(entities, relationshipMap, "typescript").entities.every((e) => !e.scope)).toBe(true);
-    const go = buildModel(entities, relationshipMap, "go", {});
-    expect(go.entities.find((e) => e.name === "Task")!.scope).toBeUndefined();
-    expect(go.entities.find((e) => e.name === "Project")!.route).toBe("/api/projects");
+    for (const language of ["go", "python"] as const) {
+      const model = buildModel(entities, relationshipMap, language, {});
+      expect(model.entities.find((e) => e.name === "Task")!.scope).toMatchObject({ field: "projectId", parent: "Project" });
+      expect(model.entities.find((e) => e.name === "Project")!.route).toBe("/api/projects");
+    }
   });
 });

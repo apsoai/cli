@@ -38,7 +38,7 @@ import {
   getPermissionConfig,
   hasPermissions,
   mcpToolNames,
-  nestedScopeEntities,
+  nestedScopes,
   relationScopes,
   removedScopeOptionErrors,
   scopedReferences,
@@ -476,7 +476,11 @@ export class PythonGenerator extends BaseGenerator {
       pluralEntityName,
       primaryKeyType,
       associations: [...new Set(relationshipsForTemplate)],
-      scope: entityScope(entity, Boolean(options.auth)),
+      scope: entityScope(
+        entity,
+        Boolean(options.auth),
+        options.relationshipMap ?? this.config.relationshipMap ?? {}
+      ),
       // Foreign keys a write must check: those onto tenant-scoped entities.
       references: Object.entries(
         scopedReferences(
@@ -795,11 +799,6 @@ ${downStatements || "    pass"}
       throw new Error(
         "permissions in .apsorc need an auth block: roles come from the signed-in caller"
       );
-    const nested = auth ? nestedScopeEntities(entities) : [];
-    if (nested.length > 0)
-      throw new Error(
-        `${nested.join(", ")}: a scopeBy path through a parent (for example "project.organizationId") is enforced in TypeScript services only for now. In Python, put the tenant field on the entity and scope by it, or generate with --language typescript.`
-      );
     // The API key check is part of every service; auth adds user sign-in.
     // One entry per trusted issuer; undefined when there is no sign-in.
     const jwt = resolveJwtProviders(auth);
@@ -809,6 +808,10 @@ ${downStatements || "    pass"}
       // Routes only a service caller reaches (sessions, accounts, ...).
       authRoutes: authEntityRoutes(entities, auth),
       relationScopes: relationScopes(entities, relationshipMap, Boolean(auth)) ?? {},
+      // Each entity's scopeBy paths through a parent, resolved to foreign keys.
+      nestedScopes: Object.fromEntries(
+        entities.map((e) => [e.name, auth ? nestedScopes(e, relationshipMap) : []])
+      ),
     };
     const files: GeneratedFile[] = [
       { path: "auth.py", content: await this.renderTemplate("./auth", data) },

@@ -138,8 +138,7 @@ export function buildModel(
     const direct = config?.scopes.find(
       (s) => s.direct && s.contextKey !== "userId" && s.contextKey !== "email"
     );
-    // Only TypeScript enforces a path through a parent; Python and Go refuse it at generate.
-    const nested = language === "typescript" ? config?.scopes.find((s) => s.fkField) : undefined;
+    const nested = config?.scopes.find((s) => s.fkField);
     let scope: AccessEntity["scope"];
     if (config && direct) {
       scope = { field: direct.field, bypassRoles: config.bypassRoles };

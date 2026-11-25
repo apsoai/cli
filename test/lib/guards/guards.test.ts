@@ -1,5 +1,5 @@
 import { expect } from "@jest/globals";
-import { getScopedEntities, hasScopedEntities } from "../../../src/lib/guards";
+import { entityScope, getScopedEntities, hasScopedEntities, nestedScopes } from "../../../src/lib/guards";
 import { Entity } from "../../../src/lib/types";
 
 describe("guards module", () => {
@@ -294,3 +294,45 @@ describe("guards module", () => {
     });
   });
 });
+
+// Go and Python filter in SQL, so they need every hop of a path, not only the first.
+describe("nestedScopes", () => {
+  const relationships = {
+    Comment: [{ name: "Task", type: "ManyToOne" as const }],
+    Task: [{ name: "Project", type: "ManyToOne" as const }],
+  };
+
+  test("resolves each hop of a path to its foreign key", () => {
+    const comment: Entity = { name: "Comment", fields: [], scopeBy: ["task.project.workspaceId", "userId"] };
+    expect(nestedScopes(comment, relationships)).toEqual([
+      {
+        field: "taskId",
+        parents: [{ entity: "Task", field: "projectId" }, { entity: "Project", field: undefined }],
+        tenantField: "workspaceId",
+        source: "tenant",
+      },
+    ]);
+  });
+
+  test("a one-hop path has one parent and no further foreign key", () => {
+    const task: Entity = { name: "Task", fields: [], scopeBy: "project.organizationId" };
+    expect(nestedScopes(task, relationships)).toEqual([
+      { field: "projectId", parents: [{ entity: "Project", field: undefined }], tenantField: "organizationId", source: "tenant" },
+    ]);
+  });
+
+  test("rejects a later step that is not a many-to-one relationship", () => {
+    const comment: Entity = { name: "Comment", fields: [], scopeBy: "task.project.workspaceId" };
+    expect(() => nestedScopes(comment, { Comment: relationships.Comment, Task: [] })).toThrow(
+      'Comment.scopeBy "task.project.workspaceId": "project" must be a many-to-one relationship of Task'
+    );
+  });
+
+  test("entityScope carries the paths only when given the relationship map", () => {
+    const task: Entity = { name: "Task", fields: [], scopeBy: "project.organizationId" };
+    expect(entityScope(task, true)).toBeUndefined();
+    expect(entityScope(task, true, relationships)).toMatchObject({ fields: [], nested: [{ field: "projectId" }] });
+    expect(entityScope(task, false, relationships)).toBeUndefined();
+  });
+});
+

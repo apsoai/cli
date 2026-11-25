@@ -43,6 +43,7 @@ import jwt
 from fastapi import HTTPException, Request, Response, status
 from jwt import PyJWKClient
 from sqlalchemy import String, cast, func, select
+from sqlalchemy.orm import aliased
 from starlette.concurrency import run_in_threadpool
 
 
@@ -409,6 +410,98 @@ def relation_refused(auth: Optional[AuthContext], root: str, path: str) -> Optio
     return None
 
 
+# entity -> its scopeBy paths through a parent (task.workspaceId), each as
+# {"field": the entity's foreign key to the first parent, "parents": [{"entity",
+# "field": its foreign key to the next parent, absent on the last}],
+# "tenantField": the tenant column on the last parent, "source": "userId",
+# "email" or "tenant"}.
+NESTED_SCOPES: dict = json.loads(<%~ JSON.stringify(JSON.stringify(it.nestedScopes)) %>)
+
+
+def _caller_value(auth: Optional[AuthContext], source: str) -> Any:
+    """The caller's value for a scopeBy key: its user id, its email, or its tenant."""
+    by_key = {"userId": "user_id", "email": "email"}
+    return getattr(auth, by_key.get(source, "workspace_id"), None)
+
+
+def _skips_scope(auth: Optional[AuthContext], entity: str) -> bool:
+    """A service caller, or a role that skips `entity`'s tenant scope."""
+    if auth is None:
+        return False
+    bypass = (RELATION_SCOPES.get(entity) or {}).get("bypassRoles") or []
+    return bool(auth.service_id) or bool(set(auth.roles) & set(bypass))
+
+
+def _parents_in_tenant(nested: dict, index: int, value: Any) -> Any:
+    """
+    The ids of the parent at `index` of a scopeBy path that are in the caller's
+    tenant: the tenant column on the last parent, reached through each parent's
+    foreign key to the next. Each parent is aliased, so a path through the same
+    table twice does not correlate with the query around it.
+    """
+    from . import models
+
+    parents = nested["parents"]
+    parent = aliased(getattr(models, parents[index]["entity"]))
+    if index == len(parents) - 1:
+        condition = cast(getattr(parent, nested["tenantField"]), String) == str(value)
+    else:
+        condition = getattr(parent, parents[index]["field"]).in_(_parents_in_tenant(nested, index + 1, value))
+    return select(parent.id).where(condition)
+
+
+def nested_conditions(auth: Optional[AuthContext], entity: str, model: Any) -> list:
+    """
+    SQL conditions that keep rows of `entity` (as `model`) to the caller's
+    tenant through each scopeBy path that runs through a parent
+    (task.workspaceId): the foreign key must name a parent in that tenant.
+    Empty for a service caller or a role that skips the entity's scope; 403
+    when the caller has no value for a path.
+    """
+    nested = NESTED_SCOPES.get(entity) or []
+    if not nested or _skips_scope(auth, entity):
+        return []
+    conditions = []
+    for n in nested:
+        value = _caller_value(auth, n["source"])
+        if value in (None, ""):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tenant in the auth context")
+        conditions.append(getattr(model, n["field"]).in_(_parents_in_tenant(n, 0, value)))
+    return conditions
+
+
+async def check_parents(auth: Optional[AuthContext], db: Any, entity: str, rows: List[dict]) -> None:
+    """
+    On a write to `entity`, each foreign key its scopeBy runs through
+    (task.workspaceId) must name a parent in the caller's tenant; otherwise
+    403. A key that is absent or null is not checked, and a service caller or a
+    role that skips the entity's scope is not limited.
+    """
+    from . import models
+
+    nested = NESTED_SCOPES.get(entity) or []
+    if not nested or _skips_scope(auth, entity):
+        return
+    for n in nested:
+        ids = {row.get(n["field"]) for row in rows} - {None}
+        if not ids:
+            continue
+        value = _caller_value(auth, n["source"])
+        parent = getattr(models, n["parents"][0]["entity"])
+        found = None
+        if value not in (None, ""):
+            found = await db.execute(
+                select(func.count())
+                .select_from(parent)
+                .where(parent.id.in_(ids), parent.id.in_(_parents_in_tenant(n, 0, value)))
+            )
+        if found is None or found.scalar() != len(ids):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have access to a row this request references",
+            )
+
+
 def tenant_values(auth: Optional[AuthContext], entity: str) -> Optional[dict]:
     """
     The caller's value for each scopeBy field of `entity`, or None when the
@@ -445,7 +538,10 @@ def relation_conditions(auth: Optional[AuthContext], root: str, name: str, targe
     hop = ((RELATION_SCOPES.get(root) or {}).get("relations") or {}).get(name)
     # Only a hop the rule allows as a same-tenant one; any other is refused or not limited.
     values = tenant_values(auth, hop[0]) if hop and hop[1] else None
-    return _tenant_conditions(target, values) if values else []
+    if values is None:
+        return []
+    # A target scoped through a parent has no tenant column of its own.
+    return _tenant_conditions(target, values) + nested_conditions(auth, hop[0], target)
 
 
 async def check_references(auth: Optional[AuthContext], db: Any, references: dict) -> None:
@@ -465,7 +561,9 @@ async def check_references(auth: Optional[AuthContext], db: Any, references: dic
             continue
         model = getattr(models, entity)
         found = await db.execute(
-            select(func.count()).select_from(model).where(model.id.in_(ids), *_tenant_conditions(model, values))
+            select(func.count())
+            .select_from(model)
+            .where(model.id.in_(ids), *_tenant_conditions(model, values), *nested_conditions(auth, entity, model))
         )
         if found.scalar() != len(ids):
             raise HTTPException(

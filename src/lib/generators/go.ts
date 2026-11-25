@@ -25,7 +25,8 @@ import {
   getPermissionConfig,
   hasPermissions,
   mcpToolNames,
-  nestedScopeEntities,
+  nestedScopes,
+  NestedScopeData,
   relationScopes,
   removedScopeOptionErrors,
   scopedReferences,
@@ -120,6 +121,22 @@ const jsonType = (goType: string): Record<string, unknown> => {
   if (goType.startsWith("[]") || goType.endsWith("Array")) return { type: "array" };
   return {};
 };
+
+/**
+ * A scopeBy path through parents as SQL names: the entity's foreign key column,
+ * each parent's table with its foreign key column to the next, and the tenant
+ * column on the last parent. Columns are the .apsorc names, as the DDL writer
+ * names them.
+ */
+export function goNestedScopes(nested: NestedScopeData[], entities: Entity[]) {
+  const table = (name: string) => tableName(entities.find((e) => e.name === name)!);
+  return nested.map((n) => ({
+    column: n.field,
+    parents: n.parents.map((p) => ({ table: table(p.entity), column: p.field ?? "" })),
+    tenantColumn: n.tenantField,
+    source: n.source,
+  }));
+}
 
 /**
  * Go/Gin generator that produces GORM models, DTOs, Gin handlers,
@@ -438,7 +455,7 @@ export class GoGenerator extends BaseGenerator {
       primaryKeyGoType: this.getPrimaryKeyGoType(primaryKeyType),
       primaryKeySwaggerType: this.getPrimaryKeySwaggerType(primaryKeyType),
       associations: [...new Set(relationshipsForTemplate)],
-      scope: entityScope(entity, Boolean(options.auth)),
+      scope: entityScope(entity, Boolean(options.auth), this.config.relationshipMap ?? {}),
       // A write that names a row the caller cannot read is answered like a scope error.
       references:
         this.goReferences(
@@ -490,7 +507,7 @@ export class GoGenerator extends BaseGenerator {
         ...r,
         hidden: hidesRelation(entityName, r.name, allEntities, options.auth),
       })),
-      scope: this.goScope(entity, Boolean(options.auth)),
+      scope: this.goScope(entity, Boolean(options.auth), allEntities),
       references: this.goReferences(entity, goRelationships, allEntities, options.auth),
     };
 
@@ -780,20 +797,23 @@ ${modelRefs}
    * Scope data for a Go service: each direct scopeBy field's struct field and
    * column (the .apsorc name, as the DDL writer names it). A field declared on the entity is
    * pascalCase; a relation's foreign key (organizationId) is OrganizationID.
+   * A path through a parent (task.workspaceId) carries the foreign key the
+   * service reads from a write, to check the parent is the caller's.
    */
-  private goScope(entity: Entity, hasAuth: boolean) {
-    const scope = entityScope(entity, hasAuth);
+  private goScope(entity: Entity, hasAuth: boolean, allEntities: Entity[]) {
+    const scope = entityScope(entity, hasAuth, this.config.relationshipMap ?? {});
     if (!scope) return;
     const declared = new Set((entity.fields ?? []).map((f) => f.name));
+    const goField = (field: string) =>
+      declared.has(field) || !field.endsWith("Id")
+        ? pascalCase(field)
+        : `${pascalCase(field.slice(0, -2))}ID`;
     return {
       ...scope,
-      fields: scope.fields.map((f) => ({
-        ...f,
-        goField:
-          declared.has(f.field) || !f.field.endsWith("Id")
-            ? pascalCase(f.field)
-            : `${pascalCase(f.field.slice(0, -2))}ID`,
-        column: f.field,
+      fields: scope.fields.map((f) => ({ ...f, goField: goField(f.field), column: f.field })),
+      nested: goNestedScopes(scope.nested, allEntities).map((n) => ({
+        ...n,
+        goField: goField(n.column),
       })),
     };
   }
@@ -888,11 +908,6 @@ ${modelRefs}
       throw new Error(
         "permissions in .apsorc need an auth block: roles come from the signed-in caller"
       );
-    const nested = auth ? nestedScopeEntities(entities) : [];
-    if (nested.length > 0)
-      throw new Error(
-        `${nested.join(", ")}: a scopeBy path through a parent (for example "project.organizationId") is enforced in TypeScript services only for now. In Go, put the tenant field on the entity and scope by it, or generate with --language typescript.`
-      );
     // The API key check is part of every service; auth adds user sign-in.
     // One entry per trusted issuer; undefined when there is no sign-in.
     const jwt = resolveJwtProviders(auth);
@@ -905,6 +920,13 @@ ${modelRefs}
       ),
       relationScopes: relationScopes(entities, relationshipMap, Boolean(auth)) ?? {},
       tables: Object.fromEntries(entities.map((e) => [e.name, tableName(e)])),
+      // Each entity's scopeBy paths through a parent, as tables and columns.
+      nestedScopes: Object.fromEntries(
+        entities.map((e) => [
+          e.name,
+          auth ? goNestedScopes(nestedScopes(e, relationshipMap), entities) : [],
+        ])
+      ),
     };
     const content = await this.renderTemplate("./middleware/auth", data);
     const files: GeneratedFile[] = [{ path: "middleware/auth.go", content }];
@@ -946,7 +968,7 @@ ${modelRefs}
         }),
       });
     // Shared helpers for services and handlers of entities with a direct scopeBy.
-    if (auth && entities.some((e) => entityScope(e, true))) {
+    if (auth && entities.some((e) => entityScope(e, true, relationshipMap))) {
       files.push(
         {
           path: "services/scope.go",

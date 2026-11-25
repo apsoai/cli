@@ -392,36 +392,93 @@ export interface DirectScopeField {
   source: "userId" | "email" | "tenant";
 }
 
+/**
+ * One scopeBy path through parents (task.project.organizationId), resolved to
+ * the foreign keys it follows, for services that filter in SQL (Go, Python).
+ */
+export interface NestedScopeData {
+  /** The entity's foreign key to the first parent, as .apsorc names it (taskId). */
+  field: string;
+  /**
+   * Each parent on the way to the tenant, nearest first: the entity, and its
+   * foreign key to the next parent (none on the last).
+   */
+  parents: { entity: string; field?: string }[];
+  /** The field on the last parent that holds the tenant. */
+  tenantField: string;
+  /** userId and email map to the caller's own; anything else is the tenant. */
+  source: "userId" | "email" | "tenant";
+}
+
 /** What Go and Python services need to scope one entity. */
 export interface EntityScopeData {
   fields: DirectScopeField[];
+  /** Paths through a parent; empty unless the relationship map was given. */
+  nested: NestedScopeData[];
   bypassRoles: string[];
+}
+
+const scopeSource = (contextKey: string): "userId" | "email" | "tenant" =>
+  contextKey === "userId" || contextKey === "email" ? contextKey : "tenant";
+
+/**
+ * The scopeBy paths of an entity that run through parents, each resolved hop
+ * by hop. Every step before the last must be a many-to-one relationship: its
+ * foreign key is what the SQL filter follows.
+ */
+export function nestedScopes(
+  entity: Entity,
+  relationshipMap: RelationshipMap
+): NestedScopeData[] {
+  if (!entity.scopeBy) return [];
+  return parseScopeBy(entity.scopeBy)
+    .filter((s) => !s.direct && s.path)
+    .map((s) => {
+      const steps = s.path!.split(".");
+      const tenantField = steps.pop()!;
+      let from = entity.name;
+      const hops = steps.map((step) => {
+        const relation = (relationshipMap[from] ?? []).find(
+          (r) => r.type === "ManyToOne" && getRelationshipName(r) === step
+        );
+        if (!relation)
+          throw new Error(
+            `${entity.name}.scopeBy "${s.path}": "${step}" must be a many-to-one relationship of ${from}`
+          );
+        const hop = { entity: relation.name, field: getRelationshipIdField(relation) };
+        from = relation.name;
+        return hop;
+      });
+      return {
+        field: hops[0].field,
+        parents: hops.map((h, i) => ({ entity: h.entity, field: hops[i + 1]?.field })),
+        tenantField,
+        source: scopeSource(tenantField),
+      };
+    });
 }
 
 /**
  * The direct scopeBy fields of an entity, for services that filter in their
  * own queries (Go, Python). Undefined without auth: with no caller identity
- * there is no tenant to scope by. Nested paths (task.workspaceId) are not
- * included; see hasNestedScopes.
+ * there is no tenant to scope by. Paths through a parent (task.workspaceId)
+ * are resolved only when the relationship map is given.
  */
 export function entityScope(
   entity: Entity,
-  hasAuth: boolean
+  hasAuth: boolean,
+  relationshipMap?: RelationshipMap
 ): EntityScopeData | undefined {
   if (!hasAuth || !entity.scopeBy) return undefined;
   const [config] = getScopedEntities([entity]);
   const fields = config.scopes
     .filter((s) => s.direct)
-    .map((s) => ({
-      field: s.field,
-      source:
-        s.contextKey === "userId" || s.contextKey === "email"
-          ? (s.contextKey as "userId" | "email")
-          : ("tenant" as const),
-    }));
-  if (fields.length === 0) return undefined;
+    .map((s) => ({ field: s.field, source: scopeSource(s.contextKey) }));
+  const nested = relationshipMap ? nestedScopes(entity, relationshipMap) : [];
+  if (fields.length === 0 && nested.length === 0) return undefined;
   return {
     fields,
+    nested,
     bypassRoles: config.bypassRoles,
   };
 }
@@ -508,13 +565,6 @@ export function relationScopes(
     table[entity.name] = { bypassRoles: from?.bypassRoles, scope: from?.scope, relations };
   }
   return table;
-}
-
-/** Entities whose scopeBy uses a nested path, which Go and Python cannot enforce. */
-export function nestedScopeEntities(entities: Entity[]): string[] {
-  return getScopedEntities(entities)
-    .filter((e) => e.scopes.some((s) => !s.direct))
-    .map((e) => e.name);
 }
 
 /**

@@ -10,6 +10,7 @@ import {
   readApsorcFile,
 } from "../../lib/apsorc-parser";
 import { createGenerator } from "../../lib/generators";
+import { schemaModel } from "../../lib/ddl";
 import { GeneratorConfig } from "../../lib/types";
 import { apsorcToServiceSchema } from "../../lib/utils/schema-convert";
 
@@ -63,6 +64,10 @@ export async function accessRuleErrors(
   };
   // auth and permissions for every language; mcp for Python and Go.
   await attempt(() => generator.generateGuards(entities, auth, relationshipMap));
+  // Python and Go build the database with the DDL writer, which refuses a
+  // field type it cannot write. apso generate fails on the same schema.
+  if (config.language !== "typescript")
+    await attempt(async () => schemaModel({ entities, relationshipMap }));
   // mcp in TypeScript is checked where the controller is generated.
   if (config.language === "typescript")
     for (const entity of entities)
