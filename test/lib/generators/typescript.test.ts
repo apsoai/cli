@@ -1033,3 +1033,38 @@ describe("array element types", () => {
     expect(files.find((f) => f.path.includes("dto"))!.content).toContain(": number[];");
   });
 });
+
+describe("OpenAPI contract in the DTOs", () => {
+  test("required fields, enum values, hidden scopeBy field, decimal rows", async () => {
+    const entity = {
+      name: "Deal",
+      scopeBy: "organizationId",
+      fields: [
+        { name: "organizationId", type: "text", nullable: false },
+        { name: "name", type: "varchar", nullable: false },
+        { name: "notes", type: "text", nullable: true },
+        { name: "value", type: "numeric", nullable: false },
+        { name: "stage", type: "enum", nullable: false, values: ["lead", "won"] },
+      ],
+    } as Entity;
+    const company: Entity = { name: "Company", fields: [] };
+    const generator = new TypeScriptGenerator(createConfig([entity, company]));
+    const [dto] = await generator.generateDto({
+      entity,
+      relationships: [{ name: "Company", type: "ManyToOne" } as Relationship],
+      allEntities: [entity, company],
+      apiType: "rest",
+      auth: { provider: "clerk", jwt: { issuer: "https://x" } } as any,
+    });
+    const create = dto.content.slice(dto.content.indexOf("class DealCreate"), dto.content.indexOf("class DealUpdate"));
+    const row = dto.content.slice(dto.content.indexOf("class Deal {"));
+    expect(create).toMatch(/@ApiHideProperty\(\)\s+@IsOptional\(\)\s+@IsString\(\)\s+organizationId\?/);
+    expect(create).toMatch(/@ApiProperty\(\)\s+@IsNotEmpty\(\)\s+@IsString\(\)\s+name: string/);
+    expect(create).toMatch(/@ApiProperty\(\)\s+@IsNotEmpty\(\)\s+@IsNumber\(\)\s+companyId: number/);
+    expect(create).toMatch(/@ApiProperty(?:Optional\(\)\s+@Is){2}String\(\)\s+notes\?/);
+    // An enum has a database default (its first value), so a create may omit it.
+    expect(create).toContain("@ApiPropertyOptional({ enum: enums.DealStageEnum, enumName: 'DealStageEnum' })");
+    expect(row).toContain("@ApiProperty({ enum: enums.DealStageEnum, enumName: 'DealStageEnum' })");
+    expect(row).toContain("format: 'decimal'");
+  });
+});

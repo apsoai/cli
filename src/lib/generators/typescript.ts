@@ -482,7 +482,7 @@ export class TypeScriptGenerator extends BaseGenerator {
   }
 
   async generateDto(options: DtoGenerationOptions): Promise<GeneratedFile[]> {
-    const { entity, relationships, allEntities, apiType } = options;
+    const { entity, relationships, allEntities, apiType, auth } = options;
     const { name: entityName, fields = [] } = entity;
 
     const columns = getFieldForTemplate(fields, entityName);
@@ -508,6 +508,7 @@ export class TypeScriptGenerator extends BaseGenerator {
             dataType: fkDataType,
             type: fkType,
             ...(rel.primary && { primary: true }),
+            nullable: rel.nullable,
           });
         }
       }
@@ -522,9 +523,27 @@ export class TypeScriptGenerator extends BaseGenerator {
     const updatedAt = entity.updated_at;
     const primaryKeyType = entity.primaryKeyType || "serial";
 
-    const dtoColumns = columns.filter(
-      (col: any) => !["id", "createdAt", "updatedAt"].includes(col.name)
-    );
+    // With sign-in configured, @CrudAuth sets the scopeBy field from the
+    // caller's tenant on every write, so the request schemas leave it out.
+    const scopeFields = auth
+      ? (getScopedEntities([entity])[0]?.scopes ?? [])
+          .filter((s) => s.direct)
+          .map((s) => s.field)
+      : [];
+
+    const dtoColumns = columns
+      .filter((col: any) => !["id", "createdAt", "updatedAt"].includes(col.name))
+      .map((col: any) => ({
+        ...col,
+        // A create must send it: NOT NULL with no default the database fills in.
+        required:
+          !col.nullable &&
+          !col.auto &&
+          !col.primary &&
+          (col.default === null || col.default === undefined) &&
+          !scopeFields.includes(col.name),
+        serverSet: scopeFields.includes(col.name),
+      }));
 
     const createDtoName = `Create${pascalCase(entityName)}Dto`;
     const updateDtoName = `Update${pascalCase(entityName)}Dto`;

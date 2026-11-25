@@ -2,11 +2,12 @@
 
 import { Controller, Body<% if (it.relationAccess) { %>, UseInterceptors<% } %> } from "@nestjs/common";
 import { Crud, <% if (it.crudAuth.length || it.crudAuthNested.length) { %>CrudAuth, <% } %>CrudController, Override, ParsedRequest, CrudRequest, ParsedBody, CreateManyDto } from '@apso/crud';
-import { ApiTags, ApiResponse, ApiOperation, ApiBody } from '@nestjs/swagger';
+import { ApiTags, ApiResponse, ApiOperation, ApiBody, ApiExtraModels } from '@nestjs/swagger';
 <% if (it.mcp.length) { %>
 import { McpTool } from '@apso/mcp';
 <% } %>
-import {<%= it.entityName %>Create, <%= it.entityName %>Update} from './dtos/<%= it.entityName%>.dto'
+// The row schema is named after the entity (<%= it.entityName %>), the name the responses reference.
+import {<%= it.entityName %>Create, <%= it.entityName %>Update, <%= it.entityName %> as <%= it.entityName %>Row} from './dtos/<%= it.entityName%>.dto'
 // The entity, not the response DTO: the documented filter parameters (one per
 // column, which is also what an MCP list tool accepts) come from its columns.
 import { <%= it.entityName %> } from './<%= it.entityName %>.entity';
@@ -123,6 +124,7 @@ const skipScope = (req: any) => {
 <% } %>
 
 @Controller('<%= it.pluralEntityName %>')
+@ApiExtraModels(<%= it.entityName %>Row)
 @ApiTags('<%= it.pluralEntityName %>')
 export class <%= it.ctrlName %> implements CrudController<<%= it.entityName %>>{
     constructor(public service: <%= it.svcName %>) {}
