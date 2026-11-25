@@ -1198,6 +1198,7 @@ is tracked separately.
 | foreignKeyName | relationship | The foreign key constraint's name. TypeScript only |
 | onDelete | relationship | CASCADE, SET NULL, SET DEFAULT, RESTRICT or NO ACTION. \`cascadeDelete: true\` is CASCADE. SET DEFAULT is TypeScript only |
 | onUpdate | relationship | The same rules for a change to the referenced key. Defaults to NO ACTION. TypeScript only |
+| joinColumnDefault | relationship | The foreign key column's DEFAULT, as a SQL expression. TypeScript only |
 | deferrable | relationship | \`INITIALLY DEFERRED\` or \`INITIALLY IMMEDIATE\`: the key is DEFERRABLE and checked at commit or per statement. TypeScript only |
 | primary | relationship | The foreign key column is the entity's primary key. No \`id\` is generated. TypeScript only |
 | primaryKeyName | entity | The primary key constraint's name. TypeScript only |

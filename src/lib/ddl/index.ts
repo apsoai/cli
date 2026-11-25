@@ -431,7 +431,8 @@ export const relationColumns = (
 export const joinTableOf = (
   e: Entity,
   r: RelationshipForTemplate,
-  target: Entity
+  target: Entity,
+  schema?: SchemaInput
 ): { name: string; ownCol: string; otherCol: string } => {
   const table = tableName(e);
   const targetTable = tableName(target);
@@ -442,10 +443,11 @@ export const joinTableOf = (
         `${table}_${r.pluralizedRelationshipName}_${targetTable}`
       ),
     ownCol:
-      r.joinColumnName || typeormCase.camelCase(`${table}_${pkColumn(e)}`),
+      r.joinColumnName ||
+      typeormCase.camelCase(`${table}_${pkColumn(e, schema)}`),
     otherCol:
       r.inverseJoinColumnName ||
-      typeormCase.camelCase(`${targetTable}_${pkColumn(target)}`),
+      typeormCase.camelCase(`${targetTable}_${pkColumn(target, schema)}`),
   };
 };
 
@@ -664,7 +666,12 @@ export function schemaModel(input: SchemaInput): Model {
       if (r.type === "ManyToOne" || (oneToOne && r.joinTable)) {
         const col = relationColumn(r);
         t.columns.push(
-          column(col, fkType(target, input), !(r.nullable || oneToOne))
+          column(
+            col,
+            fkType(target, input),
+            !(r.nullable || oneToOne),
+            r.joinColumnDefault
+          )
         );
         if (oneToOne)
           unique(table, [col], constraintName.relation(table, [col]));
@@ -681,12 +688,12 @@ export function schemaModel(input: SchemaInput): Model {
       }
 
       if (r.type === "ManyToMany" && r.joinTable) {
-        const { name: join, ownCol, otherCol } = joinTableOf(e, r, target);
+        const { name: join, ownCol, otherCol } = joinTableOf(e, r, target, input);
         joinTables.push({
           name: join,
           columns: [
-            column(ownCol, fkType(e), true),
-            column(otherCol, fkType(target), true),
+            column(ownCol, fkType(e, input), true),
+            column(otherCol, fkType(target, input), true),
           ],
         });
         primaryKey(join, [ownCol, otherCol]);
@@ -698,14 +705,14 @@ export function schemaModel(input: SchemaInput): Model {
           join,
           ownCol,
           table,
-          pkColumn(e),
+          pkColumn(e, input),
           "ON DELETE CASCADE ON UPDATE CASCADE"
         );
         foreignKey(
           join,
           otherCol,
           targetTable,
-          pkColumn(target),
+          pkColumn(target, input),
           `ON DELETE ${inverse} ON UPDATE ${inverse}`
         );
       }

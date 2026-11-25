@@ -56,7 +56,7 @@ export function targetTableName(sourceTable: string): string {
 export function buildColumnMapping(table: IntrospectedTable): ColumnMapping[] {
   const fkRefByColumn = new Map<string, string>();
   for (const fk of table.foreignKeys) {
-    if (fk.columns.length === 1) {
+    if (fk.columns.length === 1 && !fk.referencedSchema) {
       fkRefByColumn.set(fk.columns[0], fk.referencedTable);
     }
   }
@@ -92,7 +92,11 @@ export function topoSortTables(tables: IntrospectedTable[]): {
   for (const t of tables) {
     const d = new Set<string>();
     for (const fk of t.foreignKeys) {
-      if (fk.referencedTable !== t.name && names.has(fk.referencedTable)) {
+      if (
+        !fk.referencedSchema &&
+        fk.referencedTable !== t.name &&
+        names.has(fk.referencedTable)
+      ) {
         d.add(fk.referencedTable);
       }
     }

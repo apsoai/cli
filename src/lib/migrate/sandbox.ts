@@ -192,6 +192,10 @@ function buildEntityClasses(
       if (onDeleteOf(relationship)) {
         relationOptions.onDelete = onDeleteOf(relationship);
       }
+      if (relationship.onUpdate)
+        relationOptions.onUpdate = relationship.onUpdate;
+      if (relationship.deferrable)
+        relationOptions.deferrable = relationship.deferrable;
 
       if (relationship.type === "ManyToOne") {
         if (relationship.index) {

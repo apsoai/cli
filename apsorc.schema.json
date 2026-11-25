@@ -86,6 +86,10 @@
               "NO ACTION"
             ]
           },
+          "joinColumnDefault": {
+            "description": "(Optional) The DEFAULT of the foreign key column of a ManyToOne or OneToMany, as a SQL expression, for example '0' or \"'none'::character varying\". 'apso import' sets it. TypeScript services only.",
+            "type": "string"
+          },
           "deferrable": {
             "description": "(Optional) Makes the foreign key of a ManyToOne or OneToMany DEFERRABLE. 'INITIALLY DEFERRED' checks it when the transaction commits, 'INITIALLY IMMEDIATE' after each statement unless the transaction defers it. 'apso import' sets it. TypeScript services only.",
             "type": "string",

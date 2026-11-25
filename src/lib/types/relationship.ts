@@ -89,6 +89,8 @@ export interface ApsorcRelationship {
   onUpdate?: OnDelete;
   /** Makes the foreign key DEFERRABLE, checked as the value says. */
   deferrable?: Deferrable;
+  /** The foreign key column's DEFAULT, as a SQL expression. */
+  joinColumnDefault?: string;
   /** Name of the foreign key constraint; defaults to the name TypeORM derives. */
   foreignKeyName?: string;
   /** The foreign key column is (part of) the entity's primary key. */
@@ -117,6 +119,8 @@ export interface Relationship {
   onUpdate?: OnDelete;
   /** Makes the foreign key DEFERRABLE, checked as the value says. */
   deferrable?: Deferrable;
+  /** The foreign key column's DEFAULT, as a SQL expression. */
+  joinColumnDefault?: string;
   /** Name of the foreign key constraint; defaults to the name TypeORM derives. */
   foreignKeyName?: string;
   /** The foreign key column is (part of) the entity's primary key. */

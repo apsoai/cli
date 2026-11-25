@@ -84,6 +84,7 @@ export interface ApsorcImportRelationshipOutput {
   onDelete?: OnDelete;
   onUpdate?: OnDelete;
   deferrable?: KeyRules["deferrable"];
+  joinColumnDefault?: string;
   foreignKeyName?: string;
   primary?: boolean;
   validate?: boolean;
@@ -701,6 +702,10 @@ export function pgToApsorc(schema: IntrospectedSchema): {
       if (fk.name) rel.foreignKeyName = fk.name;
       if (pkSet.has(sourceColumn)) rel.primary = true;
       Object.assign(rel, keyRules(fk));
+      // The relationship makes the column, so it carries the default too.
+      if (col?.default?.trim().toLowerCase().startsWith("nextval("))
+        report.warnings.defaultsDropped.push(`${table.name}.${col.name}`);
+      else if (col?.default) rel.joinColumnDefault = col.default;
       if (col?.nullable) rel.nullable = true;
       if (fk.onDelete === "CASCADE") rel.cascadeDelete = true;
       else if (fk.onDelete !== "NO ACTION") rel.onDelete = fk.onDelete;

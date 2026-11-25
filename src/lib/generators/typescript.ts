@@ -270,7 +270,14 @@ export class TypeScriptGenerator extends BaseGenerator {
         return {
           ...r,
           keyRules: keyRuleOptions(onDeleteOf(r), r),
-          fkColumnOptions: key.options,
+          // The entity spells a default the way TypeORM reads it back.
+          fkColumnOptions:
+            key.options +
+            (r.joinColumnDefault
+              ? `, default: () => ${JSON.stringify(
+                  typeormDefault(r.joinColumnDefault)
+                )}`
+              : ""),
           fkTsType: key.ts,
         };
       }),

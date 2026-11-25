@@ -702,7 +702,8 @@ describe("a key declared as a field keeps its type and length", () => {
     const note: Entity = { name: "Note", fields: [], foreignKeys: [{ name: "note_setting_fk2", column: "setting_id", to: "Setting", onUpdate: "SET DEFAULT" }] };
     const apsorc = [
       { from: "Setting", to: "Org", type: "ManyToOne" as const, joinColumnName: "org_id", primary: true },
-      { from: "Note", to: "Setting", type: "ManyToOne" as const, joinColumnName: "setting_id", onUpdate: "CASCADE" as const, deferrable: "INITIALLY DEFERRED" as const },
+      { from: "Note", to: "Setting", type: "ManyToOne" as const, joinColumnName: "setting_id", onUpdate: "CASCADE" as const, deferrable: "INITIALLY DEFERRED" as const, joinColumnDefault: "'none'::character varying" },
+      { from: "Note", to: "Note", type: "ManyToOne" as const, to_name: "parent", nullable: true, cascadeDelete: true },
     ];
     const relationshipMap = parseRelationships(apsorc);
     const allEntities = [org, setting, note];
@@ -710,14 +711,21 @@ describe("a key declared as a field keeps its type and length", () => {
     const files = await generator.generateEntity({ entity: note, relationships: relationshipMap.Note, allEntities, apiType: "rest" });
     const content = findFileContent(files, "Note.entity")!.replace(/\s+/g, " ");
     expect(content).toContain(`@ManyToOne(() => Setting, setting => setting.notes, { onUpdate: "CASCADE", deferrable: "INITIALLY DEFERRED" })`);
-    expect(content).toContain(`@Column({ name: 'setting_id', type: "varchar", length: 100, })`);
+    expect(content).toContain(`@Column({ name: 'setting_id', type: "varchar", length: 100, default: () => "'none'", })`);
+    // A self-reference keeps its delete rule.
+    expect(content).toContain(`@ManyToOne(() => Note, { onDelete: "CASCADE" })`);
     expect(content).toContain(`@ForeignKey(() => Setting, ["setting_id"], ["org_id"], { name: "note_setting_fk2", onUpdate: "SET DEFAULT" as never })`);
     const ddl = schemaDdl({ entities: allEntities, relationshipMap }).join("\n");
-    expect(ddl).toContain(`"setting_id" character varying(100) NOT NULL`);
+    expect(ddl).toContain(`"setting_id" character varying(100) NOT NULL DEFAULT 'none'::character varying`);
+    expect(ddl).toContain(`FOREIGN KEY ("parentId") REFERENCES "note"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+    // The rules belong to one key; a relationship without one refuses them.
+    expect(() => parseRelationships([{ from: "Org", to: "Setting", type: "OneToOne", onUpdate: "CASCADE" }])).toThrow(
+      'Org OneToOne Setting sets "onUpdate", which only a ManyToOne or OneToMany takes.'
+    );
     expect(ddl).toContain(`REFERENCES "setting"("org_id") ON DELETE NO ACTION ON UPDATE CASCADE DEFERRABLE INITIALLY DEFERRED`);
     for (const language of ["Python", "Go"])
       expect(joinColumnErrors(relationshipMap, language)).toContain(
-        `Note ManyToOne Setting sets an ON UPDATE rule, "deferrable" or "SET DEFAULT". The ${language} generator cannot keep those foreign key rules yet; remove them or generate a TypeScript service.`
+        `Note ManyToOne Setting sets "onUpdate", "deferrable", "joinColumnDefault" or "SET DEFAULT". The ${language} generator cannot keep those foreign key settings yet; remove them or generate a TypeScript service.`
       );
   });
 

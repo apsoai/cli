@@ -72,6 +72,8 @@
     { "from": "Post", "to": "Tag", "type": "ManyToMany" },
     { "from": "Account", "to": "Profile", "type": "OneToOne" },
     { "from": "AccountFlag", "to": "Account", "type": "ManyToOne", "joinColumnName": "account_id", "primary": true, "bi_directional": false, "onUpdate": "CASCADE", "deferrable": "INITIALLY IMMEDIATE" },
-    { "from": "FlagNote", "to": "AccountFlag", "type": "ManyToOne", "joinColumnName": "account_flag_id", "bi_directional": false, "onDelete": "SET DEFAULT", "onUpdate": "RESTRICT", "deferrable": "INITIALLY DEFERRED" }
+    { "from": "FlagNote", "to": "AccountFlag", "type": "ManyToOne", "joinColumnName": "account_flag_id", "bi_directional": false, "onDelete": "SET DEFAULT", "onUpdate": "RESTRICT", "deferrable": "INITIALLY DEFERRED", "joinColumnDefault": "0" },
+    { "from": "AccountFlag", "to": "Tag", "type": "ManyToMany" },
+    { "from": "Tag", "to": "Tag", "type": "ManyToOne", "to_name": "parent", "nullable": true, "cascadeDelete": true }
   ]
 }

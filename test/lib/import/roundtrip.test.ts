@@ -36,6 +36,7 @@ describe("import round trip", () => {
     expect(apsorc.relationships.find((r) => r.foreignKeyName === "setting_notes_setting_fk")).toEqual({
       from: "setting_notes", to: "tenant_settings", type: "ManyToOne", to_name: "setting", joinColumnName: "setting_id",
       foreignKeyName: "setting_notes_setting_fk", onDelete: "SET DEFAULT", onUpdate: "CASCADE", deferrable: "INITIALLY DEFERRED",
+      joinColumnDefault: "'none'::character varying",
     });
     expect(apsorc.entities.find((e) => e.name === "setting_notes")?.foreignKeys).toEqual([
       { name: "setting_notes_facility_fk2", column: "facility_id", to: "facilities", onUpdate: "RESTRICT", deferrable: "INITIALLY IMMEDIATE" },
