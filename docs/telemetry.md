@@ -29,6 +29,9 @@ to your Apso account id instead — the same identity the web app uses.
 - Your source code or generated code.
 - Your `.apsorc` or any schema contents (entity names, fields, etc.).
 - File paths, file contents, or environment variable values.
+- Database connection strings. `apso import` and `apso import data` run on your
+  machine, and a failed import reports that it failed without the error text,
+  because that text can name your database host.
 - Any personal data beyond your account email/name *if you are logged in*
   (never for anonymous use).
 

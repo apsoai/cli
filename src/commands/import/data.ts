@@ -12,7 +12,7 @@ import {
   redactConnectionString,
   targetColumnsFromSchema,
 } from "../../lib/import";
-import { resolveConnectionString } from "./supabase";
+import { resolveConnectionString } from "./index";
 
 /** Resolve the target connection string from flag/env, else undefined. */
 export function resolveTargetConnectionString(
@@ -59,8 +59,11 @@ export function formatCopyResult(result: CopyResult): string {
 }
 
 export default class ImportData extends BaseCommand {
+  // Errors here can name the database host, so the text stays on this machine.
+  protected reportErrorText = false;
+
   static description =
-    "Copy table data from a source Supabase (Postgres) database into the target database rebuilt from the imported schema. Reads the source read-only; inserts into empty target tables.";
+    "Copy table data from a source Postgres database (Supabase, Neon, RDS, or any other) into the target database rebuilt from the imported schema. Reads the source read-only; inserts into empty target tables.";
 
   static examples = [
     `$ apso import data -s "postgresql://...source..." -t "postgresql://...target..."`,
