@@ -362,9 +362,11 @@ export class TypeScriptGenerator extends BaseGenerator {
     // The :id route parameter maps to the entity's own key: a primary field,
     // or the id property of a foreign key that is the primary key. A
     // composite key has no single field, so it keeps the default.
+    // Counted over every relationship: one onto an auth entity is not
+    // joinable, but its column is still part of the key.
     const keyFields = [
       ...(entity.fields ?? []).filter((f) => f.primary).map((f) => f.name),
-      ...relationshipsForTemplate
+      ...getRelationshipForTemplate(entityName, relationships)
         .filter((r) => r.primary)
         .map((r) => r.camelCasedId),
     ];

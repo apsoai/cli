@@ -49,11 +49,13 @@ describe('<%= it.ctrlName%>', () => {
     expect(controller).toBeDefined();
   });
 
+<% if (!it.compositeKey) { %>
   it('should call <%= it.ctrlName%> get method', () => {
     const req: CrudRequest = { ...baseRequest }
     expect(controller.get(req)).not.toEqual(null);
     expect(spyService.getOne).toHaveBeenCalled();
   });
+<% } %>
 
   it('should call <%= it.ctrlName%> create method', () => {
     const req: CrudRequest = { ...baseRequest }

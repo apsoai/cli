@@ -648,7 +648,7 @@ async function checkEndpoints(
     });
   }
 
-  const plan = planCrud(entities, relationships);
+  const plan = planCrud(entities, relationships, language);
   for (const s of plan.skipped)
     done({ name: `skip ${s.name}`, ok: true, output: s.reason });
   const ids = new Map<string, unknown>();

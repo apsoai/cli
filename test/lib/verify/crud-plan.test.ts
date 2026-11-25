@@ -128,5 +128,8 @@ describe("a composite primary key", () => {
     expect(plan.skipped).toEqual([
       { name: "RateLimit", reason: "its primary key is 2 columns (bucket, window_start), so the service has no route that reads or deletes one row" },
     ]);
+    // Python and Go services still declare one-row routes, so they are tried.
+    for (const language of ["python", "go"])
+      expect(planCrud([limit], parseRelationships([]), language).order.map((p) => p.name)).toEqual(["RateLimit"]);
   });
 });
