@@ -44,7 +44,13 @@ export class PgSourceReader implements SourceReader {
     connectionString: string,
     schema: string
   ): Promise<PgSourceReader> {
-    return new PgSourceReader(await createClient(connectionString), schema);
+    const client = await createClient(connectionString);
+    // Values are read as text, so the text must mean the same on the target:
+    // ISO dates whatever the source's DateStyle (with "SQL, DMY" the day and
+    // month would swap), and every digit of a float.
+    await client.query("SET datestyle = 'ISO'");
+    await client.query("SET extra_float_digits = 3");
+    return new PgSourceReader(client, schema);
   }
 
   async totalRows(table: string): Promise<number> {

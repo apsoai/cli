@@ -225,7 +225,11 @@ export function planCopy(
   return { tables, skippedColumns, missingTargetTables, cyclicTables: cyclic };
 }
 
-/** Coerce a value read from pg into something safe to bind on insert. */
+/**
+ * Coerce a value into something safe to bind on insert. The copy reads every
+ * column as text, so it sees strings and nulls; the other branches serve a
+ * reader that returns JavaScript values.
+ */
 export function coerceValue(value: unknown): unknown {
   if (value === null || value === undefined) return null;
   if (value instanceof Date) return value;
@@ -249,7 +253,9 @@ export function buildSelectSql(
   const cols = columns
     .map((c, i) => `${expressions?.[i] ?? `"${c}"`} AS "${c}"`)
     .join(", ");
-  const order = orderBy ? ` ORDER BY "${orderBy}"` : "";
+  // Qualified, so the order is the column's own (and its index is used), not
+  // the text alias of the same name: as text, id 10 sorts before id 9.
+  const order = orderBy ? ` ORDER BY ${tableRef}."${orderBy}"` : "";
   return `SELECT ${cols} FROM ${tableRef}${order} OFFSET $1 LIMIT $2`;
 }
 

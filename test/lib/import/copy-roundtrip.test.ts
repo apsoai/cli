@@ -39,6 +39,9 @@ const ddl = `
      '\\x00ff10', '1 day 02:03:04.5', 1234.5600, true),
     (2, '{}', NULL, '1999-12-31 23:59:59.999999+00', NULL, '[]', NULL, NULL, NULL, false);
   insert into src.notes values (1, '{a,b}'), (2, '{}');
+  create table src.nodes (id integer primary key, parent_id integer references src.nodes(id));
+  create table tgt.nodes (id integer primary key, parent_id integer references tgt.nodes(id));
+  insert into src.nodes values (9, NULL), (10, 9), (100, 10);
 `;
 
 const rowsAsText = (table: string) =>
@@ -94,6 +97,9 @@ describe("import data copy", () => {
     const result = await executeCopy(plan, reader, writer, { batchSize: 1 });
     expect(result.perTable).toEqual([
       { table: "items", rows: 2 },
+      // Read in id order, not in the order of the ids as text: 10 references
+      // 9 and would arrive first.
+      { table: "nodes", rows: 3 },
       { table: "notes", rows: 2 },
     ]);
 
@@ -116,7 +122,7 @@ describe("buildSelectSql", () => {
     expect(
       buildSelectSql("tasks", ["id", "tags"], "id", "public", ['"id"::text', 'to_jsonb("tags")::text'])
     ).toBe(
-      'SELECT "id"::text AS "id", to_jsonb("tags")::text AS "tags" FROM "public"."tasks" ORDER BY "id" OFFSET $1 LIMIT $2'
+      'SELECT "id"::text AS "id", to_jsonb("tags")::text AS "tags" FROM "public"."tasks" ORDER BY "public"."tasks"."id" OFFSET $1 LIMIT $2'
     );
     expect(buildSelectSql("tasks", ["id"], null)).toBe(
       'SELECT "id" AS "id" FROM "tasks" OFFSET $1 LIMIT $2'
