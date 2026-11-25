@@ -866,3 +866,50 @@ describe("invariants", () => {
     expect(out.report.systemSchemasSkipped).toEqual(["auth", "storage"]);
   });
 });
+
+describe("key types and enum names an import keeps", () => {
+  const out = pgToApsorc(
+    schema(
+      [
+        table("events", {
+          primaryKey: ["id"],
+          columns: [
+            col("id", "int8", { default: "nextval('events_id_seq'::regclass)" }),
+            col("state", "review_state", { isEnum: true, enumTypeName: "review_state", default: "'open'::review_state", ordinal: 2 }),
+            col("prior_state", "review_state", { isEnum: true, enumTypeName: "review_state", nullable: true, ordinal: 3 }),
+            col("kind", "events_kind_enum", { isEnum: true, enumTypeName: "events_kind_enum", default: "'a'::events_kind_enum", ordinal: 4 }),
+          ],
+        }),
+        table("profiles", { primaryKey: ["id"], columns: [col("id", "uuid")] }),
+        table("tokens", { primaryKey: ["id"], columns: [col("id", "uuid", { default: "uuid_generate_v4()" })] }),
+        table("counters", { primaryKey: ["id"], columns: [col("id", "int4", { default: "nextval('counters_id_seq'::regclass)" })] }),
+      ],
+      {
+        enums: [
+          { name: "review_state", labels: ["open", "held", "closed"] },
+          { name: "events_kind_enum", labels: ["a", "b"] },
+        ],
+      }
+    )
+  );
+
+  test("a bigint id is bigserial; an integer id stays the default", () => {
+    expect(findEntity(out, "events").primaryKeyType).toBe("bigserial");
+    expect(findEntity(out, "counters").primaryKeyType).toBeUndefined();
+  });
+
+  test("a uuid id with no default says so; the default function says nothing", () => {
+    expect(findEntity(out, "profiles")).toMatchObject({ primaryKeyType: "uuid", primaryKeyDefault: null });
+    expect("primaryKeyDefault" in findEntity(out, "tokens")).toBe(false);
+  });
+
+  test("an enum type keeps its name unless it is the one Apso derives", () => {
+    const events = findEntity(out, "events");
+    expect(findField(events, "state")).toMatchObject({ enumName: "review_state", default: "open" });
+    expect(findField(events, "kind").enumName).toBeUndefined();
+  });
+
+  test("an enum column with no default gets none, not its first value", () => {
+    expect(findField(findEntity(out, "events"), "prior_state")).toMatchObject({ enumName: "review_state", nullable: true, default: null });
+  });
+});

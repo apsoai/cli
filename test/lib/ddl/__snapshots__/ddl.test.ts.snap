@@ -3,6 +3,9 @@
 exports[`schemaDdl coverage runs on Postgres and matches its snapshot 1`] = `
 [
   "CREATE TYPE "public"."account_tier_enum" AS ENUM('free', 'pro')",
+  "CREATE TYPE "public"."review_state" AS ENUM('open', 'held', 'closed')",
+  "CREATE TABLE "ledger_note" ("id" uuid NOT NULL, "body" text NOT NULL, "ledgerId" bigint NOT NULL, CONSTRAINT "PK_3195d7f34b29a7f3cafd8c7a52e" PRIMARY KEY ("id"))",
+  "CREATE TABLE "ledger" ("id" BIGSERIAL NOT NULL, "state" "public"."review_state" NOT NULL DEFAULT 'open', "priorState" "public"."review_state", CONSTRAINT "ledger_pkey" PRIMARY KEY ("id"))",
   "CREATE TABLE "flag_note" ("id" SERIAL NOT NULL, "note" text NOT NULL, "rank" integer NOT NULL DEFAULT '0', "account_flag_id" integer NOT NULL DEFAULT 0, CONSTRAINT "PK_ee33cacf3f93193e99865187790" PRIMARY KEY ("id"))",
   "CREATE TABLE "account_flag" ("flag" text NOT NULL, "account_id" integer NOT NULL, CONSTRAINT "PK_7ac40928fe48cf1bd1b91d8c0eb" PRIMARY KEY ("account_id"))",
   "CREATE TABLE "post" ("id" SERIAL NOT NULL, "title" text NOT NULL, "accountId" integer NOT NULL, "profileId" integer, CONSTRAINT "PK_be5fda3aac270b134ff9c21cdee" PRIMARY KEY ("id"))",
@@ -35,6 +38,7 @@ exports[`schemaDdl coverage runs on Postgres and matches its snapshot 1`] = `
   "ALTER TABLE "account_flag_tags_tag" ADD CONSTRAINT "FK_b67bb80dec834406a5883b1339d" FOREIGN KEY ("tagId") REFERENCES "tag"("id") ON DELETE CASCADE ON UPDATE CASCADE",
   "ALTER TABLE "flag_note" ADD CONSTRAINT "FK_2e12bf67fa5a15947e3409b06b5" FOREIGN KEY ("account_flag_id") REFERENCES "account_flag"("account_id") ON DELETE SET DEFAULT ON UPDATE RESTRICT DEFERRABLE INITIALLY DEFERRED",
   "ALTER TABLE "flag_note" ADD CONSTRAINT "flag_note_second_fk" FOREIGN KEY ("account_flag_id") REFERENCES "account_flag"("account_id") ON DELETE NO ACTION ON UPDATE NO ACTION",
+  "ALTER TABLE "ledger_note" ADD CONSTRAINT "FK_9ede7fd1e08ae37000592193620" FOREIGN KEY ("ledgerId") REFERENCES "ledger"("id") ON DELETE CASCADE ON UPDATE NO ACTION",
 ]
 `;
 

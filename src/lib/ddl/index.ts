@@ -123,7 +123,7 @@ export function columnSpec(table: string, f: ComputedField): ColumnSpec {
       [type, def, unique] = textLike(`character(${size || 1})`);
       break;
     case "enum":
-      type = `"public".${q(enumTypeName(table, f.name))}`;
+      type = `"public".${q(f.enumName ?? enumTypeName(table, f.name))}`;
       def = quoted(f);
       break;
     case "integer":
@@ -291,7 +291,9 @@ const column = (
   generated?: string
 ): ModelColumn => ({
   name,
-  sql: `${q(name)} ${serial ? "SERIAL" : type}${
+  sql: `${q(name)} ${
+    serial ? (type === "bigint" ? "BIGSERIAL" : "SERIAL") : type
+  }${
     generated ? generatedSql(generated) : ""
   }${notNull ? " NOT NULL" : ""}${def && !serial ? ` DEFAULT ${def}` : ""}`,
   type,
@@ -364,8 +366,11 @@ export const keyColumn = (
   }
   if (target?.primaryKeyType === "uuid")
     return { sql: "uuid", options: 'type: "uuid"', ts: "string" };
-  if ((target?.primaryKeyType as string) === "text")
+  if (target?.primaryKeyType === "text")
     return { sql: "text", options: 'type: "text"', ts: "string" };
+  // TypeORM reads a bigint as a string, so no id loses digits in JavaScript.
+  if (target?.primaryKeyType === "bigserial")
+    return { sql: "bigint", options: 'type: "bigint"', ts: "string" };
   return { sql: "integer", options: 'type: "integer"', ts: "number" };
 };
 export const fkType = (target?: Entity, schema?: SchemaInput): string =>
@@ -562,23 +567,30 @@ export function schemaModel(input: SchemaInput): Model {
 
     if (!customPk) {
       const pkType: string = e.primaryKeyType || "serial";
-      if (pkType === "uuid") {
-        if (!e.primaryKeyDefault)
-          model.extensions.push(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
-        t.columns.push(
-          column("id", "uuid", true, e.primaryKeyDefault || "uuid_generate_v4()")
-        );
-      } else if (pkType === "text") t.columns.push(column("id", "text", true));
-      else
-        t.columns.push(
-          column(
-            "id",
-            "integer",
-            true,
-            `nextval('${table}_id_seq'::regclass)`,
-            true
-          )
-        );
+      const serialId = (type: string) =>
+        column("id", type, true, `nextval('${table}_id_seq'::regclass)`, true);
+      switch (pkType) {
+        case "uuid":
+          // "primaryKeyDefault": null: the caller supplies every id.
+          if (e.primaryKeyDefault === null) {
+            t.columns.push(column("id", "uuid", true));
+            break;
+          }
+          if (!e.primaryKeyDefault)
+            model.extensions.push(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
+          t.columns.push(
+            column("id", "uuid", true, e.primaryKeyDefault || "uuid_generate_v4()")
+          );
+          break;
+        case "text":
+          t.columns.push(column("id", "text", true));
+          break;
+        case "bigserial":
+          t.columns.push(serialId("bigint"));
+          break;
+        default:
+          t.columns.push(serialId("integer"));
+      }
     }
     for (const stamp of ["created_at", "updated_at"] as const)
       if (e[stamp])
@@ -597,11 +609,16 @@ export function schemaModel(input: SchemaInput): Model {
       if (!customPk && f.name === "id") continue;
       if (e.created_at && f.name === "created_at") continue;
       if (e.updated_at && f.name === "updated_at") continue;
-      if (f.type === "enum" && f.values)
-        model.enums.push({
-          name: enumTypeName(table, f.name),
-          values: [...f.values],
-        });
+      if (f.type === "enum" && f.values) {
+        const name = f.enumName ?? enumTypeName(table, f.name);
+        // Two fields may share one named type; it is created once.
+        const shared = model.enums.find((x) => x.name === name);
+        if (!shared) model.enums.push({ name, values: [...f.values] });
+        else if (shared.values.join("\u0000") !== f.values.join("\u0000"))
+          throw new Error(
+            `${e.name}.${f.name} uses the enum type "${name}" with values that differ from another field of that type. Fields that share "enumName" must list the same values in the same order.`
+          );
+      }
       const spec = columnSpec(table, f);
       t.columns.push(
         column(f.name, spec.type, spec.notNull, spec.default, false, spec.generated)

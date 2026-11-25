@@ -64,7 +64,9 @@
       "name": "FlagNote",
       "foreignKeys": [{ "name": "flag_note_second_fk", "column": "account_flag_id", "to": "AccountFlag" }],
       "fields": [{ "name": "note", "type": "text" }, { "name": "rank", "type": "integer", "default": "0" }]
-    }
+    },
+    {"name": "Ledger", "primaryKeyType": "bigserial", "primaryKeyName": "ledger_pkey", "fields": [{"name": "state", "type": "enum", "values": ["open", "held", "closed"], "enumName": "review_state", "default": "open"}, {"name": "priorState", "type": "enum", "values": ["open", "held", "closed"], "enumName": "review_state", "nullable": true, "default": null}]},
+    {"name": "LedgerNote", "primaryKeyType": "uuid", "primaryKeyDefault": null, "fields": [{"name": "body", "type": "text"}]}
   ],
   "relationships": [
     { "from": "Post", "to": "Account", "type": "ManyToOne", "cascadeDelete": true, "index": true },
@@ -74,6 +76,7 @@
     { "from": "AccountFlag", "to": "Account", "type": "ManyToOne", "joinColumnName": "account_id", "primary": true, "bi_directional": false, "onUpdate": "CASCADE", "deferrable": "INITIALLY IMMEDIATE" },
     { "from": "FlagNote", "to": "AccountFlag", "type": "ManyToOne", "joinColumnName": "account_flag_id", "bi_directional": false, "onDelete": "SET DEFAULT", "onUpdate": "RESTRICT", "deferrable": "INITIALLY DEFERRED", "joinColumnDefault": "0" },
     { "from": "AccountFlag", "to": "Tag", "type": "ManyToMany" },
-    { "from": "Tag", "to": "Tag", "type": "ManyToOne", "to_name": "parent", "nullable": true, "cascadeDelete": true }
+    { "from": "Tag", "to": "Tag", "type": "ManyToOne", "to_name": "parent", "nullable": true, "cascadeDelete": true },
+    {"from": "LedgerNote", "to": "Ledger", "type": "ManyToOne", "cascadeDelete": true}
   ]
 }

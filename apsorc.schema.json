@@ -306,10 +306,11 @@
           "type": "string"
         },
         "primaryKeyType": {
-          "description": "The type of the generated 'id' primary key: 'serial' (auto-increment integer, the default), 'uuid' or 'text'. Ignored when a field or a relationship is the primary key.",
+          "description": "The type of the generated 'id' primary key: 'serial' (auto-increment integer, the default), 'bigserial' (auto-increment bigint, read and written as a string; TypeScript only), 'uuid' or 'text'. Ignored when a field or a relationship is the primary key. 'apso import' writes 'bigserial' for a bigint id.",
           "type": "string",
           "enum": [
             "serial",
+            "bigserial",
             "uuid",
             "text"
           ],
@@ -565,8 +566,8 @@
           }
         },
         "primaryKeyDefault": {
-          "description": "SQL expression that fills a uuid 'id', for example 'gen_random_uuid()'. Defaults to uuid_generate_v4() from the uuid-ossp extension.",
-          "type": "string"
+          "description": "SQL expression that fills a uuid 'id', for example 'gen_random_uuid()'. Defaults to uuid_generate_v4() from the uuid-ossp extension. null gives the column no default: every create request sends the id. 'apso import' writes null for a uuid key that has no default.",
+          "type": ["string", "null"]
         },
         "sqlIndexes": {
           "description": "Indexes whose column list is SQL: an expression such as lower(email), or a column sorted DESC. Apso creates them in migrations and after a schema sync; TypeORM is told to leave them alone. TypeScript and Go services.",
@@ -755,6 +756,11 @@
         "arrayItemType": {
           "description": "An older spelling of 'elementType'.",
           "type": "string"
+        },
+        "enumName": {
+          "description": "Name of the Postgres enum type of an 'enum' field. Defaults to <table>_<column>_enum. Fields that share a name share the type and must list the same values. 'apso import' sets it so an existing database keeps its type names. TypeScript only.",
+          "type": "string",
+          "minLength": 1
         },
         "noDefault": {
           "description": "The column has no database default. A boolean field otherwise defaults to false.",

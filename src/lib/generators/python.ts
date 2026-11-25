@@ -230,6 +230,17 @@ export class PythonGenerator extends BaseGenerator {
         errors.push(
           `${e.name} sets "foreignKeys". The Python generator cannot declare a second foreign key on a column yet; remove it or generate a TypeScript service.`
         );
+    for (const e of config.entities ?? []) {
+      if (e.primaryKeyType === "bigserial")
+        errors.push(
+          `${e.name} sets "primaryKeyType": "bigserial". The Python generator cannot make a bigint id yet; remove it or generate a TypeScript service.`
+        );
+      for (const f of e.fields ?? [])
+        if (f.enumName)
+          errors.push(
+            `${e.name}.${f.name} sets "enumName". The Python generator cannot keep an enum type's name yet; remove it or generate a TypeScript service.`
+          );
+    }
     for (const e of config.entities ?? [])
       if (e.primaryKeyName)
         errors.push(

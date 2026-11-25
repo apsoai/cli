@@ -12,7 +12,7 @@
  * (src/lib/utils/relationships/parse.ts) so imported relationships round-trip.
  */
 
-import { camelCase } from "../utils/casing";
+import { camelCase, snakeCase } from "../utils/casing";
 import { fieldTypeToColumnType } from "../utils/field";
 import {
   getRelationshipIdField,
@@ -38,6 +38,7 @@ export interface ApsorcImportFieldOutput {
   generated?: string;
   index?: boolean;
   values?: string[];
+  enumName?: string;
   length?: number;
   precision?: number;
   scale?: number;
@@ -47,9 +48,9 @@ export interface ApsorcImportFieldOutput {
 
 export interface ApsorcImportEntityOutput {
   name: string;
-  primaryKeyType?: "serial" | "uuid" | "text";
+  primaryKeyType?: "serial" | "bigserial" | "uuid" | "text";
   primaryKeyName?: string;
-  primaryKeyDefault?: string;
+  primaryKeyDefault?: string | null;
   created_at?: boolean;
   updated_at?: boolean;
   timestampType?: Entity["timestampType"];
@@ -453,11 +454,15 @@ export function pgToApsorc(schema: IntrospectedSchema): {
         const t = pgTypeToApsorcType(pkCol).type;
         // A varchar(n) or char(n) id is kept as a primary field, so its
         // length and the columns that reference it keep theirs.
-        // integer/bigint/smallint id => default serial, omit primaryKeyType.
+        // integer/smallint id => default serial, omit primaryKeyType. A
+        // bigint id stays 64 bits wide.
         if (t === "uuid" || t === "text") entity.primaryKeyType = t;
-        // The generated uuid id uses uuid_generate_v4(); keep another function.
+        else if (t === "bigint") entity.primaryKeyType = "bigserial";
+        // The generated uuid id uses uuid_generate_v4(); keep another
+        // function, and keep "no default" (the caller supplies the id).
         const idDefault = pkCol.default?.trim();
-        if (t === "uuid" && idDefault && idDefault !== "uuid_generate_v4()")
+        if (t === "uuid" && !idDefault) entity.primaryKeyDefault = null;
+        else if (t === "uuid" && idDefault !== "uuid_generate_v4()")
           entity.primaryKeyDefault = idDefault;
         else pkAsField = t === "varchar" || t === "char";
       } else {
@@ -612,6 +617,12 @@ export function pgToApsorc(schema: IntrospectedSchema): {
           ? enumLabels.get(col.enumTypeName)
           : undefined;
         if (labels) field.values = labels;
+        // Apso names an enum type <table>_<column>_enum; keep another name.
+        if (
+          col.enumTypeName &&
+          col.enumTypeName !== `${snakeCase(table.name)}_${col.name}_enum`
+        )
+          field.enumName = col.enumTypeName;
       }
 
       // Defaults (skip for PK columns — those are implicit/sequence-driven).
@@ -620,8 +631,10 @@ export function pgToApsorc(schema: IntrospectedSchema): {
         const literal =
           "value" in parsed && LITERAL_DEFAULT_TYPES.has(resolved.type);
         if (col.default === null) {
-          // A boolean field gets DEFAULT false unless it says otherwise.
+          // A boolean field gets DEFAULT false unless it says otherwise, and
+          // an enum field its first value unless its default is null.
           if (resolved.type === "boolean") field.noDefault = true;
+          else if (resolved.type === "enum") field.default = null;
         } else if (col.default.trim().toLowerCase().startsWith("nextval(")) {
           // A sequence .apsorc does not create.
           report.warnings.defaultsDropped.push(`${table.name}.${col.name}`);

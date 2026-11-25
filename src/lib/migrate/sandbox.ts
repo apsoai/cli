@@ -110,12 +110,21 @@ function buildEntityClasses(
     const pkType: string = entityDef.primaryKeyType || "serial";
 
     if (!hasCustomPk) {
-      if (pkType === "uuid") {
-        typeorm.PrimaryColumn({ type: "uuid" })(EntityClass.prototype, "id");
-      } else if (pkType === "text") {
-        typeorm.PrimaryColumn({ type: "text" })(EntityClass.prototype, "id");
-      } else {
-        typeorm.PrimaryGeneratedColumn()(EntityClass.prototype, "id");
+      switch (pkType) {
+        case "uuid":
+          typeorm.PrimaryColumn({ type: "uuid" })(EntityClass.prototype, "id");
+          break;
+        case "text":
+          typeorm.PrimaryColumn({ type: "text" })(EntityClass.prototype, "id");
+          break;
+        case "bigserial":
+          typeorm.PrimaryGeneratedColumn({ type: "bigint" })(
+            EntityClass.prototype,
+            "id"
+          );
+          break;
+        default:
+          typeorm.PrimaryGeneratedColumn()(EntityClass.prototype, "id");
       }
     }
 
