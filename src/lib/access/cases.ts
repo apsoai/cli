@@ -73,6 +73,8 @@ export interface AccessEntity {
   route: string;
   fields: NonNullable<Entity["fields"]>;
   payload: Row;
+  /** The uuid id has no default: each create body carries a new one. */
+  suppliesId?: boolean;
   /** Required foreign keys: property -> the entity it points to. */
   parents: { property: string; entity: string }[];
   /** Relations a `join` can name: property -> the entity it loads, and for a many-to-one its foreign key. */
@@ -158,6 +160,7 @@ export function buildModel(
       route: routeOf(language, entity.name),
       fields: entity.fields ?? [],
       payload: planned.payload,
+      suppliesId: planned.suppliesId,
       parents: planned.parents,
       relations,
       scope,
@@ -217,6 +220,7 @@ const TEXT = new Set(["text", "string", "varchar"]);
 /** A create body for the nth row of an entity: text values differ per row so unique fields do not collide. */
 function payloadFor(entity: AccessEntity, n: number): Row {
   const body: Row = { ...entity.payload };
+  if (entity.suppliesId) body.id = randomUUID();
   for (const field of entity.fields) {
     const value = body[field.name];
     if (typeof value !== "string") continue;

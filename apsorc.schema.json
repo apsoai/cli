@@ -758,9 +758,9 @@
           "type": "string"
         },
         "enumName": {
-          "description": "Name of the Postgres enum type of an 'enum' field. Defaults to <table>_<column>_enum. Fields that share a name share the type and must list the same values. 'apso import' sets it so an existing database keeps its type names. TypeScript only.",
+          "description": "Name of the Postgres enum type of an 'enum' field: letters, digits and underscores. Defaults to <table>_<column>_enum. Fields that share a name share the type and must list the same values. 'apso import' sets it so an existing database keeps its type names. TypeScript only.",
           "type": "string",
-          "minLength": 1
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
         },
         "noDefault": {
           "description": "The column has no database default. A boolean field otherwise defaults to false.",

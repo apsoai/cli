@@ -172,6 +172,15 @@ export class Order {
     expect(findings).toHaveLength(0);
   });
 
+  test("an entity that states its key's default is skipped", () => {
+    for (const primaryKeyDefault of [null, "gen_random_uuid()"]) {
+      const ctx = baseCtx(tmpDir, {
+        entities: [{ name: "Order", primaryKeyType: "uuid", primaryKeyDefault, fields: [{ name: "status", type: "text" }] }],
+      });
+      expect(checkPkStrategy(ctx)).toHaveLength(0);
+    }
+  });
+
   test("uuid entity with missing file warns", () => {
     const ctx = baseCtx(tmpDir, {
       entities: [

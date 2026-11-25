@@ -12,8 +12,8 @@
  * (src/lib/utils/relationships/parse.ts) so imported relationships round-trip.
  */
 
-import { camelCase, snakeCase } from "../utils/casing";
-import { fieldTypeToColumnType } from "../utils/field";
+import { camelCase } from "../utils/casing";
+import { ENUM_NAME, fieldTypeToColumnType } from "../utils/field";
 import {
   getRelationshipIdField,
   getRelationshipName,
@@ -617,11 +617,9 @@ export function pgToApsorc(schema: IntrospectedSchema): {
           ? enumLabels.get(col.enumTypeName)
           : undefined;
         if (labels) field.values = labels;
-        // Apso names an enum type <table>_<column>_enum; keep another name.
-        if (
-          col.enumTypeName &&
-          col.enumTypeName !== `${snakeCase(table.name)}_${col.name}_enum`
-        )
+        // Always stated: the name TypeORM derives folds the column's case,
+        // and two columns may share one type.
+        if (col.enumTypeName && ENUM_NAME.test(col.enumTypeName))
           field.enumName = col.enumTypeName;
       }
 

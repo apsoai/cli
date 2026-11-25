@@ -235,6 +235,10 @@ export class PythonGenerator extends BaseGenerator {
         errors.push(
           `${e.name} sets "primaryKeyType": "bigserial". The Python generator cannot make a bigint id yet; remove it or generate a TypeScript service.`
         );
+      if (e.primaryKeyDefault === null)
+        errors.push(
+          `${e.name} sets "primaryKeyDefault": null. The Python generator cannot make a uuid id without a default yet; remove it or generate a TypeScript service.`
+        );
       for (const f of e.fields ?? [])
         if (f.enumName)
           errors.push(

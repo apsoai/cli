@@ -273,6 +273,12 @@ export function changeDdl(
           );
         if (o.default !== undefined) up.push(`${at} DROP DEFAULT`);
         up.push(`${at} TYPE ${c.type} USING ${using}`);
+        // serial <-> bigserial: the sequence has its own type, and an integer
+        // sequence stops at 2147483647 under a bigint column.
+        if (o.serial && c.serial)
+          up.push(
+            `ALTER SEQUENCE ${q(`${t.name}_${c.name}_seq`)} AS ${c.type}`
+          );
         if (c.default !== undefined)
           setNotNull.push(`${at} SET DEFAULT ${c.default}`);
       } else if (o.default !== c.default) {

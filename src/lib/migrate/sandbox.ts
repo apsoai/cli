@@ -160,6 +160,7 @@ function buildEntityClasses(
       }
       if (field.type === "enum" && field.values) {
         colOpts.enum = field.values;
+        if (field.enumName) colOpts.enumName = field.enumName;
       }
       if ((field.length ?? 0) > 0) colOpts.length = field.length;
       if (field.precision) colOpts.precision = field.precision;

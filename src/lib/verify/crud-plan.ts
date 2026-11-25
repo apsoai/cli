@@ -63,6 +63,8 @@ export interface PlannedEntity {
   payload: Record<string, unknown>;
   /** Foreign keys to fill from parents created earlier: property -> parent entity. */
   parents: { property: string; entity: string }[];
+  /** The uuid id has no default ("primaryKeyDefault": null): each create sends one. */
+  suppliesId?: boolean;
 }
 
 export interface CrudPlan {
@@ -108,6 +110,9 @@ export function planCrud(
       key: keys.length === 1 ? keys[0] : "id",
       payload,
       parents,
+      ...(keys.length === 0 &&
+        entity.primaryKeyType === "uuid" &&
+        entity.primaryKeyDefault === null && { suppliesId: true }),
     });
   }
 

@@ -245,7 +245,7 @@ export function planMigration(
       if (
         old.nullable &&
         !cur.nullable &&
-        cur.default === undefined &&
+        (cur.default === undefined || cur.default === null) &&
         !cur.generated
       ) {
         questions.push({
@@ -307,7 +307,7 @@ export function planMigration(
       if (
         byName(fieldsOf(was), f.name) ||
         f.nullable ||
-        f.default !== undefined ||
+        (f.default !== undefined && f.default !== null) ||
         // Postgres computes a generated column for the existing rows.
         f.generated
       )

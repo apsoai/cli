@@ -16,6 +16,9 @@ export function checkPkStrategy(ctx: DiagnosticContext): DiagnosticFinding[] {
 
   for (const entity of ctx.entities) {
     if (entity.primaryKeyType !== "uuid") continue;
+    // "primaryKeyDefault" picks the default (or none, when null); the entity
+    // then uses @PrimaryColumn on purpose.
+    if (entity.primaryKeyDefault !== undefined) continue;
 
     // Check if any field is explicitly marked as primary (custom PK)
     const hasCustomPk = entity.fields?.some((f) => f.primary) ?? false;

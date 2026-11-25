@@ -1110,3 +1110,51 @@ describe("OpenAPI access rules", () => {
     expect(controller.content).toContain("@ApiForbiddenResponse(");
   });
 });
+
+const flatEntity = async (entity: Entity) => {
+  const content = await renderEntity(entity);
+  return content.replace(/\s+/g, " ");
+};
+
+describe("key types and enum names kept from an import", () => {
+  const flat = flatEntity;
+
+  test("a bigserial id is a bigint column read as a string", async () => {
+    const content = await flat({ name: "Ledger", primaryKeyType: "bigserial", primaryKeyName: "ledger_pkey", fields: [{ name: "label", type: "text" }] });
+    expect(content).toContain("@PrimaryGeneratedColumn({ type: 'bigint', primaryKeyConstraintName: 'ledger_pkey' }) id!: string;");
+  });
+
+  test("a uuid id with a null default has none and is not generated", async () => {
+    const content = await flat({ name: "Profile", primaryKeyType: "uuid", primaryKeyDefault: null, fields: [{ name: "label", type: "text" }] });
+    expect(content).toContain("@PrimaryColumn({ type: 'uuid' }) id: string;");
+    expect(content).not.toContain("@Generated");
+    expect(content).not.toContain("default:");
+  });
+
+  test("enumName names the enum type", async () => {
+    const content = await flat({ name: "Ledger", fields: [{ name: "state", type: "enum", values: ["open", "held"], enumName: "review_state" }] });
+    expect(content).toContain('enumName: "review_state"');
+    await expect(
+      renderEntity({ name: "Ledger", fields: [{ name: "state", type: "enum", values: ["open"], enumName: 'my."state' }] })
+    ).rejects.toThrow('Ledger.state sets "enumName"');
+  });
+
+  test("a key onto a bigserial id is bigint, and one enum type is created for two fields", () => {
+    const ledger: Entity = {
+      name: "Ledger",
+      primaryKeyType: "bigserial",
+      fields: [
+        { name: "state", type: "enum", values: ["open", "held"], enumName: "review_state" },
+        { name: "prior", type: "enum", values: ["open", "held"], enumName: "review_state", nullable: true, default: null as never },
+      ],
+    };
+    const note: Entity = { name: "Note", primaryKeyType: "uuid", primaryKeyDefault: null, fields: [{ name: "body", type: "text" }] };
+    const relationshipMap = parseRelationships([{ from: "Note", to: "Ledger", type: "ManyToOne" }]);
+    const ddl = schemaDdl({ entities: [ledger, note], relationshipMap });
+    expect(ddl.filter((s) => s.startsWith("CREATE TYPE"))).toEqual([`CREATE TYPE "public"."review_state" AS ENUM('open', 'held')`]);
+    expect(ddl.join("\n")).toContain('"id" BIGSERIAL NOT NULL');
+    expect(ddl.join("\n")).toContain('"id" uuid NOT NULL, "body" text NOT NULL, "ledgerId" bigint NOT NULL');
+    ledger.fields![1].values = ["open"];
+    expect(() => schemaDdl({ entities: [ledger, note], relationshipMap })).toThrow('uses the enum type "review_state" with values that differ');
+  });
+});

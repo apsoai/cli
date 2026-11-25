@@ -903,10 +903,10 @@ describe("key types and enum names an import keeps", () => {
     expect("primaryKeyDefault" in findEntity(out, "tokens")).toBe(false);
   });
 
-  test("an enum type keeps its name unless it is the one Apso derives", () => {
+  test("an enum type keeps its name, including the one Apso would derive", () => {
     const events = findEntity(out, "events");
     expect(findField(events, "state")).toMatchObject({ enumName: "review_state", default: "open" });
-    expect(findField(events, "kind").enumName).toBeUndefined();
+    expect(findField(events, "kind").enumName).toBe("events_kind_enum");
   });
 
   test("an enum column with no default gets none, not its first value", () => {
