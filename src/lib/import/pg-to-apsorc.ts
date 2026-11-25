@@ -18,11 +18,12 @@ import {
   getRelationshipIdField,
   getRelationshipName,
 } from "../utils/relationships/parse";
-import { Relationship } from "../types/relationship";
+import { KeyRules, OnDelete, Relationship } from "../types/relationship";
 import { Entity, TimestampColumn, TimestampType } from "../types/entity";
 import {
   ImportReport,
   IntrospectedColumn,
+  IntrospectedFk,
   IntrospectedSchema,
   IntrospectedTable,
 } from "./types";
@@ -80,7 +81,9 @@ export interface ApsorcImportRelationshipOutput {
   nullable?: boolean;
   bi_directional?: boolean;
   cascadeDelete?: boolean;
-  onDelete?: "SET NULL" | "RESTRICT";
+  onDelete?: OnDelete;
+  onUpdate?: OnDelete;
+  deferrable?: KeyRules["deferrable"];
   foreignKeyName?: string;
   primary?: boolean;
   validate?: boolean;
@@ -399,6 +402,7 @@ export function pgToApsorc(schema: IntrospectedSchema): {
   const entities: ApsorcImportEntityOutput[] = [];
   const relationships: ApsorcImportRelationshipOutput[] = [];
 
+  const keyByTable = new Map(schema.tables.map((t) => [t.name, t.primaryKey]));
   for (const table of schema.tables) {
     report.tablesImported.push(table.name);
     if (isJoinTable(table)) {
@@ -412,13 +416,30 @@ export function pgToApsorc(schema: IntrospectedSchema): {
 
     // Columns covered by a single-column FK are materialized by the
     // relationship, so they must not also be emitted as scalar fields.
+    // A relationship, like a "foreignKeys" entry, references the primary key
+    // of an imported table. Any other single-column key is reported and its
+    // column stays a plain field.
     const fkColumns = new Map<string, IntrospectedTable["foreignKeys"][number]>();
+    const singleKeys: IntrospectedFk[] = [];
     for (const fk of table.foreignKeys) {
-      if (fk.columns.length === 1) {
-        fkColumns.set(fk.columns[0], fk);
-      } else {
+      if (fk.columns.length !== 1) {
         report.warnings.compositeFks.push(table.name);
+        continue;
       }
+      const targetKey = fk.referencedSchema
+        ? []
+        : keyByTable.get(fk.referencedTable);
+      if (targetKey?.length !== 1 || targetKey[0] !== fk.referencedColumns[0]) {
+        report.warnings.foreignKeysNotCarried.push(
+          `${table.name}.${fk.name} (${fk.columns[0]} -> ${
+            fk.referencedSchema ? `${fk.referencedSchema}.` : ""
+          }${fk.referencedTable}.${fk.referencedColumns[0]})`
+        );
+        continue;
+      }
+      singleKeys.push(fk);
+      // The first key on a column is the relationship's.
+      if (!fkColumns.has(fk.columns[0])) fkColumns.set(fk.columns[0], fk);
     }
 
     // --- Primary key handling ---
@@ -443,9 +464,7 @@ export function pgToApsorc(schema: IntrospectedSchema): {
         // key when the column is a foreign key (a table keyed by the row it
         // extends).
         pkAsField = true;
-        const keyIsForeignKey = table.foreignKeys.some(
-          (fk) => fk.columns.length === 1 && fk.columns[0] === pk[0]
-        );
+        const keyIsForeignKey = fkColumns.has(pk[0]);
         if (!keyIsForeignKey) report.warnings.nonStandardPks.push(table.name);
       }
     } else if (pk.length > 1) {
@@ -646,40 +665,18 @@ export function pgToApsorc(schema: IntrospectedSchema): {
 
     // --- Foreign keys -> ManyToOne relationships ---
     const keyed = new Set<string>();
-    for (const fk of table.foreignKeys) {
-      if (fk.columns.length !== 1) continue; // composite FK handled above
+    for (const fk of singleKeys) {
       const sourceColumn = fk.columns[0];
       // A relationship holds one key per column. A second key on the same
       // column (usually an exact duplicate) is kept as a constraint only.
       if (keyed.has(sourceColumn)) {
-        const known = ["CASCADE", "SET NULL", "RESTRICT"] as const;
-        const onDelete = known.find((rule) => rule === fk.onDelete);
-        // An entry references the target's primary key and states ON DELETE
-        // only. A key it cannot state exactly is reported, not written.
-        const target = schema.tables.find(
-          (t) => t.name === fk.referencedTable
-        );
-        const targetKey = target?.primaryKey;
-        if (
-          targetKey?.length !== 1 ||
-          targetKey[0] !== fk.referencedColumns[0] ||
-          // A key that is itself a foreign key belongs to a relationship.
-          target?.foreignKeys.some((k) => k.columns.includes(targetKey[0])) ||
-          fk.onDelete === "SET DEFAULT" ||
-          fk.otherActions
-        ) {
-          report.warnings.foreignKeysNotCarried.push(
-            `${table.name}.${fk.name} (${sourceColumn} -> ${fk.referencedTable})`
-          );
-          continue;
-        }
         // Postgres names every constraint, so the name is always there.
         (entity.foreignKeys ??= []).push({
           name: fk.name ?? "",
           column: sourceColumn,
           to: fk.referencedTable,
-          ...(onDelete && { onDelete }),
-          ...(fk.notValid && { validate: false }),
+          ...(fk.onDelete !== "NO ACTION" && { onDelete: fk.onDelete }),
+          ...keyRules(fk),
         });
         continue;
       }
@@ -703,13 +700,10 @@ export function pgToApsorc(schema: IntrospectedSchema): {
       if (joinColumnName) rel.joinColumnName = joinColumnName;
       if (fk.name) rel.foreignKeyName = fk.name;
       if (pkSet.has(sourceColumn)) rel.primary = true;
-      // Migrations keep the key NOT VALID. A database built by TypeORM's own
-      // schema sync has it validated, which only matters on an empty one.
-      if (fk.notValid) rel.validate = false;
+      Object.assign(rel, keyRules(fk));
       if (col?.nullable) rel.nullable = true;
       if (fk.onDelete === "CASCADE") rel.cascadeDelete = true;
-      else if (fk.onDelete === "SET NULL" || fk.onDelete === "RESTRICT")
-        rel.onDelete = fk.onDelete;
+      else if (fk.onDelete !== "NO ACTION") rel.onDelete = fk.onDelete;
       relationships.push(rel);
     }
   }
@@ -727,6 +721,21 @@ export function pgToApsorc(schema: IntrospectedSchema): {
     report,
   };
 }
+
+/**
+ * A source key's ON UPDATE rule, DEFERRABLE setting and NOT VALID mark, as
+ * .apsorc states them on a relationship or a "foreignKeys" entry.
+ * Migrations keep a key NOT VALID. A database built by TypeORM's own schema
+ * sync has it validated, which only matters on an empty one.
+ *
+ * @param {IntrospectedFk} fk - The key as read from the source database.
+ * @returns {KeyRules} Only the settings that differ from the defaults.
+ */
+const keyRules = (fk: IntrospectedFk): KeyRules => ({
+  ...(fk.onUpdate && { onUpdate: fk.onUpdate }),
+  ...(fk.deferrable && { deferrable: fk.deferrable }),
+  ...(fk.notValid && { validate: false }),
+});
 
 /**
  * Invariant guard: every emitted field type must be a recognized `.apsorc`

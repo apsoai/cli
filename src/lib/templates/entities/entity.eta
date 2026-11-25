@@ -62,7 +62,7 @@ const { CREATE, UPDATE } = CrudValidationGroups;
 @Check(<% if (check.name) { %><%~ JSON.stringify(check.name) %>, <% } %><%~ JSON.stringify(check.expression) %>)
 <% }) %>
 <% it.foreignKeys.forEach((key) => { %>
-@ForeignKey(() => <%= key.target %>, [<%~ JSON.stringify(key.column) %>], [<%~ JSON.stringify(key.targetColumn) %>], { name: <%~ JSON.stringify(key.name) %><% if (key.onDelete) { %>, onDelete: "<%= key.onDelete %>"<% } %> })
+@ForeignKey(() => <%= key.target %>, [<%~ JSON.stringify(key.column) %>], [<%~ JSON.stringify(key.targetColumn) %>], { <%~ key.options %> })
 <% }) %>
 <% it.uniques.forEach((unique) => { %>
 @Unique(<% if (unique.name) {%> "<%= unique.name %>", <%} %>[<%~ unique.fields.map((field) => `"${field}"`).join(', ') %>])
@@ -136,7 +136,7 @@ const columnCode = includeFile(`./entities/entity-col-${field.type}`, { field })
         <% if (assoc.index) { %>
         @Index()
         <% } %>
-        @ManyToOne(() => <%= assoc.name %><% if (assoc.biDirectional) { %>, <%= assoc.camelCasedName %> => <%= assoc.camelCasedName %>.<%= assoc.inverseSidePropertyName %><% } %><% if (assoc.onDeleteRule) { %>, { onDelete: "<%= assoc.onDeleteRule %>" }<% } %>)
+        @ManyToOne(() => <%= assoc.name %><% if (assoc.biDirectional) { %>, <%= assoc.camelCasedName %> => <%= assoc.camelCasedName %>.<%= assoc.inverseSidePropertyName %><% } %><% if (assoc.keyRules) { %>, { <%~ assoc.keyRules %> }<% } %>)
         @JoinColumn({ name: '<%= assoc.joinColumnName || assoc.camelCasedId %>'<% if (assoc.foreignKeyName) { %>, foreignKeyConstraintName: '<%= assoc.foreignKeyName %>'<% } %> })
         <%= assoc.relationshipName %>: <%= assoc.name %>;
 

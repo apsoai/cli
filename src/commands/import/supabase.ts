@@ -82,7 +82,7 @@ export function formatReport(report: ImportReport): string {
   if (w.noPrimaryKey.length > 0)
     review.push(`  - Tables with no primary key: ${w.noPrimaryKey.join(", ")}`);
   if (w.foreignKeysNotCarried.length > 0)
-    review.push(`  - Second foreign keys on a column left out (the target table was not imported, the key points at a column that is not the target's primary key, or it has an ON UPDATE, SET DEFAULT or DEFERRABLE rule): ${w.foreignKeysNotCarried.join(", ")}`);
+    review.push(`  - Foreign keys left out, with the column kept as a plain field (the key points at a table that was not imported, or at a column that is not that table's primary key): ${w.foreignKeysNotCarried.join(", ")}`);
   if (w.compositeFks.length > 0)
     review.push(`  - Composite foreign keys (kept as columns, no relationship): ${w.compositeFks.join(", ")}`);
   if (w.joinTablesDetected.length > 0)

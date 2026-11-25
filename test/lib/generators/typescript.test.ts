@@ -1,5 +1,7 @@
 import { expect, describe, test, beforeAll } from "@jest/globals";
 import { parseRelationships } from "../../../src/lib/utils/relationships";
+import { joinColumnErrors } from "../../../src/lib/utils/relationships/parse";
+import { schemaDdl } from "../../../src/lib/ddl";
 import { TypeScriptGenerator } from "../../../src/lib/generators/typescript";
 import { GeneratorConfig, Entity, Relationship, Field } from "../../../src/lib/types";
 
@@ -693,6 +695,30 @@ describe("a key declared as a field keeps its type and length", () => {
       `@PrimaryColumn({ name: 'org_id', type: "varchar", length: 100, primaryKeyConstraintName: 'settings_pkey', }) orgId: string;`
     );
     expect(content).not.toContain("@PrimaryGeneratedColumn()");
+  });
+
+  test("a key onto an entity keyed by a relationship references that column, with its type and rules", async () => {
+    const setting: Entity = { name: "Setting", fields: [{ name: "theme", type: "text" }] };
+    const note: Entity = { name: "Note", fields: [], foreignKeys: [{ name: "note_setting_fk2", column: "setting_id", to: "Setting", onUpdate: "SET DEFAULT" }] };
+    const apsorc = [
+      { from: "Setting", to: "Org", type: "ManyToOne" as const, joinColumnName: "org_id", primary: true },
+      { from: "Note", to: "Setting", type: "ManyToOne" as const, joinColumnName: "setting_id", onUpdate: "CASCADE" as const, deferrable: "INITIALLY DEFERRED" as const },
+    ];
+    const relationshipMap = parseRelationships(apsorc);
+    const allEntities = [org, setting, note];
+    const generator = new TypeScriptGenerator(createConfig(allEntities, relationshipMap));
+    const files = await generator.generateEntity({ entity: note, relationships: relationshipMap.Note, allEntities, apiType: "rest" });
+    const content = findFileContent(files, "Note.entity")!.replace(/\s+/g, " ");
+    expect(content).toContain(`@ManyToOne(() => Setting, setting => setting.notes, { onUpdate: "CASCADE", deferrable: "INITIALLY DEFERRED" })`);
+    expect(content).toContain(`@Column({ name: 'setting_id', type: "varchar", length: 100, })`);
+    expect(content).toContain(`@ForeignKey(() => Setting, ["setting_id"], ["org_id"], { name: "note_setting_fk2", onUpdate: "SET DEFAULT" as never })`);
+    const ddl = schemaDdl({ entities: allEntities, relationshipMap }).join("\n");
+    expect(ddl).toContain(`"setting_id" character varying(100) NOT NULL`);
+    expect(ddl).toContain(`REFERENCES "setting"("org_id") ON DELETE NO ACTION ON UPDATE CASCADE DEFERRABLE INITIALLY DEFERRED`);
+    for (const language of ["Python", "Go"])
+      expect(joinColumnErrors(relationshipMap, language)).toContain(
+        `Note ManyToOne Setting sets an ON UPDATE rule, "deferrable" or "SET DEFAULT". The ${language} generator cannot keep those foreign key rules yet; remove them or generate a TypeScript service.`
+      );
   });
 
   test("a timestamptz field can be part of the primary key", async () => {

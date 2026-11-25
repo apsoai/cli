@@ -52,15 +52,26 @@
       "name": "Post",
       "foreignKeys": [
         { "name": "post_account_second_fk", "column": "accountId", "to": "Account" },
-        { "name": "post_account_tag_fk", "column": "accountId", "to": "Tag", "onDelete": "CASCADE" }
+        { "name": "post_account_tag_fk", "column": "accountId", "to": "Tag", "onDelete": "CASCADE", "onUpdate": "CASCADE", "deferrable": "INITIALLY DEFERRED" }
       ],
       "fields": [{ "name": "title", "type": "string" }]
+    },
+    {
+      "name": "AccountFlag",
+      "fields": [{ "name": "flag", "type": "text" }]
+    },
+    {
+      "name": "FlagNote",
+      "foreignKeys": [{ "name": "flag_note_second_fk", "column": "account_flag_id", "to": "AccountFlag" }],
+      "fields": [{ "name": "note", "type": "text" }, { "name": "rank", "type": "integer", "default": "0" }]
     }
   ],
   "relationships": [
     { "from": "Post", "to": "Account", "type": "ManyToOne", "cascadeDelete": true, "index": true },
     { "from": "Post", "to": "Profile", "type": "ManyToOne", "nullable": true },
     { "from": "Post", "to": "Tag", "type": "ManyToMany" },
-    { "from": "Account", "to": "Profile", "type": "OneToOne" }
+    { "from": "Account", "to": "Profile", "type": "OneToOne" },
+    { "from": "AccountFlag", "to": "Account", "type": "ManyToOne", "joinColumnName": "account_id", "primary": true, "bi_directional": false, "onUpdate": "CASCADE", "deferrable": "INITIALLY IMMEDIATE" },
+    { "from": "FlagNote", "to": "AccountFlag", "type": "ManyToOne", "joinColumnName": "account_flag_id", "bi_directional": false, "onDelete": "SET DEFAULT", "onUpdate": "RESTRICT", "deferrable": "INITIALLY DEFERRED" }
   ]
 }

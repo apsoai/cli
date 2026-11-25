@@ -31,6 +31,16 @@ describe("import round trip", () => {
     const { apsorc, report } = pgToApsorc(await introspectClient(original, "public"));
     // A second foreign key on a column is kept, as a constraint only.
     expect(apsorc.entities.find((e) => e.name === "enrollments")?.foreignKeys).toEqual([{ name: "enrollments_patient_id_fkey2", column: "patient_id", to: "patients", onDelete: "CASCADE", validate: false }]);
+    // A key keeps its ON UPDATE rule, SET DEFAULT and DEFERRABLE, and a table
+    // keyed by a foreign key can be referenced.
+    expect(apsorc.relationships.find((r) => r.foreignKeyName === "setting_notes_setting_fk")).toEqual({
+      from: "setting_notes", to: "tenant_settings", type: "ManyToOne", to_name: "setting", joinColumnName: "setting_id",
+      foreignKeyName: "setting_notes_setting_fk", onDelete: "SET DEFAULT", onUpdate: "CASCADE", deferrable: "INITIALLY DEFERRED",
+    });
+    expect(apsorc.entities.find((e) => e.name === "setting_notes")?.foreignKeys).toEqual([
+      { name: "setting_notes_facility_fk2", column: "facility_id", to: "facilities", onUpdate: "RESTRICT", deferrable: "INITIALLY IMMEDIATE" },
+    ]);
+    expect(report.warnings.foreignKeysNotCarried).toEqual([]);
     // A generated column keeps its expression; it is not imported as a plain column.
     expect(apsorc.entities.find((e) => e.name === "enrollments")?.fields).toContainEqual({ name: "minutes_doubled", type: "integer", nullable: true, generated: "(minutes * 2)" });
     expect(report.warnings.arraysLossy).toEqual([]);

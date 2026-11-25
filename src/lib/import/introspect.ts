@@ -175,13 +175,15 @@ const PRIMARY_KEYS_SQL = `
 
 const FOREIGN_KEYS_SQL = `
   SELECT con.conname, cl.relname AS table_name, att.attname AS column_name,
-         clf.relname AS referenced_table, attf.attname AS referenced_column,
-         con.confdeltype, con.confupdtype, con.condeferrable,
+         clf.relname AS referenced_table, nsf.nspname AS referenced_schema,
+         attf.attname AS referenced_column,
+         con.confdeltype, con.confupdtype, con.condeferrable, con.condeferred,
          con.convalidated, ord.n AS key_index
   FROM pg_constraint con
   JOIN pg_class cl ON cl.oid = con.conrelid
   JOIN pg_namespace ns ON ns.oid = cl.relnamespace
   JOIN pg_class clf ON clf.oid = con.confrelid
+  JOIN pg_namespace nsf ON nsf.oid = clf.relnamespace
   JOIN LATERAL unnest(con.conkey) WITH ORDINALITY AS ord(attnum, n) ON true
   JOIN pg_attribute att ON att.attrelid = con.conrelid AND att.attnum = ord.attnum
   JOIN pg_attribute attf ON attf.attrelid = con.confrelid AND attf.attnum = con.confkey[ord.n]
@@ -351,7 +353,7 @@ export function buildSchema(schema: string, raw: RawRows): IntrospectedSchema {
   // keys. Postgres keeps a key's name unique per table, not per schema.
   const fkByConstraint = new Map<
     string,
-    { name: string; table: string; columns: string[]; refTable: string; refColumns: string[]; confdeltype: string; lossy: boolean; notValid: boolean }
+    { name: string; table: string; columns: string[]; refTable: string; refSchema?: string; refColumns: string[]; confdeltype: string; onUpdate?: OnDeleteAction; deferrable?: IntrospectedFk["deferrable"]; notValid: boolean }
   >();
   for (const row of raw.fkRows) {
     const id = JSON.stringify([row.table_name, row.conname]);
@@ -365,10 +367,18 @@ export function buildSchema(schema: string, raw: RawRows): IntrospectedSchema {
         table: row.table_name,
         columns: [row.column_name],
         refTable: row.referenced_table,
+        ...(row.referenced_schema &&
+          row.referenced_schema !== schema && {
+            refSchema: row.referenced_schema,
+          }),
         refColumns: [row.referenced_column],
         confdeltype: row.confdeltype,
-        lossy:
-          (row.confupdtype ?? "a") !== "a" || row.condeferrable === true,
+        onUpdate: CONFDELTYPE_TO_ACTION[row.confupdtype],
+        ...(row.condeferrable === true && {
+          deferrable: row.condeferred
+            ? ("INITIALLY DEFERRED" as const)
+            : ("INITIALLY IMMEDIATE" as const),
+        }),
         notValid: row.convalidated === false,
       });
     }
@@ -379,9 +389,11 @@ export function buildSchema(schema: string, raw: RawRows): IntrospectedSchema {
     list.push({
       name: fk.name,
       ...(fk.notValid && { notValid: true }),
-      ...(fk.lossy && { otherActions: true }),
+      ...(fk.onUpdate && fk.onUpdate !== "NO ACTION" && { onUpdate: fk.onUpdate }),
+      ...(fk.deferrable && { deferrable: fk.deferrable }),
       columns: fk.columns,
       referencedTable: fk.refTable,
+      ...(fk.refSchema && { referencedSchema: fk.refSchema }),
       referencedColumns: fk.refColumns,
       onDelete: CONFDELTYPE_TO_ACTION[fk.confdeltype] ?? "NO ACTION",
     });

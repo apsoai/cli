@@ -359,6 +359,8 @@ export const parseRelationship = (
             foreignKeyName: relationship.foreignKeyName,
             primary: relationship.primary,
             validate: relationship.validate,
+            onUpdate: relationship.onUpdate,
+            deferrable: relationship.deferrable,
           },
         ],
       };
@@ -388,6 +390,8 @@ export const parseRelationship = (
             foreignKeyName: relationship.foreignKeyName,
             primary: relationship.primary,
             validate: relationship.validate,
+            onUpdate: relationship.onUpdate,
+            deferrable: relationship.deferrable,
             },
           ],
         };
@@ -408,6 +412,8 @@ export const parseRelationship = (
             foreignKeyName: relationship.foreignKeyName,
             primary: relationship.primary,
             validate: relationship.validate,
+            onUpdate: relationship.onUpdate,
+            deferrable: relationship.deferrable,
           },
         ],
         [relationship.to]: [
@@ -864,6 +870,11 @@ export const joinColumnErrors = (
             ]
           : []),
         ...keyAndNameErrors(entity, r, language),
+        ...(r.onUpdate || r.deferrable || r.onDelete === "SET DEFAULT"
+          ? [
+              `${entity} ${r.type} ${r.name} sets an ON UPDATE rule, "deferrable" or "SET DEFAULT". The ${language} generator cannot keep those foreign key rules yet; remove them or generate a TypeScript service.`,
+            ]
+          : []),
       ])
   );
 

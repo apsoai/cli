@@ -65,13 +65,33 @@
             "type": "string"
           },
           "onDelete": {
-            "description": "(Optional) The foreign key's ON DELETE rule on a ManyToOne or OneToMany. 'cascadeDelete': true is the same as 'CASCADE'. 'SET NULL' needs 'nullable': true. Defaults to 'NO ACTION'.",
+            "description": "(Optional) The foreign key's ON DELETE rule on a ManyToOne or OneToMany. 'cascadeDelete': true is the same as 'CASCADE'. 'SET NULL' needs 'nullable': true. Defaults to 'NO ACTION'. 'SET DEFAULT' is for TypeScript services only.",
             "type": "string",
             "enum": [
               "CASCADE",
               "SET NULL",
+              "SET DEFAULT",
               "RESTRICT",
               "NO ACTION"
+            ]
+          },
+          "onUpdate": {
+            "description": "(Optional) The foreign key's ON UPDATE rule on a ManyToOne or OneToMany: what happens to these rows when the referenced key changes. Defaults to 'NO ACTION'. 'apso import' sets it. TypeScript services only.",
+            "type": "string",
+            "enum": [
+              "CASCADE",
+              "SET NULL",
+              "SET DEFAULT",
+              "RESTRICT",
+              "NO ACTION"
+            ]
+          },
+          "deferrable": {
+            "description": "(Optional) Makes the foreign key of a ManyToOne or OneToMany DEFERRABLE. 'INITIALLY DEFERRED' checks it when the transaction commits, 'INITIALLY IMMEDIATE' after each statement unless the transaction defers it. 'apso import' sets it. TypeScript services only.",
+            "type": "string",
+            "enum": [
+              "INITIALLY IMMEDIATE",
+              "INITIALLY DEFERRED"
             ]
           },
           "joinTableName": {
@@ -508,8 +528,28 @@
                 "enum": [
                   "CASCADE",
                   "SET NULL",
+                  "SET DEFAULT",
                   "RESTRICT",
                   "NO ACTION"
+                ]
+              },
+              "onUpdate": {
+                "description": "What happens to these rows when the referenced key changes. Defaults to NO ACTION.",
+                "type": "string",
+                "enum": [
+                  "CASCADE",
+                  "SET NULL",
+                  "SET DEFAULT",
+                  "RESTRICT",
+                  "NO ACTION"
+                ]
+              },
+              "deferrable": {
+                "description": "Makes the key DEFERRABLE: 'INITIALLY DEFERRED' checks it at commit, 'INITIALLY IMMEDIATE' after each statement unless the transaction defers it.",
+                "type": "string",
+                "enum": [
+                  "INITIALLY IMMEDIATE",
+                  "INITIALLY DEFERRED"
                 ]
               },
               "validate": {

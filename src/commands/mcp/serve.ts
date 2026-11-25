@@ -1196,7 +1196,9 @@ is tracked separately.
 |---------|----|---------|
 | joinColumnName | relationship | The foreign key column's own name, e.g. \`patient_id\`. The property stays \`patientId\`. TypeScript only |
 | foreignKeyName | relationship | The foreign key constraint's name. TypeScript only |
-| onDelete | relationship | CASCADE, SET NULL, RESTRICT or NO ACTION. \`cascadeDelete: true\` is CASCADE |
+| onDelete | relationship | CASCADE, SET NULL, SET DEFAULT, RESTRICT or NO ACTION. \`cascadeDelete: true\` is CASCADE. SET DEFAULT is TypeScript only |
+| onUpdate | relationship | The same rules for a change to the referenced key. Defaults to NO ACTION. TypeScript only |
+| deferrable | relationship | \`INITIALLY DEFERRED\` or \`INITIALLY IMMEDIATE\`: the key is DEFERRABLE and checked at commit or per statement. TypeScript only |
 | primary | relationship | The foreign key column is the entity's primary key. No \`id\` is generated. TypeScript only |
 | primaryKeyName | entity | The primary key constraint's name. TypeScript only |
 | timestampType | entity | \`timestamp\` (default) or \`timestamptz\` for created_at and updated_at: one value, or \`{ "created_at": ..., "updated_at": ... }\` |
@@ -1206,7 +1208,7 @@ is tracked separately.
 | primary | field | The field is the primary key, or part of it |
 | elementType | field | Element type of an \`array\` field, e.g. \`uuid\` |
 | generated | field | The SQL expression of a stored generated column, e.g. \`(quantity * price)\`. Postgres computes it; create and update requests do not accept the field. TypeScript only |
-| foreignKeys | entity | A second foreign key on a column, as \`{ name, column, to, onDelete?, validate? }\`. A database constraint only; \`apso import\` writes it when a column has two keys. TypeScript only |
+| foreignKeys | entity | A second foreign key on a column, as \`{ name, column, to, onDelete?, onUpdate?, deferrable?, validate? }\`. A database constraint only; \`apso import\` writes it when a column has two keys. TypeScript only |
 
 In \`indexes\` and \`uniques\`, a foreign key may be named by its relationship (\`patient\`), its id property (\`patientId\`) or its column (\`patient_id\`).
 `;

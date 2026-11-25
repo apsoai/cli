@@ -1,3 +1,5 @@
+import { Deferrable, OnDelete } from "./relationship";
+
 export interface Unique {
   fields: string[];
   name?: string;
@@ -27,7 +29,11 @@ export interface ExtraForeignKey {
   column: string;
   /** The entity it references, by its primary key. */
   to: string;
-  onDelete?: "CASCADE" | "SET NULL" | "RESTRICT" | "NO ACTION";
+  onDelete?: OnDelete;
+  /** The key's ON UPDATE rule. Defaults to NO ACTION. */
+  onUpdate?: OnDelete;
+  /** Makes the key DEFERRABLE, checked as the value says. */
+  deferrable?: Deferrable;
   /** False keeps the key NOT VALID in migrations, as on a relationship. */
   validate?: boolean;
 }

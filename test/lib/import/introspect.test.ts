@@ -156,7 +156,10 @@ describe("buildSchema", () => {
       tableRows: ["invoices", "orders"].map((table_name) => ({ table_name, table_type: "BASE TABLE" })),
       columnRows: [],
       pkRows: [],
-      fkRows: [customerKeyRow("invoices"), customerKeyRow("orders", { confupdtype: "c" })],
+      fkRows: [
+        customerKeyRow("invoices", { referenced_schema: "billing", condeferrable: true, condeferred: true }),
+        customerKeyRow("orders", { referenced_schema: "public", confupdtype: "c", condeferrable: true, condeferred: false }),
+      ],
       uniqueRows: [],
       indexRows: [],
       enumRows: [],
@@ -164,8 +167,8 @@ describe("buildSchema", () => {
     });
     const key = { name: "fk_customer", columns: ["customer_id"], referencedTable: "customers", referencedColumns: ["id"], onDelete: "NO ACTION" };
     expect(result.tables.map((t) => [t.name, t.foreignKeys])).toEqual([
-      ["invoices", [key]],
-      ["orders", [{ ...key, otherActions: true }]],
+      ["invoices", [{ ...key, referencedSchema: "billing", deferrable: "INITIALLY DEFERRED" }]],
+      ["orders", [{ ...key, onUpdate: "CASCADE", deferrable: "INITIALLY IMMEDIATE" }]],
     ]);
   });
 

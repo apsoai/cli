@@ -92,3 +92,14 @@ CREATE TABLE review_marks (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz
 );
+-- Foreign key rules beyond ON DELETE, on a column's first key and its second,
+-- and a key onto a table whose primary key is itself a foreign key.
+CREATE TABLE setting_notes (
+  id serial PRIMARY KEY,
+  setting_id varchar(100) NOT NULL,
+  facility_id integer NOT NULL,
+  mrn_owner text,
+  CONSTRAINT setting_notes_setting_fk FOREIGN KEY (setting_id) REFERENCES tenant_settings(tenant_id) ON UPDATE CASCADE ON DELETE SET DEFAULT DEFERRABLE INITIALLY DEFERRED,
+  CONSTRAINT setting_notes_facility_fk FOREIGN KEY (facility_id) REFERENCES facilities(id),
+  CONSTRAINT setting_notes_facility_fk2 FOREIGN KEY (facility_id) REFERENCES facilities(id) ON UPDATE RESTRICT DEFERRABLE
+);

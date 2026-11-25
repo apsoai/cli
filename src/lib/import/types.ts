@@ -44,11 +44,15 @@ export interface IntrospectedFk {
   notValid?: boolean;
   /** The constraint's name in the source database. */
   name?: string;
-  /** The key has an ON UPDATE action or is DEFERRABLE; .apsorc states neither. */
-  otherActions?: boolean;
+  /** The key's ON UPDATE rule, when it is not NO ACTION. */
+  onUpdate?: OnDeleteAction;
+  /** Set when the key is DEFERRABLE: when it is checked. */
+  deferrable?: "INITIALLY IMMEDIATE" | "INITIALLY DEFERRED";
   /** Local column(s) participating in the FK. */
   columns: string[];
   referencedTable: string;
+  /** The referenced table's schema, when it is not the imported one. */
+  referencedSchema?: string;
   referencedColumns: string[];
   onDelete: OnDeleteAction;
 }
@@ -131,8 +135,9 @@ export interface ImportReport {
     /** "table.column" arrays whose element type is unknown, imported as text[]. */
     arraysLossy: string[];
     /**
-     * "table.constraint (column -> target)" for a second foreign key on a
-     * column that a "foreignKeys" entry cannot state. Left out of .apsorc.
+     * "table.constraint (column -> target.column)" for a foreign key that
+     * does not reference the primary key of an imported table. The column is
+     * kept as a plain field and the key is left out of .apsorc.
      */
     foreignKeysNotCarried: string[];
     /** "table.constraint" for CHECK constraints marked NOT VALID in the source. */

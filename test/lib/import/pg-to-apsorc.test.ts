@@ -486,33 +486,53 @@ describe("foreign keys", () => {
     ]);
   });
 
-  test("a second foreign key an entry cannot state exactly is reported and left out", () => {
+  test("a key that does not reference an imported table's primary key is reported, and its column kept", () => {
     const out = pgToApsorc(
       schema([
         table("patients", { primaryKey: ["id"], columns: [col("id", "uuid"), col("mrn", "uuid")] }),
         table("vitals", {
           primaryKey: ["id"],
-          columns: [col("id", "uuid"), col("patient_id", "uuid")],
+          columns: [col("id", "uuid"), col("patient_id", "uuid"), col("user_id", "uuid"), col("mrn", "uuid"), col("owner_id", "uuid")],
           foreignKeys: [
             second("first", {}),
-            second("to_a_table_not_imported", { referencedTable: "users" }),
-            second("to_a_column_that_is_not_the_key", { referencedColumns: ["mrn"] }),
-            second("set_default", { onDelete: "SET DEFAULT" }),
-            second("on_update_or_deferrable", { otherActions: true }),
-            second("kept", { onDelete: "RESTRICT" }),
+            second("second_to_a_column_that_is_not_the_key", { referencedColumns: ["mrn"] }),
+            { ...fk("user_id", "users"), name: "to_a_table_not_imported" },
+            { ...fk("mrn", "patients"), name: "to_a_column_that_is_not_the_key", referencedColumns: ["mrn"] },
+            { ...fk("owner_id", "patients"), name: "to_another_schema", referencedSchema: "auth" },
           ],
         }),
       ])
     );
-    expect(findEntity(out, "vitals").foreignKeys).toEqual([
-      { name: "kept", column: "patient_id", to: "patients", onDelete: "RESTRICT" },
-    ]);
+    expect(out.apsorc.relationships.map((r) => r.foreignKeyName)).toEqual(["first"]);
+    expect(findEntity(out, "vitals").foreignKeys).toBeUndefined();
+    expect(findEntity(out, "vitals").fields?.map((f) => f.name)).toEqual(["user_id", "mrn", "owner_id"]);
     expect(out.report.warnings.foreignKeysNotCarried).toEqual([
-      "vitals.to_a_table_not_imported (patient_id -> users)",
-      "vitals.to_a_column_that_is_not_the_key (patient_id -> patients)",
-      "vitals.set_default (patient_id -> patients)",
-      "vitals.on_update_or_deferrable (patient_id -> patients)",
+      "vitals.second_to_a_column_that_is_not_the_key (patient_id -> patients.mrn)",
+      "vitals.to_a_table_not_imported (user_id -> users.id)",
+      "vitals.to_a_column_that_is_not_the_key (mrn -> patients.mrn)",
+      "vitals.to_another_schema (owner_id -> auth.patients.id)",
     ]);
+  });
+
+  test("a key's ON UPDATE rule, SET DEFAULT and DEFERRABLE are kept, on a relationship and on a second key", () => {
+    const rules = { onDelete: "SET DEFAULT" as const, onUpdate: "CASCADE" as const, deferrable: "INITIALLY DEFERRED" as const };
+    const out = pgToApsorc(
+      schema([
+        table("patients", { primaryKey: ["id"], columns: [col("id", "uuid")] }),
+        table("vitals", {
+          primaryKey: ["id"],
+          columns: [col("id", "uuid"), col("patient_id", "uuid")],
+          foreignKeys: [second("first", rules), second("again", { ...rules, deferrable: "INITIALLY IMMEDIATE" })],
+        }),
+      ])
+    );
+    expect(out.apsorc.relationships).toEqual([
+      { from: "vitals", to: "patients", type: "ManyToOne", to_name: "patient", joinColumnName: "patient_id", foreignKeyName: "first", ...rules },
+    ]);
+    expect(findEntity(out, "vitals").foreignKeys).toEqual([
+      { name: "again", column: "patient_id", to: "patients", ...rules, deferrable: "INITIALLY IMMEDIATE" },
+    ]);
+    expect(out.report.warnings.foreignKeysNotCarried).toEqual([]);
   });
 
   test("a primary key that is also a foreign key stays the key, on the relationship", () => {

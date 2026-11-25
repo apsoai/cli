@@ -33,7 +33,7 @@ const timestampArgs = (entity: Entity, column: TimestampColumn): string => {
   ];
   return args.length > 0 ? `{ ${args.join(", ")} }` : "";
 };
-import { onDeleteOf } from "../types/relationship";
+import { keyRuleOptions, onDeleteOf } from "../types/relationship";
 import {
   extraForeignKeys,
   keyColumn,
@@ -217,10 +217,22 @@ export class TypeScriptGenerator extends BaseGenerator {
         ),
       }));
 
-    const foreignKeys = extraForeignKeys(
-      entity,
-      new Map(allEntities.map((e) => [e.name, e]))
-    );
+    const schema = {
+      entities: allEntities,
+      relationshipMap: {
+        ...this.config.relationshipMap,
+        [name]: relationships,
+      },
+    };
+    const foreignKeys = extraForeignKeys(entity, schema).map((k) => ({
+      ...k,
+      options: [
+        `name: ${JSON.stringify(k.name)}`,
+        keyRuleOptions(k.onDelete, k),
+      ]
+        .filter(Boolean)
+        .join(", "),
+    }));
 
     const data = {
       name,
@@ -251,10 +263,13 @@ export class TypeScriptGenerator extends BaseGenerator {
       ),
       associations: [...new Set(relationshipsForTemplate)].map((r) => {
         // A foreign key column copies the type of the key it references.
-        const key = keyColumn(allEntities.find((e) => e.name === r.name));
+        const key = keyColumn(
+          allEntities.find((e) => e.name === r.name),
+          schema
+        );
         return {
           ...r,
-          onDeleteRule: onDeleteOf(r),
+          keyRules: keyRuleOptions(onDeleteOf(r), r),
           fkColumnOptions: key.options,
           fkTsType: key.ts,
         };
@@ -474,7 +489,10 @@ export class TypeScriptGenerator extends BaseGenerator {
       if (rel.type === "ManyToOne") {
         const fkName = camelCase(rel.referenceName || rel.name) + "Id";
         const referencedEntity = allEntities?.find((e) => e.name === rel.name);
-        const fkDataType = keyColumn(referencedEntity).ts;
+        const fkDataType = keyColumn(referencedEntity, {
+          entities: allEntities ?? [],
+          relationshipMap: this.config.relationshipMap ?? {},
+        }).ts;
         const fkType = fkDataType === "string" ? "text" : "integer";
 
         if (!columns.some((col) => col.name === fkName)) {

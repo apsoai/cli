@@ -3,6 +3,8 @@
 exports[`schemaDdl coverage runs on Postgres and matches its snapshot 1`] = `
 [
   "CREATE TYPE "public"."account_tier_enum" AS ENUM('free', 'pro')",
+  "CREATE TABLE "flag_note" ("id" SERIAL NOT NULL, "note" text NOT NULL, "rank" integer NOT NULL DEFAULT '0', "account_flag_id" integer NOT NULL, CONSTRAINT "PK_ee33cacf3f93193e99865187790" PRIMARY KEY ("id"))",
+  "CREATE TABLE "account_flag" ("flag" text NOT NULL, "account_id" integer NOT NULL, CONSTRAINT "PK_7ac40928fe48cf1bd1b91d8c0eb" PRIMARY KEY ("account_id"))",
   "CREATE TABLE "post" ("id" SERIAL NOT NULL, "title" text NOT NULL, "accountId" integer NOT NULL, "profileId" integer, CONSTRAINT "PK_be5fda3aac270b134ff9c21cdee" PRIMARY KEY ("id"))",
   "CREATE TABLE "tag" ("id" SERIAL NOT NULL, "label" character varying(255) NOT NULL, CONSTRAINT "UQ_647c189a51deb35bc452751bc4a" UNIQUE ("label"), CONSTRAINT "PK_8e4052373c579afc1471f526760" PRIMARY KEY ("id"))",
   "CREATE TABLE "account_profile" ("id" SERIAL NOT NULL, "bio" character varying(500), CONSTRAINT "PK_928b8a91ee2e4bceee8c0ddf0cd" PRIMARY KEY ("id"))",
@@ -23,7 +25,10 @@ exports[`schemaDdl coverage runs on Postgres and matches its snapshot 1`] = `
   "ALTER TABLE "post_tags_tag" ADD CONSTRAINT "FK_b651178cc41334544a7a9601c45" FOREIGN KEY ("postId") REFERENCES "post"("id") ON DELETE CASCADE ON UPDATE CASCADE",
   "ALTER TABLE "post_tags_tag" ADD CONSTRAINT "FK_41e7626b9cc03c5c65812ae55e8" FOREIGN KEY ("tagId") REFERENCES "tag"("id") ON DELETE CASCADE ON UPDATE CASCADE",
   "ALTER TABLE "post" ADD CONSTRAINT "post_account_second_fk" FOREIGN KEY ("accountId") REFERENCES "account"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
-  "ALTER TABLE "post" ADD CONSTRAINT "post_account_tag_fk" FOREIGN KEY ("accountId") REFERENCES "tag"("id") ON DELETE CASCADE ON UPDATE NO ACTION",
+  "ALTER TABLE "post" ADD CONSTRAINT "post_account_tag_fk" FOREIGN KEY ("accountId") REFERENCES "tag"("id") ON DELETE CASCADE ON UPDATE CASCADE DEFERRABLE INITIALLY DEFERRED",
+  "ALTER TABLE "account_flag" ADD CONSTRAINT "FK_7ac40928fe48cf1bd1b91d8c0eb" FOREIGN KEY ("account_id") REFERENCES "account"("id") ON DELETE NO ACTION ON UPDATE CASCADE DEFERRABLE INITIALLY IMMEDIATE",
+  "ALTER TABLE "flag_note" ADD CONSTRAINT "FK_2e12bf67fa5a15947e3409b06b5" FOREIGN KEY ("account_flag_id") REFERENCES "account_flag"("account_id") ON DELETE SET DEFAULT ON UPDATE RESTRICT DEFERRABLE INITIALLY DEFERRED",
+  "ALTER TABLE "flag_note" ADD CONSTRAINT "flag_note_second_fk" FOREIGN KEY ("account_flag_id") REFERENCES "account_flag"("account_id") ON DELETE NO ACTION ON UPDATE NO ACTION",
 ]
 `;
 
