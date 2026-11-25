@@ -44,6 +44,8 @@ export interface IntrospectedFk {
   notValid?: boolean;
   /** The constraint's name in the source database. */
   name?: string;
+  /** The key has an ON UPDATE action or is DEFERRABLE; .apsorc states neither. */
+  otherActions?: boolean;
   /** Local column(s) participating in the FK. */
   columns: string[];
   referencedTable: string;
@@ -128,6 +130,11 @@ export interface ImportReport {
   warnings: {
     /** "table.column" arrays whose element type is unknown, imported as text[]. */
     arraysLossy: string[];
+    /**
+     * "table.constraint (column -> target)" for a second foreign key on a
+     * column that a "foreignKeys" entry cannot state. Left out of .apsorc.
+     */
+    foreignKeysNotCarried: string[];
     /** "table.constraint" for CHECK constraints marked NOT VALID in the source. */
     checksNotValid: string[];
     /**

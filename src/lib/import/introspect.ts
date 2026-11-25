@@ -176,7 +176,8 @@ const PRIMARY_KEYS_SQL = `
 const FOREIGN_KEYS_SQL = `
   SELECT con.conname, cl.relname AS table_name, att.attname AS column_name,
          clf.relname AS referenced_table, attf.attname AS referenced_column,
-         con.confdeltype, con.convalidated, ord.n AS key_index
+         con.confdeltype, con.confupdtype, con.condeferrable,
+         con.convalidated, ord.n AS key_index
   FROM pg_constraint con
   JOIN pg_class cl ON cl.oid = con.conrelid
   JOIN pg_namespace ns ON ns.oid = cl.relnamespace
@@ -346,33 +347,39 @@ export function buildSchema(schema: string, raw: RawRows): IntrospectedSchema {
     if (row.conname) pkNameByTable.set(row.table_name, row.conname);
   }
 
-  // Foreign keys (grouped by constraint name to handle composite keys)
+  // Foreign keys, grouped by table and constraint name to handle composite
+  // keys. Postgres keeps a key's name unique per table, not per schema.
   const fkByConstraint = new Map<
     string,
-    { table: string; columns: string[]; refTable: string; refColumns: string[]; confdeltype: string; notValid: boolean }
+    { name: string; table: string; columns: string[]; refTable: string; refColumns: string[]; confdeltype: string; lossy: boolean; notValid: boolean }
   >();
   for (const row of raw.fkRows) {
-    const existing = fkByConstraint.get(row.conname);
+    const id = JSON.stringify([row.table_name, row.conname]);
+    const existing = fkByConstraint.get(id);
     if (existing) {
       existing.columns.push(row.column_name);
       existing.refColumns.push(row.referenced_column);
     } else {
-      fkByConstraint.set(row.conname, {
+      fkByConstraint.set(id, {
+        name: row.conname,
         table: row.table_name,
         columns: [row.column_name],
         refTable: row.referenced_table,
         refColumns: [row.referenced_column],
         confdeltype: row.confdeltype,
+        lossy:
+          (row.confupdtype ?? "a") !== "a" || row.condeferrable === true,
         notValid: row.convalidated === false,
       });
     }
   }
   const fksByTable = new Map<string, IntrospectedFk[]>();
-  for (const [name, fk] of fkByConstraint.entries()) {
+  for (const fk of fkByConstraint.values()) {
     const list = fksByTable.get(fk.table) ?? [];
     list.push({
-      name,
+      name: fk.name,
       ...(fk.notValid && { notValid: true }),
+      ...(fk.lossy && { otherActions: true }),
       columns: fk.columns,
       referencedTable: fk.refTable,
       referencedColumns: fk.refColumns,

@@ -313,6 +313,43 @@ describe("a second foreign key on a column", () => {
     await db.close();
   });
 
+  test("renaming the entity or the column it names carries the entry along", async () => {
+    const key = { name: "vital_patient_fk2", column: "patient_id", to: "Patient" };
+    const before = vitalSchema([key]);
+    const after: ApsorcType = {
+      ...before,
+      entities: [
+        { name: "Person", fields: [] },
+        { name: "Vital", fields: [{ name: "person_id", type: "integer" }], foreignKeys: [{ ...key, column: "person_id", to: "Person" }] },
+      ],
+    };
+    const plan = planMigration(before, after);
+    for (const x of plan.questions)
+      x.answer = x.kind === "removedEntity" ? "rename:Person" : "rename:person_id";
+    expect(plan.questions.map((x) => x.kind).sort()).toEqual(["removedEntity", "removedField"]);
+    const db = await pglite();
+    await db.exec(schemaDdl(parseApsorcV2(before)).join(";\n"));
+    const { up } = changeDdl(before, after, plan);
+    expect(up).toEqual(expect.arrayContaining([
+      'ALTER TABLE "patient" RENAME TO "person"',
+      'ALTER TABLE "vital" RENAME COLUMN "patient_id" TO "person_id"',
+    ]));
+    await db.exec(up.join(";\n"));
+    const fresh = await pglite();
+    await fresh.exec(schemaDdl(parseApsorcV2(after)).join(";\n"));
+    expect(catalogDiff(await readCatalog(fresh), await readCatalog(db))).toEqual([]);
+    expect(() => downDdl(before, after, plan)).not.toThrow();
+    await fresh.close();
+    await db.close();
+  });
+
+  test("a name another foreign key on the table already has is refused", () => {
+    const key = { name: "fk2", column: "patient_id", to: "Patient" };
+    expect(() => schemaDdl(parseApsorcV2(vitalSchema([key, key])))).toThrow(
+      'Vital "foreignKeys" entry "fk2" repeats the name of another foreign key on Vital.'
+    );
+  });
+
   test("an entry on a column the entity does not have is refused", () => {
     const apsorc = parseApsorcV2({
       version: 2,

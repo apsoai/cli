@@ -49,7 +49,11 @@ function applyRenames(
     const f = copy.entities
       .find((e) => e.name === entity)
       ?.fields?.find((g) => g.name === field);
-    if (f) f.name = x.answer!.slice("rename:".length);
+    if (!f) continue;
+    f.name = x.answer!.slice("rename:".length);
+    for (const k of copy.entities.find((e) => e.name === entity)?.foreignKeys ??
+      [])
+      if (k.column === field) k.column = f.name;
   }
   for (const x of answered(plan, "removedEntity")) {
     if (!x.answer!.startsWith("rename:")) continue;
@@ -65,6 +69,8 @@ function applyRenames(
       if (r.from === from) r.from = to;
       if (r.to === from) r.to = to;
     }
+    for (const k of copy.entities.flatMap((y) => y.foreignKeys ?? []))
+      if (k.to === from) k.to = to;
   }
   return copy;
 }

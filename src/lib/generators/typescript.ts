@@ -34,7 +34,12 @@ const timestampArgs = (entity: Entity, column: TimestampColumn): string => {
   return args.length > 0 ? `{ ${args.join(", ")} }` : "";
 };
 import { onDeleteOf } from "../types/relationship";
-import { extraForeignKeys, keyColumn, sqlIndexStatements } from "../ddl";
+import {
+  extraForeignKeys,
+  keyColumn,
+  schemaModel,
+  sqlIndexStatements,
+} from "../ddl";
 // Utilities available for future use: createFile from "../utils/file-system"
 import {
   getFieldForTemplate,
@@ -125,6 +130,17 @@ export class TypeScriptGenerator extends BaseGenerator {
         }
       }
     }
+
+    // "foreignKeys" entries are checked by the writer `apso migrate` uses.
+    if ((config.entities ?? []).some((e) => e.foreignKeys?.length))
+      try {
+        schemaModel({
+          entities: config.entities,
+          relationshipMap: config.relationshipMap ?? {},
+        });
+      } catch (error) {
+        errors.push((error as Error).message);
+      }
 
     // Validate API type
     if (config.apiType && !["rest", "graphql"].includes(config.apiType)) {

@@ -23,7 +23,9 @@ import {
     Index,
     Unique,
     Check,
+<% if (it.foreignKeys.length > 0) { %>
     ForeignKey,
+<% } %>
     PrimaryColumn
 } from "typeorm";
 import {

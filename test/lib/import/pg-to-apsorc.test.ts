@@ -251,6 +251,8 @@ const fk = (column: string, referencedTable: string) => ({
   onDelete: "NO ACTION" as const,
 });
 
+const second = (name: string, more: object) => ({ ...fk("patient_id", "patients"), name, ...more });
+
 const importedRule = (onDelete: string) =>
   pgToApsorc(
     schema([
@@ -481,6 +483,35 @@ describe("foreign keys", () => {
     expect(out.apsorc.relationships.map((r) => r.foreignKeyName)).toEqual(["vitals_patient_id_fk"]);
     expect(out.apsorc.entities.find((e) => e.name === "vitals")?.foreignKeys).toEqual([
       { name: "vitals_patient_id_fkey", column: "patient_id", to: "patients" },
+    ]);
+  });
+
+  test("a second foreign key an entry cannot state exactly is reported and left out", () => {
+    const out = pgToApsorc(
+      schema([
+        table("patients", { primaryKey: ["id"], columns: [col("id", "uuid"), col("mrn", "uuid")] }),
+        table("vitals", {
+          primaryKey: ["id"],
+          columns: [col("id", "uuid"), col("patient_id", "uuid")],
+          foreignKeys: [
+            second("first", {}),
+            second("to_a_table_not_imported", { referencedTable: "users" }),
+            second("to_a_column_that_is_not_the_key", { referencedColumns: ["mrn"] }),
+            second("set_default", { onDelete: "SET DEFAULT" }),
+            second("on_update_or_deferrable", { otherActions: true }),
+            second("kept", { onDelete: "RESTRICT" }),
+          ],
+        }),
+      ])
+    );
+    expect(findEntity(out, "vitals").foreignKeys).toEqual([
+      { name: "kept", column: "patient_id", to: "patients", onDelete: "RESTRICT" },
+    ]);
+    expect(out.report.warnings.foreignKeysNotCarried).toEqual([
+      "vitals.to_a_table_not_imported (patient_id -> users)",
+      "vitals.to_a_column_that_is_not_the_key (patient_id -> patients)",
+      "vitals.set_default (patient_id -> patients)",
+      "vitals.on_update_or_deferrable (patient_id -> patients)",
     ]);
   });
 

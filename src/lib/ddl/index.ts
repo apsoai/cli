@@ -682,6 +682,10 @@ export function schemaModel(input: SchemaInput): Model {
         throw new Error(
           `${e.name} "foreignKeys" entry "${k.name}" names column "${k.column}", which ${e.name} does not have.`
         );
+      if (foreignKeys.some((c) => c.table === table && c.name === k.name))
+        throw new Error(
+          `${e.name} "foreignKeys" entry "${k.name}" repeats the name of another foreign key on ${e.name}.`
+        );
       foreignKey(
         table,
         k.column,

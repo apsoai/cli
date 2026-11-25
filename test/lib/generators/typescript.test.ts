@@ -873,6 +873,22 @@ describe("a second foreign key on a column", () => {
     expect(content).not.toContain("import {Vital}");
   });
 
+  test("an entity without one does not import the decorator", async () => {
+    const plain: Entity = { name: "Plain", fields: [] };
+    const generator = new TypeScriptGenerator(createConfig([plain]));
+    const files = await generator.generateEntity({ entity: plain, relationships: [], allEntities: [plain], apiType: "rest" });
+    expect(findFileContent(files, "Plain.entity")).not.toContain("ForeignKey");
+  });
+
+  test("a bad entry is refused before any file is written", () => {
+    const patient: Entity = { name: "Patient", fields: [] };
+    const vital: Entity = { name: "Vital", fields: [], foreignKeys: [{ name: "fk2", column: "patientid", to: "Patient" }] };
+    const config = createConfig([patient, vital]);
+    expect(new TypeScriptGenerator(config).validateConfig(config).errors).toEqual([
+      'Vital "foreignKeys" entry "fk2" names column "patientid", which Vital does not have.',
+    ]);
+  });
+
   test("an entry that names no entity is refused", async () => {
     const vital: Entity = { name: "Vital", fields: [], foreignKeys: [{ name: "fk2", column: "x", to: "Nobody" }] };
     const generator = new TypeScriptGenerator(createConfig([vital]));
