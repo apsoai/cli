@@ -160,3 +160,22 @@ describe("describeQuestion", () => {
     expect(d.sqlHint).toBeUndefined();
   });
 });
+
+const ledgerWith = (state: object) => ({ version: 2, entities: [{ name: "Ledger", fields: [{ name: "label", type: "text" }, state] }] } as never);
+
+describe('an enum field with "default": null', () => {
+  const schema = ledgerWith;
+  const nullable = { name: "state", type: "enum", values: ["open", "held"], nullable: true, default: null };
+  const required = { name: "state", type: "enum", values: ["open", "held"], default: null };
+
+  test("asks how to fill existing rows when it becomes required", () => {
+    const p = planMigration(schema(nullable), schema(required));
+    expect(p.questions.map((q) => q.id)).toEqual(["backfill:Ledger.state"]);
+  });
+
+  test("asks when it is added as a required field", () => {
+    const before = { version: 2, entities: [{ name: "Ledger", fields: [{ name: "label", type: "text" }] }] } as never;
+    const p = planMigration(before, schema(required));
+    expect(p.questions.map((q) => q.kind)).toEqual(["backfill"]);
+  });
+});

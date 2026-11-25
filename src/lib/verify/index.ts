@@ -6,7 +6,7 @@
  */
 
 import { ChildProcess, spawn } from "child_process";
-import { randomBytes } from "crypto";
+import { randomBytes, randomUUID } from "crypto";
 import * as fs from "fs";
 import * as http from "http";
 import * as net from "net";
@@ -664,6 +664,7 @@ async function checkEndpoints(
       continue;
     }
     const body = { ...p.payload };
+    if (p.suppliesId) body.id = randomUUID();
     for (const parent of p.parents)
       body[parent.property] = ids.get(parent.entity);
     const created = await request("POST", base + r, body);

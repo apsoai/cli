@@ -103,3 +103,17 @@ CREATE TABLE setting_notes (
   CONSTRAINT setting_notes_facility_fk FOREIGN KEY (facility_id) REFERENCES facilities(id),
   CONSTRAINT setting_notes_facility_fk2 FOREIGN KEY (facility_id) REFERENCES facilities(id) ON UPDATE RESTRICT DEFERRABLE
 );
+
+-- A bigint id stays bigint, a uuid id with no default gains none, and an enum
+-- type keeps its name, also when two columns share it.
+CREATE TYPE review_state AS ENUM ('open', 'held', 'closed');
+CREATE TABLE audit_events (
+  id bigserial PRIMARY KEY,
+  state review_state NOT NULL DEFAULT 'open',
+  prior_state review_state
+);
+CREATE TABLE audit_event_notes (
+  id uuid PRIMARY KEY,
+  audit_event_id bigint NOT NULL REFERENCES audit_events(id) ON DELETE CASCADE,
+  body text NOT NULL
+);

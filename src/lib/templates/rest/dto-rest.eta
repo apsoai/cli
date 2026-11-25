@@ -177,7 +177,7 @@ export class <%= it.entityName %>Update {
 export class <%= it.entityName %> {
 <% if (it.addDefaultPKProperty) { %>
     @ApiProperty()
-    id: <%= (it.primaryKeyType === 'uuid' || it.primaryKeyType === 'text') ? 'string' : 'number' %>;
+    id: <%= (it.primaryKeyType === 'uuid' || it.primaryKeyType === 'text' || it.primaryKeyType === 'bigserial') ? 'string' : 'number' %>;
 
 <% } -%>
 <% it.columns.forEach((field) => { -%>

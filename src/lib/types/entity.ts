@@ -104,7 +104,12 @@ export interface Entity {
    * column has none.
    */
   timestampDefault?: boolean | Partial<Record<TimestampColumn, boolean>>;
-  primaryKeyType?: "serial" | "uuid";
+  /**
+   * Type of the generated id: "serial" (integer with a sequence, the default),
+   * "bigserial" (bigint with a sequence), "uuid" or "text". `apso import`
+   * writes "bigserial" for a bigint id so no id is narrowed to 32 bits.
+   */
+  primaryKeyType?: "serial" | "bigserial" | "uuid" | "text";
   /**
    * Name of the primary key constraint. Defaults to the name TypeORM derives.
    * `apso import` sets it so an existing database keeps its constraint names.
@@ -114,7 +119,7 @@ export interface Entity {
    * SQL expression that fills a uuid "id", for example "gen_random_uuid()".
    * Defaults to uuid_generate_v4() from the uuid-ossp extension.
    */
-  primaryKeyDefault?: string;
+  primaryKeyDefault?: string | null;
   fields?: Field[];
   indexes?: Index[];
   /** Indexes on an expression or a descending column. */

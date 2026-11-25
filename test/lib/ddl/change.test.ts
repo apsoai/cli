@@ -447,3 +447,28 @@ describe("extensions", () => {
     ).toBe(false);
   });
 });
+
+const ledgerSchema = (primaryKeyType?: string) =>
+  ({
+    version: 2,
+    entities: [{ name: "Ledger", ...(primaryKeyType && { primaryKeyType }), fields: [{ name: "label", type: "text" }] }],
+  } as unknown as ApsorcType);
+
+test("serial to bigserial widens the sequence as well as the column", async () => {
+  const [before, after] = [ledgerSchema(), ledgerSchema("bigserial")];
+  const plan = planMigration(before, after);
+  const db = await pglite();
+  await db.exec(schemaDdl(parseApsorcV2(before)).join(";\n"));
+  const types = async () => {
+    const res = await db.query<{ t: string }>(
+      `select data_type::text as t from information_schema.columns where table_name = 'ledger' and column_name = 'id'
+       union all select data_type::text from pg_sequences where sequencename = 'ledger_id_seq'`
+    );
+    return res.rows.map((r) => r.t);
+  };
+  await db.exec(changeDdl(before, after, plan).up.join(";\n"));
+  expect(await types()).toEqual(["bigint", "bigint"]);
+  const { down } = downDdl(before, after, plan) as { down: string[] };
+  await db.exec(down.join(";\n"));
+  expect(await types()).toEqual(["integer", "integer"]);
+});

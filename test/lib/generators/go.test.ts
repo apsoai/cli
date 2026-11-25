@@ -1211,3 +1211,20 @@ describe("GoGenerator", () => {
     );
   });
 });
+
+describe("import settings the Go generator refuses", () => {
+  test("bigserial, a uuid id with no default and enumName", () => {
+    const entities = [
+      { name: "Ledger", primaryKeyType: "bigserial", fields: [{ name: "state", type: "enum", values: ["open"], enumName: "review_state" }] },
+      { name: "Profile", primaryKeyType: "uuid", primaryKeyDefault: null, fields: [{ name: "label", type: "text" }] },
+    ] as Entity[];
+    const errors = new GoGenerator(createConfig(entities)).validateConfig(createConfig(entities)).errors;
+    expect(errors).toEqual(
+      expect.arrayContaining([
+        'Ledger sets "primaryKeyType": "bigserial". The Go generator cannot make a bigint id yet; remove it or generate a TypeScript service.',
+        'Ledger.state sets "enumName". The Go generator cannot keep an enum type\'s name yet; remove it or generate a TypeScript service.',
+        'Profile sets "primaryKeyDefault": null. The Go generator cannot make a uuid id without a default yet; remove it or generate a TypeScript service.',
+      ])
+    );
+  });
+});

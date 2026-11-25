@@ -101,3 +101,15 @@ describe("readDotEnv", () => {
     expect(readDotEnv(path.join(dir, "missing"))).toEqual({});
   });
 });
+
+describe("a uuid id with no default", () => {
+  test("the plan says each create sends the id", () => {
+    const profile: Entity = { name: "Profile", primaryKeyType: "uuid", primaryKeyDefault: null, fields: [{ name: "label", type: "text" }] };
+    const token: Entity = { name: "Token", primaryKeyType: "uuid", fields: [{ name: "label", type: "text" }] };
+    const plan = planCrud([profile, token], parseRelationships([]));
+    expect(plan.order.map((p) => [p.name, p.suppliesId])).toEqual([
+      ["Profile", true],
+      ["Token", undefined],
+    ]);
+  });
+});

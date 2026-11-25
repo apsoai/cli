@@ -40,6 +40,12 @@ export interface Field {
   scale?: number;
   /** Postgres element type of an "array" field; text when unset. */
   elementType?: string;
+  /**
+   * Name of the Postgres enum type of an "enum" field. Defaults to
+   * `<table>_<column>_enum`. `apso import` sets it so an existing database
+   * keeps its type name; two fields may share one type. TypeScript only.
+   */
+  enumName?: string;
   /* eslint-disable-next-line  camelcase */
   is_email?: boolean;
 }

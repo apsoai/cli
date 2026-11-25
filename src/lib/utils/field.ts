@@ -234,6 +234,9 @@ const literalDefault = (
   }
 };
 
+/** An enum type name Apso can write unquoted-safe in every statement. */
+export const ENUM_NAME = /^[A-Z_a-z]\w*$/;
+
 export const getFieldForTemplate = (
   fields: Field[],
   entityName: string
@@ -250,6 +253,13 @@ export const getFieldForTemplate = (
           `${entityName}.${field.name} sets "generated" and "${clash}". Postgres computes a generated column, so it cannot have a default or be the primary key.`
         );
     }
+
+    if (field.enumName !== undefined && !ENUM_NAME.test(field.enumName))
+      throw new Error(
+        `${entityName}.${field.name} sets "enumName": ${JSON.stringify(
+          field.enumName
+        )}. An enum type's name is letters, digits and underscores, and does not start with a digit.`
+      );
 
     // Normalize field type for template lookup (e.g., "double precision" -> "double")
     const normalizedType = normalizeFieldType(field.type);

@@ -70,7 +70,13 @@ const { CREATE, UPDATE } = CrudValidationGroups;
 export class <%= it.name %> {
 <% if (it.createPrimaryKey) { %>
     // Fields
-    <% if (it.primaryKeyType === 'uuid') { %>
+    <% if (it.primaryKeyType === 'uuid' && it.primaryKeyDefault === null) { %>
+    @PrimaryColumn({ type: 'uuid'<% if (it.primaryKeyName) { %>, primaryKeyConstraintName: '<%= it.primaryKeyName %>'<% } %> })
+    id: string;
+    <% } else if (it.primaryKeyType === 'bigserial') { %>
+    @PrimaryGeneratedColumn({ type: 'bigint'<% if (it.primaryKeyName) { %>, primaryKeyConstraintName: '<%= it.primaryKeyName %>'<% } %> })
+    id!: string;
+    <% } else if (it.primaryKeyType === 'uuid') { %>
     <% if (it.primaryKeyDefault) { %>
     @PrimaryColumn({ type: 'uuid', default: () => <%~ JSON.stringify(it.primaryKeyDefault) %><% if (it.primaryKeyName) { %>, primaryKeyConstraintName: '<%= it.primaryKeyName %>'<% } %> })
     <% if (it.primaryKeyGenerated) { %>
