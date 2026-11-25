@@ -409,6 +409,11 @@ describe("targetColumnsFromSchema", () => {
     const map = targetColumnsFromSchema(
       schema([table("users", { columns: [col("id"), col("email", "text", 2)] })])
     );
-    expect(map.get("users")).toEqual(new Set(["id", "email"]));
+    expect(map.get("users")).toEqual(
+      new Map([
+        ["id", "text"],
+        ["email", "text"],
+      ])
+    );
   });
 });

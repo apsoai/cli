@@ -15,6 +15,7 @@ export {
   targetTableName,
   targetColumnsFromSchema,
   buildInsertSql,
+  buildSelectSql,
   coerceValue,
 } from "./copy-data";
 export type {
