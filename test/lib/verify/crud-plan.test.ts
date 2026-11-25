@@ -113,3 +113,20 @@ describe("a uuid id with no default", () => {
     ]);
   });
 });
+
+describe("a composite primary key", () => {
+  test("is skipped, with the reason", () => {
+    const limit: Entity = {
+      name: "RateLimit",
+      fields: [
+        { name: "bucket", type: "text", primary: true },
+        { name: "window_start", type: "timestamptz", primary: true },
+      ],
+    };
+    const plan = planCrud([limit], parseRelationships([]));
+    expect(plan.order).toEqual([]);
+    expect(plan.skipped).toEqual([
+      { name: "RateLimit", reason: "its primary key is 2 columns (bucket, window_start), so the service has no route that reads or deletes one row" },
+    ]);
+  });
+});
