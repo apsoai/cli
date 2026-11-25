@@ -50,6 +50,10 @@
     },
     {
       "name": "Post",
+      "foreignKeys": [
+        { "name": "post_account_second_fk", "column": "accountId", "to": "Account" },
+        { "name": "post_account_tag_fk", "column": "accountId", "to": "Tag", "onDelete": "CASCADE" }
+      ],
       "fields": [{ "name": "title", "type": "string" }]
     }
   ],

@@ -1,4 +1,4 @@
-import { Unique, Check } from "./constraints";
+import { Unique, Check, ExtraForeignKey } from "./constraints";
 import { Field } from "./field";
 import { Index, SqlIndex } from "./indices";
 import { Association } from "./relationship";
@@ -122,6 +122,8 @@ export interface Entity {
   uniques?: Unique[];
   /** CHECK constraints, for example "end_date >= start_date". */
   checks?: Check[];
+  /** A second foreign key on a column that a relationship already keys. */
+  foreignKeys?: ExtraForeignKey[];
 
   /**
    * Fields or paths that define the authorization scope for this entity.

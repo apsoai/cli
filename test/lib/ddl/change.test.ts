@@ -280,6 +280,88 @@ describe("generated columns", () => {
   });
 });
 
+const vitalSchema = (foreignKeys?: ApsorcType["entities"][number]["foreignKeys"]): ApsorcType => ({
+  version: 2,
+  rootFolder: "src",
+  apiType: "Rest" as ApsorcType["apiType"],
+  entities: [
+    { name: "Patient", fields: [] },
+    { name: "Vital", fields: [{ name: "patient_id", type: "integer" }], ...(foreignKeys && { foreignKeys }) },
+  ],
+  relationships: [],
+});
+
+describe("a second foreign key on a column", () => {
+  test("added, then removed", async () => {
+    const key = { name: "vital_patient_fk2", column: "patient_id", to: "Patient", onDelete: "CASCADE" as const };
+    const versions = [vitalSchema(), vitalSchema([key]), vitalSchema()];
+    const db = await pglite();
+    await db.exec(schemaDdl(parseApsorcV2(versions[0])).join(";\n"));
+    const upAfter = async (step: number) => {
+      const plan = planMigration(versions[step - 1], versions[step]);
+      expect(openQuestions(plan)).toEqual([]);
+      const { up } = changeDdl(versions[step - 1], versions[step], plan);
+      await db.exec(up.join(";\n"));
+      const fresh = await pglite();
+      await fresh.exec(schemaDdl(parseApsorcV2(versions[step])).join(";\n"));
+      expect(catalogDiff(await readCatalog(fresh), await readCatalog(db))).toEqual([]);
+      await fresh.close();
+      return up;
+    };
+    expect(await upAfter(1)).toEqual(['ALTER TABLE "vital" ADD CONSTRAINT "vital_patient_fk2" FOREIGN KEY ("patient_id") REFERENCES "patient"("id") ON DELETE CASCADE ON UPDATE NO ACTION']);
+    expect(await upAfter(2)).toEqual(['ALTER TABLE "vital" DROP CONSTRAINT "vital_patient_fk2"']);
+    await db.close();
+  });
+
+  test("renaming the entity or the column it names carries the entry along", async () => {
+    const key = { name: "vital_patient_fk2", column: "patient_id", to: "Patient" };
+    const before = vitalSchema([key]);
+    const after: ApsorcType = {
+      ...before,
+      entities: [
+        { name: "Person", fields: [] },
+        { name: "Vital", fields: [{ name: "person_id", type: "integer" }], foreignKeys: [{ ...key, column: "person_id", to: "Person" }] },
+      ],
+    };
+    const plan = planMigration(before, after);
+    for (const x of plan.questions)
+      x.answer = x.kind === "removedEntity" ? "rename:Person" : "rename:person_id";
+    expect(plan.questions.map((x) => x.kind).sort()).toEqual(["removedEntity", "removedField"]);
+    const db = await pglite();
+    await db.exec(schemaDdl(parseApsorcV2(before)).join(";\n"));
+    const { up } = changeDdl(before, after, plan);
+    expect(up).toEqual(expect.arrayContaining([
+      'ALTER TABLE "patient" RENAME TO "person"',
+      'ALTER TABLE "vital" RENAME COLUMN "patient_id" TO "person_id"',
+    ]));
+    await db.exec(up.join(";\n"));
+    const fresh = await pglite();
+    await fresh.exec(schemaDdl(parseApsorcV2(after)).join(";\n"));
+    expect(catalogDiff(await readCatalog(fresh), await readCatalog(db))).toEqual([]);
+    expect(() => downDdl(before, after, plan)).not.toThrow();
+    await fresh.close();
+    await db.close();
+  });
+
+  test("a name another foreign key on the table already has is refused", () => {
+    const key = { name: "fk2", column: "patient_id", to: "Patient" };
+    expect(() => schemaDdl(parseApsorcV2(vitalSchema([key, key])))).toThrow(
+      'Vital "foreignKeys" entry "fk2" repeats the name of another foreign key on Vital.'
+    );
+  });
+
+  test("an entry on a column the entity does not have is refused", () => {
+    const apsorc = parseApsorcV2({
+      version: 2,
+      rootFolder: "src",
+      apiType: "Rest" as ApsorcType["apiType"],
+      entities: [{ name: "Vital", fields: [], foreignKeys: [{ name: "fk2", column: "nope", to: "Vital" }] }],
+      relationships: [],
+    });
+    expect(() => schemaDdl(apsorc)).toThrow('names column "nope", which Vital does not have');
+  });
+});
+
 describe("extensions", () => {
   test("adding a uuid-keyed entity creates uuid-ossp before the table", async () => {
     const base = {

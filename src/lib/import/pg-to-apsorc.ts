@@ -56,6 +56,7 @@ export interface ApsorcImportEntityOutput {
   fields?: ApsorcImportFieldOutput[];
   uniques?: Array<{ fields: string[]; name?: string }>;
   checks?: Array<{ name?: string; expression: string; validate?: boolean }>;
+  foreignKeys?: Entity["foreignKeys"];
   timestampDefault?: Entity["timestampDefault"];
   sqlIndexes?: Array<{
     name: string;
@@ -357,11 +358,11 @@ function emptyReport(schema: IntrospectedSchema): ImportReport {
     systemSchemasSkipped: schema.skipped.systemSchemas,
     warnings: {
       arraysLossy: [],
+      foreignKeysNotCarried: [],
       checksNotValid: [],
       timestampDefaultsAdded: [],
       indexesNotCarried: [],
       relationshipsRenamed: [],
-      foreignKeysNotCarried: [],
       compositePks: [],
       compositeFks: [],
       nonStandardPks: [],
@@ -649,11 +650,37 @@ export function pgToApsorc(schema: IntrospectedSchema): {
       if (fk.columns.length !== 1) continue; // composite FK handled above
       const sourceColumn = fk.columns[0];
       // A relationship holds one key per column. A second key on the same
-      // column (usually an exact duplicate) is left out and reported.
+      // column (usually an exact duplicate) is kept as a constraint only.
       if (keyed.has(sourceColumn)) {
-        report.warnings.foreignKeysNotCarried.push(
-          `${table.name}.${fk.name} (${sourceColumn} -> ${fk.referencedTable})`
+        const known = ["CASCADE", "SET NULL", "RESTRICT"] as const;
+        const onDelete = known.find((rule) => rule === fk.onDelete);
+        // An entry references the target's primary key and states ON DELETE
+        // only. A key it cannot state exactly is reported, not written.
+        const target = schema.tables.find(
+          (t) => t.name === fk.referencedTable
         );
+        const targetKey = target?.primaryKey;
+        if (
+          targetKey?.length !== 1 ||
+          targetKey[0] !== fk.referencedColumns[0] ||
+          // A key that is itself a foreign key belongs to a relationship.
+          target?.foreignKeys.some((k) => k.columns.includes(targetKey[0])) ||
+          fk.onDelete === "SET DEFAULT" ||
+          fk.otherActions
+        ) {
+          report.warnings.foreignKeysNotCarried.push(
+            `${table.name}.${fk.name} (${sourceColumn} -> ${fk.referencedTable})`
+          );
+          continue;
+        }
+        // Postgres names every constraint, so the name is always there.
+        (entity.foreignKeys ??= []).push({
+          name: fk.name ?? "",
+          column: sourceColumn,
+          to: fk.referencedTable,
+          ...(onDelete && { onDelete }),
+          ...(fk.notValid && { validate: false }),
+        });
         continue;
       }
       keyed.add(sourceColumn);

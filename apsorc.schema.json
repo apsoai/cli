@@ -475,6 +475,51 @@
             }
           }
         },
+        "foreignKeys": {
+          "description": "Foreign keys beyond the ones relationships make, for a column that has more than one. Each is a database constraint only, with no relation property. 'apso import' writes one when a column has a second foreign key. TypeScript only.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "column",
+              "to"
+            ],
+            "properties": {
+              "name": {
+                "description": "The constraint's name.",
+                "type": "string",
+                "minLength": 1
+              },
+              "column": {
+                "description": "The column's database name, for example 'patient_id'.",
+                "type": "string",
+                "minLength": 1
+              },
+              "to": {
+                "description": "The entity the key references, by its primary key.",
+                "type": "string",
+                "minLength": 1
+              },
+              "onDelete": {
+                "description": "What happens to these rows when the referenced row is deleted. Defaults to NO ACTION.",
+                "type": "string",
+                "enum": [
+                  "CASCADE",
+                  "SET NULL",
+                  "RESTRICT",
+                  "NO ACTION"
+                ]
+              },
+              "validate": {
+                "description": "False keeps the key NOT VALID in migrations: new and changed rows are checked, rows already there are not.",
+                "type": "boolean",
+                "default": true
+              }
+            }
+          }
+        },
         "primaryKeyDefault": {
           "description": "SQL expression that fills a uuid 'id', for example 'gen_random_uuid()'. Defaults to uuid_generate_v4() from the uuid-ossp extension.",
           "type": "string"

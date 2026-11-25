@@ -67,6 +67,7 @@ CREATE TABLE enrollments (
   CONSTRAINT enrollments_end_after_start CHECK (end_date IS NULL OR end_date >= start_date)
 );
 CREATE UNIQUE INDEX enrollments_one_live_per_patient_uq ON enrollments (organization_id, patient_id) WHERE status <> 'revoked';
+ALTER TABLE enrollments ADD CONSTRAINT enrollments_patient_id_fkey2 FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE NOT VALID;
 ALTER TABLE tenant_notes ADD CONSTRAINT tenant_notes_reviewer_fk FOREIGN KEY (reviewer_tenant_id) REFERENCES tenants(id) NOT VALID;
 CREATE INDEX enrollments_expires_at_idx ON enrollments (expires_at);
 CREATE INDEX enrollments_recent_idx ON enrollments (patient_id, created_at DESC);

@@ -81,6 +81,8 @@ export function formatReport(report: ImportReport): string {
     review.push(`  - Non-"id" primary keys (kept as fields): ${w.nonStandardPks.join(", ")}`);
   if (w.noPrimaryKey.length > 0)
     review.push(`  - Tables with no primary key: ${w.noPrimaryKey.join(", ")}`);
+  if (w.foreignKeysNotCarried.length > 0)
+    review.push(`  - Second foreign keys on a column left out (the target table was not imported, the key points at a column that is not the target's primary key, or it has an ON UPDATE, SET DEFAULT or DEFERRABLE rule): ${w.foreignKeysNotCarried.join(", ")}`);
   if (w.compositeFks.length > 0)
     review.push(`  - Composite foreign keys (kept as columns, no relationship): ${w.compositeFks.join(", ")}`);
   if (w.joinTablesDetected.length > 0)
@@ -91,8 +93,6 @@ export function formatReport(report: ImportReport): string {
     review.push(`  - Check constraints that are NOT VALID in the source (kept NOT VALID in migrations; TypeORM's schema sync creates them validated): ${w.checksNotValid.join(", ")}`);
   if (w.timestampDefaultsAdded.length > 0)
     review.push(`  - created_at / updated_at with no default in the source (kept without one in migrations; TypeORM's schema sync adds DEFAULT now()): ${w.timestampDefaultsAdded.join(", ")}`);
-  if (w.foreignKeysNotCarried.length > 0)
-    review.push(`  - Foreign keys left out because the column already has one (the database keeps them; apso migrate does not know about them): ${w.foreignKeysNotCarried.join(", ")}`);
   if (w.relationshipsRenamed.length > 0)
     review.push(`  - Relationships renamed because a column has the natural name (columns unchanged): ${w.relationshipsRenamed.join(", ")}`);
   if (w.indexesNotCarried.length > 0)

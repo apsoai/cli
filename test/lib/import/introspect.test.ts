@@ -6,6 +6,17 @@ import {
   redactConnectionString,
 } from "../../../src/lib/import/introspect";
 
+const customerKeyRow = (table_name: string, more: object = {}) => ({
+  conname: "fk_customer",
+  table_name,
+  column_name: "customer_id",
+  referenced_table: "customers",
+  referenced_column: "id",
+  confdeltype: "a",
+  key_index: 1,
+  ...more,
+});
+
 describe("redactConnectionString", () => {
   test("masks the password in a connection string", () => {
     const redacted = redactConnectionString(
@@ -137,6 +148,24 @@ describe("buildSchema", () => {
     expect(posts.columns.find((c) => c.name === "author_id")!.nullable).toBe(true);
     expect(posts.indexes).toEqual([
       { name: "posts_author_idx", columns: ["author_id"], unique: false },
+    ]);
+  });
+
+  test("two tables with a foreign key of the same name each keep theirs", () => {
+    const result = buildSchema("public", {
+      tableRows: ["invoices", "orders"].map((table_name) => ({ table_name, table_type: "BASE TABLE" })),
+      columnRows: [],
+      pkRows: [],
+      fkRows: [customerKeyRow("invoices"), customerKeyRow("orders", { confupdtype: "c" })],
+      uniqueRows: [],
+      indexRows: [],
+      enumRows: [],
+      schemaRows: [],
+    });
+    const key = { name: "fk_customer", columns: ["customer_id"], referencedTable: "customers", referencedColumns: ["id"], onDelete: "NO ACTION" };
+    expect(result.tables.map((t) => [t.name, t.foreignKeys])).toEqual([
+      ["invoices", [key]],
+      ["orders", [{ ...key, otherActions: true }]],
     ]);
   });
 

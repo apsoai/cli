@@ -226,6 +226,11 @@ export class PythonGenerator extends BaseGenerator {
             `${e.name}.${f.name} sets "generated". The Python generator cannot declare a generated column yet; remove it or generate a TypeScript service.`
           );
     for (const e of config.entities ?? [])
+      if (e.foreignKeys?.length)
+        errors.push(
+          `${e.name} sets "foreignKeys". The Python generator cannot declare a second foreign key on a column yet; remove it or generate a TypeScript service.`
+        );
+    for (const e of config.entities ?? [])
       if (e.primaryKeyName)
         errors.push(
           `${e.name} sets "primaryKeyName": "${e.primaryKeyName}". The Python generator cannot keep a custom primary key constraint name yet; remove it or generate a TypeScript service.`

@@ -342,6 +342,28 @@ export const fkType = (target?: Entity): string => keyColumn(target).sql;
  * "joinColumnName" when the .apsorc sets one (an imported database keeps its
  * own column names), else the name TypeORM derives.
  */
+/**
+ * An entity's "foreignKeys" entries with the table and key column each one
+ * references.
+ * @param {Entity} e - The entity.
+ * @param {Map<string, Entity>} byName - Every entity by name.
+ * @returns {Array} One resolved entry per key.
+ */
+export const extraForeignKeys = (e: Entity, byName: Map<string, Entity>) =>
+  (e.foreignKeys ?? []).map((k) => {
+    const target = byName.get(k.to);
+    if (!k.name || !k.column || !target)
+      throw new Error(
+        `${e.name} "foreignKeys" entry ${JSON.stringify(k.name ?? k)} needs a "name", a "column" and a "to" that names an entity in .apsorc.`
+      );
+    return {
+      ...k,
+      target: target.name,
+      targetTable: tableName(target),
+      targetColumn: pkColumn(target),
+    };
+  });
+
 export const relationColumn = (r: RelationshipForTemplate): string =>
   r.joinColumnName ||
   (r.type === "ManyToOne"
@@ -471,10 +493,11 @@ export function schemaModel(input: SchemaInput): Model {
     target: string,
     targetCol: string,
     actions: string,
-    name = constraintName.foreignKey(table, [col])
+    name = constraintName.foreignKey(table, [col]),
+    key = `fk:${table}(${col})->${target}`
   ) =>
     foreignKeys.push({
-      key: `fk:${table}(${col})->${target}`,
+      key,
       name,
       table,
       kind: "fk",
@@ -652,6 +675,28 @@ export function schemaModel(input: SchemaInput): Model {
           `ON DELETE ${inverse} ON UPDATE ${inverse}`
         );
       }
+    }
+
+    for (const k of extraForeignKeys(e, byName)) {
+      if (!t.columns.some((c) => c.name === k.column))
+        throw new Error(
+          `${e.name} "foreignKeys" entry "${k.name}" names column "${k.column}", which ${e.name} does not have.`
+        );
+      if (foreignKeys.some((c) => c.table === table && c.name === k.name))
+        throw new Error(
+          `${e.name} "foreignKeys" entry "${k.name}" repeats the name of another foreign key on ${e.name}.`
+        );
+      foreignKey(
+        table,
+        k.column,
+        k.targetTable,
+        k.targetColumn,
+        `ON DELETE ${k.onDelete ?? "NO ACTION"} ON UPDATE NO ACTION${
+          k.validate === false ? " NOT VALID" : ""
+        }`,
+        k.name,
+        `fk:${table}:${k.name}`
+      );
     }
 
     const keyColumns = customPk

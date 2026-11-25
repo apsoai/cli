@@ -23,6 +23,9 @@ import {
     Index,
     Unique,
     Check,
+<% if (it.foreignKeys.length > 0) { %>
+    ForeignKey,
+<% } %>
     PrimaryColumn
 } from "typeorm";
 import {
@@ -57,6 +60,9 @@ const { CREATE, UPDATE } = CrudValidationGroups;
 <% }) %>
 <% it.checks.forEach((check) => { %>
 @Check(<% if (check.name) { %><%~ JSON.stringify(check.name) %>, <% } %><%~ JSON.stringify(check.expression) %>)
+<% }) %>
+<% it.foreignKeys.forEach((key) => { %>
+@ForeignKey(() => <%= key.target %>, [<%~ JSON.stringify(key.column) %>], [<%~ JSON.stringify(key.targetColumn) %>], { name: <%~ JSON.stringify(key.name) %><% if (key.onDelete) { %>, onDelete: "<%= key.onDelete %>"<% } %> })
 <% }) %>
 <% it.uniques.forEach((unique) => { %>
 @Unique(<% if (unique.name) {%> "<%= unique.name %>", <%} %>[<%~ unique.fields.map((field) => `"${field}"`).join(', ') %>])

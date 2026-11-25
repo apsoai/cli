@@ -22,6 +22,8 @@ exports[`schemaDdl coverage runs on Postgres and matches its snapshot 1`] = `
   "ALTER TABLE "post" ADD CONSTRAINT "FK_970844fcd10c2b6df7c1b49eacf" FOREIGN KEY ("profileId") REFERENCES "account_profile"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
   "ALTER TABLE "post_tags_tag" ADD CONSTRAINT "FK_b651178cc41334544a7a9601c45" FOREIGN KEY ("postId") REFERENCES "post"("id") ON DELETE CASCADE ON UPDATE CASCADE",
   "ALTER TABLE "post_tags_tag" ADD CONSTRAINT "FK_41e7626b9cc03c5c65812ae55e8" FOREIGN KEY ("tagId") REFERENCES "tag"("id") ON DELETE CASCADE ON UPDATE CASCADE",
+  "ALTER TABLE "post" ADD CONSTRAINT "post_account_second_fk" FOREIGN KEY ("accountId") REFERENCES "account"("id") ON DELETE NO ACTION ON UPDATE NO ACTION",
+  "ALTER TABLE "post" ADD CONSTRAINT "post_account_tag_fk" FOREIGN KEY ("accountId") REFERENCES "tag"("id") ON DELETE CASCADE ON UPDATE NO ACTION",
 ]
 `;
 
