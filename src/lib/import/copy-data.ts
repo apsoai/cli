@@ -11,6 +11,11 @@
  *  - target table name  = snakeCase(entity name) = snakeCase(source table name)
  *  - single-column FK   = renamed to the platform's camelCase `<ref>Id`
  *  - every other column = copied under its original name
+ *
+ * Values travel as the text Postgres prints for them and are parsed again by
+ * the target column, so an array, a timestamp's microseconds, an interval or a
+ * bytea arrive as they left. Reading them into JavaScript values first lost
+ * the microseconds and broke every array column.
  */
 
 import { snakeCase } from "../utils/casing";
@@ -32,6 +37,8 @@ export interface TableCopyPlan {
   sourceColumns: string[];
   /** Target column names, parallel to sourceColumns. */
   targetColumns: string[];
+  /** The SQL that reads each source column as text, parallel to sourceColumns. */
+  sourceExpressions?: string[];
   /** Source PK column used to order paged reads (null when there is no PK). */
   orderBy: string | null;
   /** Target PK column whose sequence to reset after copy (null if not serial). */
@@ -134,7 +141,7 @@ export function topoSortTables(tables: IntrospectedTable[]): {
  */
 export function planCopy(
   source: IntrospectedSchema,
-  targetColumnsByTable: Map<string, Set<string>>,
+  targetColumnsByTable: Map<string, Set<string> | Map<string, string>>,
   tableFilter?: string[]
 ): CopyPlan {
   const filter = tableFilter && tableFilter.length > 0 ? new Set(tableFilter) : null;
@@ -161,6 +168,8 @@ export function planCopy(
     const mapping = buildColumnMapping(table);
     const keptSource: string[] = [];
     const keptTarget: string[] = [];
+    const expressions: string[] = [];
+    const sourceTypes = new Map(table.columns.map((c) => [c.name, c.udtName]));
     for (const m of mapping) {
       // An import keeps foreign key column names ("joinColumnName"); a project
       // imported by an older CLI has the generated camelCase name instead.
@@ -168,6 +177,18 @@ export function planCopy(
       if (targetColumns.has(m.targetColumn)) {
         keptSource.push(m.sourceColumn);
         keptTarget.push(m.targetColumn);
+        // An array whose target column is json (the field was changed to
+        // jsonb after the import) is sent as a JSON array.
+        const targetType =
+          targetColumns instanceof Map ? targetColumns.get(m.targetColumn) : "";
+        const arrayToJson =
+          sourceTypes.get(m.sourceColumn)?.startsWith("_") &&
+          (targetType === "json" || targetType === "jsonb");
+        expressions.push(
+          arrayToJson
+            ? `to_jsonb("${m.sourceColumn}")::text`
+            : `"${m.sourceColumn}"::text`
+        );
       } else {
         skippedColumns.push({
           table: sourceTable,
@@ -195,6 +216,7 @@ export function planCopy(
       targetTable,
       sourceColumns: keptSource,
       targetColumns: keptTarget,
+      sourceExpressions: expressions,
       orderBy,
       serialPkColumn,
     });
@@ -210,6 +232,25 @@ export function coerceValue(value: unknown): unknown {
   if (Buffer.isBuffer(value)) return value;
   if (typeof value === "object") return JSON.stringify(value);
   return value;
+}
+
+/**
+ * Build the paged SELECT that reads a batch of source rows. Each column comes
+ * back under its own name; `expressions` says how to read it.
+ */
+export function buildSelectSql(
+  table: string,
+  columns: string[],
+  orderBy: string | null,
+  schema?: string,
+  expressions?: string[]
+): string {
+  const tableRef = schema ? `"${schema}"."${table}"` : `"${table}"`;
+  const cols = columns
+    .map((c, i) => `${expressions?.[i] ?? `"${c}"`} AS "${c}"`)
+    .join(", ");
+  const order = orderBy ? ` ORDER BY "${orderBy}"` : "";
+  return `SELECT ${cols} FROM ${tableRef}${order} OFFSET $1 LIMIT $2`;
 }
 
 /** Build a parameterized multi-row INSERT statement for a batch. */
@@ -242,7 +283,9 @@ export interface SourceReader {
     columns: string[],
     orderBy: string | null,
     offset: number,
-    limit: number
+    limit: number,
+    /** The SQL that reads each column, parallel to columns. Defaults to the column itself. */
+    expressions?: string[]
   ): Promise<unknown[][]>;
 }
 
@@ -335,7 +378,8 @@ export async function executeCopy(
           t.sourceColumns,
           t.orderBy,
           offset,
-          batchSize
+          batchSize,
+          t.sourceExpressions
         );
         if (rows.length === 0) break;
         // eslint-disable-next-line no-await-in-loop
@@ -366,11 +410,14 @@ export async function executeCopy(
   };
 }
 
-/** Build the target column lookup used by planCopy from an introspected target. */
+/** Build the target lookup used by planCopy from an introspected target: each table's columns and their types. */
 export function targetColumnsFromSchema(
   target: IntrospectedSchema
-): Map<string, Set<string>> {
+): Map<string, Map<string, string>> {
   return new Map(
-    target.tables.map((t) => [t.name, new Set(t.columns.map((c) => c.name))])
+    target.tables.map((t) => [
+      t.name,
+      new Map(t.columns.map((c) => [c.name, c.udtName])),
+    ])
   );
 }

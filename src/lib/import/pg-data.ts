@@ -59,12 +59,12 @@ export class PgSourceReader implements SourceReader {
     columns: string[],
     orderBy: string | null,
     offset: number,
-    limit: number
+    limit: number,
+    expressions?: string[]
   ): Promise<unknown[][]> {
-    const cols = columns.map((c) => `"${c}"`).join(", ");
-    const order = orderBy ? ` ORDER BY "${orderBy}"` : "";
+    const { buildSelectSql } = await import("./copy-data");
     const res = await this.client.query(
-      `SELECT ${cols} FROM ${qualified(this.schema, table)}${order} OFFSET $1 LIMIT $2`,
+      buildSelectSql(table, columns, orderBy, this.schema, expressions),
       [offset, limit]
     );
     return res.rows.map((row) => columns.map((c) => row[c]));
