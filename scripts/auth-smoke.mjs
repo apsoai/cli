@@ -742,7 +742,7 @@ function buildTimeCases(project) {
     refuses(`[R8] generate refuses scopeOptions.injectOnCreate (${value})`, { auth: jwtAuth, entities: [org, doc({ scopeBy: "organizationId", scopeOptions: { injectOnCreate: value } })], relationships: [{ from: "Organization", to: "Doc", type: "OneToMany" }] }, /injectOnCreate is no longer an option.*always[\s›]+comes[\s›]+from[\s›]+the[\s›]+caller.*can[\s›]+set[\s›]+any[\s›]+tenant/);
   if (language !== "typescript") {
     // What this language cannot build it refuses, so a schema is never half applied.
-    refuses("[R26] generate refuses a field type this language cannot build", { entities: [doc({ fields: [{ name: "title", type: "text" }, { name: "address", type: "inet" }] })] }, /does not support field type "inet"/);
+    refuses("[R26] generate refuses a field type this language cannot build", { entities: [doc({ fields: [{ name: "title", type: "text" }, { name: "address", type: "inet" }] })] }, /does[\s›]+not[\s›]+support[\s›]+field[\s›]+type[\s›]+"inet"/);
   }
   // Every sign-in provider is a JWT provider in every language; the removed ones and an incomplete one fail.
   refuses("[R27] generate refuses the removed custom-db-session provider", { auth: { provider: "custom-db-session" }, entities: [doc({})] }, /"custom-db-session" was removed/);
