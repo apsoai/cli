@@ -736,7 +736,7 @@ describe("GoGenerator", () => {
       ]);
     });
 
-    test("unsupported type produces warning", () => {
+    test("unsupported type is refused", () => {
       const config = createConfig([
         {
           name: "Test",
@@ -746,9 +746,7 @@ describe("GoGenerator", () => {
 
       const result = generator.validateConfig(config);
       expect(
-        result.warnings.some(
-          (w) => w.includes("bytea") && w.includes("not be fully supported")
-        )
+        result.errors.some((e) => e.includes('does not support field type "bytea"'))
       ).toBe(true);
     });
 

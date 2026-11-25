@@ -481,7 +481,7 @@ describe("PythonGenerator", () => {
       expect(result.warnings.some(w => w.includes("datetime") && w.includes("not be fully supported"))).toBe(false);
     });
 
-    test("unsupported type produces warning", () => {
+    test("unsupported type is refused", () => {
       const config = createConfig([
         {
           name: "TestEntity",
@@ -490,7 +490,7 @@ describe("PythonGenerator", () => {
       ]);
 
       const result = generator.validateConfig(config);
-      expect(result.warnings.some(w => w.includes("bytea") && w.includes("not be fully supported"))).toBe(true);
+      expect(result.errors.some(e => e.includes('does not support field type "bytea"'))).toBe(true);
     });
   });
 

@@ -279,8 +279,8 @@ export class PythonGenerator extends BaseGenerator {
           "array",
         ];
         if (field.type && !supportedTypes.includes(field.type)) {
-          warnings.push(
-            `Entity '${entity.name}' field '${field.name}' has type '${field.type}' which may not be fully supported`
+          errors.push(
+            `Entity '${entity.name}' field '${field.name}': the Python generator does not support field type "${field.type}"; use one of ${supportedTypes.join(", ")} or generate a TypeScript service.`
           );
         }
       }
