@@ -14,6 +14,21 @@ import { GeneratorConfig } from "../../lib/types";
 import { apsorcToServiceSchema } from "../../lib/utils/schema-convert";
 
 /**
+ * A validation error that includes the individual error messages.
+ * This allows telemetry to extract and report the specific validation failures.
+ */
+class ValidationError extends Error {
+  readonly userError = true;
+  readonly errorMessages: string[];
+
+  constructor(message: string, errors: string[]) {
+    super(message);
+    this.name = "ValidationError";
+    this.errorMessages = errors;
+  }
+}
+
+/**
  * What `apso generate` would stop on: its configuration checks and the auth,
  * permissions and mcp rules. It runs the generator's own checks
  * and writes nothing, so the two cannot disagree.
@@ -190,7 +205,15 @@ export default class SchemaValidate extends BaseCommand {
       for (const err of errors) {
         this.log(`  - ${err}`);
       }
-      this.error(`Validation failed with ${errors.length} error(s).`);
+      // Use this.error() to maintain oclif's exit code 2 and formatting.
+      // Attach the error list so telemetry can still extract individual messages.
+      const validationError = new ValidationError(
+        `Validation failed with ${errors.length} error(s).`,
+        errors
+      );
+      // this.error() will trigger base-command's catch(), which will extract
+      // errorMessages from the ValidationError and send them to telemetry.
+      this.error(validationError);
     } else {
       this.log("Validation passed.");
     }

@@ -163,6 +163,12 @@ export interface GlobalConfigFile {
    * User id this install's anonymous telemetry id was last aliased to.
    */
   telemetryAliasedUserId?: string;
+
+  /**
+   * Mark this machine as internal (Apso team/system). Set via `apso config set internal true`.
+   * When true, all telemetry events are tagged as internal.
+   */
+  internal?: boolean;
 }
 
 /**
