@@ -1158,3 +1158,70 @@ describe("key types and enum names kept from an import", () => {
     expect(() => schemaDdl({ entities: [ledger, note], relationshipMap })).toThrow('uses the enum type "review_state" with values that differ');
   });
 });
+
+const specOf = async (entity: Entity) => {
+  const files = await new TypeScriptGenerator(createConfig([entity])).generateController({ entity, allEntities: [entity], relationshipMap: {}, relationships: [], apiType: "rest" } as never);
+  return files.find((f) => f.path.endsWith(".controller.spec.ts"))!.content;
+};
+
+// apsoai/cli#250
+describe("a composite primary key", () => {
+  const controllerOf = async (entity: Entity) => {
+    const files = await new TypeScriptGenerator(createConfig([entity])).generateController({ entity, allEntities: [entity], relationshipMap: {}, relationships: [], apiType: "rest" } as never);
+    return files.find((f) => f.path.endsWith(".controller.ts"))!.content;
+  };
+  const limit: Entity = {
+    name: "RateLimit",
+    mcp: true,
+    fields: [
+      { name: "bucket", type: "text", primary: true },
+      { name: "window_start", type: "timestamptz", primary: true },
+      { name: "hits", type: "integer" },
+    ],
+  } as Entity;
+
+  test("has list and create routes, and none that address one row", async () => {
+    const controller = await controllerOf(limit);
+    expect(controller).toContain("exclude: ['getOneBase', 'updateOneBase', 'replaceOneBase', 'deleteOneBase', 'recoverOneBase']");
+    for (const kept of ["getManyBase", "createOneBase", "createManyBase"]) expect(controller).toContain(`@Override('${kept}')`);
+    for (const gone of ["getOneBase", "updateOneBase", "replaceOneBase", "deleteOneBase"]) expect(controller).not.toContain(`@Override('${gone}')`);
+    // The MCP tools follow the routes.
+    expect(controller).toContain("list_rate_limits");
+    expect(controller).toContain("create_rate_limit");
+    expect(controller).not.toContain("get_rate_limit");
+    expect(controller).not.toContain("delete_rate_limit");
+  });
+
+  test("the generated spec does not call a handler that is gone", async () => {
+    expect(await specOf(limit)).not.toContain("controller.get(");
+    expect(await specOf({ ...limit, fields: [limit.fields![0], limit.fields![2]] })).toContain("controller.get(");
+  });
+
+  test("a key column that references an auth entity still counts", async () => {
+    const user: Entity = { name: "User", fields: [{ name: "email", type: "text" }] };
+    const post: Entity = { name: "Post", fields: [{ name: "title", type: "text" }] };
+    const favorite: Entity = { name: "Favorite", fields: [{ name: "note", type: "text", nullable: true }] };
+    const relationshipMap = parseRelationships([
+      { from: "Favorite", to: "User", type: "ManyToOne", primary: true, bi_directional: false },
+      { from: "Favorite", to: "Post", type: "ManyToOne", primary: true, bi_directional: false },
+    ]);
+    const files = await new TypeScriptGenerator(createConfig([user, post, favorite], relationshipMap)).generateController({
+      entity: favorite,
+      allEntities: [user, post, favorite],
+      relationshipMap,
+      relationships: relationshipMap.Favorite,
+      apiType: "rest",
+      auth: { provider: "better-auth", url: "https://app.example.com/api/auth" },
+    } as never);
+    const controller = files.find((f) => f.path.endsWith(".controller.ts"))!.content;
+    expect(controller).toContain("exclude: ['getOneBase'");
+    expect(controller).not.toContain("@Override('deleteOneBase')");
+  });
+
+  test("a single key keeps every route", async () => {
+    const controller = await controllerOf({ ...limit, fields: [limit.fields![0], limit.fields![2]] });
+    expect(controller).not.toContain("exclude:");
+    expect(controller).toContain("@Override('deleteOneBase')");
+    expect(controller).toContain("field: 'bucket'");
+  });
+});

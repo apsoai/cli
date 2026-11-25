@@ -75,7 +75,8 @@ export interface CrudPlan {
 
 export function planCrud(
   entities: Entity[],
-  relationships: RelationshipMap
+  relationships: RelationshipMap,
+  language = "typescript"
 ): CrudPlan {
   const pending: PlannedEntity[] = [];
   const skipped: CrudPlan["skipped"] = [];
@@ -97,14 +98,25 @@ export function planCrud(
     const manyToOne = (relationships[entity.name] || []).filter(
       (r) => r.type === "ManyToOne"
     );
-    const parents = manyToOne
-      .filter((r) => !r.nullable)
-      .map((r) => ({ property: getRelationshipIdField(r), entity: r.name }));
     // The same rule as the generated controller's id parameter.
     const keys = [
       ...(entity.fields || []).filter((f) => f.primary).map((f) => f.name),
       ...manyToOne.filter((r) => r.primary).map((r) => getRelationshipIdField(r)),
     ];
+    // A TypeScript service has no one-row routes for a composite key. Python
+    // and Go services still declare them, so their rows are tried as before.
+    if (keys.length > 1 && language === "typescript") {
+      skipped.push({
+        name: entity.name,
+        reason: `its primary key is ${keys.length} columns (${keys.join(
+          ", "
+        )}), so the service has no route that reads or deletes one row`,
+      });
+      continue;
+    }
+    const parents = manyToOne
+      .filter((r) => !r.nullable)
+      .map((r) => ({ property: getRelationshipIdField(r), entity: r.name }));
     pending.push({
       name: entity.name,
       key: keys.length === 1 ? keys[0] : "id",

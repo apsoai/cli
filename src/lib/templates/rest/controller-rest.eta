@@ -75,6 +75,13 @@ const skipScope = (req: any) => {
     // Query syntaxes accepted, from .apsorc "query.dialects".
 <% } %>
     dialects: [<%~ it.dialectList %>],
+<% if (it.compositeKey) { %>
+    // The primary key is more than one column, so no route addresses one row
+    // by /:id. Read a row with a list filter on its key columns.
+    routes: {
+        exclude: ['getOneBase', 'updateOneBase', 'replaceOneBase', 'deleteOneBase', 'recoverOneBase'],
+    },
+<% } %>
     params: {
         id: {
             field: '<%= it.keyField %>',
@@ -193,6 +200,7 @@ export class <%= it.ctrlName %> implements CrudController<<%= it.entityName %>>{
         return this.base.getManyBase(req);
     }
 
+<% if (!it.compositeKey) { %>
     @Override('getOneBase')
     @ApiOperation({ summary: 'Retrieve a single <%= it.entityName %>' })
 <% if (it.mcp.includes('read')) { %>
@@ -204,6 +212,7 @@ export class <%= it.ctrlName %> implements CrudController<<%= it.entityName %>>{
         return this.base.getOneBase(req);
     }
 
+<% } %>
     @Override('createOneBase')
     @ApiOperation({ summary: 'Create a single <%= it.entityName %>' })
     <% /* @ApiResponse({ status: 200, description: 'description goes here', schema: <%= it.entityName %>Create }) */ %>
@@ -243,6 +252,7 @@ export class <%= it.ctrlName %> implements CrudController<<%= it.entityName %>>{
         return this.base.createManyBase(req, <%~ it.generatedFields.length ? '{ ...dto, bulk: dto.bulk.map((row) => writable(row)) }' : 'dto' %> as unknown as CreateManyDto<<%= it.entityName %>>);
     }
 
+<% if (!it.compositeKey) { %>
     @Override('updateOneBase')
     @ApiOperation({ summary: 'Update a single <%= it.entityName %>' })
 <% if (it.mcp.includes('update')) { %>
@@ -274,5 +284,6 @@ export class <%= it.ctrlName %> implements CrudController<<%= it.entityName %>>{
     ) {
         return this.base.deleteOneBase(req);
     }
+<% } %>
 }
   

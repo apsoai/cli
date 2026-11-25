@@ -362,9 +362,11 @@ export class TypeScriptGenerator extends BaseGenerator {
     // The :id route parameter maps to the entity's own key: a primary field,
     // or the id property of a foreign key that is the primary key. A
     // composite key has no single field, so it keeps the default.
+    // Counted over every relationship: one onto an auth entity is not
+    // joinable, but its column is still part of the key.
     const keyFields = [
       ...(entity.fields ?? []).filter((f) => f.primary).map((f) => f.name),
-      ...relationshipsForTemplate
+      ...getRelationshipForTemplate(entityName, relationships)
         .filter((r) => r.primary)
         .map((r) => r.camelCasedId),
     ];
@@ -394,6 +396,9 @@ export class TypeScriptGenerator extends BaseGenerator {
         .filter((f) => f.generated)
         .map((f) => f.name),
       keyField: keyFields.length === 1 ? keyFields[0] : "id",
+      // A composite key has no single value to put in /:id, so the routes
+      // that address one row are left out (apsoai/cli#250).
+      compositeKey: keyFields.length > 1,
       associations: [...new Set(relationshipsForTemplate)],
       nestedJoinsFile,
       // scopeBy fields @CrudAuth adds to every query once a caller is

@@ -121,7 +121,7 @@ export function buildModel(
   language: Language,
   auth?: { permissionEntity?: string }
 ): AccessModel {
-  const plan = planCrud(entities, relationships);
+  const plan = planCrud(entities, relationships, language);
   const skipped = [...plan.skipped];
   const scoped = auth ? getScopedEntities(entities, relationships) : [];
   let tenantRoot: string | undefined;
