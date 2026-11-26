@@ -11,6 +11,7 @@ import * as path from "path";
  * @apso/crud and @apso/crud-typeorm start at 1.2.0: the routes that address
  * one row take a path segment per key column, and a tenant-scoped create
  * keeps a key the caller sends and never writes over the row that has it.
+ * @apso/crud-core 1.2.0 has the CrudAuth insertOnly option the controllers set.
  *
  * @apso/postgrest-request is not imported by generated code. It is listed so
  * a project whose lockfile holds an older copy moves to the one @apso/crud
@@ -18,7 +19,7 @@ import * as path from "path";
  */
 export const APSO_CRUD_DEPS: Record<string, string> = {
   "@apso/crud": "^1.2.0",
-  "@apso/crud-core": "^1.1.0",
+  "@apso/crud-core": "^1.2.0",
   "@apso/crud-request": "^1.0.1",
   "@apso/crud-typeorm": "^1.2.0",
   "@apso/postgrest-request": "^1.1.0",

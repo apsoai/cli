@@ -149,6 +149,8 @@ describe("generated wiring", () => {
     expect(ctrl).toContain("filter: (req: any) => skipScope(req) ? {} : ({");
     // The tenant on a write always comes from the caller: persist has no create exception.
     expect(ctrl).toContain("persist: (req: any) => skipScope(req) ? {} : ({");
+    // A scoped caller's create only adds rows, whatever its scope path.
+    expect(ctrl).toContain("insertOnly: (req: any) => !skipScope(req),");
 
     // A service caller (API key) skips the tenant filter on every scoped controller.
     const plain = await generators.typescript.generateController({ ...opts, entity: entities[2], auth: jwt("jwt") });
@@ -188,9 +190,10 @@ describe("generated wiring", () => {
     expect(guard).toContain("if (!relation.joinColumns.some((join) => join.isPrimary)) continue;");
     expect(guard).toContain("if (id !== undefined && !join.isVirtual) item[join.propertyName] = id;");
     expect(guard.indexOf("join.isPrimary")).toBeLessThan(guard.indexOf("const chosen"));
-    expect(guard).toContain("findOne({ where: chosen, withDeleted: true })");
+    expect(guard).toContain("findOne({ where: this.asColumnValues(metadata, chosen), withDeleted: true })");
+    // A timestamp key is looked up as the driver wrote it.
+    expect(guard).toContain("where: this.asColumnValues(repo.metadata, rowKey),");
     // A row is found by the key the route names, not by a column called id.
-    expect(guard).toContain("where: rowKey,");
     expect(guard).not.toContain("params?.id");
     expect(guard).not.toContain("where: { id:");
     expect(guard).toContain("if (id !== undefined) item[join.propertyName] = id;");

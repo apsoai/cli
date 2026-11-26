@@ -273,6 +273,25 @@ export class ScopeGuard implements CanActivate {
     return Object.fromEntries(entries.map(([param, field]) => [field, String(params[param])]));
   }
 
+  /**
+   * A key as the driver writes it: an instant sent as text for a `timestamp`
+   * column (no time zone) becomes a Date. Postgres drops the zone from the
+   * text, while the driver writes a Date in the server's zone, as it wrote the
+   * row; without this a host not on UTC cannot find a row by the value the API
+   * returned for it.
+   */
+  private asColumnValues(metadata: any, where: Record<string, unknown>): Record<string, unknown> {
+    const out: Record<string, unknown> = { ...where };
+    for (const [property, value] of Object.entries(where)) {
+      const type = metadata.findColumnWithPropertyName(property)?.type;
+      const local = type === 'timestamp' || type === 'timestamp without time zone' || type === 'datetime';
+      if (local && typeof value === 'string' && /T\d{2}:\d{2}.*(Z|[+-]\d{2}:?\d{2})$/i.test(value) && !Number.isNaN(Date.parse(value))) {
+        out[property] = new Date(value);
+      }
+    }
+    return out;
+  }
+
   private mapMethodToOperation(method: string, hasId: boolean): string {
     switch (method) {
       case 'GET':
@@ -318,7 +337,7 @@ export class ScopeGuard implements CanActivate {
       }
 
       const entity = await repo.findOne({
-        where: rowKey,
+        where: this.asColumnValues(repo.metadata, rowKey),
         relations,
       });
 
@@ -474,7 +493,7 @@ export class ScopeGuard implements CanActivate {
         if (metadata.primaryColumns.length > 0 && Object.keys(chosen).length === metadata.primaryColumns.length) {
           if (Object.values(chosen).some((v) => typeof v === 'object')) throw denied();
           // A soft-deleted row has the key too, and a save would write over it.
-          if (await this.dataSource.getRepository(name).findOne({ where: chosen, withDeleted: true })) {
+          if (await this.dataSource.getRepository(name).findOne({ where: this.asColumnValues(metadata, chosen), withDeleted: true })) {
             throw new ConflictException('A row with this key already exists');
           }
         }

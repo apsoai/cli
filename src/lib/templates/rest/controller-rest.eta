@@ -142,6 +142,9 @@ const skipScope = (req: any) => {
         <%= s.field %>: req.<%= s.contextKey %> ?? req.user?.<%= s.contextKey %> ?? req.auth?.<%= s.contextKey %> ?? req.auth?.workspaceId,
 <% }) %>
     }),
+    // A tenant-scoped create only adds rows: a key the body names that exists
+    // answers 409, in the same transaction as the save (needs @apso/crud 1.2.0).
+    insertOnly: (req: any) => <% if (it.scopeOptions) { %>!skipScope(req)<% } else { %>true<% } %>,
 })
 <% } %>
 
