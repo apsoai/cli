@@ -178,7 +178,10 @@ async def _call_tool(app: FastAPI, tool: dict, args: Dict[str, Any], caller_head
         value = args.get(match.group(1))
         if value in (None, ""):
             missing.append(match.group(1))
-        return quote(str(value), safe="")
+        text = quote(str(value), safe="")
+        # "." and ".." are dot segments: the HTTP client would remove them and
+        # send the call to another route. Encoded, they are the key value.
+        return text.replace(".", "%2E") if text in (".", "..") else text
 
     path = re.sub(r"\{(\w+)\}", fill, tool["path"])
     if missing:

@@ -264,6 +264,14 @@ export const getFieldForTemplate = (
     // Normalize field type for template lookup (e.g., "double precision" -> "double")
     const normalizedType = normalizeFieldType(field.type);
 
+    // These column templates cannot declare a primary column. Generating one
+    // would leave the column out of the entity's key while the table has it,
+    // and a write by that narrower key reaches every row that shares it.
+    if (field.primary && /^(json|jsonb|json-plain|array)$/.test(normalizedType))
+      throw new Error(
+        `${entityName}.${field.name} sets "primary" on a ${field.type} field. A ${field.type} column cannot be part of the primary key; use a text, number, uuid, date or enum field.`
+      );
+
     return {
       ...field,
       // Use normalized type for template lookup

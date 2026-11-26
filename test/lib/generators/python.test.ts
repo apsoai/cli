@@ -862,7 +862,12 @@ describe("bigserial ids, caller-supplied uuid ids, enum type names and composite
     expect(router).toContain('@router.post(\n    "",');
     expect(files.get("schemas/ratelimit.py")).not.toMatch(/^ {4}id: /m);
     // The key columns are sent on create and never changed by an update.
-    expect(part("schemas/ratelimit.py", "class RateLimitCreate", "class RateLimitUpdate")).toContain("    bucket: str\n");
+    expect(part("schemas/ratelimit.py", "class RateLimitCreate", "class RateLimitReplace")).toContain("    bucket: str\n");
+    // A replace body need not repeat the key the path already names.
+    const replace = part("schemas/ratelimit.py", "class RateLimitReplace", "class RateLimitUpdate");
+    expect(replace).toContain("class RateLimitReplace(RateLimitCreate):");
+    expect(replace).toContain("    bucket: Optional[Any] = None\n    window_start: Optional[Any] = None\n");
+    expect(router).toContain("    data: RateLimitReplace,");
     expect(files.get("services/ratelimit.py")).toContain(
       'for field in ["bucket","window_start"]:\n            update_data.pop(field, None)'
     );

@@ -1164,6 +1164,43 @@ const specOf = async (entity: Entity) => {
   return files.find((f) => f.path.endsWith(".controller.spec.ts"))!.content;
 };
 
+const entityOf = async (entity: Entity) => {
+  const generator = new TypeScriptGenerator(createConfig([entity]));
+  const files = await generator.generateEntity({ entity, relationships: [], allEntities: [entity], apiType: "rest" } as never);
+  return findFileContent(files, `${entity.name}.entity`)!;
+};
+
+describe("a key column of any type the entity can hold is a TypeORM primary column", () => {
+
+  test("boolean, enum and float key fields", async () => {
+    const content = await entityOf({
+      name: "Flag",
+      fields: [
+        { name: "on", type: "boolean", primary: true },
+        { name: "role", type: "enum", values: ["admin", "member"], primary: true, default: "member" },
+        { name: "weight", type: "float", primary: true },
+        { name: "note", type: "text" },
+      ],
+    } as Entity);
+    // A key column the entity leaves out makes every write by key reach the
+    // rows that share the other columns.
+    expect(content.match(/@PrimaryColumn\(/g)).toHaveLength(3);
+    expect(content).toContain("@PrimaryColumn({ type: 'boolean' })");
+    expect(content).toMatch(/@PrimaryColumn\({\s*type: 'enum',\s*enum: enums\.FlagRoleEnum\s*}\)/);
+    expect(content).toContain('@PrimaryColumn({ "type": "decimal" })');
+  });
+
+  test("a json or array key field is refused", async () => {
+    await Promise.all(
+      ["json", "jsonb"].map((type) =>
+        expect(entityOf({ name: "Doc", fields: [{ name: "body", type, primary: true }] } as Entity)).rejects.toThrow(
+          /cannot be part of the primary key/
+        )
+      )
+    );
+  });
+});
+
 // apsoai/cli#250
 describe("a composite primary key", () => {
   const controllerOf = async (entity: Entity) => {

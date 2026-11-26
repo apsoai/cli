@@ -15,7 +15,7 @@ from ..auth import check_references
 from ..auth import check_parents, nested_conditions
 <% } %>
 from ..models.<%= it.entityName.toLowerCase() %> import <%= it.entityName %>
-from ..schemas.<%= it.entityName.toLowerCase() %> import <%= it.entityName %>Create, <%= it.entityName %>Update
+from ..schemas.<%= it.entityName.toLowerCase() %> import <%= it.entityName %>Create, <%= it.entityName %>Replace, <%= it.entityName %>Update
 from ..utils.query import QueryBuilder, QueryOptions, PaginatedResult
 
 
@@ -197,7 +197,7 @@ class <%= it.entityName %>Service:
     async def replace_one(
         self,
         id: Any,
-        data: <%= it.entityName %>Create,
+        data: <%= it.entityName %>Replace,
     ) -> Optional[<%= it.entityName %>]:
         """
         Replace an existing <%= it.entityName %>.

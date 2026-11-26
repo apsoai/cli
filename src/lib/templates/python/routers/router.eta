@@ -16,6 +16,7 @@ from ..models.<%= it.entityName.toLowerCase() %> import <%= it.entityName -%>
 from ..schemas.<%= it.entityName.toLowerCase() %> import (
     <%= it.entityName %> as <%= it.entityName %>Schema,
     <%= it.entityName %>Create,
+    <%= it.entityName %>Replace,
     <%= it.entityName %>Update,
     <%= it.entityName %>List,
 )
@@ -241,7 +242,7 @@ async def update_one(
 )
 async def replace_one(
     request: Request,
-    data: <%= it.entityName %>Create,
+    data: <%= it.entityName %>Replace,
 <%~ keyParams %>    db: AsyncSession = Depends(get_db),
 ) -> <%= it.entityName %>Schema:
     """

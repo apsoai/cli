@@ -647,6 +647,12 @@ export class PythonGenerator extends BaseGenerator {
           fkOut: keyType === "uuid" ? "UUID" : keyType === "bigserial" ? "str" : "int",
         };
       }),
+      // A composite or named key: the path of a replace names the row, so the
+      // body need not repeat these columns.
+      replaceKeys: (() => {
+        const { ownKey, keyFields } = this.keyData(entity, relationships, allEntities);
+        return ownKey ? keyFields : [];
+      })(),
       // A uuid id with no database default: the caller sends it on create.
       suppliesId:
         addDefaultPKProperty &&

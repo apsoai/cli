@@ -3,9 +3,13 @@
 @IsOptional({ groups: [CREATE, UPDATE] })
 @IsBoolean({ always: true })
 
+<% if (field.primary) { %>
+@PrimaryColumn({ type: 'boolean'<% if (field.primaryKeyName) { %>, primaryKeyConstraintName: '<%= field.primaryKeyName %>'<% } %> })
+<% } else { %>
 @Column({ type: 'boolean', nullable: <%= Boolean(field.nullable) %><% if (field.defaultSql) { %>, default: () => <%~ JSON.stringify(field.defaultSql) %><% } else if (!field.noDefault) { %>, default: <%= field.default === true || String(field.default).toLowerCase() === 'true' %><% } %> })
 <% if (field.index ) {%>
 @Index()
+<% } %>
 <% } %>
 
 <%= field.name %>!: <%= field.dataType %>;

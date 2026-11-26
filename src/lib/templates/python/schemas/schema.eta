@@ -69,6 +69,16 @@ class <%= it.entityName %>Create(BaseModel):
 <% }); -%>
 
 
+class <%= it.entityName %>Replace(<%= it.entityName %>Create):
+    """Schema for replacing a <%= it.entityName %>: the path names the row, so its key columns are optional"""
+<% it.replaceKeys.forEach((name) => { -%>
+    <%= name %>: Optional[Any] = None
+<% }); -%>
+<% if (!it.replaceKeys.length) { -%>
+    pass
+<% } -%>
+
+
 class <%= it.entityName %>Update(BaseModel):
     """Schema for updating an existing <%= it.entityName %>"""
 <% it.columns.filter(c => !['id', 'createdAt', 'updatedAt', 'created_at', 'updated_at'].includes(c.name)).forEach((field) => { -%>
