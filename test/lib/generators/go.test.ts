@@ -16,6 +16,43 @@ const parityFixture = path.join(
 );
 const keysFixture = path.join(__dirname, "../../fixtures/ddl/pygo-keys.apsorc");
 
+// Run with `go test` against the keys fixture's generated DTOs: a foreign key
+// onto a bigserial id is read from a JSON number or a string, keeps every digit
+// above 2^53, and is sent as a string.
+const bigIntKeyTest = `package dto
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
+
+func TestBigIntKey(t *testing.T) {
+	for _, body := range []string{
+		\`{"memo":"m","ledgerId":9007199254740993}\`,
+		\`{"memo":"m","ledgerId":"9007199254740993"}\`,
+	} {
+		var in EntryCreate
+		if err := json.Unmarshal([]byte(body), &in); err != nil || in.LedgerID != 9007199254740993 {
+			t.Fatalf("%s: read %d, %v", body, in.LedgerID, err)
+		}
+		out, err := json.Marshal(EntryResponse{LedgerID: in.LedgerID})
+		if err != nil || !strings.Contains(string(out), \`"ledgerId":"9007199254740993"\`) {
+			t.Fatalf("%s: sent %s, %v", body, out, err)
+		}
+	}
+	var update EntryUpdate
+	if err := json.Unmarshal([]byte(\`{"ledgerId":2}\`), &update); err != nil || update.LedgerID == nil || *update.LedgerID != 2 {
+		t.Fatalf("update with a number: %v", err)
+	}
+	for _, body := range []string{\`{"ledgerId":2.5}\`, \`{"ledgerId":"abc"}\`, \`{"ledgerId":true}\`} {
+		if err := json.Unmarshal([]byte(body), &EntryCreate{}); err == nil {
+			t.Fatalf("%s was read as a bigint", body)
+		}
+	}
+}
+`;
+
 function createConfig(
   entities: Entity[],
   relationshipMap: { [key: string]: Relationship[] } = {}
@@ -1208,8 +1245,14 @@ describe("GoGenerator", () => {
             GOFLAGS: "-mod=mod",
             GOPROXY: process.env.GOPROXY || "https://proxy.golang.org,direct",
           };
+          // The keys fixture also runs the request DTOs: a key onto a bigint id.
+          const bigIntKeys = fixture === keysFixture;
+          if (bigIntKeys)
+            fs.writeFileSync(path.join(dir, "autogen/dto/bigint_key_test.go"), bigIntKeyTest);
           execFileSync("go", ["mod", "tidy"], { cwd: dir, env, stdio: "pipe" });
           execFileSync("go", ["build", "./..."], { cwd: dir, env, stdio: "pipe" });
+          if (bigIntKeys)
+            execFileSync("go", ["test", "./autogen/dto/"], { cwd: dir, env, stdio: "pipe" });
         } finally {
           fs.rmSync(dir, { recursive: true, force: true });
         }
@@ -1235,18 +1278,32 @@ describe("bigserial ids, caller-supplied uuid ids, enum type names and composite
   });
 
   test("a bigserial id is BIGINT in the database and a string in the API", () => {
+    // models.BigInt: BIGINT through Scan and Value, a JSON string out, a string or a number in.
+    const bigInt = files.get("models/bigint.go")!;
+    for (const method of [
+      "func (b BigInt) MarshalJSON() ([]byte, error)",
+      "func (b *BigInt) UnmarshalJSON(data []byte) error",
+      "func (b *BigInt) Scan(src interface{}) error",
+      "func (b BigInt) Value() (driver.Value, error)",
+    ])
+      expect(bigInt).toContain(method);
     expect(files.get("models/ledger.go")).toContain(
-      'ID int64 `gorm:"column:id;type:bigint;primaryKey;autoIncrement" json:"id,string"`'
+      'ID BigInt `gorm:"column:id;type:bigint;primaryKey;autoIncrement" json:"id"`'
     );
-    expect(files.get("dto/ledger.go")).toMatch(/ID\s+int64\s+`json:"id,string"`/);
-    // A foreign key onto it is bigint too, and sent the same way.
+    expect(files.get("dto/ledger.go")).toMatch(/ID\s+models\.BigInt\s+`json:"id"`/);
+    // A foreign key onto it is bigint too, and sent and read the same way.
     expect(files.get("models/entry.go")).toContain(
-      'LedgerID int64 `gorm:"column:ledgerId;type:bigint;not null" json:"ledgerId,string"`'
+      'LedgerID BigInt `gorm:"column:ledgerId;type:bigint;not null" json:"ledgerId"`'
     );
     const dto = files.get("dto/entry.go")!;
-    expect(dto).toContain('LedgerID int64 `json:"ledgerId,string"`');
-    expect(dto).toContain('LedgerID int64 `json:"ledgerId,string" validate:"required"`');
-    expect(dto).toContain('LedgerID *int64 `json:"ledgerId,omitempty,string"`');
+    expect(dto).toContain('"app/autogen/models"\n');
+    expect(dto).toContain('LedgerID models.BigInt `json:"ledgerId"`');
+    expect(dto).toContain('LedgerID models.BigInt `json:"ledgerId" validate:"required"`');
+    expect(dto).toContain('LedgerID *models.BigInt `json:"ledgerId,omitempty"`');
+    // The ",string" tag would refuse a JSON number.
+    expect([...files.values()].join("\n")).not.toContain(',string"');
+    // A DTO with no bigint key does not import the models package.
+    expect(files.get("dto/workspace.go")).not.toContain('"app/autogen/models"\n');
     // The path segment is read as 63 bits, not the default id's 32.
     expect(files.get("handlers/ledger.go")).toContain("strconv.ParseUint(id, 10, 63)");
     expect(files.get("handlers/entry.go")).toContain("strconv.ParseUint(id, 10, 32)");

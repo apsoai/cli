@@ -1,0 +1,69 @@
+<%~ includeFile('../../header.eta', it) %>
+
+package models
+
+import (
+	"database/sql/driver"
+	"fmt"
+	"strconv"
+)
+
+// BigInt is a bigint id (primaryKeyType "bigserial"), or a foreign key onto
+// one. It is a BIGINT in the database. In JSON it is sent as a string ("6"),
+// because a bigint does not fit a JSON number safely, and it is read from a
+// string of digits or from a whole number, as the TypeScript services read it.
+type BigInt int64
+
+// MarshalJSON writes the number as a JSON string.
+func (b BigInt) MarshalJSON() ([]byte, error) {
+	return []byte(`"` + strconv.FormatInt(int64(b), 10) + `"`), nil
+}
+
+// UnmarshalJSON reads "6" or 6. The digits are parsed as they were sent, so a
+// number above 2^53 keeps every digit.
+func (b *BigInt) UnmarshalJSON(data []byte) error {
+	s := string(data)
+	if s == "null" {
+		return nil
+	}
+	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+		s = s[1 : len(s)-1]
+	}
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return fmt.Errorf("%s is not a whole number or a string of digits", data)
+	}
+	*b = BigInt(n)
+	return nil
+}
+
+// Scan reads a BIGINT column.
+func (b *BigInt) Scan(src interface{}) error {
+	switch v := src.(type) {
+	case nil:
+		*b = 0
+	case int64:
+		*b = BigInt(v)
+	case []byte:
+		return b.parse(string(v))
+	case string:
+		return b.parse(v)
+	default:
+		return fmt.Errorf("cannot read %T as a bigint", src)
+	}
+	return nil
+}
+
+func (b *BigInt) parse(s string) error {
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return err
+	}
+	*b = BigInt(n)
+	return nil
+}
+
+// Value writes a BIGINT column or query argument.
+func (b BigInt) Value() (driver.Value, error) {
+	return int64(b), nil
+}

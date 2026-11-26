@@ -252,7 +252,8 @@ export class GoGenerator extends BaseGenerator {
    * Gets the Go type for primary keys
    */
   private getPrimaryKeyGoType(primaryKeyType: string): string {
-    if (primaryKeyType === "bigserial") return "int64";
+    // models.BigInt: a bigint in the database, a JSON string in the API.
+    if (primaryKeyType === "bigserial") return "BigInt";
     return primaryKeyType === "uuid" ? "string" : "uint";
   }
 
@@ -414,6 +415,7 @@ export class GoGenerator extends BaseGenerator {
         const pkGoType = this.getPrimaryKeyGoType(
           target?.primaryKeyType || "serial"
         );
+        const bigInt = pkGoType === "BigInt";
         let join: { name: string; ownCol: string; otherCol: string } | undefined;
         if (rel.type === "ManyToMany" && target) {
           if (rel.joinTable) join = joinTableOf(entity, rel, target);
@@ -443,11 +445,12 @@ export class GoGenerator extends BaseGenerator {
           fkNullable,
           primaryKeyGoType: pkGoType,
           fkGoType: `${fkNullable ? "*" : ""}${pkGoType}`,
-          // A key onto a bigint id is a JSON string, as the id is.
-          // ponytail: the ",string" tag reads a JSON string only, so a number
-          // sent for this key gets a 400 (TypeScript and Python read both). A
-          // type with its own UnmarshalJSON would read both.
-          jsonString: pkGoType === "int64" ? ",string" : "",
+          // A key onto a bigint id is a models.BigInt, as the id is: sent as a
+          // JSON string, read from a string or a number. The DTO package
+          // names the type through the models package.
+          bigInt,
+          dtoKeyGoType: bigInt ? "models.BigInt" : pkGoType,
+          dtoFkGoType: `${fkNullable ? "*" : ""}${bigInt ? "models.BigInt" : pkGoType}`,
           fkTag: owns
             ? gormTag([
                 `column:${relationColumn(rel)}`,
@@ -638,6 +641,10 @@ export class GoGenerator extends BaseGenerator {
         Boolean(createdAt || updatedAt) ||
         columns.some((c: any) => c.goType === "time.Time"),
       importEnums: typeExistsInEntity(entity, "enum") !== -1,
+      // models.BigInt, for a bigint id or a key onto one.
+      importModels:
+        (hasId && primaryKeyType === "bigserial") ||
+        goRelationships.some((a: any) => a.owns && a.bigInt),
     };
 
     const content = await this.renderTemplate("./dto/dto", data);
@@ -777,6 +784,10 @@ ${modelRefs}
       {
         path: "models/registry.go",
         content: registryContent,
+      },
+      {
+        path: "models/bigint.go",
+        content: await this.renderTemplate("./models/bigint", {}),
       },
       {
         path: "models/schema.go",
@@ -942,7 +953,7 @@ ${modelRefs}
       for (const a of this.goAssociations(entity, relationshipMap[entity.name] || [], entities)) {
         if (!a.owns) continue;
         const name = `${a.camelReferenceName}Id`;
-        properties[name] = a.jsonString
+        properties[name] = a.bigInt
           ? { type: "string", pattern: "^[0-9]+$" }
           : jsonType(a.fkGoType.replace(/^\*/, ""));
         if (!a.fkNullable && !scoped.has(name)) required.push(name);

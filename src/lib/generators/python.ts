@@ -641,8 +641,9 @@ export class PythonGenerator extends BaseGenerator {
         return {
           ...r,
           hidden: hidesRelation(entityName, r.name, allEntities, options.auth),
-          // A key onto a bigint id is read as a number or a string and sent as a string.
-          fkIn: keyType === "uuid" ? "UUID" : "int",
+          // A key onto a bigint id is a string of digits in the API document,
+          // in a request as in a response. A JSON number is read too.
+          fkIn: keyType === "uuid" ? "UUID" : keyType === "bigserial" ? "BigIntKey" : "int",
           fkOut: keyType === "uuid" ? "UUID" : keyType === "bigserial" ? "str" : "int",
         };
       }),

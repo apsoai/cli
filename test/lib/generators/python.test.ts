@@ -801,8 +801,20 @@ describe("bigserial ids, caller-supplied uuid ids, enum type names and composite
       /ledgerId: Mapped\[str] = mapped_column\(BigIntString, ForeignKey\("ledger.id", name="FK_\w+", ondelete="NO ACTION", onupdate="NO ACTION"\), nullable=False\)/
     );
     expect(part("schemas/ledger.py", "class Ledger(BaseModel)", "class LedgerList")).toContain("    id: str\n");
-    // A write reads the key as a number or a string of digits; a response sends a string.
-    expect(part("schemas/entry.py", "class EntryCreate", "class EntryUpdate")).toContain("    ledgerId: int\n");
+    // The API document declares the key as a string of digits in a request as
+    // in a response; a JSON number is read as its digits.
+    const entry = files.get("schemas/entry.py")!;
+    expect(entry).toContain(
+      'BigIntKey = Annotated[str, Field(pattern="^[0-9]{1,19}$"), BeforeValidator(_digits)]'
+    );
+    expect(entry).toContain("return str(value) if isinstance(value, int) and not isinstance(value, bool) else value");
+    expect(part("schemas/entry.py", "class EntryCreate", "class EntryUpdate")).toContain("    ledgerId: BigIntKey\n");
+    expect(part("schemas/entry.py", "class EntryUpdate", "class Entry(BaseModel)")).toContain(
+      "    ledgerId: Optional[BigIntKey] = None\n"
+    );
+    // A key onto a serial id stays a number, and its schema file has no BigIntKey.
+    expect(part("schemas/membership.py", "class MembershipCreate", "class MembershipUpdate")).toContain("    workspaceId: int\n");
+    expect(files.get("schemas/membership.py")).not.toContain("BigIntKey");
     expect(part("schemas/entry.py", "class Entry(BaseModel)", "class EntryList")).toContain(
       "    ledgerId: Optional[str] = None\n"
     );

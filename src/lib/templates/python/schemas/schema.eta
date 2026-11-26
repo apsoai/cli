@@ -1,11 +1,11 @@
 <%~ includeFile('../header.eta', it) %>
 
 from __future__ import annotations
-from typing import Optional, List, Any
+from typing import Annotated, Optional, List, Any
 from datetime import datetime, date
 from decimal import Decimal
 from uuid import UUID
-from pydantic import BaseModel, Field, ConfigDict, field_serializer, model_validator
+from pydantic import BaseModel, BeforeValidator, Field, ConfigDict, field_serializer, model_validator
 from sqlalchemy import inspect as sa_inspect
 <% if (it.importEnums) { -%>
 from ..models import enums
@@ -30,6 +30,19 @@ def _loaded(value: Any) -> Any:
     return {key: getattr(value, key) for key in state.attrs.keys() if key not in state.unloaded}
 
 
+<% if (it.associations.some((a) => a.fkIn === 'BigIntKey')) { -%>
+def _digits(value: Any) -> Any:
+    """A bigint key sent as a JSON number, read as its digits."""
+    return str(value) if isinstance(value, int) and not isinstance(value, bool) else value
+
+
+# A foreign key onto a bigint id in a request body: a string of digits, as
+# responses send it and as the API document declares it. A whole JSON number
+# is read too. The pattern comes first so the document carries it.
+BigIntKey = Annotated[str, Field(pattern="^[0-9]{1,19}$"), BeforeValidator(_digits)]
+
+
+<% } -%>
 class <%= it.entityName %>Base(BaseModel):
     """Base schema with common fields for <%= it.entityName %>"""
 <% it.columns.filter(c => !['id', 'createdAt', 'updatedAt', 'created_at', 'updated_at'].includes(c.name)).forEach((field) => { -%>
