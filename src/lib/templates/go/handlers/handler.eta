@@ -214,6 +214,10 @@ func (h *<%= it.entityName %>Handler) Create(c *gin.Context) {
 			return
 		}
 <% } %>
+		if utils.IsDuplicateKey(err) {
+			c.JSON(http.StatusConflict, gin.H{"error": "A <%= it.entityName %> with this key already exists"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -260,6 +264,10 @@ func (h *<%= it.entityName %>Handler) Update(c *gin.Context) {
 			return
 		}
 <% } %>
+		if utils.IsDuplicateKey(err) {
+			c.JSON(http.StatusConflict, gin.H{"error": "A <%= it.entityName %> with this key already exists"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

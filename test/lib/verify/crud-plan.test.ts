@@ -162,6 +162,8 @@ describe("a composite primary key", () => {
         ...getRelationshipForTemplate("Page", relationships.Page).filter((r) => r.primary).map((r) => r.camelCasedId),
       ];
       expect(keyFieldsOf(page, relationships)).toEqual(entityKey);
+      // "primary" on either declaration makes the foreign key part of the key.
+      expect(entityKey).toEqual(["slug", "workspaceId"]);
     }
   });
 

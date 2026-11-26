@@ -1,5 +1,5 @@
 import { expect, describe, test, beforeAll } from "@jest/globals";
-import { PythonGenerator } from "../../../src/lib/generators/python";
+import { BIGINT_PATTERN, PythonGenerator } from "../../../src/lib/generators/python";
 import * as path from "path";
 import { GeneratorConfig, Entity, Relationship } from "../../../src/lib/types";
 import { generateAll } from "../../helpers/generate-all";
@@ -805,7 +805,7 @@ describe("bigserial ids, caller-supplied uuid ids, enum type names and composite
     // in a response; a JSON number is read as its digits.
     const entry = files.get("schemas/entry.py")!;
     expect(entry).toContain(
-      'BigIntKey = Annotated[str, Field(pattern="^[0-9]{1,19}$"), BeforeValidator(_digits)]'
+      `BigIntKey = Annotated[str, Field(pattern=${JSON.stringify(BIGINT_PATTERN)}), BeforeValidator(_digits)]`
     );
     expect(entry).toContain("return str(value) if isinstance(value, int) and not isinstance(value, bool) else value");
     expect(part("schemas/entry.py", "class EntryCreate", "class EntryUpdate")).toContain("    ledgerId: BigIntKey\n");
@@ -818,12 +818,12 @@ describe("bigserial ids, caller-supplied uuid ids, enum type names and composite
     expect(part("schemas/entry.py", "class Entry(BaseModel)", "class EntryList")).toContain(
       "    ledgerId: Optional[str] = None\n"
     );
-    expect(files.get("routers/ledger.py")).toContain('id: Annotated[str, Path(pattern="^[0-9]{1,19}$")],');
+    expect(files.get("routers/ledger.py")).toContain(`id: Annotated[str, Path(pattern=${JSON.stringify(BIGINT_PATTERN)})],`);
     // The default id is unchanged.
     expect(files.get("models/entry.py")).toContain(
       "id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)"
     );
-    expect(files.get("routers/entry.py")).toContain("    id: int,\n");
+    expect(files.get("routers/entry.py")).toContain("    id: Annotated[int, Path(ge=1, le=2147483647)],\n");
   });
 
   test("a uuid id with no default is sent by the caller on create", () => {
@@ -836,6 +836,25 @@ describe("bigserial ids, caller-supplied uuid ids, enum type names and composite
     expect(files.get("services/profile.py")).toContain('for field in ["id"]:\n            replace_data.pop(field, None)');
     // An id the database fills is not in the create schema.
     expect(part("schemas/workspace.py", "class WorkspaceCreate", "class WorkspaceUpdate")).not.toContain("id:");
+  });
+
+  test("a duplicate key answers 409, a text key cannot hold a slash, and path segments are range-checked", () => {
+    const service = files.get("services/ratelimit.py")!;
+    expect(service).toContain("async def _commit(self) -> None:");
+    expect(service).toContain("status_code=status.HTTP_409_CONFLICT");
+    expect(service.match(/await self\._commit\(\)/g)).toHaveLength(4);
+    const create = part("schemas/ratelimit.py", "class RateLimitCreate", "class RateLimitReplace");
+    expect(create).toContain('for name in ["bucket"]:');
+    // An integer segment is bounded by its column's type.
+    expect(files.get("routers/membership.py")).toContain('Path(alias="workspaceId", ge=-2147483648, le=2147483647)');
+    expect(files.get("routers/entry.py")).toContain("id: Annotated[int, Path(ge=1, le=2147483647)]");
+  });
+
+  test("the bigint pattern accepts exactly 0 to 2^63-1", () => {
+    const pattern = new RegExp(BIGINT_PATTERN);
+    for (const ok of ["0", "7", "999999999999999999", "9223372036854775799", "9223372036854775807"]) expect(pattern.test(ok)).toBe(true);
+    for (const bad of ["9223372036854775808", "9300000000000000000", "10000000000000000000", "-1", "1.5", ""]) expect(pattern.test(bad)).toBe(false);
+    expect(files.get("routers/ledger.py")).toContain(`Path(pattern=${JSON.stringify(BIGINT_PATTERN)})`);
   });
 
   test("enumName names the enum type, and two fields share one", () => {
@@ -876,7 +895,7 @@ describe("bigserial ids, caller-supplied uuid ids, enum type names and composite
   test("a primary relationship's id column follows the primary fields", () => {
     expect(files.get("routers/membership.py")).toContain('"/{role}/{workspaceId}"');
     expect(files.get("routers/membership.py")).toContain(
-      '    key_0: str = Path(alias="role"),\n    key_1: int = Path(alias="workspaceId"),\n'
+      '    key_0: str = Path(alias="role"),\n    key_1: int = Path(alias="workspaceId", ge=-2147483648, le=2147483647),\n'
     );
     expect(files.get("models/membership.py")).toMatch(
       /workspaceId: Mapped\[int] = mapped_column\(Integer, ForeignKey\("workspace.id", [^)]+\), primary_key=True\)/

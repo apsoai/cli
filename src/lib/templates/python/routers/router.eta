@@ -30,7 +30,7 @@ from ..mcp import LIST_PARAMETERS, mcp_tool
 // One path segment per key column, in key order. The default key is one "id".
 const keyPath = it.key.map((k) => `/{${k.name}}`).join('');
 const keyParams = it.key
-  .map((k) => `    ${k.param}: ${k.pyType}${it.ownKey ? ` = Path(alias=${JSON.stringify(k.name)})` : ''},\n`)
+  .map((k) => `    ${k.param}: ${k.pyType}${it.ownKey ? ` = Path(alias=${JSON.stringify(k.name)}${k.range ? `, ge=${k.range[0]}, le=${k.range[1]}` : ''})` : ''},\n`)
   .join('');
 const keyValue = it.ownKey ? `{${it.key.map((k) => `${JSON.stringify(k.name)}: ${k.param}`).join(', ')}}` : 'id';
 const byKey = it.ownKey ? `its key (${it.key.map((k) => k.name).join(', ')})` : 'id';

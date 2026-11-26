@@ -44,7 +44,7 @@ export async function call(
     const text = await res.text();
     let json: any;
     try {
-      json = JSON.parse(text);
+      json = withRowPaths(url, JSON.parse(text));
     } catch {
       json = undefined;
     }
@@ -53,6 +53,38 @@ export async function call(
     return { status: 0, text: String(error) };
   }
 }
+
+/**
+ * Routes of the entities whose key is more than one column, and their key
+ * columns in route order. Set by buildModel.
+ * ponytail: module state shared by every model built in this process; one
+ * run builds one model.
+ */
+const compositeRoutes: { route: string; keys: string[] }[] = [];
+
+/**
+ * The cases address a row as `${url}/${row.id}`. A composite-key entity has no
+ * id column, so each of its rows in a response gets `id` set to its key's path
+ * segments ("smoke/2024-01-01T00%3A00%3A00.000Z"), which is how its routes
+ * address it and how the cases tell two rows apart.
+ */
+function withRowPaths(url: string, json: any): any {
+  const path = new URL(url).pathname;
+  const entry = compositeRoutes.find(({ route }) => path === route || path.startsWith(`${route}/`));
+  if (!entry) return json;
+  const keyed = (row: any) => {
+    if (!row || typeof row !== "object" || row.id !== undefined) return;
+    const values = entry.keys.map((k) => row[k]);
+    if (values.every((v) => v !== undefined && v !== null))
+      row.id = values.map((v) => encodeURIComponent(String(v))).join("/");
+  };
+  for (const row of Array.isArray(json) ? json : [json, ...(Array.isArray(json?.data) ? json.data : [])]) keyed(row);
+  return json;
+}
+
+/** A PostgREST condition that names one row: id.eq.7, or and(k1.eq.a,k2.eq.b) for a composite key. */
+const rowCondition = (entity: AccessEntity, row: Row): string =>
+  entity.keys ? `and(${entity.keys.map((k) => `${k}.eq.${row[k]}`).join(",")})` : `id.eq.${row.id}`;
 
 const rowsOf = (json: any): Row[] => {
   if (Array.isArray(json)) return json;
@@ -75,6 +107,8 @@ export interface AccessEntity {
   payload: Row;
   /** The uuid id has no default: each create body carries a new one. */
   suppliesId?: boolean;
+  /** The key columns of a composite key, in route order; absent for a single key. */
+  keys?: string[];
   /** Required foreign keys: property -> the entity it points to. */
   parents: { property: string; entity: string }[];
   /** Relations a `join` can name: property -> the entity it loads, and for a many-to-one its foreign key. */
@@ -123,15 +157,10 @@ export function buildModel(
 ): AccessModel {
   const plan = planCrud(entities, relationships);
   const skipped = [...plan.skipped];
-  // The cases address a row by one id; a composite key takes a path segment per column.
-  const order = plan.order.filter((planned) => {
-    if (planned.keys.length === 1) return true;
-    skipped.push({
-      name: planned.name,
-      reason: `its primary key is ${planned.keys.length} columns (${planned.keys.join(", ")}), which these cases do not address`,
-    });
-    return false;
-  });
+  const order = plan.order;
+  compositeRoutes.length = 0;
+  for (const planned of order)
+    if (planned.keys.length > 1) compositeRoutes.push({ route: routeOf(language, planned.name), keys: planned.keys });
   const scoped = auth ? getScopedEntities(entities, relationships) : [];
   let tenantRoot: string | undefined;
 
@@ -170,6 +199,7 @@ export function buildModel(
       fields: entity.fields ?? [],
       payload: planned.payload,
       suppliesId: planned.suppliesId,
+      ...(planned.keys.length > 1 && { keys: planned.keys }),
       parents: planned.parents,
       relations,
       scope,
@@ -225,6 +255,7 @@ interface Tenant {
 }
 
 const TEXT = new Set(["text", "string", "varchar"]);
+const DATE_TYPES = new Set(["date", "timestamp", "timestamptz", "datetime"]);
 
 /** A create body for the nth row of an entity: text values differ per row so unique fields do not collide. */
 function payloadFor(entity: AccessEntity, n: number): Row {
@@ -232,6 +263,10 @@ function payloadFor(entity: AccessEntity, n: number): Row {
   if (entity.suppliesId) body.id = randomUUID();
   for (const field of entity.fields) {
     const value = body[field.name];
+    // Each tenant's row gets its own key, so a key without a text column does not collide.
+    if (entity.keys?.includes(field.name) && typeof value === "number") body[field.name] = value + n;
+    if (entity.keys?.includes(field.name) && DATE_TYPES.has(field.type as string) && typeof value === "string")
+      body[field.name] = new Date(Date.parse(value) + n * 86_400_000).toISOString().slice(0, field.type === "date" ? 10 : undefined);
     if (typeof value !== "string") continue;
     if (field.is_email) body[field.name] = `access${n}@example.com`;
     else if (TEXT.has(field.type as string)) body[field.name] = `${value.slice(0, -1)}${n}`;
@@ -648,7 +683,7 @@ async function nestjsxRefused(ctx: AccessContext): Promise<void> {
   }
   const array = await call("GET", `${url}?filter[]=${enc("id||$notnull")}`, { headers: key });
   t.assert(`[R7] ${entity.name}: a nestjsx parameter sent as an array is refused with a 400`, refused(array, "filter"), `${array.status} ${array.text.slice(0, 300)}`);
-  const byId = await call("GET", `${url}/1?join=${enc(relation)}`, { headers: key });
+  const byId = await call("GET", `${url}/${(entity.keys ?? ["id"]).map(() => "1").join("/")}?join=${enc(relation)}`, { headers: key });
   t.assert(`[R7] ${entity.name}: a nestjsx parameter on a read by id is refused with a 400`, refused(byId, "join"), `${byId.status} ${byId.text.slice(0, 300)}`);
   t.expect(`[R7] ${entity.name}: the X-Crud-Dialect: nestjsx header is refused with a 400`, await call("GET", url, { headers: { ...key, "x-crud-dialect": "nestjsx" } }), 400);
   const user = ctx.user?.({ tenant: "1", roles: callerRoles(model) });
@@ -709,8 +744,12 @@ async function tenantScope(ctx: AccessContext, entity: AccessEntity, a: Tenant, 
       ["a plain list", "", ownCount],
       ["a count-only request (limit=0)", "limit=0", ownCount],
       ["a filter that lists both tenants", `${col}=${enc(`in.(${mineValue},${theirValue})`)}`, ownCount],
-      ["an or group that names the other tenant's row", `or=${enc(`(id.eq.${mine.id},id.eq.${other.id})`)}`, 1],
-      ["a filter on the other tenant's row id", `id=${enc(`eq.${other.id}`)}`, 0],
+      ["an or group that names the other tenant's row", `or=${enc(`(${rowCondition(entity, mine)},${rowCondition(entity, other)})`)}`, 1],
+      [
+        "a filter on the other tenant's row id",
+        entity.keys ? `and=${enc(`(${entity.keys.map((k) => `${k}.eq.${other[k]}`).join(",")})`)}` : `id=${enc(`eq.${other.id}`)}`,
+        0,
+      ],
     ];
     for (const [name, query, expected] of counts) {
       const res = await call("GET", query ? `${url}?${query}` : url, { headers: { ...asA, ...exact } });

@@ -389,6 +389,9 @@ export class GoGenerator extends BaseGenerator {
         snakeName: snakeCase(field.name),
         // NOT NULL with no default: the create DTO requires it.
         mustSend: spec.notNull && spec.default === undefined,
+        // A key column is a path segment, and the router matches the decoded
+        // path, so a value with "/" could be stored and never addressed.
+        noSlash: Boolean(field.primary),
         enumType,
       };
     });

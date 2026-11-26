@@ -39,7 +39,7 @@ def _digits(value: Any) -> Any:
 # A foreign key onto a bigint id in a request body: a string of digits, as
 # responses send it and as the API document declares it. A whole JSON number
 # is read too. The pattern comes first so the document carries it.
-BigIntKey = Annotated[str, Field(pattern="^[0-9]{1,19}$"), BeforeValidator(_digits)]
+BigIntKey = Annotated[str, Field(pattern=<%~ JSON.stringify(it.bigintPattern) %>), BeforeValidator(_digits)]
 
 
 <% } -%>
@@ -69,6 +69,18 @@ class <%= it.entityName %>Create(BaseModel):
 <% }); -%>
 
 
+<% if (it.slashFreeKeys.length) { -%>
+    @model_validator(mode="after")
+    def _key_has_no_slash(self) -> Any:
+        # A row is addressed by its key in the URL path, which cannot carry "/".
+        for name in <%~ JSON.stringify(it.slashFreeKeys) %>:
+            value = getattr(self, name, None)
+            if isinstance(value, str) and "/" in value:
+                raise ValueError(f"{name} cannot contain '/': a row is addressed by its key in the URL path")
+        return self
+
+
+<% } -%>
 class <%= it.entityName %>Replace(<%= it.entityName %>Create):
     """Schema for replacing a <%= it.entityName %>: the path names the row, so its key columns are optional"""
 <% it.replaceKeys.forEach((name) => { -%>

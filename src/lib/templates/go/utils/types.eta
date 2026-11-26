@@ -2,7 +2,11 @@
 
 package utils
 
-import "time"
+import (
+	"errors"
+	"strings"
+	"time"
+)
 
 // ParseKeyTime reads a date or timestamp key column from a path segment:
 // RFC 3339 with an offset ("2026-01-02T03:04:05.123456Z"), the same with no
@@ -16,6 +20,16 @@ func ParseKeyTime(s string) (time.Time, error) {
 		}
 	}
 	return time.Time{}, err
+}
+
+// IsDuplicateKey reports whether err is a unique or primary key violation
+// (SQLSTATE 23505), so a handler can answer 409 instead of 500.
+func IsDuplicateKey(err error) bool {
+	var coded interface{ SQLState() string }
+	if errors.As(err, &coded) {
+		return coded.SQLState() == "23505"
+	}
+	return strings.Contains(err.Error(), "SQLSTATE 23505")
 }
 
 // ParsedFilter represents a single filter condition.

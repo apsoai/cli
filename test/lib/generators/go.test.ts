@@ -1272,6 +1272,16 @@ describe("bigserial ids, caller-supplied uuid ids, enum type names and composite
     files = await generateAll("go", keysFixture);
   });
 
+  test("a duplicate key answers 409, and a text key column cannot hold a slash", () => {
+    expect(files.get("utils/types.go")).toContain("func IsDuplicateKey(err error) bool {");
+    const handler = files.get("handlers/rate_limit.go")!;
+    // Create and Update, where a write can hit a key or unique value that exists.
+    expect(handler.match(/if utils\.IsDuplicateKey\(err\) {\n\t\t\tc\.JSON\(http\.StatusConflict/g)).toHaveLength(2);
+    // The router matches the decoded path, so "/" in a key could never be addressed.
+    expect(files.get("dto/rate_limit.go")).toMatch(/Bucket\s+\*?string\s+`json:"bucket[^`]*validate:"[^"]*excludesall=\/"`/);
+    expect(files.get("dto/rate_limit.go")).not.toMatch(/Hits[^\n]*excludesall/);
+  });
+
   test("none of the four is refused", () => {
     const config = createConfig(input.entities, input.relationshipMap);
     expect(new GoGenerator(config).validateConfig(config).errors).toEqual([]);
