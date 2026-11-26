@@ -54,6 +54,7 @@ import {
 } from "../ddl";
 import { legacyColumn, LegacyName, syncStatements } from "../ddl/sync";
 import { Relationship, RelationshipMap } from "../types";
+import { hasOwnKey, keyColumns } from "./key";
 import pluralize from "pluralize";
 
 // Postgres array element type -> lib/pq array type and its Go element type.
@@ -182,21 +183,6 @@ export class GoGenerator extends BaseGenerator {
         errors.push(
           `${e.name} sets "foreignKeys". The Go generator cannot declare a second foreign key on a column yet; remove it or generate a TypeScript service.`
         );
-    for (const e of config.entities ?? []) {
-      if (e.primaryKeyType === "bigserial")
-        errors.push(
-          `${e.name} sets "primaryKeyType": "bigserial". The Go generator cannot make a bigint id yet; remove it or generate a TypeScript service.`
-        );
-      if (e.primaryKeyDefault === null)
-        errors.push(
-          `${e.name} sets "primaryKeyDefault": null. The Go generator cannot make a uuid id without a default yet; remove it or generate a TypeScript service.`
-        );
-      for (const f of e.fields ?? [])
-        if (f.enumName)
-          errors.push(
-            `${e.name}.${f.name} sets "enumName". The Go generator cannot keep an enum type's name yet; remove it or generate a TypeScript service.`
-          );
-    }
     for (const e of config.entities ?? [])
       if (e.primaryKeyName)
         errors.push(
@@ -266,6 +252,7 @@ export class GoGenerator extends BaseGenerator {
    * Gets the Go type for primary keys
    */
   private getPrimaryKeyGoType(primaryKeyType: string): string {
+    if (primaryKeyType === "bigserial") return "int64";
     return primaryKeyType === "uuid" ? "string" : "uint";
   }
 
@@ -273,7 +260,76 @@ export class GoGenerator extends BaseGenerator {
    * Gets the Swagger type for primary keys
    */
   private getPrimaryKeySwaggerType(primaryKeyType: string): string {
-    return primaryKeyType === "uuid" ? "string" : "integer";
+    // A bigint id is a JSON string on the wire.
+    return ["uuid", "bigserial"].includes(primaryKeyType) ? "string" : "integer";
+  }
+
+  /**
+   * How a route addresses one row. The default key is one "id" segment. An
+   * entity with its own key (several columns, or one with its own name) gets
+   * one segment per key column, in key order; `parse` is the Go call that
+   * reads a segment as its column's type (none: Postgres casts the text).
+   */
+  private goKey(entity: Entity, relationships: Relationship[], allEntities: Entity[]) {
+    const columns = keyColumns(
+      entity,
+      relationships,
+      allEntities,
+      this.config.relationshipMap
+    );
+    const ownKey = hasOwnKey(columns);
+    const primaryKeyType = entity.primaryKeyType || "serial";
+    const key = columns.map((c) => {
+      const type = c.type.toLowerCase();
+      if (!ownKey)
+        return {
+          name: c.name,
+          swaggerType: this.getPrimaryKeySwaggerType(primaryKeyType),
+          json: { type: this.getPrimaryKeySwaggerType(primaryKeyType) },
+        };
+      if (["integer", "smallint", "bigint"].includes(type))
+        return {
+          name: c.name,
+          parse: "strconv.ParseInt",
+          parseArgs: ", 10, 64",
+          swaggerType: "integer",
+          json: { type: "integer" },
+        };
+      if (type === "boolean")
+        return {
+          name: c.name,
+          parse: "strconv.ParseBool",
+          parseArgs: "",
+          swaggerType: "boolean",
+          json: { type: "boolean" },
+        };
+      if (type === "date" || type.startsWith("timestamp"))
+        return {
+          name: c.name,
+          parse: "utils.ParseKeyTime",
+          parseArgs: "",
+          swaggerType: "string",
+          json: { type: "string", format: type === "date" ? "date" : "date-time" },
+        };
+      return { name: c.name, swaggerType: "string", json: { type: "string" } };
+    });
+    return {
+      ownKey,
+      key,
+      // The entity has the generated "id" column.
+      hasId: !ownKey && !(entity.fields ?? []).some((f) => f.primary),
+      // A uuid id with no database default: the caller sends it on create.
+      suppliesId:
+        !ownKey &&
+        !(entity.fields ?? []).some((f) => f.primary) &&
+        primaryKeyType === "uuid" &&
+        entity.primaryKeyDefault === null,
+      keyPath: key.map((k) => `/:${k.name}`).join(""),
+      byKey: ownKey ? `its key (${key.map((k) => k.name).join(", ")})` : "id",
+      importStrconv: ownKey
+        ? key.some((k) => k.parse?.startsWith("strconv."))
+        : primaryKeyType !== "uuid",
+    };
   }
 
   private arrayTypes(field: Field, entityName: string) {
@@ -306,7 +362,7 @@ export class GoGenerator extends BaseGenerator {
         `column:${field.name}`,
         `type:${
           field.type === "enum"
-            ? `"${enumTypeName(table, field.name)}"`
+            ? `"${field.enumName ?? enumTypeName(table, field.name)}"`
             : spec.type.toLowerCase().replace("timestamp with time zone", "timestamptz")
         }`,
         ...(field.primary ? ["primaryKey"] : []),
@@ -387,10 +443,16 @@ export class GoGenerator extends BaseGenerator {
           fkNullable,
           primaryKeyGoType: pkGoType,
           fkGoType: `${fkNullable ? "*" : ""}${pkGoType}`,
+          // A key onto a bigint id is a JSON string, as the id is.
+          // ponytail: the ",string" tag reads a JSON string only, so a number
+          // sent for this key gets a 400 (TypeScript and Python read both). A
+          // type with its own UnmarshalJSON would read both.
+          jsonString: pkGoType === "int64" ? ",string" : "",
           fkTag: owns
             ? gormTag([
                 `column:${relationColumn(rel)}`,
                 `type:${fkType(target)}`,
+                ...(rel.primary ? ["primaryKey"] : []),
                 ...(fkNullable ? [] : ["not null"]),
               ])
             : undefined,
@@ -412,14 +474,14 @@ export class GoGenerator extends BaseGenerator {
     const { name, fields = [] } = entity;
 
     const columns = this.getGoFieldsForTemplate(fields, entity);
-    const createPrimaryKey =
-      columns.filter((column: Field) => column.primary === true).length === 0;
     const primaryKeyType = entity.primaryKeyType || "serial";
     const associations = this.goAssociations(entity, relationships, allEntities);
+    const { hasId, suppliesId } = this.goKey(entity, relationships, allEntities);
 
     const data = {
       name,
-      createPrimaryKey,
+      createPrimaryKey: hasId,
+      suppliesId,
       primaryKeyType,
       tableName: tableName(entity),
       createdAt: entity.created_at,
@@ -469,6 +531,7 @@ export class GoGenerator extends BaseGenerator {
       primaryKeyType,
       primaryKeyGoType: this.getPrimaryKeyGoType(primaryKeyType),
       primaryKeySwaggerType: this.getPrimaryKeySwaggerType(primaryKeyType),
+      ...this.goKey(entity, relationships, options.allEntities),
       associations: [...new Set(relationshipsForTemplate)],
       scope: entityScope(entity, Boolean(options.auth), this.config.relationshipMap ?? {}),
       // A write that names a row the caller cannot read is answered like a scope error.
@@ -513,6 +576,7 @@ export class GoGenerator extends BaseGenerator {
       entityName,
       pluralName: pascalCase(pluralEntityName),
       primaryKeyType,
+      ...this.goKey(entity, relationships, allEntities),
       createdAt,
       updatedAt,
       columns,
@@ -554,10 +618,7 @@ export class GoGenerator extends BaseGenerator {
       scoped: scopeFields.has(`${rel.camelReferenceName}Id`),
     }));
 
-    const primaryKeyColumns = columns.filter(
-      (column: any) => column.primary === true
-    );
-    const addDefaultPKProperty = primaryKeyColumns.length === 0;
+    const { hasId, suppliesId } = this.goKey(entity, relationships, allEntities);
 
     const createdAt = entity.created_at;
     const updatedAt = entity.updated_at;
@@ -565,7 +626,8 @@ export class GoGenerator extends BaseGenerator {
 
     const data = {
       entityName,
-      addDefaultPKProperty,
+      addDefaultPKProperty: hasId,
+      suppliesId,
       primaryKeyType,
       createdAt,
       updatedAt,
@@ -880,16 +942,29 @@ ${modelRefs}
       for (const a of this.goAssociations(entity, relationshipMap[entity.name] || [], entities)) {
         if (!a.owns) continue;
         const name = `${a.camelReferenceName}Id`;
-        properties[name] = jsonType(a.fkGoType.replace(/^\*/, ""));
+        properties[name] = a.jsonString
+          ? { type: "string", pattern: "^[0-9]+$" }
+          : jsonType(a.fkGoType.replace(/^\*/, ""));
         if (!a.fkNullable && !scoped.has(name)) required.push(name);
       }
-      const id = { type: entity.primaryKeyType === "uuid" ? "string" : "integer" };
+      const { key, keyPath, byKey, suppliesId } = this.goKey(
+        entity,
+        relationshipMap[entity.name] || [],
+        entities
+      );
+      if (suppliesId) {
+        properties.id = { type: "string", format: "uuid" };
+        required.push("id");
+      }
+      // One argument per key column, named as the path segment is.
+      const keyProps = Object.fromEntries(key.map((k) => [k.name, k.json]));
+      const keyNames = key.map((k) => k.name);
       const schema = (props: Record<string, unknown>, req: string[]) =>
         JSON.stringify({ type: "object", properties: props, required: req });
       const body = (req: string[]) => ({ type: "object", properties, required: req });
       const plural = pluralize(entity.name);
       const path = `/${kebabCase(plural)}`;
-      const one = `${path}/:id`;
+      const one = `${path}${keyPath}`;
       const tool = (
         op: string,
         name: string,
@@ -903,10 +978,10 @@ ${modelRefs}
           : [];
       return [
         ...tool("read", `list_${mcpPluralName}`, "GET", path, `List ${plural}. Supports filter, sort, join, limit and page.`),
-        ...tool("read", `get_${mcpName}`, "GET", one, `Get one ${entity.name} by id.`, schema({ id }, ["id"])),
+        ...tool("read", `get_${mcpName}`, "GET", one, `Get one ${entity.name} by ${byKey}.`, schema(keyProps, keyNames)),
         ...tool("create", `create_${mcpName}`, "POST", path, `Create a ${entity.name}.`, schema({ body: body(required) }, ["body"])),
-        ...tool("update", `update_${mcpName}`, "PATCH", one, `Update fields of one ${entity.name} by id.`, schema({ id, body: body([]) }, ["id", "body"])),
-        ...tool("delete", `delete_${mcpName}`, "DELETE", one, `Delete one ${entity.name} by id. This cannot be undone.`, schema({ id }, ["id"])),
+        ...tool("update", `update_${mcpName}`, "PATCH", one, `Update fields of one ${entity.name} by ${byKey}.`, schema({ ...keyProps, body: body([]) }, [...keyNames, "body"])),
+        ...tool("delete", `delete_${mcpName}`, "DELETE", one, `Delete one ${entity.name} by ${byKey}. This cannot be undone.`, schema(keyProps, keyNames)),
       ];
     });
   }

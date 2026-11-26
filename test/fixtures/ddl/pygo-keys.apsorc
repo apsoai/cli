@@ -1,0 +1,74 @@
+{
+  "version": 2,
+  "rootFolder": "src",
+  "apiType": "Rest",
+  "entities": [
+    {
+      "name": "Ledger",
+      "primaryKeyType": "bigserial",
+      "created_at": true,
+      "fields": [
+        { "name": "label", "type": "text" },
+        { "name": "state", "type": "enum", "values": ["open", "held"], "enumName": "review_state", "default": "open" }
+      ]
+    },
+    {
+      "name": "Entry",
+      "fields": [
+        { "name": "memo", "type": "text" },
+        { "name": "status", "type": "enum", "values": ["open", "held"], "enumName": "review_state", "nullable": true }
+      ]
+    },
+    {
+      "name": "Profile",
+      "primaryKeyType": "uuid",
+      "primaryKeyDefault": null,
+      "fields": [{ "name": "label", "type": "text" }]
+    },
+    {
+      "name": "RateLimit",
+      "fields": [
+        { "name": "bucket", "type": "text", "primary": true },
+        { "name": "window_start", "type": "timestamptz", "primary": true },
+        { "name": "hits", "type": "integer", "default": "0" }
+      ]
+    },
+    {
+      "name": "Workspace",
+      "fields": [{ "name": "name", "type": "text" }]
+    },
+    {
+      "name": "Membership",
+      "fields": [
+        { "name": "role", "type": "text", "primary": true },
+        { "name": "note", "type": "text", "nullable": true }
+      ]
+    },
+    {
+      "name": "Setting",
+      "scopeBy": "workspaceId",
+      "fields": [
+        { "name": "name", "type": "text", "primary": true },
+        { "name": "value", "type": "text" }
+      ]
+    },
+    {
+      "name": "Favorite",
+      "fields": [{ "name": "rank", "type": "integer", "nullable": true }]
+    },
+    {
+      "name": "Code",
+      "fields": [
+        { "name": "code", "type": "text", "primary": true },
+        { "name": "label", "type": "text" }
+      ]
+    }
+  ],
+  "relationships": [
+    { "from": "Entry", "to": "Ledger", "type": "ManyToOne" },
+    { "from": "Membership", "to": "Workspace", "type": "ManyToOne", "primary": true },
+    { "from": "Setting", "to": "Workspace", "type": "ManyToOne", "primary": true },
+    { "from": "Favorite", "to": "Workspace", "type": "ManyToOne", "primary": true },
+    { "from": "Favorite", "to": "Ledger", "type": "ManyToOne", "primary": true }
+  ]
+}

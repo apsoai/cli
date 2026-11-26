@@ -20,7 +20,9 @@ import { TEMPLATE_REFS, TEMPLATE_REPOS } from "../../../src/lib/utils/template";
 const server = process.env.APSO_PYGO_PARITY_URL;
 process.env.NODE_ENV = "production"; // the CLI must run dist/, as in project-parity
 const cliBin = path.join(__dirname, "../../../bin/run");
-const fixture = path.join(__dirname, "../../fixtures/ddl/pygo-parity.apsorc");
+// Every portable field type and relation; then the keys `apso import` writes
+// (bigserial, a uuid id with no default, a shared enum type, composite keys).
+const fixtures = ["pygo-parity.apsorc", "pygo-keys.apsorc"];
 const port = 3950;
 
 const urlFor = (db: string) => {
@@ -52,7 +54,7 @@ const catalog = (url: string) =>
 const run = (cmd: string, args: string[], cwd: string, env = {}) =>
   execFileSync(cmd, args, { cwd, env: { ...process.env, ...env }, stdio: "pipe" });
 
-function scaffold(language: "go" | "python"): string {
+function scaffold(language: "go" | "python", fixture: string): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `apso-${language}-parity-`));
   const local =
     language === "go" ? process.env.APSO_PARITY_GO_TEMPLATE : process.env.APSO_PARITY_PY_TEMPLATE;
@@ -129,13 +131,16 @@ async function syncWith(command: [string, string[]], dir: string, url: string, l
 (server ? describe : describe.skip)(
   "a Python or Go service builds the database apso migrate builds",
   () => {
-    test.each(["go", "python"] as const)(
-      "%s",
-      async (language) => {
+    test.each(
+      fixtures.flatMap((name) => (["go", "python"] as const).map((language) => [language, name] as const))
+    )(
+      "%s, %s",
+      async (language, name) => {
+        const fixture = path.join(__dirname, "../../fixtures/ddl", name);
         const input = parseApsorcV2(JSON.parse(fs.readFileSync(fixture).toString()));
         const ddlUrl = freshDb(`apso_parity_ddl_${language}`);
         psql(ddlUrl, schemaDdl(input).join(";\n") + ";");
-        const dir = scaffold(language);
+        const dir = scaffold(language, fixture);
         try {
           const command = startCommand(language, dir);
 

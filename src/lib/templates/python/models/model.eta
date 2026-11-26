@@ -12,6 +12,7 @@ from sqlalchemy.orm import relationship, Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from app.database import Base
+from .types import BigIntString
 <% if (it.importEnums) { %>
 from . import enums
 <% } %>
@@ -90,4 +91,4 @@ class <%= it.name %>(Base):
 <% }) %>
 
     def __repr__(self) -> str:
-        return f"<<%= it.name %>(id={self.id})>"
+        return f"<<%= it.name %>(<%~ it.keyNames.map((k) => `${k}={self.${k}}`).join(', ') %>)>"

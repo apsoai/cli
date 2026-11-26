@@ -38,18 +38,21 @@ class <%= it.entityName %>Base(BaseModel):
 
 <% /* Add foreign key fields for ManyToOne relationships */ -%>
 <% it.associations.filter(a => a.type === 'ManyToOne' || (a.type === 'OneToOne' && a.joinTable)).forEach((assoc) => { -%>
-    <%= assoc.camelCasedId %>: Optional[<% if (assoc.referencedEntityPrimaryKeyType === 'uuid') { %>UUID<% } else { %>int<% } %>] = None
+    <%= assoc.camelCasedId %>: Optional[<%= assoc.fkIn %>] = None
 <% }); -%>
 
 
 class <%= it.entityName %>Create(BaseModel):
     """Schema for creating a new <%= it.entityName %>"""
+<% if (it.suppliesId) { -%>
+    id: UUID
+<% } -%>
 <% it.columns.filter(c => !['id', 'createdAt', 'updatedAt', 'created_at', 'updated_at'].includes(c.name)).forEach((field) => { -%>
 <%~ includeFile(`./schema-col-${field.schemaTemplate || field.type}`, { field, entityName: it.entityName, forCreate: true }) %>
 <% }); -%>
 <% /* Add foreign key fields for ManyToOne relationships */ -%>
 <% it.associations.filter(a => a.type === 'ManyToOne' || (a.type === 'OneToOne' && a.joinTable)).forEach((assoc) => { -%>
-    <%= assoc.camelCasedId %>: <% if (assoc.nullable || assoc.type === 'OneToOne') { %>Optional[<% if (assoc.referencedEntityPrimaryKeyType === 'uuid') { %>UUID<% } else { %>int<% } %>] = None<% } else { %><% if (assoc.referencedEntityPrimaryKeyType === 'uuid') { %>UUID<% } else { %>int<% } %><% } %>
+    <%= assoc.camelCasedId %>: <% if (assoc.nullable || assoc.type === 'OneToOne') { %>Optional[<%= assoc.fkIn %>] = None<% } else { %><%= assoc.fkIn %><% } %>
 <% }); -%>
 
 
@@ -60,7 +63,7 @@ class <%= it.entityName %>Update(BaseModel):
 <% }); -%>
 <% /* Add foreign key fields for ManyToOne relationships */ -%>
 <% it.associations.filter(a => a.type === 'ManyToOne' || (a.type === 'OneToOne' && a.joinTable)).forEach((assoc) => { -%>
-    <%= assoc.camelCasedId %>: Optional[<% if (assoc.referencedEntityPrimaryKeyType === 'uuid') { %>UUID<% } else { %>int<% } %>] = None
+    <%= assoc.camelCasedId %>: Optional[<%= assoc.fkIn %>] = None
 <% }); -%>
 
 
@@ -76,6 +79,8 @@ class <%= it.entityName %>(BaseModel):
 <% if (it.addDefaultPKProperty) { -%>
 <% if (it.primaryKeyType === 'uuid') { -%>
     id: UUID
+<% } else if (it.primaryKeyType === 'bigserial') { -%>
+    id: str
 <% } else { -%>
     id: int
 <% } -%>
@@ -91,7 +96,7 @@ class <%= it.entityName %>(BaseModel):
 <% }); -%>
 <% /* Add foreign key fields for ManyToOne relationships */ -%>
 <% it.associations.filter(a => a.type === 'ManyToOne' || (a.type === 'OneToOne' && a.joinTable)).forEach((assoc) => { -%>
-    <%= assoc.camelCasedId %>: Optional[<% if (assoc.referencedEntityPrimaryKeyType === 'uuid') { %>UUID<% } else { %>int<% } %>] = None
+    <%= assoc.camelCasedId %>: Optional[<%= assoc.fkOut %>] = None
 <% }); -%>
 <% /* Add relationship fields */ -%>
 <% it.associations.filter(a => !a.hidden && (a.type === 'OneToMany' || a.type === 'ManyToMany')).forEach((assoc) => { -%>

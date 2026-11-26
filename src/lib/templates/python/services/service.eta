@@ -111,7 +111,9 @@ class <%= it.entityName %>Service:
         op: str = "get",
     ) -> Optional[<%= it.entityName %>]:
         """
-        Retrieve a single <%= it.entityName %> by ID.
+        Retrieve a single <%= it.entityName %> by its key: the id, or a dict
+        of key column to value when the key is not one "id" column. The
+        caller's tenant scope applies to the same query, on the whole key.
         """
         return await self._qb(op).get_one(id, joins=joins)
 
@@ -169,6 +171,11 @@ class <%= it.entityName %>Service:
             return None
 
         update_data = data.model_dump(exclude_unset=True)
+<% if (it.keyFields.length) { %>
+        # The path names the row: a key column in the body does not move it.
+        for field in <%~ JSON.stringify(it.keyFields) %>:
+            update_data.pop(field, None)
+<% } %>
 <% if (it.scope) { %>
         # A scoped row cannot move to another tenant.
         for field in self._scope_values("update"):
@@ -200,6 +207,11 @@ class <%= it.entityName %>Service:
             return None
 
         replace_data = data.model_dump()
+<% if (it.keyFields.length) { %>
+        # The path names the row: a key column in the body does not move it.
+        for field in <%~ JSON.stringify(it.keyFields) %>:
+            replace_data.pop(field, None)
+<% } %>
 <% if (it.scope) { %>
         for field in self._scope_values("update"):
             replace_data.pop(field, None)

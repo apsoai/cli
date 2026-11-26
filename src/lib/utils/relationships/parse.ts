@@ -901,17 +901,13 @@ const keyAndNameErrors = (
   r: Relationship,
   language: string
 ): string[] =>
-  (["joinColumnName", "foreignKeyName", "primary"] as const)
+  (["joinColumnName", "foreignKeyName"] as const)
     .filter((key) => r[key])
     .map(
       (key) =>
         `${entity} ${r.type} ${r.name} sets "${key}": ${JSON.stringify(
           r[key]
-        )}. The ${language} generator cannot keep ${
-          key === "primary"
-            ? "a primary key that is a foreign key"
-            : `a custom foreign key ${
-                key === "joinColumnName" ? "column" : "constraint"
-              } name`
-        } yet; remove it or generate a TypeScript service.`
+        )}. The ${language} generator cannot keep a custom foreign key ${
+          key === "joinColumnName" ? "column" : "constraint"
+        } name yet; remove it or generate a TypeScript service.`
     );

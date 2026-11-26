@@ -2,6 +2,22 @@
 
 package utils
 
+import "time"
+
+// ParseKeyTime reads a date or timestamp key column from a path segment:
+// RFC 3339 with an offset ("2026-01-02T03:04:05.123456Z"), the same with no
+// offset (read as UTC), or a date ("2026-01-02").
+func ParseKeyTime(s string) (time.Time, error) {
+	var err error
+	for _, layout := range []string{time.RFC3339Nano, "2006-01-02T15:04:05.999999999", "2006-01-02 15:04:05.999999999", "2006-01-02"} {
+		var t time.Time
+		if t, err = time.Parse(layout, s); err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, err
+}
+
 // ParsedFilter represents a single filter condition.
 type ParsedFilter struct {
 	Field    string

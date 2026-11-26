@@ -6,11 +6,15 @@ import { execFileSync } from "child_process";
 import { GoGenerator } from "../../../src/lib/generators/go";
 import { GeneratorConfig, Entity, Relationship } from "../../../src/lib/types";
 import { generateAll } from "../../helpers/generate-all";
+import { parseApsorcV2 } from "../../../src/lib/apsorc-parser";
+import { schemaModel, tableName } from "../../../src/lib/ddl";
+import { snakeCase } from "../../../src/lib/utils/casing";
 
 const parityFixture = path.join(
   __dirname,
   "../../fixtures/ddl/pygo-parity.apsorc"
 );
+const keysFixture = path.join(__dirname, "../../fixtures/ddl/pygo-keys.apsorc");
 
 function createConfig(
   entities: Entity[],
@@ -1169,10 +1173,13 @@ describe("GoGenerator", () => {
       180_000
     );
 
-    maybe(
-      "the parity fixture (every field type and relation) builds",
-      async () => {
-        const files = await generateAll("go", parityFixture);
+    (goAvailable ? test.each : test.skip.each)([
+      ["parity fixture (every field type and relation)", parityFixture],
+      ["keys fixture (bigserial, caller-supplied uuid, shared enum type, composite keys)", keysFixture],
+    ])(
+      "the %s builds",
+      async (_name, fixture) => {
+        const files = await generateAll("go", fixture);
         const dir = fs.mkdtempSync(path.join(os.tmpdir(), "apso-go-build-"));
         try {
           for (const [file, content] of files) {
@@ -1212,19 +1219,170 @@ describe("GoGenerator", () => {
   });
 });
 
-describe("import settings the Go generator refuses", () => {
-  test("bigserial, a uuid id with no default and enumName", () => {
-    const entities = [
-      { name: "Ledger", primaryKeyType: "bigserial", fields: [{ name: "state", type: "enum", values: ["open"], enumName: "review_state" }] },
-      { name: "Profile", primaryKeyType: "uuid", primaryKeyDefault: null, fields: [{ name: "label", type: "text" }] },
-    ] as Entity[];
-    const errors = new GoGenerator(createConfig(entities)).validateConfig(createConfig(entities)).errors;
-    expect(errors).toEqual(
-      expect.arrayContaining([
-        'Ledger sets "primaryKeyType": "bigserial". The Go generator cannot make a bigint id yet; remove it or generate a TypeScript service.',
-        'Ledger.state sets "enumName". The Go generator cannot keep an enum type\'s name yet; remove it or generate a TypeScript service.',
-        'Profile sets "primaryKeyDefault": null. The Go generator cannot make a uuid id without a default yet; remove it or generate a TypeScript service.',
-      ])
+// Four settings `apso import` writes, in a schema with every shape of key:
+// test/fixtures/ddl/pygo-keys.apsorc.
+describe("bigserial ids, caller-supplied uuid ids, enum type names and composite keys", () => {
+  const input = parseApsorcV2(JSON.parse(fs.readFileSync(keysFixture).toString()));
+  let files: Map<string, string>;
+
+  beforeAll(async () => {
+    files = await generateAll("go", keysFixture);
+  });
+
+  test("none of the four is refused", () => {
+    const config = createConfig(input.entities, input.relationshipMap);
+    expect(new GoGenerator(config).validateConfig(config).errors).toEqual([]);
+  });
+
+  test("a bigserial id is BIGINT in the database and a string in the API", () => {
+    expect(files.get("models/ledger.go")).toContain(
+      'ID int64 `gorm:"column:id;type:bigint;primaryKey;autoIncrement" json:"id,string"`'
     );
+    expect(files.get("dto/ledger.go")).toMatch(/ID\s+int64\s+`json:"id,string"`/);
+    // A foreign key onto it is bigint too, and sent the same way.
+    expect(files.get("models/entry.go")).toContain(
+      'LedgerID int64 `gorm:"column:ledgerId;type:bigint;not null" json:"ledgerId,string"`'
+    );
+    const dto = files.get("dto/entry.go")!;
+    expect(dto).toContain('LedgerID int64 `json:"ledgerId,string"`');
+    expect(dto).toContain('LedgerID int64 `json:"ledgerId,string" validate:"required"`');
+    expect(dto).toContain('LedgerID *int64 `json:"ledgerId,omitempty,string"`');
+    // The path segment is read as 63 bits, not the default id's 32.
+    expect(files.get("handlers/ledger.go")).toContain("strconv.ParseUint(id, 10, 63)");
+    expect(files.get("handlers/entry.go")).toContain("strconv.ParseUint(id, 10, 32)");
+    expect(files.get("models/entry.go")).toContain('ID uint `gorm:"column:id;type:integer;primaryKey;autoIncrement" json:"id"`');
+  });
+
+  test("a uuid id with no default is sent by the caller on create", () => {
+    expect(files.get("models/profile.go")).toContain('ID string `gorm:"column:id;type:uuid;primaryKey" json:"id"`');
+    expect(files.get("dto/profile.go")).toContain('ID string `json:"id" validate:"required,uuid"`');
+    expect(files.get("services/profile.go")).toContain("\t\tID: input.ID,\n");
+    // An id the database fills is not read from a create body.
+    expect(files.get("services/workspace.go")).not.toContain("ID: input.ID");
+  });
+
+  test("enumName names the enum type, and two fields share one", () => {
+    expect(files.get("models/ledger.go")).toContain('type:\\"review_state\\"');
+    expect(files.get("models/entry.go")).toContain('type:\\"review_state\\"');
+    // DATABASE_SYNC creates the shared type once.
+    expect(files.get("models/schema.go")!.match(/CREATE TYPE \\"public\\"\.\\"review_state\\"/g)).toHaveLength(1);
+  });
+
+  test("a composite key gets one path segment per key column, in key order", () => {
+    const handler = files.get("handlers/rate_limit.go")!;
+    for (const route of ['GET("/:bucket/:window_start", h.FindOne)', 'PUT("/:bucket/:window_start", h.Update)', 'PATCH("/:bucket/:window_start", h.Update)', 'DELETE("/:bucket/:window_start", h.Delete)'])
+      expect(handler).toContain(`group.${route}`);
+    expect(handler).not.toContain("/:id");
+    // List and create stay as they are.
+    expect(handler).toContain('group.GET("", h.FindAll)');
+    expect(handler).toContain('group.POST("", h.Create)');
+    // Each segment is read as its column's type.
+    expect(handler).toContain('key["bucket"] = c.Param("bucket")');
+    expect(handler).toContain('v1, err := utils.ParseKeyTime(c.Param("window_start"))');
+    expect(handler).toContain("// @Router       /rate-limits/{bucket}/{window_start} [get]");
+    expect(files.get("utils/types.go")).toContain("func ParseKeyTime(s string) (time.Time, error)");
+
+    const service = files.get("services/rate_limit.go")!;
+    for (const method of ["FindOne(ctx context.Context, key map[string]interface{})", "Update(ctx context.Context, key map[string]interface{}, input *dto.RateLimitUpdate)", "Delete(ctx context.Context, key map[string]interface{})"])
+      expect(service).toContain(method);
+    expect(service).toContain("query.Where(key).First(&item)");
+    expect(service).toContain("Model(&models.RateLimit{}).Where(key).Updates(updates)");
+    expect(service).toContain("deleteQuery.Where(key).Delete(&models.RateLimit{})");
+    // No "id" column to filter by or to answer with; the key columns come from the create body.
+    expect(service).not.toContain('"id": true');
+    expect(service).not.toContain("item.ID");
+    expect(service).toContain("Bucket: input.Bucket,");
+    expect(service).toContain("WindowStart: input.WindowStart,");
+    // The path names the row: an update never writes a key column.
+    expect(service).not.toContain('updates["bucket"]');
+    expect(service).not.toContain('updates["window_start"]');
+    expect(files.get("dto/rate_limit.go")).not.toMatch(/\bID\b/);
+  });
+
+  test("a primary relationship's id column follows the primary fields", () => {
+    const handler = files.get("handlers/membership.go")!;
+    expect(handler).toContain('group.GET("/:role/:workspaceId", h.FindOne)');
+    expect(handler).toContain('v1, err := strconv.ParseInt(c.Param("workspaceId"), 10, 64)');
+    expect(files.get("models/membership.go")).toContain(
+      'WorkspaceID uint `gorm:"column:workspaceId;type:integer;primaryKey;not null" json:"workspaceId"`'
+    );
+    expect(files.get("services/membership.go")).not.toContain('updates["workspaceId"]');
+    // Two primary relationships and no primary field: no id, the two columns in order.
+    expect(files.get("handlers/favorite.go")).toContain('group.GET("/:workspaceId/:ledgerId", h.FindOne)');
+    expect(files.get("models/favorite.go")).not.toMatch(/\bID (uint|int64|string) /);
+    // One primary field is the whole key.
+    expect(files.get("handlers/code.go")).toContain('group.GET("/:code", h.FindOne)');
+  });
+
+  test("every model's primary key is the DDL's: the same columns, each with the DDL's type", () => {
+    const model = schemaModel(input);
+    for (const entity of input.entities) {
+      const table = tableName(entity);
+      const pk = model.constraints.find((c) => c.kind === "pk" && c.table === table)!;
+      const columns = model.tables.find((t) => t.name === table)!.columns;
+      const tags = [...files.get(`models/${snakeCase(entity.name)}.go`)!.matchAll(/gorm:"([^`]*?)" json:/g)]
+        .map((m) => m[1])
+        .filter((tag) => tag.split(";").includes("primaryKey"));
+      expect(tags.map((tag) => tag.match(/column:([^;]+)/)![1]).sort()).toEqual([...pk.columns].sort());
+      for (const tag of tags) {
+        const column = columns.find((c) => c.name === tag.match(/column:([^;]+)/)![1])!;
+        expect(tag).toContain(`type:${column.type.toLowerCase().replace("timestamp with time zone", "timestamptz")}`);
+      }
+    }
+  });
+
+  test("a scoped composite-key row is matched on the tenant scope and its whole key", async () => {
+    const setting = input.entities.find((e) => e.name === "Setting")!;
+    const generator = new GoGenerator(createConfig(input.entities, input.relationshipMap));
+    const [service] = await generator.generateService({
+      entity: setting,
+      relationships: input.relationshipMap.Setting,
+      allEntities: input.entities,
+      apiType: "rest",
+      relationshipMap: input.relationshipMap,
+      auth: { provider: "jwt", jwt: { issuer: "https://issuer.apso.test" }, claims: { workspaceId: "org_id" } } as any,
+    });
+    const body = (from: string, to: string) =>
+      service.content.slice(service.content.indexOf(from), service.content.indexOf(to));
+    // Each one-row method scopes the query first, then adds every key column to the same query.
+    expect(body("func (s *SettingService) FindOne", "func (s *SettingService) Create")).toMatch(
+      /query, _, scopeErr := s\.scoped\(ctx, query, "get"\)[\S\s]*query\.Where\(key\)\.First\(&item\)/
+    );
+    expect(body("func (s *SettingService) Update", "updates := make")).toMatch(
+      /findQuery, scopeVals, scopeErr := s\.scoped\(ctx, findQuery, "update"\)[\S\s]*findQuery\.Where\(key\)\.First\(&item\)/
+    );
+    expect(body("func (s *SettingService) Delete", "func (s *SettingService) toResponse")).toMatch(
+      /deleteQuery, _, scopeErr := s\.scoped\(ctx, deleteQuery, "delete"\)[\S\s]*deleteQuery\.Where\(key\)\.Delete\(&models\.Setting{}\)/
+    );
+  });
+
+  test("an MCP tool of a composite-key entity takes one argument per key column", async () => {
+    const entities = input.entities.map((e) =>
+      ["RateLimit", "Ledger", "Entry", "Profile"].includes(e.name) ? ({ ...e, mcp: true } as Entity) : e
+    );
+    const generator = new GoGenerator(createConfig(entities, input.relationshipMap));
+    const mcp = findFileContent(await generator.generateGuards(entities, undefined, input.relationshipMap), "routes/mcp.go")!;
+    const tool = (name: string) => {
+      const at = mcp.indexOf(`Name:        "${name}"`);
+      const text = mcp.slice(at, mcp.indexOf("\t},", at));
+      return {
+        path: text.match(/Path:\s+"([^"]+)"/)![1],
+        schema: JSON.parse(JSON.parse(text.match(/json\.RawMessage\((".*")\)/)![1])),
+      };
+    };
+    for (const name of ["get_rate_limit", "delete_rate_limit"]) {
+      expect(tool(name).path).toBe("/rate-limits/:bucket/:window_start");
+      expect(tool(name).schema).toEqual({
+        type: "object",
+        properties: { bucket: { type: "string" }, "window_start": { type: "string", format: "date-time" } },
+        required: ["bucket", "window_start"],
+      });
+    }
+    expect(tool("update_rate_limit").schema.required).toEqual(["bucket", "window_start", "body"]);
+    expect(Object.keys(tool("update_rate_limit").schema.properties)).toEqual(["bucket", "window_start", "body"]);
+    // A bigint id, and a key onto one, is a string argument; a caller-supplied id is in the create body.
+    expect(tool("get_ledger").schema.properties).toEqual({ id: { type: "string" } });
+    expect(tool("create_entry").schema.properties.body.properties.ledgerId).toEqual({ type: "string", pattern: "^[0-9]+$" });
+    expect(tool("create_profile").schema.properties.body.required).toEqual(["label", "id"]);
   });
 });
