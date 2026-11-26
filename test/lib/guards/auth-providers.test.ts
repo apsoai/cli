@@ -183,6 +183,12 @@ describe("generated wiring", () => {
     expect(guard).toContain("const value = scope ? own : item[property];");
     expect(guard).toContain("Object.keys(chosen).length === metadata.primaryColumns.length");
     expect(guard).toContain("throw new ConflictException(");
+    // A relation object for a key column is read as the column before the key is
+    // checked, and a soft-deleted row has its key too.
+    expect(guard).toContain("if (!relation.joinColumns.some((join) => join.isPrimary)) continue;");
+    expect(guard).toContain("if (id !== undefined && !join.isVirtual) item[join.propertyName] = id;");
+    expect(guard.indexOf("join.isPrimary")).toBeLessThan(guard.indexOf("const chosen"));
+    expect(guard).toContain("findOne({ where: chosen, withDeleted: true })");
     // A row is found by the key the route names, not by a column called id.
     expect(guard).toContain("where: rowKey,");
     expect(guard).not.toContain("params?.id");

@@ -1,7 +1,7 @@
 <%~ includeFile('./header.eta') %>
 
 import { Controller, Body<% if (it.relationAccess) { %>, UseInterceptors<% } %> } from "@nestjs/common";
-import { Crud, <% if (it.crudAuth.length || it.crudAuthNested.length) { %>CrudAuth, <% } %>CrudController, Override, ParsedRequest, CrudRequest, ParsedBody, CreateManyDto } from '@apso/crud';
+import { Crud, <% if (it.crudAuth.length || it.crudAuthNested.length) { %>CrudAuth, <% } %>CrudController, Override, ParsedRequest, CrudRequest, ParsedBody, CreateManyDto<% if (it.keyParams.length > 1) { %>, oneRowRoute<% } %> } from '@apso/crud';
 import { ApiTags, ApiResponse, ApiOperation, ApiBody, ApiExtraModels, ApiUnauthorizedResponse<% if (it.hasAuth) { %>, ApiForbiddenResponse<% } %> } from '@nestjs/swagger';
 <% if (it.mcp.length) { %>
 import { McpTool } from '@apso/mcp';
@@ -28,6 +28,15 @@ const writable = (dto) => it.generatedFields.length ? `writable(${dto})` : dto;
 const GENERATED = <%~ JSON.stringify(it.generatedFields) %>;
 const writable = <T>(dto: T): T =>
     Object.fromEntries(Object.entries(dto as object).filter(([key]) => !GENERATED.includes(key))) as T;
+
+<% } %>
+<% if (it.keyParams.length > 1) { %>
+// A composite key needs @apso/crud 1.2.0 or later. An older version serves the
+// routes below at /:id and acts on a row the path does not name, so the build
+// and the start both stop here until the package is installed.
+if (typeof oneRowRoute !== 'function') {
+    throw new Error('<%= it.entityName %> has a composite primary key, which needs @apso/crud 1.2.0 or later. Run npm install.');
+}
 
 <% } %>
 <% if (it.crudAuthNested.length) { %>

@@ -364,12 +364,7 @@ export class TypeScriptGenerator extends BaseGenerator {
     // a primary field, or the id property of a foreign key that is the
     // primary key. Counted over every relationship: one onto an auth entity
     // is not joinable, but its column is still part of the key.
-    const keyFields = [
-      ...(entity.fields ?? []).filter((f) => f.primary).map((f) => f.name),
-      ...getRelationshipForTemplate(entityName, relationships)
-        .filter((r) => r.primary)
-        .map((r) => r.camelCasedId),
-    ];
+    const keyFields = keyFieldsOf(entity, { [entityName]: relationships });
 
     // Each role-gated handler's rule, added to its OpenAPI description.
     const handlers: Record<string, string[]> = {

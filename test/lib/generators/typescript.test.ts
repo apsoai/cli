@@ -1195,6 +1195,9 @@ describe("a composite primary key", () => {
     // The MCP tools follow the routes and name the key.
     for (const tool of ["list_rate_limits", "create_rate_limit", "get_rate_limit", "update_rate_limit", "delete_rate_limit"]) expect(controller).toContain(tool);
     expect(controller).toContain("Get one RateLimit by its key (bucket, window_start).");
+    // An older @apso/crud serves these routes at /:id: the build and the start stop.
+    expect(controller).toMatch(/CreateManyDto, oneRowRoute } from '@apso\/crud'/);
+    expect(controller).toContain("if (typeof oneRowRoute !== 'function') {");
   });
 
   test("the generated spec calls the get handler", async () => {
@@ -1228,6 +1231,7 @@ describe("a composite primary key", () => {
     expect(controller).toContain("@Override('deleteOneBase')");
     expect(controller).toContain("field: 'bucket'");
     expect(controller).toContain("Get one RateLimit by id.");
+    expect(controller).not.toContain("oneRowRoute");
     expect(controller.replace(/\s+/g, " ")).toContain("params: { id: { field: 'bucket', type: 'string', primary: true, }, },");
   });
 });

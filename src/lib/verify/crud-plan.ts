@@ -7,7 +7,10 @@ import { randomUUID } from "crypto";
 import { Entity } from "../types/entity";
 import { Field } from "../types/field";
 import { RelationshipMap } from "../types/relationship";
-import { getRelationshipIdField } from "../utils/relationships";
+import {
+  getRelationshipForTemplate,
+  getRelationshipIdField,
+} from "../utils/relationships";
 
 const DATE = "2024-01-01T00:00:00.000Z";
 
@@ -59,16 +62,18 @@ const required = (field: Field) =>
 /**
  * The properties of an entity's own primary key, in key order: its primary
  * fields as declared, then the foreign keys of its primary relationships.
- * Empty when the key is the generated id.
+ * Empty when the key is the generated id. The relationships are read the way
+ * the entity, the controller and the table are built (getRelationshipForTemplate),
+ * so every part of a service agrees on the key.
  */
 export const keyFieldsOf = (
   entity: Entity,
   relationships: RelationshipMap
 ): string[] => [
   ...(entity.fields || []).filter((f) => f.primary).map((f) => f.name),
-  ...(relationships[entity.name] || [])
-    .filter((r) => r.type === "ManyToOne" && r.primary)
-    .map((r) => getRelationshipIdField(r)),
+  ...getRelationshipForTemplate(entity.name, relationships[entity.name] || [])
+    .filter((r) => r.primary)
+    .map((r) => r.camelCasedId),
 ];
 
 /**

@@ -1,7 +1,7 @@
 import { expect, describe, test } from "@jest/globals";
-import { oneRowParams, planCrud, sampleValue } from "../../../src/lib/verify/crud-plan";
+import { keyFieldsOf, oneRowParams, planCrud, sampleValue } from "../../../src/lib/verify/crud-plan";
 import { entityRoute, readDotEnv } from "../../../src/lib/verify";
-import { parseRelationships } from "../../../src/lib/utils/relationships";
+import { getRelationshipForTemplate, parseRelationships } from "../../../src/lib/utils/relationships";
 import { Entity } from "../../../src/lib/types";
 import * as fs from "fs";
 import * as os from "os";
@@ -142,6 +142,27 @@ describe("a composite primary key", () => {
       ["bucket", "smoke"],
       ["window_start", "2024-01-01T00:00:00.000Z"],
     ]);
+  });
+
+  test("reads the key the way the entity and the controller do when a relationship is declared from both sides", () => {
+    const page: Entity = { name: "Page", fields: [{ name: "slug", type: "text", primary: true }] };
+    for (const declared of [
+      [
+        { from: "Workspace", to: "Page", type: "OneToMany" },
+        { from: "Page", to: "Workspace", type: "ManyToOne", primary: true },
+      ],
+      [
+        { from: "Page", to: "Workspace", type: "ManyToOne", primary: true },
+        { from: "Workspace", to: "Page", type: "OneToMany" },
+      ],
+    ]) {
+      const relationships = parseRelationships(declared as never);
+      const entityKey = [
+        "slug",
+        ...getRelationshipForTemplate("Page", relationships.Page).filter((r) => r.primary).map((r) => r.camelCasedId),
+      ];
+      expect(keyFieldsOf(page, relationships)).toEqual(entityKey);
+    }
   });
 
   test("the route parameters are id for one key column and one per column otherwise", () => {

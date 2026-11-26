@@ -397,7 +397,8 @@ export class ScopeGuard implements CanActivate {
    * checks below run:
    * - the body's own id is dropped: the database assigns it on create, and
    *   on update the row is the one the route names. A key the client chooses
-   *   is kept on create, and refused when a row already has the whole key
+   *   is kept on create, and refused when a row already has the whole key.
+   *   A relation object sent for a key column is read as that column
    * - a to-one relation becomes its foreign key, which is then checked like
    *   any other column
    * - a foreign key to a tenant-scoped entity, sent as a column or as a
@@ -435,6 +436,21 @@ export class ScopeGuard implements CanActivate {
 
     for (const item of this.bodyItems(request.body)) {
       if (scopeConfig) {
+        // A relation whose foreign key is a key column names the row as much
+        // as the column does, and TypeORM reads the relation first. It becomes
+        // its column here, so the key checked below is the key that is saved.
+        for (const relation of metadata.relations) {
+          if (!(relation.isManyToOne || relation.isOneToOneOwner)) continue;
+          if (!relation.joinColumns.some((join) => join.isPrimary)) continue;
+          if (!Object.prototype.hasOwnProperty.call(item, relation.propertyName)) continue;
+          const value = item[relation.propertyName];
+          delete item[relation.propertyName];
+          for (const join of relation.joinColumns) {
+            const id = value !== null && typeof value === 'object' ? value[join.referencedColumn!.propertyName] : value;
+            if (id !== null && typeof id === 'object') throw denied();
+            if (id !== undefined && !join.isVirtual) item[join.propertyName] = id;
+          }
+        }
         const chosen: Record<string, any> = {};
         for (const column of metadata.primaryColumns) {
           const property = column.propertyName;
@@ -448,7 +464,8 @@ export class ScopeGuard implements CanActivate {
 <% if (it.hasAuth) { %>
           const value = scope ? own : item[property];
 <% } else { %>
-          const value = item[property] ?? own;
+          // As injectScopeValues fills it: the caller's value where the body has none.
+          const value = item[property] || own;
 <% } %>
           if (value != null) chosen[property] = value;
         }
@@ -456,7 +473,8 @@ export class ScopeGuard implements CanActivate {
         // that has it. Part of a key names no row, so the save can only insert.
         if (metadata.primaryColumns.length > 0 && Object.keys(chosen).length === metadata.primaryColumns.length) {
           if (Object.values(chosen).some((v) => typeof v === 'object')) throw denied();
-          if (await this.dataSource.getRepository(name).findOne({ where: chosen })) {
+          // A soft-deleted row has the key too, and a save would write over it.
+          if (await this.dataSource.getRepository(name).findOne({ where: chosen, withDeleted: true })) {
             throw new ConflictException('A row with this key already exists');
           }
         }
