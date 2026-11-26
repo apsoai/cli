@@ -121,12 +121,21 @@ export function buildModel(
   language: Language,
   auth?: { permissionEntity?: string }
 ): AccessModel {
-  const plan = planCrud(entities, relationships, language);
+  const plan = planCrud(entities, relationships);
   const skipped = [...plan.skipped];
+  // The cases address a row by one id; a composite key takes a path segment per column.
+  const order = plan.order.filter((planned) => {
+    if (planned.keys.length === 1) return true;
+    skipped.push({
+      name: planned.name,
+      reason: `its primary key is ${planned.keys.length} columns (${planned.keys.join(", ")}), which these cases do not address`,
+    });
+    return false;
+  });
   const scoped = auth ? getScopedEntities(entities, relationships) : [];
   let tenantRoot: string | undefined;
 
-  const model = plan.order.map((planned): AccessEntity => {
+  const model = order.map((planned): AccessEntity => {
     const entity = entities.find((e) => e.name === planned.name)!;
     const relations = (relationships[entity.name] ?? []).map((r) => ({
       property:

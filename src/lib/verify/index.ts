@@ -611,7 +611,23 @@ const expectStatus = (res: Res, ...ok: number[]) => ({
     : `${res.status} ${tail(res.body, 500)}`,
 });
 
-const idOf = (body: string, key = "id"): unknown => {
+/**
+ * The path segments that address a created row: one per key column, read
+ * from the response. Undefined when the response lacks one of them.
+ */
+const rowPath = (body: string, keys: string[]): string | undefined => {
+  try {
+    const row = JSON.parse(body);
+    const values = keys.map((key) => row[key]);
+    return values.some((v) => v === undefined || v === null)
+      ? undefined
+      : values.map((v) => encodeURIComponent(String(v))).join("/");
+  } catch {
+    return undefined;
+  }
+};
+
+const idOf = (body: string, key: string): unknown => {
   try {
     return JSON.parse(body)[key] ?? undefined;
   } catch {
@@ -648,10 +664,12 @@ async function checkEndpoints(
     });
   }
 
-  const plan = planCrud(entities, relationships, language);
+  const plan = planCrud(entities, relationships);
   for (const s of plan.skipped)
     done({ name: `skip ${s.name}`, ok: true, output: s.reason });
+  // What a child sends as its foreign key, and the path of each created row.
   const ids = new Map<string, unknown>();
+  const paths = new Map<string, string>();
   for (const p of plan.order) {
     const r = route(p.name);
     const failed = p.parents.find((parent) => !ids.has(parent.entity));
@@ -668,29 +686,31 @@ async function checkEndpoints(
     for (const parent of p.parents)
       body[parent.property] = ids.get(parent.entity);
     const created = await request("POST", base + r, body);
-    const id = [200, 201].includes(created.status)
-      ? idOf(created.body, p.key)
+    const row = [200, 201].includes(created.status)
+      ? rowPath(created.body, p.keys)
       : undefined;
     if (
       !done({
         name: `POST ${r}`,
-        ok: id !== undefined,
+        ok: row !== undefined,
         output:
-          id === undefined
+          row === undefined
             ? `${created.status} ${tail(created.body, 500)}`
             : undefined,
       })
     )
       continue;
-    ids.set(p.name, id);
+    // A foreign key references a single-column key.
+    ids.set(p.name, idOf(created.body, p.keys[0]));
+    paths.set(p.name, row!);
     done({
-      name: `GET ${r}/${id}`,
-      ...expectStatus(await get(`${base}${r}/${id}`), 200),
+      name: `GET ${r}/${row}`,
+      ...expectStatus(await get(`${base}${r}/${row}`), 200),
     });
   }
   for (const p of [...plan.order].reverse()) {
-    if (!ids.has(p.name)) continue;
-    const url = `${route(p.name)}/${ids.get(p.name)}`;
+    if (!paths.has(p.name)) continue;
+    const url = `${route(p.name)}/${paths.get(p.name)}`;
     done({
       name: `DELETE ${url}`,
       ...expectStatus(await request("DELETE", base + url), 200, 204),

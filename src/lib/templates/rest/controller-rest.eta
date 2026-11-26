@@ -75,19 +75,18 @@ const skipScope = (req: any) => {
     // Query syntaxes accepted, from .apsorc "query.dialects".
 <% } %>
     dialects: [<%~ it.dialectList %>],
-<% if (it.compositeKey) { %>
-    // The primary key is more than one column, so no route addresses one row
-    // by /:id. Read a row with a list filter on its key columns.
-    routes: {
-        exclude: ['getOneBase', 'updateOneBase', 'replaceOneBase', 'deleteOneBase', 'recoverOneBase'],
-    },
+<% if (it.keyParams.length > 1) { %>
+    // The primary key is more than one column, so a row is addressed by one
+    // path segment per key column (/<%~ it.keyParams.map((p) => ':' + p.name).join('/') %>), in key order.
 <% } %>
     params: {
-        id: {
-            field: '<%= it.keyField %>',
+<% it.keyParams.forEach((param) => { %>
+        <%= param.name %>: {
+            field: '<%= param.field %>',
             type: 'string',
             primary: true,
         },
+<% }) %>
     },
     query: {
         // The default page: a list with no limit returns at most this many
@@ -200,11 +199,10 @@ export class <%= it.ctrlName %> implements CrudController<<%= it.entityName %>>{
         return this.base.getManyBase(req);
     }
 
-<% if (!it.compositeKey) { %>
     @Override('getOneBase')
     @ApiOperation({ summary: 'Retrieve a single <%= it.entityName %>' })
 <% if (it.mcp.includes('read')) { %>
-    @McpTool({ name: 'get_<%= it.mcpName %>', description: 'Get one <%= it.entityName %> by id.' })
+    @McpTool({ name: 'get_<%= it.mcpName %>', description: 'Get one <%= it.entityName %> by <%= it.keyText %>.' })
 <% } %>
     get(
         @ParsedRequest() req: CrudRequest,
@@ -212,7 +210,6 @@ export class <%= it.ctrlName %> implements CrudController<<%= it.entityName %>>{
         return this.base.getOneBase(req);
     }
 
-<% } %>
     @Override('createOneBase')
     @ApiOperation({ summary: 'Create a single <%= it.entityName %>' })
     <% /* @ApiResponse({ status: 200, description: 'description goes here', schema: <%= it.entityName %>Create }) */ %>
@@ -252,11 +249,10 @@ export class <%= it.ctrlName %> implements CrudController<<%= it.entityName %>>{
         return this.base.createManyBase(req, <%~ it.generatedFields.length ? '{ ...dto, bulk: dto.bulk.map((row) => writable(row)) }' : 'dto' %> as unknown as CreateManyDto<<%= it.entityName %>>);
     }
 
-<% if (!it.compositeKey) { %>
     @Override('updateOneBase')
     @ApiOperation({ summary: 'Update a single <%= it.entityName %>' })
 <% if (it.mcp.includes('update')) { %>
-    @McpTool({ name: 'update_<%= it.mcpName %>', description: 'Update fields of one <%= it.entityName %> by id.' })
+    @McpTool({ name: 'update_<%= it.mcpName %>', description: 'Update fields of one <%= it.entityName %> by <%= it.keyText %>.' })
 <% } %>
     update(
         @ParsedRequest() req: CrudRequest,
@@ -277,13 +273,12 @@ export class <%= it.ctrlName %> implements CrudController<<%= it.entityName %>>{
     @Override('deleteOneBase')
     @ApiOperation({ summary: 'Delete a single <%= it.entityName %>' })
 <% if (it.mcp.includes('delete')) { %>
-    @McpTool({ name: 'delete_<%= it.mcpName %>', description: 'Delete one <%= it.entityName %> by id. This cannot be undone.' })
+    @McpTool({ name: 'delete_<%= it.mcpName %>', description: 'Delete one <%= it.entityName %> by <%= it.keyText %>. This cannot be undone.' })
 <% } %>
     delete(
         @ParsedRequest() req: CrudRequest,
     ) {
         return this.base.deleteOneBase(req);
     }
-<% } %>
 }
   
