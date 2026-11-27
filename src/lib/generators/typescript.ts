@@ -74,6 +74,7 @@ import {
   roleRuleText,
 } from "../guards";
 import { getEventEmittingEntities } from "../events";
+import { keyFieldsOf, oneRowParams } from "../verify/crud-plan";
 import {
   authProviders,
   resolveJwtProviders,
@@ -359,17 +360,11 @@ export class TypeScriptGenerator extends BaseGenerator {
 
     const mcp = mcpOperations(entity);
 
-    // The :id route parameter maps to the entity's own key: a primary field,
-    // or the id property of a foreign key that is the primary key. A
-    // composite key has no single field, so it keeps the default.
-    // Counted over every relationship: one onto an auth entity is not
-    // joinable, but its column is still part of the key.
-    const keyFields = [
-      ...(entity.fields ?? []).filter((f) => f.primary).map((f) => f.name),
-      ...getRelationshipForTemplate(entityName, relationships)
-        .filter((r) => r.primary)
-        .map((r) => r.camelCasedId),
-    ];
+    // The route parameters that address one row map to the entity's own key:
+    // a primary field, or the id property of a foreign key that is the
+    // primary key. Counted over every relationship: one onto an auth entity
+    // is not joinable, but its column is still part of the key.
+    const keyFields = keyFieldsOf(entity, { [entityName]: relationships });
 
     // Each role-gated handler's rule, added to its OpenAPI description.
     const handlers: Record<string, string[]> = {
@@ -395,10 +390,12 @@ export class TypeScriptGenerator extends BaseGenerator {
       generatedFields: (entity.fields ?? [])
         .filter((f) => f.generated)
         .map((f) => f.name),
-      keyField: keyFields.length === 1 ? keyFields[0] : "id",
-      // A composite key has no single value to put in /:id, so the routes
-      // that address one row are left out (apsoai/cli#250).
-      compositeKey: keyFields.length > 1,
+      // One row is /:id for a single key, and one segment per key column in
+      // key order for a composite key: /:bucket/:window_start (apsoai/cli#250).
+      keyParams: oneRowParams(keyFields),
+      // How a tool description names the key: "id", or "its key (bucket, window_start)".
+      keyText:
+        keyFields.length > 1 ? `its key (${keyFields.join(", ")})` : "id",
       associations: [...new Set(relationshipsForTemplate)],
       nestedJoinsFile,
       // scopeBy fields @CrudAuth adds to every query once a caller is
@@ -733,7 +730,18 @@ export class TypeScriptGenerator extends BaseGenerator {
       );
     }
 
-    const scopedEntities = getScopedEntities(entities, relationshipMap);
+    const scopedEntities = getScopedEntities(entities, relationshipMap).map(
+      (scoped) => ({
+        ...scoped,
+        // The guard finds the row a route names by the same key the controller uses.
+        keyParams: oneRowParams(
+          keyFieldsOf(
+            entities.find((e) => e.name === scoped.name)!,
+            relationshipMap ?? {}
+          )
+        ),
+      })
+    );
     const files: GeneratedFile[] = [];
     const mcp = entities.some((e) => mcpOperations(e).length > 0);
 

@@ -1,8 +1,11 @@
 import { expect, describe, test, beforeAll } from "@jest/globals";
-import { PythonGenerator } from "../../../src/lib/generators/python";
+import { BIGINT_PATTERN, PythonGenerator } from "../../../src/lib/generators/python";
 import * as path from "path";
 import { GeneratorConfig, Entity, Relationship } from "../../../src/lib/types";
 import { generateAll } from "../../helpers/generate-all";
+import * as fs from "fs";
+import { parseApsorcV2 } from "../../../src/lib/apsorc-parser";
+import { schemaModel, tableName } from "../../../src/lib/ddl";
 
 // Helper to create generator config
 function createConfig(entities: Entity[], relationshipMap: { [key: string]: Relationship[] } = {}): GeneratorConfig {
@@ -768,19 +771,199 @@ describe("PythonGenerator", () => {
   });
 });
 
-describe("import settings the Python generator refuses", () => {
-  test("bigserial, a uuid id with no default and enumName", () => {
-    const entities = [
-      { name: "Ledger", primaryKeyType: "bigserial", fields: [{ name: "state", type: "enum", values: ["open"], enumName: "review_state" }] },
-      { name: "Profile", primaryKeyType: "uuid", primaryKeyDefault: null, fields: [{ name: "label", type: "text" }] },
-    ] as Entity[];
-    const errors = new PythonGenerator(createConfig(entities)).validateConfig(createConfig(entities)).errors;
-    expect(errors).toEqual(
-      expect.arrayContaining([
-        'Ledger sets "primaryKeyType": "bigserial". The Python generator cannot make a bigint id yet; remove it or generate a TypeScript service.',
-        'Ledger.state sets "enumName". The Python generator cannot keep an enum type\'s name yet; remove it or generate a TypeScript service.',
-        'Profile sets "primaryKeyDefault": null. The Python generator cannot make a uuid id without a default yet; remove it or generate a TypeScript service.',
-      ])
+// Four settings `apso import` writes, in a schema with every shape of key:
+// test/fixtures/ddl/pygo-keys.apsorc.
+describe("bigserial ids, caller-supplied uuid ids, enum type names and composite keys", () => {
+  const fixture = path.join(__dirname, "../../fixtures/ddl/pygo-keys.apsorc");
+  const input = parseApsorcV2(JSON.parse(fs.readFileSync(fixture).toString()));
+  let files: Map<string, string>;
+  const part = (file: string, from: string, to: string) => {
+    const text = files.get(file)!;
+    return text.slice(text.indexOf(from), text.indexOf(to));
+  };
+
+  beforeAll(async () => {
+    files = await generateAll("python", fixture);
+  });
+
+  test("none of the four is refused", () => {
+    const config = { ...createConfig(input.entities, input.relationshipMap) };
+    expect(new PythonGenerator(config).validateConfig(config).errors).toEqual([]);
+  });
+
+  test("a bigserial id is BIGINT in the database and a string in the API", () => {
+    expect(files.get("models/types.py")).toContain("class BigIntString(TypeDecorator):");
+    expect(files.get("models/ledger.py")).toContain(
+      "id: Mapped[str] = mapped_column(BigIntString, primary_key=True, autoincrement=True)"
     );
+    // A foreign key onto it is bigint too, and sent the same way.
+    expect(files.get("models/entry.py")).toMatch(
+      /ledgerId: Mapped\[str] = mapped_column\(BigIntString, ForeignKey\("ledger.id", name="FK_\w+", ondelete="NO ACTION", onupdate="NO ACTION"\), nullable=False\)/
+    );
+    expect(part("schemas/ledger.py", "class Ledger(BaseModel)", "class LedgerList")).toContain("    id: str\n");
+    // The API document declares the key as a string of digits in a request as
+    // in a response; a JSON number is read as its digits.
+    const entry = files.get("schemas/entry.py")!;
+    expect(entry).toContain(
+      `BigIntKey = Annotated[str, Field(pattern=${JSON.stringify(BIGINT_PATTERN)}), BeforeValidator(_digits)]`
+    );
+    expect(entry).toContain("return str(value) if isinstance(value, int) and not isinstance(value, bool) else value");
+    expect(part("schemas/entry.py", "class EntryCreate", "class EntryUpdate")).toContain("    ledgerId: BigIntKey\n");
+    expect(part("schemas/entry.py", "class EntryUpdate", "class Entry(BaseModel)")).toContain(
+      "    ledgerId: Optional[BigIntKey] = None\n"
+    );
+    // A key onto a serial id stays a number, and its schema file has no BigIntKey.
+    expect(part("schemas/membership.py", "class MembershipCreate", "class MembershipUpdate")).toContain("    workspaceId: int\n");
+    expect(files.get("schemas/membership.py")).not.toContain("BigIntKey");
+    expect(part("schemas/entry.py", "class Entry(BaseModel)", "class EntryList")).toContain(
+      "    ledgerId: Optional[str] = None\n"
+    );
+    expect(files.get("routers/ledger.py")).toContain(`id: Annotated[str, Path(pattern=${JSON.stringify(BIGINT_PATTERN)})],`);
+    // The default id is unchanged.
+    expect(files.get("models/entry.py")).toContain(
+      "id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)"
+    );
+    expect(files.get("routers/entry.py")).toContain("    id: Annotated[int, Path(ge=1, le=2147483647)],\n");
+  });
+
+  test("a uuid id with no default is sent by the caller on create", () => {
+    expect(files.get("models/profile.py")).toContain(
+      "    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)\n"
+    );
+    expect(part("schemas/profile.py", "class ProfileCreate", "class ProfileUpdate")).toContain("    id: UUID\n");
+    expect(part("schemas/profile.py", "class ProfileUpdate", "class Profile(BaseModel)")).not.toContain("id:");
+    // A replace body carries the id; the path decides which row it is.
+    expect(files.get("services/profile.py")).toContain('for field in ["id"]:\n            replace_data.pop(field, None)');
+    // An id the database fills is not in the create schema.
+    expect(part("schemas/workspace.py", "class WorkspaceCreate", "class WorkspaceUpdate")).not.toContain("id:");
+  });
+
+  test("a duplicate key answers 409, a text key cannot hold a slash, and path segments are range-checked", () => {
+    const service = files.get("services/ratelimit.py")!;
+    expect(service).toContain("async def _commit(self) -> None:");
+    expect(service).toContain("status_code=status.HTTP_409_CONFLICT");
+    expect(service.match(/await self\._commit\(\)/g)).toHaveLength(4);
+    const create = part("schemas/ratelimit.py", "class RateLimitCreate", "class RateLimitReplace");
+    expect(create).toContain('for name in ["bucket"]:');
+    // An integer segment is bounded by its column's type.
+    expect(files.get("routers/membership.py")).toContain('Path(alias="workspaceId", ge=-2147483648, le=2147483647)');
+    expect(files.get("routers/entry.py")).toContain("id: Annotated[int, Path(ge=1, le=2147483647)]");
+  });
+
+  test("the bigint pattern accepts exactly 0 to 2^63-1", () => {
+    const pattern = new RegExp(BIGINT_PATTERN);
+    for (const ok of ["0", "7", "999999999999999999", "9223372036854775799", "9223372036854775807"]) expect(pattern.test(ok)).toBe(true);
+    for (const bad of ["9223372036854775808", "9300000000000000000", "10000000000000000000", "-1", "1.5", ""]) expect(pattern.test(bad)).toBe(false);
+    expect(files.get("routers/ledger.py")).toContain(`Path(pattern=${JSON.stringify(BIGINT_PATTERN)})`);
+  });
+
+  test("enumName names the enum type, and two fields share one", () => {
+    expect(files.get("models/ledger.py")).toContain('SAEnum(enums.LedgerStateEnum, name="review_state"');
+    expect(files.get("models/entry.py")).toContain('SAEnum(enums.EntryStatusEnum, name="review_state"');
+    // No older Python service named this type differently, so there is nothing to rename.
+    expect(files.get("models/__init__.py")).not.toContain("review_state");
+  });
+
+  test("a composite key gets one path segment per key column, in key order", () => {
+    const router = files.get("routers/ratelimit.py")!;
+    expect(router.match(/"\/{bucket}\/{window_start}"/g)).toHaveLength(4);
+    expect(router).not.toContain("{id}");
+    for (const method of ["get", "patch", "put", "delete"])
+      expect(router).toContain(`@router.${method}(\n    "/{bucket}/{window_start}",`);
+    // Each segment is parsed to its column's type.
+    expect(router).toContain('    key_0: str = Path(alias="bucket"),\n    key_1: datetime = Path(alias="window_start"),\n');
+    expect(router).toContain('service.get_one({"bucket": key_0, "window_start": key_1}, joins=joins)');
+    expect(router).toContain('service.update_one({"bucket": key_0, "window_start": key_1}, data)');
+    expect(router).toContain('service.replace_one({"bucket": key_0, "window_start": key_1}, data)');
+    expect(router).toContain('service.delete_one({"bucket": key_0, "window_start": key_1})');
+    // List and create stay as they are.
+    expect(router).toContain('@router.get(\n    "",');
+    expect(router).toContain('@router.post(\n    "",');
+    expect(files.get("schemas/ratelimit.py")).not.toMatch(/^ {4}id: /m);
+    // The key columns are sent on create and never changed by an update.
+    expect(part("schemas/ratelimit.py", "class RateLimitCreate", "class RateLimitReplace")).toContain("    bucket: str\n");
+    // A replace body need not repeat the key the path already names.
+    const replace = part("schemas/ratelimit.py", "class RateLimitReplace", "class RateLimitUpdate");
+    expect(replace).toContain("class RateLimitReplace(RateLimitCreate):");
+    expect(replace).toContain("    bucket: Optional[Any] = None\n    window_start: Optional[Any] = None\n");
+    expect(router).toContain("    data: RateLimitReplace,");
+    expect(files.get("services/ratelimit.py")).toContain(
+      'for field in ["bucket","window_start"]:\n            update_data.pop(field, None)'
+    );
+  });
+
+  test("a primary relationship's id column follows the primary fields", () => {
+    expect(files.get("routers/membership.py")).toContain('"/{role}/{workspaceId}"');
+    expect(files.get("routers/membership.py")).toContain(
+      '    key_0: str = Path(alias="role"),\n    key_1: int = Path(alias="workspaceId", ge=-2147483648, le=2147483647),\n'
+    );
+    expect(files.get("models/membership.py")).toMatch(
+      /workspaceId: Mapped\[int] = mapped_column\(Integer, ForeignKey\("workspace.id", [^)]+\), primary_key=True\)/
+    );
+    // Two primary relationships and no primary field: no id, the two columns in order.
+    expect(files.get("routers/favorite.py")).toContain('"/{workspaceId}/{ledgerId}"');
+    expect(files.get("schemas/favorite.py")).not.toMatch(/^ {4}id: /m);
+    // One primary field is the whole key.
+    expect(files.get("routers/code.py")).toContain('"/{code}"');
+    expect(files.get("models/code.py")).toContain('return f"<Code(code={self.code})>"');
+  });
+
+  test("every model's primary key is the DDL's, columns in order", () => {
+    const model = schemaModel(input);
+    for (const entity of input.entities) {
+      const pk = model.constraints.find((c) => c.kind === "pk" && c.table === tableName(entity))!;
+      expect(files.get(`models/${entity.name.toLowerCase()}.py`)).toContain(
+        `PrimaryKeyConstraint(${pk.columns.map((c) => JSON.stringify(c)).join(", ")}, name="${pk.name}")`
+      );
+    }
+  });
+
+  test("one row is matched on its whole key and the caller's tenant scope in one query", async () => {
+    const query = files.get("utils/query.py")!;
+    expect(query).toContain(
+      [
+        '        key = id if isinstance(id, dict) else {"id": id}',
+        "        query = select(self.model).where(",
+        "            *(getattr(self.model, name) == value for name, value in key.items()),",
+        "            *self.scope,",
+        "        )",
+      ].join("\n")
+    );
+    // A list with no sort orders by the key, whatever its columns are.
+    expect(query).toContain("query = query.order_by(*self._key_columns())");
+    expect(query).not.toContain("self.model.id");
+    // The scoped entity reads, updates and deletes through that one lookup.
+    const setting = input.entities.find((e) => e.name === "Setting")!;
+    const generator = new PythonGenerator(createConfig(input.entities, input.relationshipMap));
+    const [service] = await generator.generateService({
+      entity: setting,
+      relationships: input.relationshipMap.Setting,
+      allEntities: input.entities,
+      apiType: "rest",
+      relationshipMap: input.relationshipMap,
+      auth: { provider: "jwt", jwt: { issuer: "https://issuer.apso.test" }, claims: { workspaceId: "org_id" } } as any,
+    });
+    expect(service.content).toContain("return QueryBuilder(Setting, self.db, auth=self.auth, scope=scope)");
+    expect(service.content).toContain("return await self._qb(op).get_one(id, joins=joins)");
+    for (const op of ["update", "delete"])
+      expect(service.content).toContain(`item = await self.get_one(id, op="${op}")`);
+  });
+
+  test("an MCP tool of a composite-key entity takes one argument per key column", async () => {
+    const entity = { ...input.entities.find((e) => e.name === "RateLimit")!, mcp: true } as Entity;
+    const generator = new PythonGenerator(createConfig(input.entities, input.relationshipMap));
+    const [router] = await generator.generateController({
+      entity,
+      relationships: [],
+      allEntities: input.entities,
+      apiType: "rest",
+      relationshipMap: input.relationshipMap,
+    });
+    // The tool's arguments come from the route's path parameters (mcp.py reads the OpenAPI document).
+    expect(router.content).toMatch(
+      /"\/{bucket}\/{window_start}",\n(.*\n)*? {4}openapi_extra=mcp_tool\("get_rate_limit", "Get one RateLimit by its key \(bucket, window_start\)\."\),/
+    );
+    expect(router.content).toContain('mcp_tool("update_rate_limit", "Update fields of one RateLimit by its key (bucket, window_start).")');
+    expect(router.content).toContain('mcp_tool("delete_rate_limit", "Delete one RateLimit by its key (bucket, window_start). This cannot be undone.")');
   });
 });

@@ -1,5 +1,14 @@
 <%~ includeFile('../../header.eta', it) %>
 
+<%
+// How a method names one row: the id, or every key column and its value when
+// the key is the entity's own (several columns, or one not named "id"). The
+// row is matched on the whole key, on top of the caller's tenant scope.
+const keyArg = it.ownKey ? 'key map[string]interface{}' : 'id string';
+const first = (q) => it.ownKey
+  ? `${q}.Where(key).First(&item)`
+  : it.primaryKeyType === 'uuid' ? `${q}.Where("id = ?", id).First(&item)` : `${q}.First(&item, id)`;
+%>
 package services
 
 import (
@@ -24,7 +33,9 @@ import (
 // AllowedFields<%= it.entityName %> defines the column names that can be used in
 // filter and sort query parameters. This prevents arbitrary column access.
 var AllowedFields<%= it.entityName %> = map[string]bool{
+<% if (it.hasId) { %>
 	"id": true,
+<% } %>
 <% it.columns.forEach((column) => { %>
 	"<%= column.name %>": true,
 <% }) %>
@@ -164,8 +175,8 @@ func (s *<%= it.entityName %>Service) FindAllBare(ctx context.Context, opts util
 	return response, nil
 }
 
-// FindOne retrieves a single <%= it.entityName %> by ID
-func (s *<%= it.entityName %>Service) FindOne(ctx context.Context, id string) (*dto.<%= it.entityName %>Response, error) {
+// FindOne retrieves a single <%= it.entityName %> by <%= it.byKey %>
+func (s *<%= it.entityName %>Service) FindOne(ctx context.Context, <%= keyArg %>) (*dto.<%= it.entityName %>Response, error) {
 	var item models.<%= it.entityName %>
 
 	query := s.db.WithContext(ctx)
@@ -179,11 +190,7 @@ func (s *<%= it.entityName %>Service) FindOne(ctx context.Context, id string) (*
 	}
 <% } %>
 
-<% if (it.primaryKeyType === 'uuid') { %>
-	if err := query.Where("id = ?", id).First(&item).Error; err != nil {
-<% } else { %>
-	if err := query.First(&item, id).Error; err != nil {
-<% } %>
+	if err := <%~ first('query') %>.Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, errors.New("<%= it.entityName %> not found")
 		}
@@ -197,7 +204,10 @@ func (s *<%= it.entityName %>Service) FindOne(ctx context.Context, id string) (*
 // Create creates a new <%= it.entityName %>
 func (s *<%= it.entityName %>Service) Create(ctx context.Context, input *dto.<%= it.entityName %>Create) (*dto.<%= it.entityName %>Response, error) {
 	item := models.<%= it.entityName %>{
-<% it.columns.filter(c => !c.generated && !c.primary).forEach((column) => { %>
+<% if (it.suppliesId) { %>
+		ID: input.ID,
+<% } %>
+<% it.columns.filter(c => !c.generated).forEach((column) => { %>
 		<%= column.pascalName %>: input.<%= column.pascalName %>,
 <% }) %>
 <% it.associations.filter(a => a.owns).forEach((assoc) => { %>
@@ -250,7 +260,7 @@ func (s *<%= it.entityName %>Service) Create(ctx context.Context, input *dto.<%=
 }
 
 // Update updates an existing <%= it.entityName %>
-func (s *<%= it.entityName %>Service) Update(ctx context.Context, id string, input *dto.<%= it.entityName %>Update) (*dto.<%= it.entityName %>Response, error) {
+func (s *<%= it.entityName %>Service) Update(ctx context.Context, <%= keyArg %>, input *dto.<%= it.entityName %>Update) (*dto.<%= it.entityName %>Response, error) {
 	var item models.<%= it.entityName %>
 
 	findQuery := s.db.WithContext(ctx)
@@ -260,11 +270,7 @@ func (s *<%= it.entityName %>Service) Update(ctx context.Context, id string, inp
 		return nil, scopeErr
 	}
 <% } %>
-<% if (it.primaryKeyType === 'uuid') { %>
-	if err := findQuery.Where("id = ?", id).First(&item).Error; err != nil {
-<% } else { %>
-	if err := findQuery.First(&item, id).Error; err != nil {
-<% } %>
+	if err := <%~ first('findQuery') %>.Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, errors.New("<%= it.entityName %> not found")
 		}
@@ -289,7 +295,7 @@ func (s *<%= it.entityName %>Service) Update(ctx context.Context, id string, inp
 <% } %>
 	}
 <% }) %>
-<% it.associations.filter(a => a.owns).forEach((assoc) => { %>
+<% it.associations.filter(a => a.owns && !a.primary).forEach((assoc) => { %>
 	if input.<%= assoc.fkField %> != nil {
 		updates["<%= assoc.fkColumn %>"] = *input.<%= assoc.fkField %>
 	}
@@ -321,7 +327,12 @@ func (s *<%= it.entityName %>Service) Update(ctx context.Context, id string, inp
 <% } %>
 
 	if len(updates) > 0 {
+<% if (it.ownKey) { %>
+		// By the whole key, as written: gorm leaves a zero value out of a key it reads from the row.
+		if err := s.db.WithContext(ctx).Model(&models.<%= it.entityName %>{}).Where(key).Updates(updates).Error; err != nil {
+<% } else { %>
 		if err := s.db.WithContext(ctx).Model(&item).Updates(updates).Error; err != nil {
+<% } %>
 			return nil, err
 		}
 	}
@@ -331,11 +342,7 @@ func (s *<%= it.entityName %>Service) Update(ctx context.Context, id string, inp
 <% it.associations.filter(a => a.eager && !a.hidden).forEach((assoc) => { %>
 	query = query.Preload("<%= assoc.fieldName %>")
 <% }) %>
-<% if (it.primaryKeyType === 'uuid') { %>
-	if err := query.Where("id = ?", id).First(&item).Error; err != nil {
-<% } else { %>
-	if err := query.First(&item, id).Error; err != nil {
-<% } %>
+	if err := <%~ first('query') %>.Error; err != nil {
 		return nil, err
 	}
 
@@ -343,8 +350,8 @@ func (s *<%= it.entityName %>Service) Update(ctx context.Context, id string, inp
 	return &response, nil
 }
 
-// Delete removes a <%= it.entityName %> by ID
-func (s *<%= it.entityName %>Service) Delete(ctx context.Context, id string) error {
+// Delete removes a <%= it.entityName %> by <%= it.byKey %>
+func (s *<%= it.entityName %>Service) Delete(ctx context.Context, <%= keyArg %>) error {
 	deleteQuery := s.db.WithContext(ctx)
 <% if (it.scope) { %>
 	deleteQuery, _, scopeErr := s.scoped(ctx, deleteQuery, "delete")
@@ -352,7 +359,9 @@ func (s *<%= it.entityName %>Service) Delete(ctx context.Context, id string) err
 		return scopeErr
 	}
 <% } %>
-<% if (it.primaryKeyType === 'uuid') { %>
+<% if (it.ownKey) { %>
+	result := deleteQuery.Where(key).Delete(&models.<%= it.entityName %>{})
+<% } else if (it.primaryKeyType === 'uuid') { %>
 	result := deleteQuery.Where("id = ?", id).Delete(&models.<%= it.entityName %>{})
 <% } else { %>
 	result := deleteQuery.Delete(&models.<%= it.entityName %>{}, id)
@@ -369,7 +378,9 @@ func (s *<%= it.entityName %>Service) Delete(ctx context.Context, id string) err
 // toResponse converts a model to a response DTO
 func (s *<%= it.entityName %>Service) toResponse(item *models.<%= it.entityName %>) dto.<%= it.entityName %>Response {
 	response := dto.<%= it.entityName %>Response{
+<% if (it.hasId) { %>
 		ID: item.ID,
+<% } %>
 <% it.columns.forEach((column) => { %>
 		<%= column.pascalName %>: item.<%= column.pascalName %>,
 <% }) %>

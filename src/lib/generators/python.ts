@@ -16,6 +16,7 @@ import {
   resolveJwtProviders,
   Field,
   ComputedField,
+  Relationship,
   RelationshipMap,
 } from "../types";
 import {
@@ -55,6 +56,7 @@ import {
   tableName,
 } from "../ddl";
 import { legacyGuardSql, legacyTable, legacyType, LegacyName } from "../ddl/sync";
+import { hasOwnKey, keyColumns } from "./key";
 import pluralize from "pluralize";
 
 // Postgres array element type -> [SQLAlchemy column type, Python type]. The
@@ -140,6 +142,63 @@ const withArrayTypes = <T extends Field>(columns: T[], entityName: string) =>
     return { ...c, arrayColumnType: types[0], arrayItemType: types[1] };
   });
 
+/**
+ * A bigserial id, and a foreign key onto a bigint key, is BIGINT in the
+ * database and a str in Python (models/types.py), so the API sends it as a
+ * JSON string the way the TypeScript services do.
+ */
+const BIG_INT_ID: [string, string] = ["BigIntString", "str"];
+const bigIntId = (c: ModelColumn, fk?: ModelConstraint) =>
+  c.type === "bigint" && Boolean(c.serial || fk);
+
+/**
+ * The type of the one "id" path segment. A bigint id is a string of digits,
+ * as responses send it, so an MCP client can pass back the id it read.
+ */
+/**
+ * A regular expression for the whole numbers 0 to `max`, so a bigint given as
+ * a string of digits is refused with 422 when it does not fit, instead of
+ * failing in the database with 500.
+ */
+export function digitsUpTo(max: string): string {
+  // Fewer digits than max, then each way to stay at or below it digit by digit.
+  const parts = [`[0-9]{1,${max.length - 1}}`];
+  for (let i = 0; i < max.length; i += 1) {
+    const d = Number(max[i]);
+    const rest = max.length - i - 1;
+    if (d > 0) parts.push(`${max.slice(0, i)}[0-${d - 1}]${rest ? `[0-9]{${rest}}` : ""}`);
+  }
+  parts.push(max);
+  return `^(?:${parts.join("|")})$`;
+}
+
+/** Whole numbers that fit a Postgres bigint, as a JSON string or a path segment. */
+export const BIGINT_PATTERN = digitsUpTo("9223372036854775807");
+
+/** The range of a Postgres integer column, for a path segment that holds one. */
+const INT_RANGE: Record<string, [string, string]> = {
+  smallint: ["-32768", "32767"],
+  integer: ["-2147483648", "2147483647"],
+  bigint: ["-9223372036854775808", "9223372036854775807"],
+};
+
+const idParamType = (c: ModelColumn) =>
+  c.type === "uuid"
+    ? "str"
+    : c.type === "bigint"
+    ? `Annotated[str, Path(pattern=${JSON.stringify(BIGINT_PATTERN)})]`
+    : "Annotated[int, Path(ge=1, le=2147483647)]";
+
+/** The Python type a path segment of a key column is parsed to. */
+function pyKeyType(c: ModelColumn): string {
+  try {
+    return saType(c.type)[1];
+  } catch {
+    // An enum or another type with no Python counterpart: Postgres casts the text.
+    return "str";
+  }
+}
+
 /** The ForeignKey(...) of a DDL foreign key constraint. */
 const pyForeignKey = (fk: ModelConstraint) => {
   const [, targetCol, onDelete, onUpdate] = fk.body.match(
@@ -165,10 +224,12 @@ function pyColumnArgs(
     field?.type === "enum"
       ? [
           `SAEnum(enums.${field.dataType}, name=${pyString(
-            enumTypeName(table, field.name)
+            field.enumName ?? enumTypeName(table, field.name)
           )}, values_callable=lambda x: [e.value for e in x])`,
           `enums.${field.dataType}`,
         ]
+      : bigIntId(c, fk)
+      ? BIG_INT_ID
       : saType(c.type);
   const args = [type];
   if (fk) args.push(pyForeignKey(fk));
@@ -230,21 +291,6 @@ export class PythonGenerator extends BaseGenerator {
         errors.push(
           `${e.name} sets "foreignKeys". The Python generator cannot declare a second foreign key on a column yet; remove it or generate a TypeScript service.`
         );
-    for (const e of config.entities ?? []) {
-      if (e.primaryKeyType === "bigserial")
-        errors.push(
-          `${e.name} sets "primaryKeyType": "bigserial". The Python generator cannot make a bigint id yet; remove it or generate a TypeScript service.`
-        );
-      if (e.primaryKeyDefault === null)
-        errors.push(
-          `${e.name} sets "primaryKeyDefault": null. The Python generator cannot make a uuid id without a default yet; remove it or generate a TypeScript service.`
-        );
-      for (const f of e.fields ?? [])
-        if (f.enumName)
-          errors.push(
-            `${e.name}.${f.name} sets "enumName". The Python generator cannot keep an enum type's name yet; remove it or generate a TypeScript service.`
-          );
-    }
     for (const e of config.entities ?? [])
       if (e.primaryKeyName)
         errors.push(
@@ -422,6 +468,7 @@ export class PythonGenerator extends BaseGenerator {
       tableName: table,
       columns: own.columns,
       tableArgs: own.tableArgs,
+      keyNames: tableArgs(table).pk.columns,
       joinTables,
       associations,
       entitiesToImport,
@@ -437,6 +484,39 @@ export class PythonGenerator extends BaseGenerator {
         content,
       },
     ];
+  }
+
+  /**
+   * How a route addresses one row. The default key is one "id" segment. An
+   * entity with its own key (several columns, or one with its own name) gets
+   * one segment per key column, in key order, each parsed to its column's
+   * type; the function reads it through an alias, so any column name works.
+   */
+  private keyData(
+    entity: Entity,
+    relationships: Relationship[],
+    allEntities: Entity[]
+  ) {
+    const key = keyColumns(
+      entity,
+      relationships,
+      allEntities,
+      this.config.relationshipMap
+    );
+    const ownKey = hasOwnKey(key);
+    return {
+      ownKey,
+      // The caller sends these on create, and no update may change them.
+      keyFields:
+        ownKey || entity.primaryKeyDefault === null ? key.map((c) => c.name) : [],
+      key: key.map((c, i) => ({
+        name: c.name,
+        param: ownKey ? `key_${i}` : "id",
+        pyType: ownKey ? pyKeyType(c) : idParamType(c),
+        // An integer segment outside its column's range answers 422, not 500.
+        range: ownKey ? INT_RANGE[c.type] : undefined,
+      })),
+    };
   }
 
   async generateController(
@@ -457,6 +537,7 @@ export class PythonGenerator extends BaseGenerator {
       entityName,
       pluralEntityName,
       primaryKeyType,
+      ...this.keyData(entity, relationships, options.allEntities),
       associations: [...new Set(relationshipsForTemplate)],
       // Operations exposed as MCP tools, and the names the tools get.
       ...mcpToolNames(entity, options.auth),
@@ -490,6 +571,7 @@ export class PythonGenerator extends BaseGenerator {
       entityName,
       pluralEntityName,
       primaryKeyType,
+      keyFields: this.keyData(entity, relationships, options.allEntities).keyFields,
       associations: [...new Set(relationshipsForTemplate)],
       scope: entityScope(
         entity,
@@ -565,7 +647,10 @@ export class PythonGenerator extends BaseGenerator {
     const primaryKeyColumns = columns.filter(
       (column: any) => column.primary === true
     );
-    const addDefaultPKProperty = primaryKeyColumns.length === 0;
+    // No generated id when a field, or a foreign key, is the primary key.
+    const addDefaultPKProperty =
+      primaryKeyColumns.length === 0 &&
+      !this.keyData(entity, relationships, allEntities).ownKey;
 
     const createdAt = entity.created_at;
     const updatedAt = entity.updated_at;
@@ -580,10 +665,37 @@ export class PythonGenerator extends BaseGenerator {
       columns,
       // Auth entities are for service callers only, so no other entity's
       // response carries one.
-      associations: relationshipsTemplate.map((r: any) => ({
-        ...r,
-        hidden: hidesRelation(entityName, r.name, allEntities, options.auth),
-      })),
+      associations: relationshipsTemplate.map((r: any) => {
+        const keyType = r.referencedEntityPrimaryKeyType;
+        return {
+          ...r,
+          hidden: hidesRelation(entityName, r.name, allEntities, options.auth),
+          // A key onto a bigint id is a string of digits in the API document,
+          // in a request as in a response. A JSON number is read too.
+          fkIn: keyType === "uuid" ? "UUID" : keyType === "bigserial" ? "BigIntKey" : "int",
+          fkOut: keyType === "uuid" ? "UUID" : keyType === "bigserial" ? "str" : "int",
+        };
+      }),
+      bigintPattern: BIGINT_PATTERN,
+      // Text key columns: a row is addressed by its key in the URL path and the
+      // router matches the decoded path, so a value with "/" is refused.
+      slashFreeKeys: (() => {
+        const columns = keyColumns(entity, relationships, allEntities, this.config.relationshipMap);
+        return hasOwnKey(columns)
+          ? columns.filter((c) => /^(text|character|varchar|citext)/i.test(c.type)).map((c) => c.name)
+          : [];
+      })(),
+      // A composite or named key: the path of a replace names the row, so the
+      // body need not repeat these columns.
+      replaceKeys: (() => {
+        const { ownKey, keyFields } = this.keyData(entity, relationships, allEntities);
+        return ownKey ? keyFields : [];
+      })(),
+      // A uuid id with no database default: the caller sends it on create.
+      suppliesId:
+        addDefaultPKProperty &&
+        primaryKeyType === "uuid" &&
+        entity.primaryKeyDefault === null,
       apiType: apiType ?? "rest",
       importEnums: typeExistsInEntity(entity, "enum") !== -1,
     };
@@ -709,6 +821,10 @@ ${downStatements || "    pass"}
         path: "models/__init__.py",
         content: await this.renderTemplate("./models/init", this.modelsInitData(entities)),
       },
+      {
+        path: "models/types.py",
+        content: await this.renderTemplate("./models/types", {}),
+      },
     ];
   }
 
@@ -724,7 +840,8 @@ ${downStatements || "    pass"}
     for (const entity of entities) {
       const table = tableName(entity);
       for (const f of entity.fields ?? [])
-        if (f.type === "enum") {
+        // A field with "enumName" never had another type name in Python.
+        if (f.type === "enum" && !f.enumName) {
           const old = `${entity.name}_${f.name}_enum`.toLowerCase();
           const now = enumTypeName(table, f.name);
           if (old !== now) legacy.push(legacyType(old, now));

@@ -1,0 +1,22 @@
+<%~ includeFile('../header.eta', it) %>
+
+from sqlalchemy import BigInteger
+from sqlalchemy.types import TypeDecorator
+
+
+class BigIntString(TypeDecorator):
+    """
+    A bigint id (primaryKeyType "bigserial"), or a foreign key onto a bigint
+    key: BIGINT in the database and a str in Python, so the API sends and
+    returns it as a JSON string ("6"). A bigint does not fit a JSON number
+    safely, and the TypeScript services send the same string.
+    """
+
+    impl = BigInteger
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        return None if value is None else int(value)
+
+    def process_result_value(self, value, dialect):
+        return None if value is None else str(value)

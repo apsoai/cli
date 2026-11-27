@@ -1,7 +1,11 @@
 <%~ includeFile('../header.eta', it) %>
 
-from typing import List, Optional, Union
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
+from typing import Annotated, List, Optional, Union
+from datetime import date, datetime
+from decimal import Decimal
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Request, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +16,7 @@ from ..models.<%= it.entityName.toLowerCase() %> import <%= it.entityName -%>
 from ..schemas.<%= it.entityName.toLowerCase() %> import (
     <%= it.entityName %> as <%= it.entityName %>Schema,
     <%= it.entityName %>Create,
+    <%= it.entityName %>Replace,
     <%= it.entityName %>Update,
     <%= it.entityName %>List,
 )
@@ -21,6 +26,16 @@ from ..utils.query import parse_query_params, QueryParseError
 from ..mcp import LIST_PARAMETERS, mcp_tool
 <% } %>
 
+<%
+// One path segment per key column, in key order. The default key is one "id".
+const keyPath = it.key.map((k) => `/{${k.name}}`).join('');
+const keyParams = it.key
+  .map((k) => `    ${k.param}: ${k.pyType}${it.ownKey ? ` = Path(alias=${JSON.stringify(k.name)}${k.range ? `, ge=${k.range[0]}, le=${k.range[1]}` : ''})` : ''},\n`)
+  .join('');
+const keyValue = it.ownKey ? `{${it.key.map((k) => `${JSON.stringify(k.name)}: ${k.param}`).join(', ')}}` : 'id';
+const byKey = it.ownKey ? `its key (${it.key.map((k) => k.name).join(', ')})` : 'id';
+const notFound = it.ownKey ? `"${it.entityName} not found"` : `f"${it.entityName} with id {id} not found"`;
+%>
 router = APIRouter(
     prefix="/<%= it.pluralEntityName.toLowerCase() %>",
     tags=["<%= it.pluralEntityName %>"],
@@ -118,20 +133,19 @@ async def get_many(
 
 
 @router.get(
-    "/{id}",
+    "<%~ keyPath %>",
     response_model=<%= it.entityName %>Schema,
     summary="Retrieve a single <%= it.entityName %>",
 <% if (it.mcp.includes('read')) { %>
-    openapi_extra=mcp_tool("get_<%= it.mcpName %>", "Get one <%= it.entityName %> by id."),
+    openapi_extra=mcp_tool("get_<%= it.mcpName %>", "Get one <%= it.entityName %> by <%= byKey %>."),
 <% } %>
 )
 async def get_one(
-    id: <% if (it.primaryKeyType === 'uuid') { %>str<% } else { %>int<% } %>,
     request: Request,
-    db: AsyncSession = Depends(get_db),
+<%~ keyParams %>    db: AsyncSession = Depends(get_db),
 ) -> <%= it.entityName %>Schema:
     """
-    Retrieve a single <%= it.entityName %> by ID.
+    Retrieve a single <%= it.entityName %> by <%= byKey %>.
 
     Supports query parameters:
     - join=relation (repeatable)
@@ -147,11 +161,11 @@ async def get_one(
         )
     joins = [j.relation for j in options.joins] if options.joins else None
 
-    item = await service.get_one(id, joins=joins)
+    item = await service.get_one(<%~ keyValue %>, joins=joins)
     if not item:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"<%= it.entityName %> with id {id} not found",
+            detail=<%~ notFound %>,
         )
     return item
 
@@ -196,76 +210,73 @@ async def create_many(
 
 
 @router.patch(
-    "/{id}",
+    "<%~ keyPath %>",
     response_model=<%= it.entityName %>Schema,
     summary="Update a single <%= it.entityName %>",
 <% if (it.mcp.includes('update')) { %>
-    openapi_extra=mcp_tool("update_<%= it.mcpName %>", "Update fields of one <%= it.entityName %> by id."),
+    openapi_extra=mcp_tool("update_<%= it.mcpName %>", "Update fields of one <%= it.entityName %> by <%= byKey %>."),
 <% } %>
 )
 async def update_one(
     request: Request,
-    id: <% if (it.primaryKeyType === 'uuid') { %>str<% } else { %>int<% } %>,
     data: <%= it.entityName %>Update,
-    db: AsyncSession = Depends(get_db),
+<%~ keyParams %>    db: AsyncSession = Depends(get_db),
 ) -> <%= it.entityName %>Schema:
     """
     Update an existing <%= it.entityName %>.
     """
     service = <%= it.entityName %>Service(db, getattr(request.state, "auth", None))
-    item = await service.update_one(id, data)
+    item = await service.update_one(<%~ keyValue %>, data)
     if not item:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"<%= it.entityName %> with id {id} not found",
+            detail=<%~ notFound %>,
         )
     return item
 
 
 @router.put(
-    "/{id}",
+    "<%~ keyPath %>",
     response_model=<%= it.entityName %>Schema,
     summary="Replace a single <%= it.entityName %>",
 )
 async def replace_one(
     request: Request,
-    id: <% if (it.primaryKeyType === 'uuid') { %>str<% } else { %>int<% } %>,
-    data: <%= it.entityName %>Create,
-    db: AsyncSession = Depends(get_db),
+    data: <%= it.entityName %>Replace,
+<%~ keyParams %>    db: AsyncSession = Depends(get_db),
 ) -> <%= it.entityName %>Schema:
     """
     Replace an existing <%= it.entityName %>.
     """
     service = <%= it.entityName %>Service(db, getattr(request.state, "auth", None))
-    item = await service.replace_one(id, data)
+    item = await service.replace_one(<%~ keyValue %>, data)
     if not item:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"<%= it.entityName %> with id {id} not found",
+            detail=<%~ notFound %>,
         )
     return item
 
 
 @router.delete(
-    "/{id}",
+    "<%~ keyPath %>",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete a single <%= it.entityName %>",
 <% if (it.mcp.includes('delete')) { %>
-    openapi_extra=mcp_tool("delete_<%= it.mcpName %>", "Delete one <%= it.entityName %> by id. This cannot be undone."),
+    openapi_extra=mcp_tool("delete_<%= it.mcpName %>", "Delete one <%= it.entityName %> by <%= byKey %>. This cannot be undone."),
 <% } %>
 )
 async def delete_one(
     request: Request,
-    id: <% if (it.primaryKeyType === 'uuid') { %>str<% } else { %>int<% } %>,
-    db: AsyncSession = Depends(get_db),
+<%~ keyParams %>    db: AsyncSession = Depends(get_db),
 ) -> None:
     """
-    Delete a <%= it.entityName %> by ID.
+    Delete a <%= it.entityName %> by <%= byKey %>.
     """
     service = <%= it.entityName %>Service(db, getattr(request.state, "auth", None))
-    deleted = await service.delete_one(id)
+    deleted = await service.delete_one(<%~ keyValue %>)
     if not deleted:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"<%= it.entityName %> with id {id} not found",
+            detail=<%~ notFound %>,
         )

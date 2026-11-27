@@ -16,6 +16,7 @@ import {
   resolveJwtAuth,
 } from "../../../src/lib/types";
 import { tenantClaimWarnings } from "../../../src/lib/guards";
+import { parseRelationships } from "../../../src/lib/utils/relationships";
 import { addMissingPythonDep } from "../../../src/lib/utils/crud-deps";
 import { ensureDevKey } from "../../../src/lib/utils/template";
 
@@ -148,6 +149,8 @@ describe("generated wiring", () => {
     expect(ctrl).toContain("filter: (req: any) => skipScope(req) ? {} : ({");
     // The tenant on a write always comes from the caller: persist has no create exception.
     expect(ctrl).toContain("persist: (req: any) => skipScope(req) ? {} : ({");
+    // A scoped caller's create only adds rows, whatever its scope path.
+    expect(ctrl).toContain("insertOnly: (req: any) => !skipScope(req),");
 
     // A service caller (API key) skips the tenant filter on every scoped controller.
     const plain = await generators.typescript.generateController({ ...opts, entity: entities[2], auth: jwt("jwt") });
@@ -176,10 +179,44 @@ describe("generated wiring", () => {
     // Scoped or not, every entity is listed: a shared entity's body can name scoped rows.
     for (const entity of entities) expect(guard).toContain(`: '${entity.name}',`);
     expect(guard).toContain("item[scope.field] = scopeValue;");
-    expect(guard).toContain("delete item[column.propertyName];");
+    expect(guard).toContain("delete item[property];");
+    // A create is refused only when a row has the whole key, with the tenant
+    // column of that key read from the caller.
+    expect(guard).toContain("const value = scope ? own : item[property];");
+    expect(guard).toContain("Object.keys(chosen).length === metadata.primaryColumns.length");
     expect(guard).toContain("throw new ConflictException(");
+    // A relation object for a key column is read as the column before the key is
+    // checked, and a soft-deleted row has its key too.
+    expect(guard).toContain("if (!relation.joinColumns.some((join) => join.isPrimary)) continue;");
+    expect(guard).toContain("if (id !== undefined && !join.isVirtual) item[join.propertyName] = id;");
+    expect(guard.indexOf("join.isPrimary")).toBeLessThan(guard.indexOf("const chosen"));
+    expect(guard).toContain("findOne({ where: this.asColumnValues(metadata, chosen), withDeleted: true })");
+    // A timestamp key is looked up as the driver wrote it.
+    expect(guard).toContain("where: this.asColumnValues(repo.metadata, rowKey),");
+    // A row is found by the key the route names, not by a column called id.
+    expect(guard).not.toContain("params?.id");
+    expect(guard).not.toContain("where: { id:");
     expect(guard).toContain("if (id !== undefined) item[join.propertyName] = id;");
     expect(guard).toContain("if (!scopeConfig) throw denied();");
+  });
+
+  test("ScopeGuard knows each scoped entity's key: id, a renamed key, or every column of a composite key", async () => {
+    const keyed: Entity[] = [
+      { name: "Workspace", fields: [{ name: "name", type: "text" }] },
+      { name: "Note", scopeBy: "workspaceId", fields: [{ name: "body", type: "text" }] },
+      { name: "Doc", scopeBy: "workspaceId", fields: [{ name: "slug", type: "text", primary: true }] },
+      { name: "Page", scopeBy: "workspaceId", fields: [{ name: "slug", type: "text", primary: true }] },
+    ];
+    const relationshipMap = parseRelationships([
+      { from: "Note", to: "Workspace", type: "ManyToOne", bi_directional: false },
+      { from: "Doc", to: "Workspace", type: "ManyToOne", bi_directional: false },
+      { from: "Page", to: "Workspace", type: "ManyToOne", primary: true, bi_directional: false },
+    ]);
+    const files = await generators.typescript.generateGuards(keyed, jwt("jwt"), relationshipMap);
+    const guard = files.find((f) => f.path === "guards/scope.guard.ts")!.content;
+    expect(guard).toContain("key: { 'id': 'id' },");
+    expect(guard).toContain("key: { 'id': 'slug' },");
+    expect(guard).toContain("key: { 'slug': 'slug', 'workspaceId': 'workspaceId' },");
   });
 
   test("Go registers the middleware on the /api group", async () => {

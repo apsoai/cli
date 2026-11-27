@@ -60,6 +60,11 @@ export interface ScopeConfig {
   scopes: ScopeField[];
   /** Roles that can bypass scope enforcement */
   bypassRoles: string[];
+  /**
+   * The route parameters that address one row and the entity property each
+   * holds: { id: 'id' }, or one entry per column of a composite key.
+   */
+  key: Record<string, string>;
 }
 
 export interface ScopeField {
@@ -104,6 +109,7 @@ export const ENTITY_SCOPES: Record<string, ScopeConfig> = {
 <% }) %>
     ],
     bypassRoles: [<%~ entity.bypassRoles.map(role => `'${role}'`).join(', ') %>],
+    key: { <%~ entity.keyParams.map((param) => `'${param.name}': '${param.field}'`).join(', ') %> },
   }<%= index < it.scopedEntities.length - 1 ? ',' : '' %>
 <% }) %>
 };
@@ -208,8 +214,11 @@ export class ScopeGuard implements CanActivate {
       await this.checkBody(request, entityType, scopeConfig);
     }
 
+    // The row the route names, by key column. A list or create route names none.
+    const rowKey = this.rowKey(request, scopeConfig);
+
     // Map HTTP method to operation
-    const operation = this.mapMethodToOperation(method, request.params?.id);
+    const operation = this.mapMethodToOperation(method, Boolean(rowKey));
 
 <% if (it.hasNestedFk) { %>
 
@@ -218,11 +227,11 @@ export class ScopeGuard implements CanActivate {
     await this.loadNestedScopes(request, scopeConfig, operation);
 <% } %>
 
-    // For GET requests with an ID, verify the resource belongs to this scope
-    if ((operation === 'get' || operation === 'update' || operation === 'delete') && request.params?.id) {
+    // A request for one row: the row must belong to this scope
+    if ((operation === 'get' || operation === 'update' || operation === 'delete') && rowKey) {
       const hasAccess = await this.verifyResourceAccess(
         entityType,
-        request.params.id,
+        rowKey,
         request,
         scopeConfig,
       );
@@ -251,6 +260,38 @@ export class ScopeGuard implements CanActivate {
     return true;
   }
 
+  /**
+   * The key of the row a route names: every key column and its path segment.
+   * Undefined when the route carries no key (list, create) or only part of one.
+   */
+  private rowKey(request: any, scopeConfig: ScopeConfig): Record<string, string> | undefined {
+    const params = request.params ?? {};
+    const entries = Object.entries(scopeConfig.key);
+    if (entries.some(([param]) => params[param] == null)) {
+      return undefined;
+    }
+    return Object.fromEntries(entries.map(([param, field]) => [field, String(params[param])]));
+  }
+
+  /**
+   * A key as the driver writes it: an instant sent as text for a `timestamp`
+   * column (no time zone) becomes a Date. Postgres drops the zone from the
+   * text, while the driver writes a Date in the server's zone, as it wrote the
+   * row; without this a host not on UTC cannot find a row by the value the API
+   * returned for it.
+   */
+  private asColumnValues(metadata: any, where: Record<string, unknown>): Record<string, unknown> {
+    const out: Record<string, unknown> = { ...where };
+    for (const [property, value] of Object.entries(where)) {
+      const type = metadata.findColumnWithPropertyName(property)?.type;
+      const local = type === 'timestamp' || type === 'timestamp without time zone' || type === 'datetime';
+      if (local && typeof value === 'string' && /T\d{2}:\d{2}.*(Z|[+-]\d{2}:?\d{2})$/i.test(value) && !Number.isNaN(Date.parse(value))) {
+        out[property] = new Date(value);
+      }
+    }
+    return out;
+  }
+
   private mapMethodToOperation(method: string, hasId: boolean): string {
     switch (method) {
       case 'GET':
@@ -269,7 +310,7 @@ export class ScopeGuard implements CanActivate {
 
   private async verifyResourceAccess(
     entityType: string,
-    resourceId: string,
+    rowKey: Record<string, unknown>,
     request: any,
     scopeConfig: ScopeConfig,
   ): Promise<boolean> {
@@ -296,7 +337,7 @@ export class ScopeGuard implements CanActivate {
       }
 
       const entity = await repo.findOne({
-        where: { id: resourceId },
+        where: this.asColumnValues(repo.metadata, rowKey),
         relations,
       });
 
@@ -375,7 +416,8 @@ export class ScopeGuard implements CanActivate {
    * checks below run:
    * - the body's own id is dropped: the database assigns it on create, and
    *   on update the row is the one the route names. A key the client chooses
-   *   is kept on create, and refused when a row already has it
+   *   is kept on create, and refused when a row already has the whole key.
+   *   A relation object sent for a key column is read as that column
    * - a to-one relation becomes its foreign key, which is then checked like
    *   any other column
    * - a foreign key to a tenant-scoped entity, sent as a column or as a
@@ -405,27 +447,53 @@ export class ScopeGuard implements CanActivate {
     const limited = (scope?: ScopeConfig): scope is ScopeConfig =>
       Boolean(scope) && !scope!.bypassRoles.some((role) => roles.includes(role));
     const lookups = new Map<string, Promise<boolean>>();
-    const readable = (route: string, id: unknown, scope: ScopeConfig): Promise<boolean> => {
-      const key = `${route}:${id}`;
-      if (!lookups.has(key)) lookups.set(key, this.verifyResourceAccess(route, String(id), request, scope));
+    const readable = (route: string, column: string, id: unknown, scope: ScopeConfig): Promise<boolean> => {
+      const key = `${route}:${column}:${id}`;
+      if (!lookups.has(key)) lookups.set(key, this.verifyResourceAccess(route, { [column]: String(id) }, request, scope));
       return lookups.get(key)!;
     };
 
     for (const item of this.bodyItems(request.body)) {
       if (scopeConfig) {
-        const chosen: Record<string, any> = {};
-        for (const column of metadata.primaryColumns) {
-          const sent = item[column.propertyName];
-          if (column.isGenerated || request.method !== 'POST') {
-            delete item[column.propertyName];
-          } else if (sent != null) {
-            chosen[column.propertyName] = sent;
+        // A relation whose foreign key is a key column names the row as much
+        // as the column does, and TypeORM reads the relation first. It becomes
+        // its column here, so the key checked below is the key that is saved.
+        for (const relation of metadata.relations) {
+          if (!(relation.isManyToOne || relation.isOneToOneOwner)) continue;
+          if (!relation.joinColumns.some((join) => join.isPrimary)) continue;
+          if (!Object.prototype.hasOwnProperty.call(item, relation.propertyName)) continue;
+          const value = item[relation.propertyName];
+          delete item[relation.propertyName];
+          for (const join of relation.joinColumns) {
+            const id = value !== null && typeof value === 'object' ? value[join.referencedColumn!.propertyName] : value;
+            if (id !== null && typeof id === 'object') throw denied();
+            if (id !== undefined && !join.isVirtual) item[join.propertyName] = id;
           }
         }
-        // A key the client chooses: a create must not write over the row that has it.
-        if (Object.keys(chosen).length > 0) {
+        const chosen: Record<string, any> = {};
+        for (const column of metadata.primaryColumns) {
+          const property = column.propertyName;
+          if (column.isGenerated || request.method !== 'POST') {
+            delete item[property];
+            continue;
+          }
+          // A key column that is the tenant column is saved as the caller's tenant.
+          const scope = scopeConfig.scopes.find((s) => s.direct && s.field === property);
+          const own = scope && this.getScopeValue(request, scope.contextKey);
+<% if (it.hasAuth) { %>
+          const value = scope ? own : item[property];
+<% } else { %>
+          // As injectScopeValues fills it: the caller's value where the body has none.
+          const value = item[property] || own;
+<% } %>
+          if (value != null) chosen[property] = value;
+        }
+        // A whole key the client chooses: a create must not write over the row
+        // that has it. Part of a key names no row, so the save can only insert.
+        if (metadata.primaryColumns.length > 0 && Object.keys(chosen).length === metadata.primaryColumns.length) {
           if (Object.values(chosen).some((v) => typeof v === 'object')) throw denied();
-          if (await this.dataSource.getRepository(name).findOne({ where: chosen })) {
+          // A soft-deleted row has the key too, and a save would write over it.
+          if (await this.dataSource.getRepository(name).findOne({ where: this.asColumnValues(metadata, chosen), withDeleted: true })) {
             throw new ConflictException('A row with this key already exists');
           }
         }
@@ -458,7 +526,7 @@ export class ScopeGuard implements CanActivate {
           // are set from the caller or checked as its parent, further on.
           if (!join.isVirtual) id = item[join.propertyName];
           if (id == null || scopeFields.includes(join.propertyName) || !limited(targetScope)) continue;
-          if (typeof id === 'object' || !(await readable(targetRoute, id, targetScope))) throw denied();
+          if (typeof id === 'object' || !(await readable(targetRoute, referenced, id, targetScope))) throw denied();
           continue;
         }
 
@@ -472,7 +540,7 @@ export class ScopeGuard implements CanActivate {
         for (const row of Array.isArray(value) ? value : value == null ? [] : [value]) {
           const id = row !== null && typeof row === 'object' ? row[primary] : row;
           if (id == null || typeof id === 'object') throw denied();
-          if (!(await readable(targetRoute, id, targetScope))) throw denied();
+          if (!(await readable(targetRoute, primary, id, targetScope))) throw denied();
           kept.push({ [primary]: id });
         }
         item[key] = Array.isArray(value) ? kept : kept[0] ?? null;

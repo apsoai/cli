@@ -76,7 +76,7 @@ export function formatReport(report: ImportReport): string {
   const w = report.warnings;
   const review: string[] = [];
   if (w.compositePks.length > 0)
-    review.push(`  - Composite primary keys (the table and its key are kept; the API lists and creates rows and has no route for one row, so read one with a filter on its key columns): ${w.compositePks.join(", ")}`);
+    review.push(`  - Composite primary keys (the table and its key are kept; the API addresses one row by a path segment per key column, in key order): ${w.compositePks.join(", ")}`);
   if (w.nonStandardPks.length > 0)
     review.push(`  - Non-"id" primary keys (kept as fields): ${w.nonStandardPks.join(", ")}`);
   if (w.noPrimaryKey.length > 0)

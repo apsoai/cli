@@ -1164,6 +1164,43 @@ const specOf = async (entity: Entity) => {
   return files.find((f) => f.path.endsWith(".controller.spec.ts"))!.content;
 };
 
+const entityOf = async (entity: Entity) => {
+  const generator = new TypeScriptGenerator(createConfig([entity]));
+  const files = await generator.generateEntity({ entity, relationships: [], allEntities: [entity], apiType: "rest" } as never);
+  return findFileContent(files, `${entity.name}.entity`)!;
+};
+
+describe("a key column of any type the entity can hold is a TypeORM primary column", () => {
+
+  test("boolean, enum and float key fields", async () => {
+    const content = await entityOf({
+      name: "Flag",
+      fields: [
+        { name: "on", type: "boolean", primary: true },
+        { name: "role", type: "enum", values: ["admin", "member"], primary: true, default: "member" },
+        { name: "weight", type: "float", primary: true },
+        { name: "note", type: "text" },
+      ],
+    } as Entity);
+    // A key column the entity leaves out makes every write by key reach the
+    // rows that share the other columns.
+    expect(content.match(/@PrimaryColumn\(/g)).toHaveLength(3);
+    expect(content).toContain("@PrimaryColumn({ type: 'boolean' })");
+    expect(content).toMatch(/@PrimaryColumn\({\s*type: 'enum',\s*enum: enums\.FlagRoleEnum\s*}\)/);
+    expect(content).toContain('@PrimaryColumn({ "type": "decimal" })');
+  });
+
+  test("a json or array key field is refused", async () => {
+    await Promise.all(
+      ["json", "jsonb"].map((type) =>
+        expect(entityOf({ name: "Doc", fields: [{ name: "body", type, primary: true }] } as Entity)).rejects.toThrow(
+          /cannot be part of the primary key/
+        )
+      )
+    );
+  });
+});
+
 // apsoai/cli#250
 describe("a composite primary key", () => {
   const controllerOf = async (entity: Entity) => {
@@ -1180,21 +1217,28 @@ describe("a composite primary key", () => {
     ],
   } as Entity;
 
-  test("has list and create routes, and none that address one row", async () => {
+  test("addresses one row by a path segment per key column, in key order", async () => {
     const controller = await controllerOf(limit);
-    expect(controller).toContain("exclude: ['getOneBase', 'updateOneBase', 'replaceOneBase', 'deleteOneBase', 'recoverOneBase']");
-    for (const kept of ["getManyBase", "createOneBase", "createManyBase"]) expect(controller).toContain(`@Override('${kept}')`);
-    for (const gone of ["getOneBase", "updateOneBase", "replaceOneBase", "deleteOneBase"]) expect(controller).not.toContain(`@Override('${gone}')`);
-    // The MCP tools follow the routes.
-    expect(controller).toContain("list_rate_limits");
-    expect(controller).toContain("create_rate_limit");
-    expect(controller).not.toContain("get_rate_limit");
-    expect(controller).not.toContain("delete_rate_limit");
+    expect(controller).not.toContain("exclude:");
+    for (const route of ["getManyBase", "getOneBase", "createOneBase", "createManyBase", "updateOneBase", "replaceOneBase", "deleteOneBase"])
+      expect(controller).toContain(`@Override('${route}')`);
+    const params = controller.slice(controller.indexOf("params: {"), controller.indexOf("query: {"));
+    expect(params.replace(/\s+/g, " ")).toContain(
+      "bucket: { field: 'bucket', type: 'string', primary: true, }, window_start: { field: 'window_start', type: 'string', primary: true, },"
+    );
+    expect(params).not.toContain("id:");
+    // The comment above params must not swallow the line after it.
+    expect(controller).toContain("(/:bucket/:window_start), in key order.\n");
+    // The MCP tools follow the routes and name the key.
+    for (const tool of ["list_rate_limits", "create_rate_limit", "get_rate_limit", "update_rate_limit", "delete_rate_limit"]) expect(controller).toContain(tool);
+    expect(controller).toContain("Get one RateLimit by its key (bucket, window_start).");
+    // An older @apso/crud serves these routes at /:id: the build and the start stop.
+    expect(controller).toMatch(/CreateManyDto, oneRowRoute } from '@apso\/crud'/);
+    expect(controller).toContain("if (typeof oneRowRoute !== 'function') {");
   });
 
-  test("the generated spec does not call a handler that is gone", async () => {
-    expect(await specOf(limit)).not.toContain("controller.get(");
-    expect(await specOf({ ...limit, fields: [limit.fields![0], limit.fields![2]] })).toContain("controller.get(");
+  test("the generated spec calls the get handler", async () => {
+    expect(await specOf(limit)).toContain("controller.get(");
   });
 
   test("a key column that references an auth entity still counts", async () => {
@@ -1214,8 +1258,8 @@ describe("a composite primary key", () => {
       auth: { provider: "better-auth", url: "https://app.example.com/api/auth" },
     } as never);
     const controller = files.find((f) => f.path.endsWith(".controller.ts"))!.content;
-    expect(controller).toContain("exclude: ['getOneBase'");
-    expect(controller).not.toContain("@Override('deleteOneBase')");
+    expect(controller).toContain("(/:userId/:postId), in key order.");
+    expect(controller).toContain("@Override('deleteOneBase')");
   });
 
   test("a single key keeps every route", async () => {
@@ -1223,5 +1267,8 @@ describe("a composite primary key", () => {
     expect(controller).not.toContain("exclude:");
     expect(controller).toContain("@Override('deleteOneBase')");
     expect(controller).toContain("field: 'bucket'");
+    expect(controller).toContain("Get one RateLimit by id.");
+    expect(controller).not.toContain("oneRowRoute");
+    expect(controller.replace(/\s+/g, " ")).toContain("params: { id: { field: 'bucket', type: 'string', primary: true, }, },");
   });
 });

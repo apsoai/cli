@@ -631,11 +631,16 @@ export const getRelationshipForTemplate = (
     const refName = relationship.referenceName || "default";
     const key = `${name}:${refName}`;
     // Use the relationship with join=true if there are duplicates (this is the owning side)
-    if (
-      !processedRefs.has(key) ||
-      (relationship.join && !processedRefs.get(key)?.join)
-    ) {
-      processedRefs.set(key, relationship);
+    const seen = processedRefs.get(key);
+    if (!seen || (relationship.join && !seen.join)) {
+      // A relationship declared from both sides is one relationship: "primary"
+      // set on either declaration makes its foreign key part of the key.
+      processedRefs.set(key, {
+        ...relationship,
+        primary: relationship.primary || seen?.primary,
+      });
+    } else if (relationship.primary && !seen.primary) {
+      processedRefs.set(key, { ...seen, primary: true });
     }
   });
 
@@ -901,17 +906,13 @@ const keyAndNameErrors = (
   r: Relationship,
   language: string
 ): string[] =>
-  (["joinColumnName", "foreignKeyName", "primary"] as const)
+  (["joinColumnName", "foreignKeyName"] as const)
     .filter((key) => r[key])
     .map(
       (key) =>
         `${entity} ${r.type} ${r.name} sets "${key}": ${JSON.stringify(
           r[key]
-        )}. The ${language} generator cannot keep ${
-          key === "primary"
-            ? "a primary key that is a foreign key"
-            : `a custom foreign key ${
-                key === "joinColumnName" ? "column" : "constraint"
-              } name`
-        } yet; remove it or generate a TypeScript service.`
+        )}. The ${language} generator cannot keep a custom foreign key ${
+          key === "joinColumnName" ? "column" : "constraint"
+        } name yet; remove it or generate a TypeScript service.`
     );

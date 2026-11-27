@@ -1200,11 +1200,11 @@ is tracked separately.
 | onUpdate | relationship | The same rules for a change to the referenced key. Defaults to NO ACTION. TypeScript only |
 | joinColumnDefault | relationship | The foreign key column's DEFAULT, as a SQL expression. TypeScript only |
 | deferrable | relationship | \`INITIALLY DEFERRED\` or \`INITIALLY IMMEDIATE\`: the key is DEFERRABLE and checked at commit or per statement. TypeScript only |
-| primary | relationship | The foreign key column is the entity's primary key. No \`id\` is generated. TypeScript only |
+| primary | relationship | The foreign key column is the entity's primary key, or part of it. No \`id\` is generated |
 | primaryKeyName | entity | The primary key constraint's name. TypeScript only |
-| primaryKeyType | entity | \`bigserial\` keeps a bigint id 64 bits wide (read and written as a string). TypeScript only |
+| primaryKeyType | entity | \`bigserial\` keeps a bigint id 64 bits wide (read and written as a string) |
 | primaryKeyDefault | entity | The SQL expression that fills a uuid id, or \`null\` when the column has no default and every create sends the id |
-| enumName | field | The Postgres enum type's own name instead of \`<table>_<column>_enum\`. Fields may share one. TypeScript only |
+| enumName | field | The Postgres enum type's own name instead of \`<table>_<column>_enum\`. Fields may share one |
 | timestampType | entity | \`timestamp\` (default) or \`timestamptz\` for created_at and updated_at: one value, or \`{ "created_at": ..., "updated_at": ... }\` |
 | timestampNullable | entity | Whether created_at and updated_at accept NULL: one boolean, or one per column |
 | timestampDefault | entity | \`false\` when created_at or updated_at has no \`DEFAULT now()\`: one boolean, or one per column. Migrations honor it |

@@ -2,10 +2,13 @@
 
 package dto
 
-<% if (it.importTime || it.importEnums) { %>
+<% if (it.importTime || it.importEnums || it.importModels) { %>
 import (
 <% if (it.importTime) { %>
 	"time"
+<% } %>
+<% if (it.importModels) { %>
+	"app/autogen/models"
 <% } %>
 <% if (it.importEnums) { %>
 	"app/autogen/models/enums"
@@ -18,6 +21,8 @@ type <%= it.entityName %>Response struct {
 <% if (it.addDefaultPKProperty) { -%>
 <% if (it.primaryKeyType === 'uuid') { -%>
 	ID        string    `json:"id"`
+<% } else if (it.primaryKeyType === 'bigserial') { -%>
+	ID        models.BigInt `json:"id"`
 <% } else { -%>
 	ID        uint      `json:"id"`
 <% } -%>
@@ -33,7 +38,7 @@ type <%= it.entityName %>Response struct {
 <% } -%>
 <% it.associations.forEach((assoc) => { -%>
 <% if (assoc.owns) { -%>
-	<%= assoc.fkField %> <%= assoc.fkGoType %> `json:"<%= assoc.camelReferenceName %>Id"`
+	<%= assoc.fkField %> <%= assoc.dtoFkGoType %> `json:"<%= assoc.camelReferenceName %>Id"`
 	<%= assoc.fieldName %> *<%= assoc.name %>Response `json:"<%= assoc.jsonName %>,omitempty"`
 <% } else if (assoc.type === 'OneToOne') { -%>
 	<%= assoc.fieldName %> *<%= assoc.name %>Response `json:"<%= assoc.jsonName %>,omitempty"`
@@ -45,12 +50,16 @@ type <%= it.entityName %>Response struct {
 
 // <%= it.entityName %>Create represents the create DTO for <%= it.entityName %>
 type <%= it.entityName %>Create struct {
+<% if (it.suppliesId) { -%>
+	// The id has no database default: the caller sends it.
+	ID string `json:"id" validate:"required,uuid"`
+<% } -%>
 <% it.columns.forEach((column) => { -%>
 <%~ includeFile('./dto-col-' + column.dtoTemplate + '.eta', { column, mode: 'create' }) %>
 <% }); -%>
 <% it.associations.forEach((assoc) => { -%>
 <% if (assoc.owns) { -%>
-	<%= assoc.fkField %> <%= assoc.fkGoType %> `json:"<%= assoc.camelReferenceName %>Id<% if (assoc.fkNullable) { %>,omitempty<% } %>"<% if (!assoc.scoped && !assoc.fkNullable) { %> validate:"required"<% } %>`
+	<%= assoc.fkField %> <%= assoc.dtoFkGoType %> `json:"<%= assoc.camelReferenceName %>Id<% if (assoc.fkNullable) { %>,omitempty<% } %>"<% if (!assoc.scoped && !assoc.fkNullable) { %> validate:"required"<% } %>`
 <% } -%>
 <% }) -%>
 }
@@ -62,7 +71,7 @@ type <%= it.entityName %>Update struct {
 <% }); -%>
 <% it.associations.forEach((assoc) => { -%>
 <% if (assoc.owns) { -%>
-	<%= assoc.fkField %> *<%= assoc.primaryKeyGoType %> `json:"<%= assoc.camelReferenceName %>Id,omitempty"`
+	<%= assoc.fkField %> *<%= assoc.dtoKeyGoType %> `json:"<%= assoc.camelReferenceName %>Id,omitempty"`
 <% } -%>
 <% }) -%>
 }

@@ -2,9 +2,10 @@
 
 from typing import List, Optional, Any
 
+from fastapi import HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 <% if (it.scope) { %>
-from fastapi import HTTPException, status
 from sqlalchemy import String, cast
 <% } %>
 
@@ -15,7 +16,7 @@ from ..auth import check_references
 from ..auth import check_parents, nested_conditions
 <% } %>
 from ..models.<%= it.entityName.toLowerCase() %> import <%= it.entityName %>
-from ..schemas.<%= it.entityName.toLowerCase() %> import <%= it.entityName %>Create, <%= it.entityName %>Update
+from ..schemas.<%= it.entityName.toLowerCase() %> import <%= it.entityName %>Create, <%= it.entityName %>Replace, <%= it.entityName %>Update
 from ..utils.query import QueryBuilder, QueryOptions, PaginatedResult
 
 
@@ -28,6 +29,20 @@ class <%= it.entityName %>Service:
         self.db = db
         # The caller (app.autogen.auth.AuthContext), when auth is configured.
         self.auth = auth
+
+    async def _commit(self) -> None:
+        """Commit a write; a key or unique value that exists answers 409, not 500."""
+        try:
+            await self.db.commit()
+        except IntegrityError as e:
+            await self.db.rollback()
+            code = getattr(e.orig, "sqlstate", None) or getattr(e.orig, "pgcode", None)
+            if code == "23505" or "duplicate key" in str(e.orig):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="A <%= it.entityName %> with this key already exists",
+                ) from None
+            raise
 <% if (it.scope) { %>
 
     def _scope_values(self, op: str) -> dict:
@@ -111,7 +126,9 @@ class <%= it.entityName %>Service:
         op: str = "get",
     ) -> Optional[<%= it.entityName %>]:
         """
-        Retrieve a single <%= it.entityName %> by ID.
+        Retrieve a single <%= it.entityName %> by its key: the id, or a dict
+        of key column to value when the key is not one "id" column. The
+        caller's tenant scope applies to the same query, on the whole key.
         """
         return await self._qb(op).get_one(id, joins=joins)
 
@@ -131,7 +148,7 @@ class <%= it.entityName %>Service:
 <% } %>
         item = <%= it.entityName %>(**payload)
         self.db.add(item)
-        await self.db.commit()
+        await self._commit()
         await self.db.refresh(item)
         return item
 
@@ -151,7 +168,7 @@ class <%= it.entityName %>Service:
 <% } %>
         items = [<%= it.entityName %>(**payload) for payload in payloads]
         self.db.add_all(items)
-        await self.db.commit()
+        await self._commit()
         for item in items:
             await self.db.refresh(item)
         return items
@@ -169,6 +186,11 @@ class <%= it.entityName %>Service:
             return None
 
         update_data = data.model_dump(exclude_unset=True)
+<% if (it.keyFields.length) { %>
+        # The path names the row: a key column in the body does not move it.
+        for field in <%~ JSON.stringify(it.keyFields) %>:
+            update_data.pop(field, None)
+<% } %>
 <% if (it.scope) { %>
         # A scoped row cannot move to another tenant.
         for field in self._scope_values("update"):
@@ -183,14 +205,14 @@ class <%= it.entityName %>Service:
         for field, value in update_data.items():
             setattr(item, field, value)
 
-        await self.db.commit()
+        await self._commit()
         await self.db.refresh(item)
         return item
 
     async def replace_one(
         self,
         id: Any,
-        data: <%= it.entityName %>Create,
+        data: <%= it.entityName %>Replace,
     ) -> Optional[<%= it.entityName %>]:
         """
         Replace an existing <%= it.entityName %>.
@@ -200,6 +222,11 @@ class <%= it.entityName %>Service:
             return None
 
         replace_data = data.model_dump()
+<% if (it.keyFields.length) { %>
+        # The path names the row: a key column in the body does not move it.
+        for field in <%~ JSON.stringify(it.keyFields) %>:
+            replace_data.pop(field, None)
+<% } %>
 <% if (it.scope) { %>
         for field in self._scope_values("update"):
             replace_data.pop(field, None)
@@ -213,7 +240,7 @@ class <%= it.entityName %>Service:
         for field, value in replace_data.items():
             setattr(item, field, value)
 
-        await self.db.commit()
+        await self._commit()
         await self.db.refresh(item)
         return item
 

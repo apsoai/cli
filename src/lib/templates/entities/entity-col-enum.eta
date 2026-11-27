@@ -1,5 +1,12 @@
 <% const {field} = it; %>
 
+<% if (field.primary) { %>
+@PrimaryColumn({
+    type: 'enum',
+    enum: enums.<%= field.dataType%><% if (field.enumName) { %>,
+    enumName: <%~ JSON.stringify(field.enumName) %><% } %><% if (field.primaryKeyName) { %>, primaryKeyConstraintName: '<%= field.primaryKeyName %>'<% } %>
+})
+<% } else { %>
 @Column({
     type: 'enum',
     nullable: <%= Boolean(field.nullable) %>,
@@ -9,6 +16,7 @@
 })
 <% if (field.index ) {%>
 @Index()
+<% } %>
 <% } %>
 
 <%= field.name %>!: enums.<%= field.dataType%>;

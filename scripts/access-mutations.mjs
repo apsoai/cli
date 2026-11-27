@@ -21,6 +21,7 @@ const TS = {
   permission: "src/autogen/guards/permission.guard.ts",
   relations: "src/autogen/guards/relations.interceptor.ts",
   controllers: "src/autogen/*/*.controller.ts",
+  services: "src/autogen/*/*.service.ts",
 };
 const PY = { auth: "app/autogen/auth.py", permission: "app/autogen/permissions.py", services: "app/autogen/services/*.py" };
 const GO = { auth: "autogen/middleware/auth.go", permission: "autogen/middleware/permission.go", services: "autogen/services/*.go" };
@@ -154,7 +155,7 @@ export const MUTATIONS = [
     removes: "the check that a foreign key in a body names a row the caller can read",
     rules: ["R8"],
     legs: ["jwt"],
-    typescript: [[TS.scope, /if \(\s*typeof id === "object" \|\|\s*!\(await readable\(targetRoute, id, targetScope\)\)\s*\)\s*throw denied\(\);/, ""]],
+    typescript: [[TS.scope, /if \(\s*typeof id === "object" \|\|\s*!\(await readable\(targetRoute, referenced, id, targetScope\)\)\s*\)\s*throw denied\(\);/, ""]],
     python: [[PY.auth, /if found\.scalar\(\) != len\(ids\):/, "if False:"]],
     go: [[GO.auth, /if found != int64\(len\(ids\)\) \{/, "if false {"]],
   },
@@ -184,7 +185,7 @@ export const MUTATIONS = [
     legs: ["jwt"],
     typescript: [
       [TS.scope, /if \(!scopeConfig\) throw denied\(\);/, ""],
-      [TS.scope, /if \(!\(await readable\(targetRoute, id, targetScope\)\)\) throw denied\(\);/, ""],
+      [TS.scope, /if \(!\(await readable\(targetRoute, primary, id, targetScope\)\)\) throw denied\(\);/, ""],
     ],
   },
   {
@@ -193,8 +194,12 @@ export const MUTATIONS = [
     rules: ["R8"],
     legs: ["jwt"],
     typescript: [
-      [TS.scope, /if \(column\.isGenerated \|\| request\.method !== "POST"\) \{\s*delete item\[column\.propertyName\];/, "if (false) {"],
-      [TS.scope, /if \(Object\.keys\(chosen\)\.length > 0\) \{/, "if (false) {"],
+      [TS.scope, /if \(column\.isGenerated \|\| request\.method !== "POST"\) \{\s*delete item\[property\];/, "if (false) {"],
+      [TS.scope, /if \(\s*metadata\.primaryColumns\.length > 0 &&\s*Object\.keys\(chosen\)\.length === metadata\.primaryColumns\.length\s*\) \{/, "if (false) {"],
+      // @apso/crud-typeorm 1.2.0 holds the same rule for a scoped create: it
+      // drops a generated id and refuses an existing key. Turned off in the
+      // generated services, which extend its class.
+      [TS.services, /(extends TypeOrmCrudService<\w+>\s*\{)/g, "$1\n  protected pins(): boolean { return false; }\n"],
     ],
   },
   {

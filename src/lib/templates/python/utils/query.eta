@@ -779,8 +779,12 @@ class QueryBuilder:
             query = query.order_by(order_col)
             applied = True
         if not applied:
-            query = query.order_by(self.model.id)
+            query = query.order_by(*self._key_columns())
         return query
+
+    def _key_columns(self) -> List[Any]:
+        """The model's primary key attributes, in key order: one "id", or each column of a composite key."""
+        return [getattr(self.model, c.name) for c in self.model.__table__.primary_key.columns]
 
     def _projection(self, options: QueryOptions) -> List[Any]:
         """
@@ -799,9 +803,9 @@ class QueryBuilder:
             return []
         if options.joins:
             raise QueryParseError("A column list cannot be combined with a relation; leave out the column list")
-        # nestjsx always returns the id with the chosen fields.
-        if not self._postgrest_mode and "id" not in (options.fields or []):
-            cols.insert(0, self.model.id)
+        # nestjsx always returns the key with the chosen fields.
+        if not self._postgrest_mode:
+            cols = [c for c in self._key_columns() if c.key not in (options.fields or [])] + cols
         return cols
 
     def _rows(self, result: Any, options: QueryOptions) -> List[Any]:
@@ -922,7 +926,13 @@ class QueryBuilder:
         id: Any,
         joins: Optional[List[str]] = None,
     ) -> Optional[Any]:
-        query = select(self.model).where(self.model.id == id, *self.scope)
+        # A dict names every key column (a composite key, or one that is not
+        # "id"). The row is matched on the whole key and the scope together.
+        key = id if isinstance(id, dict) else {"id": id}
+        query = select(self.model).where(
+            *(getattr(self.model, name) == value for name, value in key.items()),
+            *self.scope,
+        )
 
         query = self._load(query, joins or [])
 

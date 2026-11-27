@@ -7,7 +7,10 @@ import { randomUUID } from "crypto";
 import { Entity } from "../types/entity";
 import { Field } from "../types/field";
 import { RelationshipMap } from "../types/relationship";
-import { getRelationshipIdField } from "../utils/relationships";
+import {
+  getRelationshipForTemplate,
+  getRelationshipIdField,
+} from "../utils/relationships";
 
 const DATE = "2024-01-01T00:00:00.000Z";
 
@@ -56,10 +59,38 @@ const required = (field: Field) =>
   (field.default === undefined || field.default === null) &&
   !(field.primary && (field.type as string) === "uuid");
 
+/**
+ * The properties of an entity's own primary key, in key order: its primary
+ * fields as declared, then the foreign keys of its primary relationships.
+ * Empty when the key is the generated id. The relationships are read the way
+ * the entity, the controller and the table are built (getRelationshipForTemplate),
+ * so every part of a service agrees on the key.
+ */
+export const keyFieldsOf = (
+  entity: Entity,
+  relationships: RelationshipMap
+): string[] => [
+  ...(entity.fields || []).filter((f) => f.primary).map((f) => f.name),
+  ...getRelationshipForTemplate(entity.name, relationships[entity.name] || [])
+    .filter((r) => r.primary)
+    .map((r) => r.camelCasedId),
+];
+
+/**
+ * The route parameters that address one row, and the property each one
+ * holds: `id` for a single key, one per column for a composite key.
+ */
+export const oneRowParams = (
+  keyFields: string[]
+): { name: string; field: string }[] =>
+  keyFields.length > 1
+    ? keyFields.map((field) => ({ name: field, field }))
+    : [{ name: "id", field: keyFields[0] ?? "id" }];
+
 export interface PlannedEntity {
   name: string;
-  /** The property that addresses a row: "id" unless the entity has its own key. */
-  key: string;
+  /** The properties that address a row, in route order: ["id"] unless the entity has its own key. */
+  keys: string[];
   payload: Record<string, unknown>;
   /** Foreign keys to fill from parents created earlier: property -> parent entity. */
   parents: { property: string; entity: string }[];
@@ -75,8 +106,7 @@ export interface CrudPlan {
 
 export function planCrud(
   entities: Entity[],
-  relationships: RelationshipMap,
-  language = "typescript"
+  relationships: RelationshipMap
 ): CrudPlan {
   const pending: PlannedEntity[] = [];
   const skipped: CrudPlan["skipped"] = [];
@@ -98,28 +128,13 @@ export function planCrud(
     const manyToOne = (relationships[entity.name] || []).filter(
       (r) => r.type === "ManyToOne"
     );
-    // The same rule as the generated controller's id parameter.
-    const keys = [
-      ...(entity.fields || []).filter((f) => f.primary).map((f) => f.name),
-      ...manyToOne.filter((r) => r.primary).map((r) => getRelationshipIdField(r)),
-    ];
-    // A TypeScript service has no one-row routes for a composite key. Python
-    // and Go services still declare them, so their rows are tried as before.
-    if (keys.length > 1 && language === "typescript") {
-      skipped.push({
-        name: entity.name,
-        reason: `its primary key is ${keys.length} columns (${keys.join(
-          ", "
-        )}), so the service has no route that reads or deletes one row`,
-      });
-      continue;
-    }
+    const keys = keyFieldsOf(entity, relationships);
     const parents = manyToOne
       .filter((r) => !r.nullable)
       .map((r) => ({ property: getRelationshipIdField(r), entity: r.name }));
     pending.push({
       name: entity.name,
-      key: keys.length === 1 ? keys[0] : "id",
+      keys: oneRowParams(keys).map((param) => param.field),
       payload,
       parents,
       ...(keys.length === 0 &&

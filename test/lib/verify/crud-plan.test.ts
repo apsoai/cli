@@ -1,7 +1,7 @@
 import { expect, describe, test } from "@jest/globals";
-import { planCrud, sampleValue } from "../../../src/lib/verify/crud-plan";
+import { keyFieldsOf, oneRowParams, planCrud, sampleValue } from "../../../src/lib/verify/crud-plan";
 import { entityRoute, readDotEnv } from "../../../src/lib/verify";
-import { parseRelationships } from "../../../src/lib/utils/relationships";
+import { getRelationshipForTemplate, parseRelationships } from "../../../src/lib/utils/relationships";
 import { Entity } from "../../../src/lib/types";
 import * as fs from "fs";
 import * as os from "os";
@@ -115,7 +115,8 @@ describe("a uuid id with no default", () => {
 });
 
 describe("a composite primary key", () => {
-  test("is skipped, with the reason", () => {
+  test("is planned with every key column, in key order", () => {
+    const workspace: Entity = { name: "Workspace", fields: [{ name: "name", type: "text" }] };
     const limit: Entity = {
       name: "RateLimit",
       fields: [
@@ -123,13 +124,55 @@ describe("a composite primary key", () => {
         { name: "window_start", type: "timestamptz", primary: true },
       ],
     };
-    const plan = planCrud([limit], parseRelationships([]));
-    expect(plan.order).toEqual([]);
-    expect(plan.skipped).toEqual([
-      { name: "RateLimit", reason: "its primary key is 2 columns (bucket, window_start), so the service has no route that reads or deletes one row" },
+    // A primary field, then the foreign key of a primary relationship.
+    const page: Entity = { name: "Page", fields: [{ name: "slug", type: "text", primary: true }] };
+    const doc: Entity = { name: "Doc", fields: [{ name: "slug", type: "text", primary: true }] };
+    const relationships = parseRelationships([
+      { from: "Page", to: "Workspace", type: "ManyToOne", primary: true, bi_directional: false },
     ]);
-    // Python and Go services still declare one-row routes, so they are tried.
-    for (const language of ["python", "go"])
-      expect(planCrud([limit], parseRelationships([]), language).order.map((p) => p.name)).toEqual(["RateLimit"]);
+    const plan = planCrud([workspace, limit, page, doc], relationships);
+    expect(plan.skipped).toEqual([]);
+    expect(plan.order.map((p) => [p.name, p.keys])).toEqual([
+      ["Workspace", ["id"]],
+      ["RateLimit", ["bucket", "window_start"]],
+      ["Page", ["slug", "workspaceId"]],
+      ["Doc", ["slug"]],
+    ]);
+    expect(Object.entries(plan.order[1].payload)).toEqual([
+      ["bucket", "smoke"],
+      ["window_start", "2024-01-01T00:00:00.000Z"],
+    ]);
+  });
+
+  test("reads the key the way the entity and the controller do when a relationship is declared from both sides", () => {
+    const page: Entity = { name: "Page", fields: [{ name: "slug", type: "text", primary: true }] };
+    for (const declared of [
+      [
+        { from: "Workspace", to: "Page", type: "OneToMany" },
+        { from: "Page", to: "Workspace", type: "ManyToOne", primary: true },
+      ],
+      [
+        { from: "Page", to: "Workspace", type: "ManyToOne", primary: true },
+        { from: "Workspace", to: "Page", type: "OneToMany" },
+      ],
+    ]) {
+      const relationships = parseRelationships(declared as never);
+      const entityKey = [
+        "slug",
+        ...getRelationshipForTemplate("Page", relationships.Page).filter((r) => r.primary).map((r) => r.camelCasedId),
+      ];
+      expect(keyFieldsOf(page, relationships)).toEqual(entityKey);
+      // "primary" on either declaration makes the foreign key part of the key.
+      expect(entityKey).toEqual(["slug", "workspaceId"]);
+    }
+  });
+
+  test("the route parameters are id for one key column and one per column otherwise", () => {
+    expect(oneRowParams([])).toEqual([{ name: "id", field: "id" }]);
+    expect(oneRowParams(["slug"])).toEqual([{ name: "id", field: "slug" }]);
+    expect(oneRowParams(["bucket", "window_start"])).toEqual([
+      { name: "bucket", field: "bucket" },
+      { name: "window_start", field: "window_start" },
+    ]);
   });
 });
